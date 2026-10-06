@@ -66,8 +66,9 @@ export function EditeurGrille({ initiale, version }: { initiale: GrilleCoaching;
     if (r.ok) { setNote(""); router.refresh(); }
   };
 
-  const champ = "h-10 w-full rounded-[var(--radius)] border border-border bg-card px-3 text-sm focus-ring";
-  const zone = "min-h-[4.5rem] w-full rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm leading-snug focus-ring";
+  // 16 px au téléphone : en dessous, iOS zoome sur le champ touché.
+  const champ = "h-10 w-full min-w-0 rounded-[var(--radius)] border border-border bg-card px-3 text-base focus-ring sm:text-sm";
+  const zone = "min-h-[4.5rem] w-full rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-base leading-snug focus-ring sm:text-sm";
 
   return (
     <div className="space-y-6">
@@ -106,11 +107,11 @@ export function EditeurGrille({ initiale, version }: { initiale: GrilleCoaching;
           </Button>
         </div>
         {grille.axes.map((axe, i) => (
-          <div key={axe.cle} className="surface space-y-3 p-4">
+          <div key={axe.cle} className="surface space-y-3 p-3 sm:p-4">
             <div className="flex flex-wrap items-center gap-2">
               <input aria-label={`Titre de l'axe ${i + 1}`} className={cn(champ, "min-w-0 flex-1 font-semibold")} value={axe.titre} maxLength={LIMITES_GRILLE.titreMax}
                 placeholder="Ex. F. Suivi post-visite" onChange={(e) => maj((g) => { g.axes[i]!.titre = e.target.value; return g; })} />
-              <span className="flex items-center gap-1">
+              <span className="ml-auto flex shrink-0 items-center gap-1">
                 <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Monter l'axe" onClick={() => deplacer(i, -1)} disabled={i === 0}><ArrowUp className="h-4 w-4" /></Button>
                 <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Descendre l'axe" onClick={() => deplacer(i, 1)} disabled={i === grille.axes.length - 1}><ArrowDown className="h-4 w-4" /></Button>
                 <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive" aria-label="Retirer l'axe" onClick={() => retirer(i)} disabled={grille.axes.length <= 1}><Trash2 className="h-4 w-4" /></Button>
@@ -155,8 +156,8 @@ export function EditeurGrille({ initiale, version }: { initiale: GrilleCoaching;
 
       <div className="sticky bottom-0 z-10 flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-3 shadow-[0_8px_24px_-8px_rgba(15,23,42,0.28)] sm:flex-row sm:items-center sm:px-4">
         <input className={cn(champ, "sm:max-w-md")} value={note} maxLength={300} placeholder="Motif de la modification (facultatif)" onChange={(e) => setNote(e.target.value)} aria-label="Motif de la modification" />
-        {message && <p className={cn("text-sm", message.ok ? "text-success" : "text-destructive")} role="status">{message.texte}</p>}
-        <span className="flex flex-wrap gap-2 sm:ml-auto">
+        {message && <p className={cn("min-w-0 text-sm [overflow-wrap:anywhere]", message.ok ? "text-success" : "text-destructive")} role="status">{message.texte}</p>}
+        <span className="flex flex-wrap gap-2 sm:ml-auto [&>*]:flex-1 sm:[&>*]:flex-none">
           <Button variant="ghost" size="sm" onClick={() => { setGrille(structuredClone(GRILLE_PAR_DEFAUT)); setMessage(null); }} title="Recharger le contenu du classeur d'origine (à publier ensuite)">
             <RotateCcw className="h-4 w-4" /> Grille d&apos;origine
           </Button>

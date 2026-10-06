@@ -44,7 +44,7 @@ export function JitsiRoom({ url, title }: { url: string; title: string }) {
         src={url}
         title={title}
         allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
-        className="h-[60vh] min-h-[420px] w-full"
+        className="h-[60dvh] min-h-[320px] w-full sm:min-h-[420px]"
       />
     </div>
   );

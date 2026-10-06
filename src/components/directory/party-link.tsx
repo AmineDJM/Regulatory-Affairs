@@ -33,7 +33,7 @@ export function PartyLink({ parties, fallback, className }: {
         <span key={p.id} className="relative inline-flex items-center">
           <button type="button" onClick={() => setOuvert((o) => (o === p.id ? null : p.id))}
             aria-expanded={ouvert === p.id} title="Voir le mail et le contact"
-            className="inline-flex items-center gap-0.5 font-medium text-foreground hover:underline">
+            className="inline-flex min-h-8 items-center gap-0.5 text-left font-medium text-foreground hover:underline sm:min-h-0">
             {p.name}
             <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", ouvert === p.id && "rotate-180")} />
           </button>
@@ -53,7 +53,7 @@ function Coordonnees({ p }: { p: PartyOption }) {
   if (p.phoneAlt) lignes.push({ Icone: Phone, value: p.phoneAlt, href: `tel:${p.phoneAlt.replace(/\s/g, "")}` });
   if (p.city) lignes.push({ Icone: MapPin, value: p.city });
   return (
-    <span className="absolute left-0 top-full z-20 mt-1 block w-64 space-y-1 rounded-lg border border-border bg-popover p-2.5 text-xs font-normal shadow-lg">
+    <span className="absolute left-0 top-full z-20 mt-1 block w-64 max-w-[calc(100vw-2rem)] space-y-1 rounded-lg border border-border bg-popover p-2.5 text-xs font-normal shadow-lg">
       <span className="block font-medium text-foreground">{p.name}</span>
       {p.kind && <span className="block text-muted-foreground">{p.kind}</span>}
       {lignes.length === 0 ? (

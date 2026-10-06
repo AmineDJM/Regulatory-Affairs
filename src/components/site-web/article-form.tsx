@@ -175,7 +175,7 @@ export function ArticleForm({
   // Une FONCTION de rendu, pas un composant déclaré dans le rendu : ce dernier changerait d'identité
   // à chaque frappe, et React démonterait le bouton (le focus clavier sauterait).
   const bouton = (intention: Intention, libelle: string, o: { variante?: "primary" | "outline"; desactive?: boolean; titre?: string } = {}) => (
-    <Button type="button" variant={o.variante ?? "primary"} onClick={() => void agir(intention)} disabled={occupe || Boolean(o.desactive)} title={o.titre}>
+    <Button type="button" variant={o.variante ?? "primary"} onClick={() => void agir(intention)} disabled={occupe || Boolean(o.desactive)} title={o.titre} className="flex-1 sm:flex-none">
       {enCours === intention ? <Loader2 className="h-4 w-4 animate-spin" /> : intention === "publier" ? <Send className="h-4 w-4" /> : intention === "retirer" ? <EyeOff className="h-4 w-4" /> : <Save className="h-4 w-4" />}
       {libelle}
     </Button>
@@ -243,7 +243,7 @@ export function ArticleForm({
                 {(["rediger", "apercu"] as const).map((o) => (
                   <button
                     key={o} type="button" role="tab" aria-selected={onglet === o} onClick={() => setOnglet(o)}
-                    className={cn("rounded-md px-3 py-1", onglet === o ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+                    className={cn("rounded-md px-3 py-1.5 sm:py-1", onglet === o ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
                   >
                     {o === "rediger" ? "Rédiger" : "Aperçu"}
                   </button>
@@ -253,11 +253,11 @@ export function ArticleForm({
             {onglet === "rediger" ? (
               <Textarea
                 id="article-corps" value={v.body} onChange={(e) => champ("body")(e.target.value)} disabled={!peutEcrire}
-                className="min-h-[28rem] font-mono text-[13px] leading-relaxed"
+                className="min-h-[20rem] font-mono text-base leading-relaxed sm:min-h-[28rem] sm:text-[13px]"
                 placeholder={"Introduction…\n\n## Première partie\n\nTexte, **gras**, *italique*, [lien](https://…).\n\n- une puce\n- une autre\n\n## Deuxième partie\n…"}
               />
             ) : (
-              <div className="min-h-[28rem] rounded-lg border border-border bg-card p-4">
+              <div className="min-h-[20rem] rounded-lg border border-border bg-card p-3 sm:min-h-[28rem] sm:p-4">
                 <ApercuMarkdown titre={v.title} corps={v.body} />
               </div>
             )}
@@ -306,7 +306,7 @@ export function ArticleForm({
                 <span className="shrink-0">/blog/</span>
                 <Input
                   id="article-slug" value={v.slug} onChange={(e) => champ("slug")(e.target.value.trim())} disabled={!peutEcrire}
-                  placeholder={slugPropose || "tracabilite-des-lots"} className="h-9 font-mono text-xs"
+                  placeholder={slugPropose || "tracabilite-des-lots"} className="h-10 min-w-0 font-mono text-base sm:h-9 sm:text-xs"
                 />
               </div>
               <p className="text-xs text-muted-foreground">
@@ -363,7 +363,7 @@ export function ArticleForm({
       </div>
 
       {peutEcrire && (
-        <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-2 border-t border-border bg-background/95 px-1 py-3 backdrop-blur">
+        <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-2 border-t border-border bg-background/95 px-1 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
           {v.published ? (
             <>
               {bouton("enregistrer", "Enregistrer les modifications", { desactive: bloque, titre: pourquoiBloque })}

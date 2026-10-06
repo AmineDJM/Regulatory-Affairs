@@ -96,21 +96,23 @@ export function ExplorerNav({
     },
   });
 
+  // SOUS lg, le volet devient UNE RANGÉE QUI GLISSE : en colonne, il repoussait les fichiers
+  // d'un écran entier au téléphone. Les intitulés de section et les retraits n'y servent plus.
   return (
-    <nav className="surface w-full shrink-0 p-2 lg:w-64" aria-label="Emplacements du Drive">
-      <p className="px-2 pb-1 pt-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Accès rapide</p>
-      <ul className="space-y-0.5">
+    <nav className="surface no-scrollbar flex w-full shrink-0 items-center gap-1 overflow-x-auto p-2 lg:block lg:w-64 lg:overflow-visible" aria-label="Emplacements du Drive">
+      <p className="hidden px-2 pb-1 pt-1 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground lg:block">Accès rapide</p>
+      <ul className="flex shrink-0 gap-1 lg:block lg:space-y-0.5">
         {QUICK_ACCESS.map((e) => {
           // « Téléchargements » est l'espace personnel : on y dépose comme dans un vrai dossier.
           const isRoot = e.key === "root";
           return (
-            <li key={e.key}>
+            <li key={e.key} className="shrink-0">
               <div
                 className={rowClass(e.key, active === e.key)}
                 style={{ paddingLeft: "0.5rem" }}
                 {...(isRoot ? dropProps(e.key, { spaceId: "", label: "Téléchargements" }) : {})}
               >
-                <span className="w-4 shrink-0" />
+                <span className="hidden w-4 shrink-0 lg:block" />
                 <Link href={e.href} className="flex min-w-0 flex-1 items-center gap-1.5">
                   <Icon name={e.icon} className="h-4 w-4 shrink-0 opacity-80" />
                   <span className="truncate">{e.label}</span>
@@ -123,17 +125,17 @@ export function ExplorerNav({
 
       {spaces.length > 0 && (
         <>
-          <p className="px-2 pb-1 pt-3 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Catégories</p>
-          <ul className="space-y-0.5">
+          <p className="hidden px-2 pb-1 pt-3 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground lg:block">Catégories</p>
+          <ul className="flex shrink-0 gap-1 border-l border-border pl-1 lg:block lg:space-y-0.5 lg:border-0 lg:pl-0">
             {spaces.map((s) => (
-              <li key={s.id}>
+              <li key={s.id} className="max-w-[14rem] shrink-0 lg:max-w-none">
                 <div
                   className={rowClass(s.id, active === s.id)}
                   style={{ paddingLeft: "0.5rem" }}
                   {...dropProps(s.id, { spaceId: s.id, label: `catégorie « ${s.name} »` })}
                   {...ctxProps(s.id, s.name)}
                 >
-                  <span className="w-4 shrink-0" />
+                  <span className="hidden w-4 shrink-0 lg:block" />
                   <Link href={`/drive/espace/${s.id}`} className="flex min-w-0 flex-1 items-center gap-1.5">
                     <Icon name={s.icon || "FolderOpen"} className="h-4 w-4 shrink-0 opacity-80" />
                     <span className="truncate">{s.name}</span>
@@ -145,19 +147,19 @@ export function ExplorerNav({
         </>
       )}
 
-      <div className="mt-2 border-t border-border pt-2">
+      <div className="shrink-0 border-l border-border pl-1 lg:mt-2 lg:border-l-0 lg:border-t lg:pl-0 lg:pt-2">
         <Link
           href={TRASH_ENTRY.href}
-          className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm ${active === "trash" ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-secondary"}`}
+          className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-2 text-sm lg:py-1.5 ${active === "trash" ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-secondary"}`}
         >
-          <span className="w-4 shrink-0" />
+          <span className="hidden w-4 shrink-0 lg:block" />
           <Icon name={TRASH_ENTRY.icon} className="h-4 w-4 shrink-0 opacity-80" />
           {TRASH_ENTRY.label}
         </Link>
       </div>
 
       {msg && (
-        <p className={`mt-2 rounded-lg px-2 py-1.5 text-xs ${msg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>{msg.text}</p>
+        <p className={`shrink-0 rounded-lg px-2 py-1.5 text-xs lg:mt-2 ${msg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>{msg.text}</p>
       )}
 
       {menu && (

@@ -61,7 +61,7 @@ export function CongressDetailView({
             <Info label="Demandeur" value={d.requester} />
             </>
           );
-          const grille = "grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3";
+          const grille = "grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6";
           return piecesJointes ? (
             <CarteDetailsDemande titre="Informations" pieces={piecesJointes} contentClassName={grille}>{infos}</CarteDetailsDemande>
           ) : (
@@ -75,7 +75,7 @@ export function CongressDetailView({
         {/* Budgets */}
         <Card>
           <CardHeader><CardTitle>Budgets</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3">
+          <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Budget label="Estimé par le demandeur" value={d.estimatedBudget} />
             <Budget label="Arbitré par Direction Marketing" value={d.productManagerBudget} tone="primary" />
           </CardContent>
@@ -128,12 +128,12 @@ export function CongressDetailView({
           path={path}
         />
         <Card>
-          <CardHeader className="flex-row items-center justify-between"><CardTitle>Participants Adventum</CardTitle><Badge tone="neutral" dot={false}>{d.participants.length}</Badge></CardHeader>
+          <CardHeader className="flex-row items-center justify-between gap-2"><CardTitle>Participants Adventum</CardTitle><Badge tone="neutral" dot={false}>{d.participants.length}</Badge></CardHeader>
           <CardContent>
             {d.participants.length === 0 ? <p className="text-sm text-muted-foreground">Aucun.</p> : (
               <ul className="space-y-2">
                 {d.participants.map((p) => (
-                  <li key={p.id} className="text-sm"><span className="font-medium">{p.name}</span>{p.title && <span className="text-xs text-muted-foreground"> · {p.title}</span>}</li>
+                  <li key={p.id} className="break-words text-sm"><span className="font-medium">{p.name}</span>{p.title && <span className="text-xs text-muted-foreground"> · {p.title}</span>}</li>
                 ))}
               </ul>
             )}
@@ -147,14 +147,14 @@ export function CongressDetailView({
 }
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium">{value || "—"}</p></div>;
+  return <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="break-words font-medium">{value || "—"}</p></div>;
 }
 
 function Budget({ label, value, tone }: { label: string; value: number | null; tone?: "primary" }) {
   return (
-    <div className={`rounded-lg border p-3 ${tone === "primary" ? "border-primary/30 bg-primary/5" : "border-border"}`}>
+    <div className={`min-w-0 rounded-lg border p-3 ${tone === "primary" ? "border-primary/30 bg-primary/5" : "border-border"}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold">{value !== null ? formatCurrency(value) : "—"}</p>
+      <p className="break-words text-lg font-semibold tabular-nums">{value !== null ? formatCurrency(value) : "—"}</p>
     </div>
   );
 }

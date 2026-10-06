@@ -100,7 +100,7 @@ function Section({ title, items, empty, icon, muted }: { title: string; items: R
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((m) => (
           <Link key={m.id} href={`/meetings/${m.id}`}
-            className={`group surface flex flex-col gap-2 rounded-xl border border-border p-4 transition hover:border-primary/40 hover:shadow-sm ${muted ? "opacity-80" : ""}`}>
+            className={`group surface flex flex-col gap-2 rounded-xl border border-border p-3 transition sm:p-4 hover:border-primary/40 hover:shadow-sm ${muted ? "opacity-80" : ""}`}>
             <div className="flex items-start justify-between gap-2">
               <span className="flex min-w-0 flex-1 items-center gap-2 font-medium">
                 {m.inPerson ? <MapPin className="h-4 w-4 shrink-0 text-primary" /> : m.withVideo ? <Video className="h-4 w-4 shrink-0 text-primary" /> : <Mic className="h-4 w-4 shrink-0 text-primary" />}
@@ -110,11 +110,11 @@ function Section({ title, items, empty, icon, muted }: { title: string; items: R
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {m._count.participants + 1}</span>
-              <span>{m.organizer?.name ?? "—"}</span>
+              <span className="min-w-0 truncate">{m.organizer?.name ?? "—"}</span>
               <span>{fmtMeeting(m.scheduledAt ?? m.createdAt)}</span>
               {m.kind === "CALL" && <span className="rounded-full bg-secondary px-2 py-0.5">Appel</span>}
             </div>
-            <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition group-hover:opacity-100">
+            <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-visible:opacity-100">
               Ouvrir <ArrowRight className="h-3.5 w-3.5" />
             </span>
           </Link>

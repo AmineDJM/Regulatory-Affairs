@@ -67,7 +67,7 @@ export function HrDossier({ employeeId, employeeName, employeePosition = null, r
       <div className="rounded-xl border border-border p-3">
         <p className="mb-2 text-sm font-medium">Déposer un document RH</p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <div className="space-y-1.5 sm:col-span-2"><Label>Catégorie</Label>
+          <div className="col-span-2 space-y-1.5"><Label>Catégorie</Label>
             <Select value={category} onChange={(e) => setCategoryAndVisibility(e.target.value)}>
               {Object.entries(HR_DOCUMENT_CATEGORY).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
@@ -120,9 +120,10 @@ export function HrDossier({ employeeId, employeeName, employeePosition = null, r
         ) : (
           <ul className="divide-y divide-border rounded-xl border border-border">
             {documents.map((d) => (
-              <li key={d.id} className="flex items-center gap-2.5 px-3 py-2">
+              <li key={d.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-3 py-2 sm:flex-nowrap">
                 <FileText className="h-4 w-4 shrink-0 text-primary" />
-                <div className="min-w-0 flex-1">
+                {/* Au téléphone, le nom prend toute la ligne ; visibilité et actions passent dessous. */}
+                <div className="min-w-0 flex-1 basis-[calc(100%-26px)] sm:basis-0">
                   <p className="truncate text-sm font-medium">{d.name}</p>
                   <p className="text-xs text-muted-foreground">{HR_DOCUMENT_CATEGORY[d.category]}{d.period ? ` · ${d.period}` : ""} · {formatDate(d.createdAt)}</p>
                 </div>
@@ -131,14 +132,14 @@ export function HrDossier({ employeeId, employeeName, employeePosition = null, r
                 <button
                   onClick={() => { const fd = new FormData(); fd.set("id", d.id); fd.set("visible", d.visibleToEmployee ? "0" : "1"); setEmployeeDocumentVisibility(fd).then(() => router.refresh()); }}
                   title={d.visibleToEmployee ? "Reprendre l'accès du salarié" : "Partager avec le salarié"}
-                  className={`hidden shrink-0 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium transition-colors sm:inline ${d.visibleToEmployee ? "border-success/40 text-success hover:bg-success/10" : "border-border text-muted-foreground hover:bg-secondary"}`}
+                  className={`ml-auto shrink-0 rounded-full border px-2.5 py-1.5 text-[0.6875rem] font-medium transition-colors sm:ml-0 sm:px-2 sm:py-0.5 ${d.visibleToEmployee ? "border-success/40 text-success hover:bg-success/10" : "border-border text-muted-foreground hover:bg-secondary"}`}
                 >
                   {visibilityLabel(d.visibleToEmployee)}
                 </button>
-                <a href={`/api/rh/document/${d.id}?dl=1`} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Télécharger"><Download className="h-4 w-4" /></a>
+                <a href={`/api/rh/document/${d.id}?dl=1`} className="shrink-0 rounded p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5" title="Télécharger" aria-label="Télécharger"><Download className="h-4 w-4" /></a>
                 <BoutonDecisif brut
                   onClick={() => { const fd = new FormData(); fd.set("id", d.id); deleteEmployeeDocument(fd).then(() => router.refresh()); }}
-                  className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Supprimer"
+                  className="rounded p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5" title="Supprimer"
                 ><Trash2 className="h-4 w-4" /></BoutonDecisif>
               </li>
             ))}
@@ -197,7 +198,7 @@ export function FileDemandesRh({ demandes, referenceOrdreMission, currentUserId,
       <ul className="space-y-2">
         {demandes.map((r) => (
           <li key={r.id} className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-xs font-medium text-muted-foreground [overflow-wrap:anywhere]">
               {lienFiche ? <a href={`/rh/${r.employeeId}`} className="text-primary hover:underline">{r.employeeName}</a> : r.employeeName}
               {r.employeePosition ? ` · ${r.employeePosition}` : ""}
             </p>
@@ -273,12 +274,12 @@ function RequestRow({ req, employeeId, employeeName, employeePosition, reference
             deleteHrRequest(fd).then(() => router.refresh());
           }}
           title="Supprimer cette demande (la demande seule, pas l'employé)"
-          className="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          className="ml-auto rounded-md p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
         >
           <Trash2 className="h-4 w-4" />
         </BoutonDecisif>
       </div>
-      {req.details && <p className="mb-2 text-xs text-muted-foreground">Demande : {req.details}</p>}
+      {req.details && <p className="mb-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">Demande : {req.details}</p>}
 
       {/* Congé / absence : période demandée + jours + débit du solde (congé annuel) */}
       {(req.periodStart || req.periodEnd) && (
@@ -394,14 +395,14 @@ function RequestRow({ req, employeeId, employeeName, employeePosition, reference
       {nature !== "APPROVAL" && (
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="space-y-1.5"><Label>Statut</Label>
+            <div className="col-span-2 space-y-1.5 sm:col-span-1"><Label>Statut</Label>
               <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
                 {HR_DOCUMENT_STATUSES.map((v) => <option key={v} value={v}>{HR_REQUEST_STATUS[v].label}</option>)}
               </Select>
             </div>
-            <div className="space-y-1.5 sm:col-span-2"><Label>Note RH</Label><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note interne / message" /></div>
-            <div className="flex items-end gap-1.5">
-              <Button size="sm" variant="outline" disabled={saving} onClick={save}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer</Button>
+            <div className="col-span-2 space-y-1.5"><Label>Note RH</Label><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note interne / message" /></div>
+            <div className="col-span-2 flex items-end gap-1.5 sm:col-span-1">
+              <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled={saving} onClick={save}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer</Button>
             </div>
           </div>
           {/* L'ORDRE DE MISSION SE GÉNÈRE (Direction, 06/10) : le document de la Direction, rempli par la plateforme. */}

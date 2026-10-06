@@ -161,10 +161,13 @@
      `1rem` et non `16px` : avec l'échelle mobile ci-dessus, 1rem vaut 17-18px — la garantie
      iOS (≥ 16px) tient toujours, et le champ grandit comme le reste au lieu de devenir le
      seul élément resté petit. */
+  /* La SPÉCIFICITÉ fait la garantie : `input:not(…):not(…)` l'emporte déjà sur un `text-xs` posé sur le champ ; `select` et
+     `textarea` seuls perdaient contre lui, et le zoom revenait sur chaque menu en `text-sm`. `:not([data-zoom])` les hisse
+     au même rang. */
   @media (max-width: 1023px) {
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    select,
-    textarea {
+    select:not([data-zoom]),
+    textarea:not([data-zoom]) {
       font-size: 1rem;
     }
   }
@@ -371,6 +374,11 @@
     table.mobile-cards td[data-label] > * {
       min-width: 0;
       text-align: right;
+    }
+    /* …sauf un champ de saisie : on tape de gauche à droite, et il prend la place qu'on lui laisse. */
+    table.mobile-cards td[data-label] > :is(input, select, textarea, form, label) {
+      text-align: left;
+      flex: 1 1 auto;
     }
     /* Une carte vide de sens : une cellule sans contenu ne prend pas de ligne. */
     table.mobile-cards td:empty {

@@ -32,7 +32,7 @@ export function BudgetTargetField({
       <select
         name={name}
         defaultValue={defaultValue ?? ""}
-        className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-base sm:h-9 sm:text-sm"
       >
         <option value="">— À classer plus tard —</option>
         {targets.map((t) => (

@@ -73,7 +73,7 @@ export default async function AdamReglagesPage({
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/chief-of-staff" className="text-muted-foreground hover:text-foreground" aria-label="Retour au Chief of Staff">
+        <Link href="/chief-of-staff" className="-m-2 rounded-lg p-2 text-muted-foreground hover:text-foreground" aria-label="Retour au Chief of Staff">
           <ArrowLeft className="h-5 w-5" aria-hidden />
         </Link>
         <h1 className="flex items-center gap-2 text-xl font-semibold">
@@ -135,7 +135,7 @@ export default async function AdamReglagesPage({
             <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-muted-foreground">Compte</dt>
-                <dd className="font-medium">{health.connection.address}</dd>
+                <dd className="font-medium [overflow-wrap:anywhere]">{health.connection.address}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">État</dt>

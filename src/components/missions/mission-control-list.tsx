@@ -44,15 +44,16 @@ export function MissionControlRow({ m, maintenant }: { m: LigneMission; maintena
 
   return (
     <li
-      className="surface flex flex-col gap-2 p-4"
+      className="surface flex flex-col gap-2 p-3 sm:p-4"
       data-testid="mission-control-row"
       data-statut={m.statut}
       data-attend={m.attend ?? ""}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <Link href={`/missions/${m.id}`} className="group inline-flex items-center gap-1.5">
-            <span className="truncate text-sm font-semibold text-foreground group-hover:underline">{m.titre}</span>
+          <Link href={`/missions/${m.id}`} className="group inline-flex max-w-full items-center gap-1.5 py-0.5">
+            {/* Au téléphone, deux lignes de titre plutôt qu'un titre coupé au premier tiers. */}
+            <span className="line-clamp-2 min-w-0 break-words text-sm font-semibold text-foreground group-hover:underline sm:line-clamp-none sm:truncate">{m.titre}</span>
             <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           </Link>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -140,7 +141,7 @@ export function MissionsCloses({ lignes, maintenant }: { lignes: LigneMission[];
       </summary>
       <ul className="mt-2 space-y-1.5">
         {lignes.map((m) => (
-          <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
+          <li key={m.id} className="flex items-center justify-between gap-2 py-1 text-sm sm:py-0">
             <Link href={`/missions/${m.id}`} className="min-w-0 truncate text-foreground hover:underline">
               {m.titre}
             </Link>

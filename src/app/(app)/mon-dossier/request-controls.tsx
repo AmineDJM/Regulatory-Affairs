@@ -53,7 +53,7 @@ export function NewRequestButton() {
           {needsPeriod && (
             <div className="space-y-2 rounded-lg border border-border bg-secondary/40 p-3">
               <p className="flex items-center gap-1.5 text-xs font-medium"><CalendarRange className="h-4 w-4 text-primary" /> {isExit ? "Date de l'absence ponctuelle" : "Période du congé"}</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>{isExit ? "Date" : "Début"} <span className="text-destructive">*</span></Label>
                   <Input type="date" name="periodStart" value={start} onChange={(e) => setStart(e.target.value)} required />
@@ -107,10 +107,10 @@ export function NewRequestButton() {
               </div>
             </>
           )}
-          {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-            <Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer la demande</Button>
+          {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0">{err}</span></div>}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)}>Annuler</Button>
+            <Button type="submit" className="w-full sm:w-auto" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer la demande</Button>
           </div>
         </form>
       </Sheet>
@@ -134,7 +134,7 @@ export function CancelRequestButton({ id }: { id: string }) {
           router.refresh();
         });
       }}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary"
+      className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-secondary sm:min-h-0 sm:px-2.5"
     >
       {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Annuler
     </button>

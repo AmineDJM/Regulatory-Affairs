@@ -63,11 +63,11 @@ export function PresentationPanel({
       {creating && (
         <div className="space-y-2 rounded-lg border border-border bg-card p-3">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titre de la présentation (optionnel)"
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:border-primary focus:outline-none" />
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-base focus:border-primary focus:outline-none sm:h-9 sm:text-sm" />
           <textarea value={angle} onChange={(e) => setAngle(e.target.value)} rows={2}
             placeholder="Angle / consignes pour l'analyse (optionnel) — ex. « focus sur les opportunités de fabrication locale », « prioriser les molécules à fort volume »…"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-          <div className="flex items-center gap-2">
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-base focus:border-primary focus:outline-none sm:text-sm" />
+          <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={generate} disabled={!!busy}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Lancer l'analyse
@@ -136,14 +136,14 @@ function PresentationCard({
           {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
           <Presentation className="h-4 w-4 shrink-0 text-primary" />
           <span className="min-w-0">
-            <span className="block truncate font-medium">{presentation.title}</span>
+            <span className="block font-medium [overflow-wrap:anywhere] sm:truncate">{presentation.title}</span>
             <span className="block text-xs text-muted-foreground">{presentation.versions.length} version(s) · dernière : v{latest?.version ?? "—"}</span>
           </span>
         </button>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {latest && (
             <a href={`/api/market-research/presentation/${latest.id}`}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:py-1.5">
               <Download className="h-4 w-4" /> Télécharger .pptx
             </a>
           )}
@@ -163,9 +163,9 @@ function PresentationCard({
                 <div className="min-w-0">
                   <span className="font-medium">v{v.version}</span>
                   <span className="text-muted-foreground"> · {new Date(v.createdAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</span>
-                  {v.instruction && <span className="block truncate text-xs text-muted-foreground" title={v.instruction}>« {v.instruction} »</span>}
+                  {v.instruction && <span className="line-clamp-2 text-xs text-muted-foreground [overflow-wrap:anywhere]" title={v.instruction}>« {v.instruction} »</span>}
                 </div>
-                <a href={`/api/market-research/presentation/${v.id}`} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10"><Download className="h-3.5 w-3.5" /> .pptx</a>
+                <a href={`/api/market-research/presentation/${v.id}`} className="inline-flex items-center gap-1 rounded px-2 py-2 text-xs text-primary hover:bg-primary/10 sm:py-1"><Download className="h-3.5 w-3.5" /> .pptx</a>
               </div>
             ))}
           </div>
@@ -175,7 +175,7 @@ function PresentationCard({
               <p className="text-xs font-medium text-muted-foreground">Ré-analyser en ajoutant des commentaires (crée une nouvelle version) :</p>
               <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2}
                 placeholder="Ex. « insiste davantage sur les risques d'importation », « ajoute une reco go/no-go par produit »…"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none" />
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-base focus:border-primary focus:outline-none sm:text-sm" />
               <button type="button" onClick={relaunch} disabled={busy}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60">
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Relancer l'analyse

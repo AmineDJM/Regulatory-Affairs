@@ -68,7 +68,7 @@ export function QuickAccessList({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         {showFilter && (
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher dans cette liste…" className="w-64" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher dans cette liste…" className="w-full sm:w-64" />
         )}
         <span className="text-xs text-muted-foreground">
           {summary ?? `${sorted.length} élément${sorted.length > 1 ? "s" : ""}`}
@@ -100,31 +100,38 @@ export function QuickAccessList({
           ))}
         </div>
       ) : (
+        // AU TÉLÉPHONE, une seule colonne — le nom — et, dessous, la date, la taille et le dossier :
+        // cinq colonnes de 44 rem obligeaient à faire glisser la liste pour lire chaque ligne.
+        // Le type n'y est pas répété : l'icône le dit déjà.
         <div className="surface overflow-x-auto">
-          <table className="table-clean w-full min-w-[44rem] text-sm">
+          <table className="table-clean w-full table-fixed text-sm sm:table-auto sm:min-w-[44rem]">
             <thead className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 {head("name", "Nom")}
-                {head("updatedAt", "Modifié le", "w-48")}
-                {head("type", "Type", "w-48")}
-                {head("size", "Taille", "w-28")}
-                {showFolder && <th className="px-3 py-2 text-left font-medium w-48">{folderHeading}</th>}
+                {head("updatedAt", "Modifié le", "hidden w-48 sm:table-cell")}
+                {head("type", "Type", "hidden w-48 sm:table-cell")}
+                {head("size", "Taille", "hidden w-28 sm:table-cell")}
+                {showFolder && <th className="hidden w-48 px-3 py-2 text-left font-medium sm:table-cell">{folderHeading}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {sorted.map((r) => (
                 <tr key={r.id} className="hover:bg-secondary/50">
-                  <td className="px-3 py-1.5">
-                    <Link href={r.href} className="inline-flex items-center gap-2 font-medium hover:underline">
+                  <td className="px-3 py-2.5 sm:py-1.5">
+                    <Link href={r.href} title={r.name} className="flex min-w-0 items-center gap-2 font-medium hover:underline sm:inline-flex">
                       <FileGlyph name={r.name} isFile={r.isFile} />
                       <span className="truncate">{r.name}</span>
                     </Link>
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground sm:hidden">
+                      {formatDateTime(r.updatedAt)} · {explorerSize(r.size, r.isFile)}
+                      {showFolder && <> · {r.folderName ?? "Racine"}</>}
+                    </span>
                   </td>
-                  <td className="px-3 py-1.5 text-muted-foreground">{formatDateTime(r.updatedAt)}</td>
-                  <td className="px-3 py-1.5 text-muted-foreground">{fileTypeLabel(r.name, r.isFile)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{explorerSize(r.size, r.isFile)}</td>
+                  <td className="hidden px-3 py-1.5 text-muted-foreground sm:table-cell">{formatDateTime(r.updatedAt)}</td>
+                  <td className="hidden px-3 py-1.5 text-muted-foreground sm:table-cell">{fileTypeLabel(r.name, r.isFile)}</td>
+                  <td className="hidden px-3 py-1.5 text-right tabular-nums text-muted-foreground sm:table-cell">{explorerSize(r.size, r.isFile)}</td>
                   {showFolder && (
-                    <td className="px-3 py-1.5 text-muted-foreground">
+                    <td className="hidden px-3 py-1.5 text-muted-foreground sm:table-cell">
                       {r.folderName ?? <span className="text-muted-foreground/60">Racine</span>}
                     </td>
                   )}

@@ -68,19 +68,19 @@ export function CommentThread({
           <li key={c.id} className="group flex gap-2.5">
             <Avatar name={c.author} size="sm" />
             <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-2">
+              <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="text-sm font-medium">{c.author}</span>
                 <span className="text-xs text-muted-foreground">{formatDateTime(c.createdAt)}</span>
                 {c.editedAt && <span className="text-[0.6875rem] italic text-muted-foreground">(modifié)</span>}
                 {canManage(c) && editing !== c.id && (
-                  <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                  <span className="ml-auto flex shrink-0 items-center gap-0.5 transition sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100">
                     {updateAction && (
-                      <button type="button" onClick={() => setEditing(c.id)} title="Modifier" className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                      <button type="button" onClick={() => setEditing(c.id)} title="Modifier" aria-label="Modifier le commentaire" className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     )}
                     {deleteAction && (
-                      <button type="button" onClick={() => remove(c.id)} disabled={busy === c.id} title="Supprimer" className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                      <button type="button" onClick={() => remove(c.id)} disabled={busy === c.id} title="Supprimer" aria-label="Supprimer le commentaire" className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1">
                         {busy === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                       </button>
                     )}
@@ -90,7 +90,7 @@ export function CommentThread({
               {editing === c.id ? (
                 <EditRow initial={c.body} busy={busy === c.id} onCancel={() => setEditing(null)} onSave={(v) => save(c.id, v)} />
               ) : (
-                <p className="whitespace-pre-wrap text-sm text-foreground/90">{c.body}</p>
+                <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{c.body}</p>
               )}
             </div>
           </li>
@@ -124,7 +124,7 @@ function EditRow({ initial, busy, onSave, onCancel }: { initial: string; busy: b
   return (
     <div className="mt-1 space-y-1.5">
       <Textarea value={value} onChange={(e) => setValue(e.target.value)} className="min-h-[40px]" autoFocus />
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         <Button type="button" size="sm" onClick={() => onSave(value)} disabled={busy || !value.trim()}>
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Enregistrer
         </Button>

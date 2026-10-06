@@ -46,7 +46,7 @@ export default async function ProduitCanoniquePage({ params }: { params: { id: s
           <StatusBadge map={PRODUCT_CHANNEL} value={p.channel} dot={false} />
           {!p.isActive && <span className="text-xs text-muted-foreground">Inactif</span>}
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">{p.canonicalName}</h1>
+        <h1 className="break-words text-xl font-semibold tracking-tight sm:text-2xl">{p.canonicalName}</h1>
       </header>
 
       <section className="surface space-y-3 p-4">

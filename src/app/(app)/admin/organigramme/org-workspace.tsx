@@ -31,7 +31,7 @@ export function OrgWorkspace({ nodes, canEdit = true, scopeLabel }: { nodes: Org
     <button
       type="button"
       onClick={() => setView(key)}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${view === key ? "border-primary bg-primary/10 text-primary" : "border-input hover:bg-secondary"}`}
+      className={`inline-flex min-h-10 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium sm:min-h-0 transition-colors ${view === key ? "border-primary bg-primary/10 text-primary" : "border-input hover:bg-secondary"}`}
     >
       {icon} {label}
     </button>
@@ -49,7 +49,7 @@ export function OrgWorkspace({ nodes, canEdit = true, scopeLabel }: { nodes: Org
               value={entity}
               onChange={(e) => setEntity(e.target.value)}
               aria-label="Filtrer par entité"
-              className="h-8 rounded-lg border border-input bg-background px-2 text-xs text-foreground"
+              className="h-10 max-w-full rounded-lg border border-input bg-background px-2 text-base text-foreground sm:h-8 sm:text-xs"
             >
               <option value="">Toutes les entités ({nodes.length})</option>
               {entities.map((e) => (

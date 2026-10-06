@@ -31,7 +31,7 @@ export function InviteResponse({ meetingId, current }: { meetingId: string; curr
       type="button"
       onClick={() => send(value)}
       disabled={busy !== null}
-      className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${resp === value ? active : "border-border hover:bg-secondary"}`}
+      className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-sm font-medium sm:px-3 sm:py-2 transition-colors disabled:opacity-60 ${resp === value ? active : "border-border hover:bg-secondary"}`}
     >
       {busy === value ? <Loader2 className="h-4 w-4 animate-spin" /> : icon} {label}
     </button>

@@ -64,7 +64,7 @@ export function TerritoireKam({ buId, kam, territoire, etablissements, busy, run
           )}
         </>
       ) : (
-        <span className="min-w-0 flex-1">
+        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
           {/* CE QUE LE TERRITOIRE COUVRE, en clair : « CHU Mustapha (Cardiologie, Oncologie) ». */}
           {liens.slice(0, 6).map((l) => libelleCouverture(nomEtab(l.institutionId), l, nomService)).join(" · ")}
           {liens.length > 6 ? ` … +${liens.length - 6}` : ""}
@@ -72,7 +72,7 @@ export function TerritoireKam({ buId, kam, territoire, etablissements, busy, run
       )}
       <button
         type="button" onClick={ouvrir} disabled={busy}
-        className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium text-foreground hover:bg-secondary disabled:opacity-60"
+        className="inline-flex items-center gap-1 rounded-md border border-input px-2.5 py-2 text-xs font-medium text-foreground hover:bg-secondary disabled:opacity-60 sm:px-2 sm:py-1"
         aria-label={`Territoire de ${kam.name}`}
       >
         <MapPin className="h-3.5 w-3.5" aria-hidden /> Territoire
@@ -97,7 +97,7 @@ export function TerritoireKam({ buId, kam, territoire, etablissements, busy, run
           }}
         >
           <ChoixEtablissements etablissements={etablissements} choix={choix} onChange={setChoix} />
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setOuvert(false)} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary">
               Annuler
             </button>

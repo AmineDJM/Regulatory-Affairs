@@ -37,11 +37,11 @@ export function OrdreMissionForm({ requestId, employeeName, employeePosition, de
         <div key={i} className="flex items-center gap-1.5">
           <Input type="date" name={nom} value={v} onChange={(e) => maj(valeurs.map((x, k) => (k === i ? e.target.value : x)))} aria-label={`${nom === "dateDepart" ? "Date de départ" : "Date de retour"} ${i + 1}`} />
           {valeurs.length > 1 && (
-            <button type="button" onClick={() => maj(valeurs.filter((_, k) => k !== i))} className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Retirer cette date"><Trash2 className="h-4 w-4" /></button>
+            <button type="button" onClick={() => maj(valeurs.filter((_, k) => k !== i))} className="shrink-0 rounded p-2.5 text-muted-foreground hover:bg-secondary sm:p-1" aria-label="Retirer cette date"><Trash2 className="h-4 w-4" /></button>
           )}
         </div>
       ))}
-      <button type="button" onClick={() => maj([...valeurs, ""])} className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Plus className="h-3 w-3" /> Ajouter un jour</button>
+      <button type="button" onClick={() => maj([...valeurs, ""])} className="inline-flex items-center gap-1 py-1.5 text-xs text-primary hover:underline sm:py-0"><Plus className="h-3 w-3" /> Ajouter un jour</button>
     </div>
   );
 
@@ -60,11 +60,11 @@ export function OrdreMissionForm({ requestId, employeeName, employeePosition, de
       }}
     >
       <p className="text-sm font-medium">Ordre de mission — généré sur le modèle de la Direction</p>
-      {details && <p className="rounded bg-background px-2 py-1 text-xs text-muted-foreground">Demande du salarié : « {details} »</p>}
+      {details && <p className="rounded bg-background px-2 py-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">Demande du salarié : « {details} »</p>}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1"><Label>Date d&apos;émission</Label><Input type="date" name="dateEmission" defaultValue={aujourdhui} required /></div>
         <div className="space-y-1"><Label>Référence (N°)</Label><Input name="reference" defaultValue={referenceSuggeree} required /></div>
-        <div className="space-y-1"><Label>Collaborateur</Label><Input name="collaborateur" defaultValue={employeeName} placeholder="Mme Radia KEBIR" required /></div>
+        <div className="space-y-1"><Label>Collaborateur</Label><Input name="collaborateur" autoComplete="off" defaultValue={employeeName} placeholder="Mme Radia KEBIR" required /></div>
         <div className="space-y-1"><Label>Fonction</Label><Input name="fonction" defaultValue={employeePosition ?? ""} /></div>
         <div className="space-y-1 sm:col-span-2">
           <Label>Objet — « … ayant pour but … »</Label>
@@ -89,11 +89,11 @@ export function OrdreMissionForm({ requestId, employeeName, employeePosition, de
         <div className="space-y-1"><Label>Signataire</Label><Input name="signataire" defaultValue={VALEURS_DU_MODELE.signataire} required /></div>
         <div className="space-y-1"><Label>Fonction du signataire</Label><Input name="signataireFonction" defaultValue={VALEURS_DU_MODELE.signataireFonction} /></div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" type="submit" disabled={busy || enCours}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button size="sm" type="submit" className="w-full sm:w-auto" disabled={busy || enCours}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} Générer et remettre au salarié
         </Button>
-        <Button size="sm" type="button" variant="ghost" onClick={() => setOuvert(false)}>Annuler</Button>
+        <Button size="sm" type="button" variant="ghost" className="w-full sm:w-auto" onClick={() => setOuvert(false)}>Annuler</Button>
       </div>
       {msg && <p className={`text-xs ${msg.ok ? "text-success" : "text-destructive"}`}>{msg.texte}</p>}
     </form>

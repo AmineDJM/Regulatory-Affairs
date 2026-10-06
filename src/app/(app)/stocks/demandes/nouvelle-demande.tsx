@@ -86,7 +86,7 @@ export function NouvelleDemandeStocks({ hopitaux, produits, produitsParBu, kams 
 
   return (
     <form
-      className="surface space-y-4 p-4"
+      className="surface space-y-4 p-3 sm:p-4"
       action={async (fd) => {
         setBusy(true); setError(null);
         for (const id of coches) fd.append("hopitalId", id);
@@ -135,7 +135,7 @@ export function NouvelleDemandeStocks({ hopitaux, produits, produitsParBu, kams 
             return (
               <div key={w} className="border-b border-border last:border-b-0">
                 <div className="flex items-center justify-between gap-2 bg-secondary/40 px-3 py-1.5">
-                  <button type="button" onClick={() => basculerWilaya(w)} className="flex min-w-0 items-center gap-1.5 text-left text-sm font-medium">
+                  <button type="button" onClick={() => basculerWilaya(w)} className="flex min-h-9 min-w-0 items-center gap-1.5 text-left text-sm font-medium sm:min-h-0">
                     {ouverte ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
                     <span className="truncate">{w}</span>
                     <span className="text-xs font-normal text-muted-foreground">({n}/{liste.length})</span>
@@ -148,7 +148,7 @@ export function NouvelleDemandeStocks({ hopitaux, produits, produitsParBu, kams 
                   <ul>
                     {liste.map((h) => (
                       <li key={h.id}>
-                        <label className="flex cursor-pointer items-start gap-2 px-3 py-1.5 text-sm hover:bg-secondary/40">
+                        <label className="flex min-h-10 cursor-pointer items-start gap-2 px-3 py-2 text-sm hover:bg-secondary/40 sm:min-h-0 sm:py-1.5">
                           <input type="checkbox" className="mt-0.5 h-4 w-4" checked={coches.includes(h.id)} onChange={() => basculer(h.id)} />
                           <span className="min-w-0">
                             <span className="block">{h.name}</span>
@@ -273,7 +273,7 @@ function ChoixProduits({ produits, choisis, onChange, enAvant }: {
           return (
             <button key={p.id} type="button"
               onClick={() => onChange(pris ? choisis.filter((x) => x !== p.id) : [...choisis, p.id])}
-              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${pris ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"} ${enAvant && !avant.has(p.id) ? "opacity-70" : ""}`}
+              className={`min-h-8 rounded-full border px-2.5 py-1 text-xs transition-colors ${pris ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"} ${enAvant && !avant.has(p.id) ? "opacity-70" : ""}`}
               title={enAvant && !avant.has(p.id) ? "Aucun KAM de cet établissement ne porte ce produit : la case sera « sans KAM »." : undefined}>
               {p.label}
             </button>

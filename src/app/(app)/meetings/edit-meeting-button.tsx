@@ -82,7 +82,7 @@ export function EditMeetingButton({ id, title, description, meetLink, scheduledA
           ) : (
             <div className="space-y-1.5">
               <Label htmlFor="edit-meetLink">Lien de la réunion (Google Meet, Teams, Zoom…)</Label>
-              <Input id="edit-meetLink" name="meetLink" type="url" defaultValue={meetLink} placeholder="https://meet.google.com/xxx-xxxx-xxx" />
+              <Input id="edit-meetLink" name="meetLink" type="url" autoCapitalize="off" autoCorrect="off" spellCheck={false} defaultValue={meetLink} placeholder="https://meet.google.com/xxx-xxxx-xxx" />
               <p className="text-xs text-muted-foreground">Laissez vide pour retirer le lien externe.</p>
             </div>
           )}
@@ -111,9 +111,9 @@ export function EditMeetingButton({ id, title, description, meetLink, scheduledA
           </div>
 
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Annuler</Button>
-            <Button type="submit" disabled={saving}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving} className="w-full sm:w-auto">Annuler</Button>
+            <Button type="submit" disabled={saving} className="w-full sm:w-auto">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer
             </Button>
           </div>

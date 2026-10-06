@@ -79,7 +79,7 @@ export function ExpenseClaimHrPanel({
             {unlocked ? "Refermer la modification" : "Autoriser la modification"}
           </Button>
         )}
-        <span className="text-[0.6875rem] text-muted-foreground">
+        <span className="min-w-0 basis-full text-[0.6875rem] text-muted-foreground sm:basis-auto">
           {decided
             ? "Note traitée : elle ne se modifie plus."
             : unlocked
@@ -88,8 +88,8 @@ export function ExpenseClaimHrPanel({
         </span>
       </div>
 
-      {ok && <p className="flex items-center gap-1.5 text-xs text-success"><Check className="h-3.5 w-3.5" /> {ok}</p>}
-      {err && <p className="flex items-center gap-1.5 text-xs text-destructive"><AlertCircle className="h-3.5 w-3.5" /> {err}</p>}
+      {ok && <p className="flex items-start gap-1.5 text-xs text-success"><Check className="mt-px h-3.5 w-3.5 shrink-0" /> <span className="min-w-0">{ok}</span></p>}
+      {err && <p className="flex items-start gap-1.5 text-xs text-destructive"><AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" /> <span className="min-w-0">{err}</span></p>}
 
       <Sheet
         open={open}
@@ -116,13 +116,13 @@ export function ExpenseClaimHrPanel({
           </div>
 
           {err && (
-            <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4" /> {err}
+            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0">{err}</span>
             </div>
           )}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={busy}>Annuler</Button>
-            <Button type="submit" disabled={busy}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)} disabled={busy}>Annuler</Button>
+            <Button type="submit" className="w-full sm:w-auto" disabled={busy}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer la demande
             </Button>
           </div>

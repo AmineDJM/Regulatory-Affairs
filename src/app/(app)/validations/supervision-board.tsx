@@ -108,7 +108,8 @@ export function SupervisionBoard({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Référence, objet, module, demandeur… ou le validateur qui bloque"
-          className="w-full rounded-lg border border-input bg-background py-2 pl-8 pr-3 text-sm outline-none focus:border-primary/60"
+          type="search"
+          className="w-full rounded-lg border border-input bg-background py-2 pl-8 pr-3 text-base outline-none focus:border-primary/60 sm:text-sm"
         />
       </div>
 
@@ -129,7 +130,7 @@ export function SupervisionBoard({
                     <button
                       type="button"
                       onClick={() => setOpen(expanded ? null : r.id)}
-                      className="inline-flex shrink-0 items-center text-muted-foreground hover:text-foreground"
+                      className="-m-2 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground sm:m-0 sm:h-auto sm:w-auto"
                       aria-label={expanded ? "Replier" : "Déplier"}
                     >
                       {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -137,7 +138,8 @@ export function SupervisionBoard({
 
                     <Badge tone={URGENCY_TONE[u]} dot={false}>{URGENCY_LABEL[u]}</Badge>
 
-                    <div className="min-w-0 flex-1">
+                    {/* Une base de 12 rem : au téléphone, l'objet passe sur sa propre ligne plutôt que d'être écrasé. */}
+                    <div className="min-w-0 flex-1 basis-[12rem]">
                       <p className="truncate font-medium">{r.title}</p>
                       <p className="truncate text-xs text-muted-foreground">
                         <span className="font-mono">{r.reference}</span> · {r.module} · demandé par {r.requester || "—"}
@@ -145,7 +147,7 @@ export function SupervisionBoard({
                     </div>
 
                     {/* CHEZ QUI ÇA BLOQUE — la colonne qui manquait. */}
-                    <div className="min-w-[9rem]">
+                    <div className="min-w-[9rem] max-w-full">
                       {r.blockingValidator ? (
                         <p className="flex items-center gap-1 text-xs">
                           <User className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -170,7 +172,7 @@ export function SupervisionBoard({
                         type="button"
                         onClick={() => relance(r.blockingStepId!)}
                         disabled={busy === r.blockingStepId || sent.has(r.blockingStepId)}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-input px-2 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-50"
+                        className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg border border-input px-3 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-50 sm:min-h-0 sm:px-2"
                         title={`Relancer ${r.blockingValidator ?? "le validateur"} (notification + push)`}
                       >
                         {busy === r.blockingStepId
@@ -183,7 +185,7 @@ export function SupervisionBoard({
 
                   {expanded && (
                     <div className="space-y-2 border-t border-border/60 bg-secondary/20 px-3 py-3">
-                      {r.description && <p className="text-sm text-muted-foreground">{r.description}</p>}
+                      {r.description && <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{r.description}</p>}
                       <p className="text-xs text-muted-foreground">Circuit : {VALIDATION_MODE[r.mode]}</p>
                       <div className="flex flex-wrap gap-2">
                         {r.steps.map((s) => (

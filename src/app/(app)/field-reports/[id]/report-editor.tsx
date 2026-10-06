@@ -119,13 +119,13 @@ export function ReportEditor({ detail, doctors, materiel, rattacheAUneVisite }: 
       <div className="surface flex flex-wrap items-center gap-3 p-3">
         <StatusBadge map={FIELD_REPORT_STATUS} value={detail.status} />
         {!ro && (recording
-          ? <Button variant="destructive" size="sm" onClick={stopRec}><Square className="h-4 w-4" /> Arrêter</Button>
-          : <Button size="sm" onClick={startRec} disabled={transcribing}>{transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />} Parler</Button>)}
-        <div className="ml-auto flex items-center gap-2">
-          {savedAt && <span className="text-xs text-muted-foreground">Enregistré à {savedAt}</span>}
-          {!ro && <Button variant="outline" size="sm" onClick={save} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer</Button>}
-          {!ro && <Button size="sm" onClick={validate} disabled={saving}><Check className="h-4 w-4" /> Valider</Button>}
-          {ro && <Button variant="outline" size="sm" onClick={reopen}><RotateCcw className="h-4 w-4" /> Rouvrir</Button>}
+          ? <Button variant="destructive" size="sm" className="h-10 sm:h-8" onClick={stopRec}><Square className="h-4 w-4" /> Arrêter</Button>
+          : <Button size="sm" className="h-10 sm:h-8" onClick={startRec} disabled={transcribing}>{transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />} Parler</Button>)}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
+          {savedAt && <span className="w-full text-xs text-muted-foreground sm:w-auto">Enregistré à {savedAt}</span>}
+          {!ro && <Button variant="outline" size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" onClick={save} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer</Button>}
+          {!ro && <Button size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" onClick={validate} disabled={saving}><Check className="h-4 w-4" /> Valider</Button>}
+          {ro && <Button variant="outline" size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" onClick={reopen}><RotateCcw className="h-4 w-4" /> Rouvrir</Button>}
         </div>
       </div>
 
@@ -156,9 +156,9 @@ export function ReportEditor({ detail, doctors, materiel, rattacheAUneVisite }: 
       ) : null}
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Label>Pièces jointes ({detail.attachments.length})</Label>
-          {!ro && <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Ajouter (photo, PDF, tout type…)</Button>}
+          {!ro && <Button variant="outline" size="sm" className="h-10 max-w-full sm:h-8" onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Ajouter (photo, PDF, tout type…)</Button>}
           <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAttachment(f); e.target.value = ""; }} />
         </div>
         {detail.attachments.length > 0 && (
@@ -170,8 +170,8 @@ export function ReportEditor({ detail, doctors, materiel, rattacheAUneVisite }: 
                   <a href={`/api/field-reports/attachment/${a.id}`} target="_blank" rel="noopener noreferrer"><img src={`/api/field-reports/attachment/${a.id}`} alt={a.name} className="h-10 w-10 rounded object-cover" /></a>
                 ) : <FileText className="h-8 w-8 shrink-0 text-primary" />}
                 <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{a.name}</p><p className="text-[0.6875rem] text-muted-foreground">{formatBytes(a.size)}</p></div>
-                <a href={`/api/field-reports/attachment/${a.id}?dl=1`} className="rounded p-1 text-muted-foreground hover:bg-secondary"><Download className="h-4 w-4" /></a>
-                {!ro && <button onClick={() => { if (window.confirm("Supprimer ?")) { const f = new FormData(); f.set("id", a.id); deleteFieldReportAttachment(f).then(() => router.refresh()); } }} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}
+                <a href={`/api/field-reports/attachment/${a.id}?dl=1`} aria-label={`Télécharger ${a.name}`} className="shrink-0 rounded-lg p-2.5 text-muted-foreground hover:bg-secondary sm:rounded sm:p-1"><Download className="h-4 w-4" /></a>
+                {!ro && <button onClick={() => { if (window.confirm("Supprimer ?")) { const f = new FormData(); f.set("id", a.id); deleteFieldReportAttachment(f).then(() => router.refresh()); } }} aria-label={`Supprimer ${a.name}`} className="shrink-0 rounded-lg p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:rounded sm:p-1"><Trash2 className="h-4 w-4" /></button>}
               </div>
             ))}
           </div>

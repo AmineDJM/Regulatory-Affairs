@@ -76,10 +76,11 @@ export default async function DriveFilePage({ params }: { params: { id: string }
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h1 className="truncate text-2xl font-semibold tracking-tight" title={node.name}>{node.name}</h1>
+          {/* Au téléphone, pas d'infobulle : le nom complet se lit sur deux lignes plutôt que coupé. */}
+          <h1 className="text-xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:truncate sm:text-2xl" title={node.name}>{node.name}</h1>
           <p className="truncate text-sm text-muted-foreground">{humanSize(node.size)} · {fileTypeLabel(node.mimeType, node.name)}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canEdit && onlyofficeConfigured() && onlyofficeEditable(node.name) && (
             <Link href={`/drive/${node.id}/edit`}>
               <Button><PencilLine className="h-4 w-4" /> Éditer dans Office</Button>
@@ -130,7 +131,7 @@ export default async function DriveFilePage({ params }: { params: { id: string }
             <CardHeader><CardTitle>Historique des versions</CardTitle></CardHeader>
             <CardContent className="space-y-1.5 text-sm">
               {node.versions.map((v, i) => (
-                <div key={v.id} className="flex items-center justify-between">
+                <div key={v.id} className="flex flex-wrap items-center justify-between gap-x-3">
                   <span className="flex items-center gap-2">
                     v{v.version}
                     {i === 0 && <Badge tone="success" dot={false}>actuelle</Badge>}

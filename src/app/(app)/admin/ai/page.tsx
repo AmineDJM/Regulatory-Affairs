@@ -263,10 +263,10 @@ export default async function AiControlCenterPage() {
         <CardHeader><CardTitle>Coût des modèles (30 jours)</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div><p className="text-2xl font-semibold tabular-nums">{totalAffiche(cout.total)}</p><p className="text-xs text-muted-foreground">30 jours · {formatNumber(cout.total.appels)} appels · cache {pctCache(cout.total)}</p></div>
-            <div><p className="text-2xl font-semibold tabular-nums">{totalAffiche(cout.aujourdHui)}</p><p className="text-xs text-muted-foreground">aujourd&apos;hui · {formatNumber(cout.aujourdHui.appels)} appels</p></div>
-            <div><p className="text-2xl font-semibold tabular-nums">{fmtUsd(cout.parTour.moyenUsd)}</p><p className="text-xs text-muted-foreground">par tour de conversation (moy.) · p50 {fmtUsd(cout.parTour.p50Usd)} · p95 {fmtUsd(cout.parTour.p95Usd)}{cout.parTour.toursSansTarif > 0 ? ` · ${cout.parTour.toursSansTarif} tour(s) sans tarif` : ""}</p></div>
-            <div><p className="text-2xl font-semibold tabular-nums">{cout.missions.moyenUsd == null ? "—" : fmtUsd(cout.missions.moyenUsd)}</p><p className="text-xs text-muted-foreground">par mission (moy.) · {formatNumber(cout.missions.missions)} mission(s) · {totalAffiche(cout.missions)}</p></div>
+            <div><p className="break-words text-xl font-semibold tabular-nums sm:text-2xl">{totalAffiche(cout.total)}</p><p className="text-xs text-muted-foreground">30 jours · {formatNumber(cout.total.appels)} appels · cache {pctCache(cout.total)}</p></div>
+            <div><p className="break-words text-xl font-semibold tabular-nums sm:text-2xl">{totalAffiche(cout.aujourdHui)}</p><p className="text-xs text-muted-foreground">aujourd&apos;hui · {formatNumber(cout.aujourdHui.appels)} appels</p></div>
+            <div><p className="break-words text-xl font-semibold tabular-nums sm:text-2xl">{fmtUsd(cout.parTour.moyenUsd)}</p><p className="text-xs text-muted-foreground">par tour de conversation (moy.) · p50 {fmtUsd(cout.parTour.p50Usd)} · p95 {fmtUsd(cout.parTour.p95Usd)}{cout.parTour.toursSansTarif > 0 ? ` · ${cout.parTour.toursSansTarif} tour(s) sans tarif` : ""}</p></div>
+            <div><p className="break-words text-xl font-semibold tabular-nums sm:text-2xl">{cout.missions.moyenUsd == null ? "—" : fmtUsd(cout.missions.moyenUsd)}</p><p className="text-xs text-muted-foreground">par mission (moy.) · {formatNumber(cout.missions.missions)} mission(s) · {totalAffiche(cout.missions)}</p></div>
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div>
@@ -274,9 +274,9 @@ export default async function AiControlCenterPage() {
               {cout.parModele.length === 0 ? <p className="text-sm text-muted-foreground">Aucun appel enregistré.</p> : (
                 <ul className="space-y-1 text-sm">
                   {cout.parModele.map((m) => (
-                    <li key={m.cle} className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium">{m.cle}</span>
-                      <span className="shrink-0 text-right text-muted-foreground tabular-nums">{fmtUsd(m.coutUsd, 2)}{m.sansTarif > 0 ? " (+ inconnu)" : ""} · {formatNumber(m.appels)} · cache {pctCache(m)}</span>
+                    <li key={m.cle} className="flex flex-wrap items-baseline justify-between gap-x-2">
+                      <span className="min-w-0 truncate font-medium">{m.cle}</span>
+                      <span className="ml-auto text-right text-muted-foreground tabular-nums">{fmtUsd(m.coutUsd, 2)}{m.sansTarif > 0 ? " (+ inconnu)" : ""} · {formatNumber(m.appels)} · cache {pctCache(m)}</span>
                     </li>
                   ))}
                 </ul>
@@ -287,9 +287,9 @@ export default async function AiControlCenterPage() {
               {cout.parUsage.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : (
                 <ul className="space-y-1 text-sm">
                   {cout.parUsage.map((u) => (
-                    <li key={u.cle} className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{u.cle}</span>
-                      <span className="text-muted-foreground tabular-nums">{fmtUsd(u.coutUsd, 2)}{u.sansTarif > 0 ? " (+ inconnu)" : ""} · {formatNumber(u.appels)}</span>
+                    <li key={u.cle} className="flex flex-wrap items-baseline justify-between gap-x-2">
+                      <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{u.cle}</span>
+                      <span className="ml-auto text-right text-muted-foreground tabular-nums">{fmtUsd(u.coutUsd, 2)}{u.sansTarif > 0 ? " (+ inconnu)" : ""} · {formatNumber(u.appels)}</span>
                     </li>
                   ))}
                 </ul>
@@ -300,9 +300,9 @@ export default async function AiControlCenterPage() {
               {cout.parPersonne.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : (
                 <ul className="space-y-1 text-sm">
                   {cout.parPersonne.map((u) => (
-                    <li key={u.userId} className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium">{nomDe.get(u.userId) ?? (u.userId === "—" ? "hors conversation (battement, missions de fond)" : u.userId)}</span>
-                      <span className="shrink-0 text-muted-foreground tabular-nums">{fmtUsd(u.coutUsd, 2)} · {formatNumber(u.appels)}</span>
+                    <li key={u.userId} className="flex flex-wrap items-baseline justify-between gap-x-2">
+                      <span className="min-w-0 truncate font-medium">{nomDe.get(u.userId) ?? (u.userId === "—" ? "hors conversation (battement, missions de fond)" : u.userId)}</span>
+                      <span className="ml-auto shrink-0 text-muted-foreground tabular-nums">{fmtUsd(u.coutUsd, 2)} · {formatNumber(u.appels)}</span>
                     </li>
                   ))}
                 </ul>
@@ -377,12 +377,12 @@ export default async function AiControlCenterPage() {
               {features.map((f) => {
                 const rate = f.total > 0 ? Math.round((f.ok / f.total) * 100) : 0;
                 return (
-                  <div key={f.feature} className="flex items-center justify-between gap-4 text-sm">
-                    <span className="w-44 shrink-0 font-medium">{f.label}</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+                  <div key={f.feature} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm sm:flex-nowrap">
+                    <span className="basis-full font-medium sm:w-44 sm:shrink-0 sm:basis-auto">{f.label}</span>
+                    <div className="h-2 min-w-[5rem] flex-1 overflow-hidden rounded-full bg-secondary">
                       <div className={rate >= 90 ? "h-full bg-success" : rate >= 60 ? "h-full bg-warning" : "h-full bg-destructive"} style={{ width: `${rate}%` }} />
                     </div>
-                    <span className="w-32 shrink-0 text-right text-muted-foreground">
+                    <span className="max-w-[60%] shrink-0 text-right text-xs text-muted-foreground sm:w-32 sm:max-w-none sm:text-sm">
                       {formatNumber(f.total)} appels · {rate}%{f.p50 ? ` · p50 ${f.p50}ms` : f.avgMs ? ` · ${f.avgMs}ms` : ""}{f.p95 ? ` · p95 ${f.p95}ms` : ""}
                     </span>
                   </div>
@@ -401,8 +401,8 @@ export default async function AiControlCenterPage() {
           ) : (
             <ul className="divide-y divide-border text-sm">
               {recentFailures.map((f) => (
-                <li key={f.id} className="flex items-center justify-between gap-3 py-2">
-                  <span className="flex items-center gap-2">
+                <li key={f.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2">
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                     <XCircle className="h-4 w-4 shrink-0 text-destructive" />
                     <span className="font-medium">{libelleFonction(f.feature)}</span>
                     <span className="text-muted-foreground">{f.errorCode ?? "erreur"}</span>
@@ -421,15 +421,15 @@ export default async function AiControlCenterPage() {
 
 function KeyStatus({ icon, label, ok, detail }: { icon: React.ReactNode; label: string; ok: boolean; detail: string }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border p-3">
-      <div className="flex items-center gap-2.5">
-        <span className="text-muted-foreground">{icon}</span>
-        <div>
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className="shrink-0 text-muted-foreground">{icon}</span>
+        <div className="min-w-0">
           <p className="text-sm font-medium">{label}</p>
-          <p className="text-xs text-muted-foreground">{detail}</p>
+          <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{detail}</p>
         </div>
       </div>
-      {ok ? <Badge tone="success" dot={false}>Configurée</Badge> : <Badge tone="danger" dot={false}>Absente</Badge>}
+      {ok ? <Badge tone="success" dot={false} className="shrink-0">Configurée</Badge> : <Badge tone="danger" dot={false} className="shrink-0">Absente</Badge>}
     </div>
   );
 }

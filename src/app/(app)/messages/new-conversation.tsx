@@ -82,7 +82,7 @@ function DirectPicker({ directory, busy, onPick }: { directory: DirectoryUserDTO
   return (
     <div>
       <SearchBox value={q} onChange={setQ} placeholder="Rechercher un collègue…" />
-      <div className="mt-2 max-h-[55vh] space-y-0.5 overflow-y-auto">
+      <div className="mt-2 max-h-[55dvh] space-y-0.5 overflow-y-auto">
         {list.map((u) => (
           <button key={u.id} disabled={busy} onClick={() => onPick(u.id)} className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left hover:bg-secondary disabled:opacity-50">
             <span className="relative shrink-0">
@@ -153,13 +153,13 @@ function MemberMultiSelect({ directory, selected, onToggle }: { directory: Direc
         {list.map((u) => {
           const on = selected.has(u.id);
           return (
-            <button key={u.id} onClick={() => onToggle(u.id)} className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left", on ? "bg-accent" : "hover:bg-secondary")}>
+            <button key={u.id} onClick={() => onToggle(u.id)} className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left sm:py-1.5", on ? "bg-accent" : "hover:bg-secondary")}>
               <Avatar name={u.name} color={u.avatarColor} size="sm" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{u.name}</p>
                 <p className="truncate text-xs text-muted-foreground">{u.title || ROLE_LABELS[u.role]}</p>
               </div>
-              <span className={cn("flex h-5 w-5 items-center justify-center rounded-full border", on ? "border-primary bg-primary text-primary-foreground" : "border-border")}>
+              <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border", on ? "border-primary bg-primary text-primary-foreground" : "border-border")}>
                 {on && <Check className="h-3.5 w-3.5" />}
               </span>
             </button>
@@ -174,7 +174,7 @@ function MemberMultiSelect({ directory, selected, onToggle }: { directory: Direc
 function BrowseChannels({ channels, busy, onJoin }: { channels: ChannelDTO[]; busy: boolean; onJoin: (id: string) => void }) {
   if (channels.length === 0) return <p className="py-8 text-center text-sm text-muted-foreground">Aucun canal à rejoindre pour l'instant.</p>;
   return (
-    <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+    <div className="max-h-[60dvh] space-y-2 overflow-y-auto">
       {channels.map((c) => (
         <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white" style={{ backgroundColor: c.color ?? "#0f766e" }}>
@@ -195,7 +195,7 @@ function SearchBox({ value, onChange, placeholder, bare }: { value: string; onCh
   return (
     <div className={cn("flex items-center gap-2 px-3", bare ? "border-b border-border" : "rounded-lg border border-input bg-background")}>
       <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="h-9 w-full bg-transparent text-sm focus:outline-none" />
+      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="h-10 w-full min-w-0 bg-transparent text-base focus:outline-none sm:h-9 lg:text-sm" />
     </div>
   );
 }

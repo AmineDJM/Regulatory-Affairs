@@ -115,7 +115,7 @@ export default async function DatabasesPage() {
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><Database className="h-4 w-4" /> Bases de données</CardTitle></CardHeader>
         <CardContent className="p-0">
-          <Table>
+          <Table mobileCards className="max-sm:p-3">
             <TableHeader>
               <TableRow>
                 <TableHead>Base</TableHead>
@@ -126,7 +126,7 @@ export default async function DatabasesPage() {
             <TableBody>
               {tables.map((t) => (
                 <TableRow key={t.label}>
-                  <TableCell className="font-medium">{t.label}{t.hint && <span className="ml-1 text-xs font-normal text-muted-foreground">({t.hint})</span>}</TableCell>
+                  <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{t.label}{t.hint && <span className="ml-1 text-xs font-normal text-muted-foreground">({t.hint})</span>}</TableCell>
                   <TableCell className="text-right tabular-nums">{t.rows.toLocaleString("fr-FR")}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{t.bytes !== undefined ? fmtBytes(t.bytes) : "—"}</TableCell>
                 </TableRow>
@@ -143,7 +143,7 @@ export default async function DatabasesPage() {
           <CardDescription>Suppression <strong>définitive</strong> (irréversible) — libère l'espace après ramassage automatique des blobs orphelins.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
+          <Table mobileCards className="max-sm:p-3">
             <TableHeader>
               <TableRow>
                 <TableHead>Fichier</TableHead>
@@ -154,10 +154,10 @@ export default async function DatabasesPage() {
             </TableHeader>
             <TableBody>
               {topFiles.length === 0 ? (
-                <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground">Aucun fichier.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} data-sans-etiquette className="text-center text-sm text-muted-foreground max-sm:!justify-center">Aucun fichier.</TableCell></TableRow>
               ) : topFiles.map((f) => (
                 <TableRow key={f.id}>
-                  <TableCell className="font-medium">{f.name}{f.isTrashed && <Badge tone="neutral" dot={false} className="ml-2">Corbeille</Badge>}</TableCell>
+                  <TableCell data-sans-etiquette className="font-medium [overflow-wrap:anywhere] max-sm:!justify-start">{f.name}{f.isTrashed && <Badge tone="neutral" dot={false} className="ml-2">Corbeille</Badge>}</TableCell>
                   <TableCell className="text-muted-foreground">{f.owner?.name ?? "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">{fmtBytes(f.size)}</TableCell>
                   <TableCell className="text-right"><PermanentDeleteButton kind="drive" id={f.id} name={f.name} /></TableCell>
@@ -175,7 +175,7 @@ export default async function DatabasesPage() {
           <CardDescription>Documents rattachés aux objets métier. Suppression <strong>définitive</strong> (irréversible).</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
+          <Table mobileCards className="max-sm:p-3">
             <TableHeader>
               <TableRow>
                 <TableHead>Document</TableHead>
@@ -186,10 +186,10 @@ export default async function DatabasesPage() {
             </TableHeader>
             <TableBody>
               {topDocs.length === 0 ? (
-                <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground">Aucun document.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} data-sans-etiquette className="text-center text-sm text-muted-foreground max-sm:!justify-center">Aucun document.</TableCell></TableRow>
               ) : topDocs.map((d) => (
                 <TableRow key={d.id}>
-                  <TableCell className="font-medium">{d.name}</TableCell>
+                  <TableCell data-sans-etiquette className="font-medium [overflow-wrap:anywhere] max-sm:!justify-start">{d.name}</TableCell>
                   <TableCell className="text-muted-foreground">{ENTITY_TYPE_LABELS[d.entityType] ?? d.entityType}</TableCell>
                   <TableCell className="text-right tabular-nums">{fmtBytes(d.sizeBytes ?? 0)}</TableCell>
                   <TableCell className="text-right"><PermanentDeleteButton kind="document" id={d.id} name={d.name} /></TableCell>

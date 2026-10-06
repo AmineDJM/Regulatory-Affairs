@@ -105,10 +105,10 @@ export function CommandPalette({ navItems }: { navItems: NavItem[] }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 p-4 pt-[12vh]" onClick={() => setOpen(false)}>
+    <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 p-3 pt-[8vh] sm:p-4 sm:pt-[12vh]" onClick={() => setOpen(false)}>
       <div className="w-full max-w-xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-border px-3">
-          <Search className="h-4 w-4 text-muted-foreground" />
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
             ref={inputRef}
             value={query}
@@ -121,7 +121,7 @@ export function CommandPalette({ navItems }: { navItems: NavItem[] }) {
           <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-[0.625rem] text-muted-foreground sm:block">Esc</kbd>
         </div>
 
-        <div className="max-h-[55vh] overflow-y-auto p-2">
+        <div className="max-h-[60dvh] overflow-y-auto p-2 sm:max-h-[55vh]">
           {items.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">
               {query.trim().length < 2 ? "Tapez pour rechercher dans tout le logiciel." : "Aucun résultat."}
@@ -129,7 +129,7 @@ export function CommandPalette({ navItems }: { navItems: NavItem[] }) {
           ) : (
             [...groups.entries()].map(([group, gItems]) => (
               <div key={group} className="mb-1">
-                <p className="px-2 py-1 text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground">{group}</p>
+                <p className="px-2 py-1 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">{group}</p>
                 {gItems.map((item) => {
                   idx++;
                   const i = idx;

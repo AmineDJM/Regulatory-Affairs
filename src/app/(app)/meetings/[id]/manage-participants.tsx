@@ -63,8 +63,8 @@ export function ManageParticipants({
                 {participants.map((p) => (
                   <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-1.5 text-sm">
                     <span className="min-w-0 truncate">{p.name}</span>
-                    <button type="button" onClick={() => remove(p.id)} disabled={busy} title="Retirer"
-                      className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                    <button type="button" onClick={() => remove(p.id)} disabled={busy} title="Retirer" aria-label="Retirer"
+                      className="-mr-1.5 shrink-0 rounded-md p-2 text-muted-foreground sm:mr-0 sm:p-1 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
                       <X className="h-4 w-4" />
                     </button>
                   </li>
@@ -77,19 +77,19 @@ export function ManageParticipants({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ajouter des participants</p>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher une personne…" className="pl-8" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} type="search" placeholder="Rechercher une personne…" className="pl-8" />
             </div>
-            <div className="max-h-64 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1">
+            <div className="max-h-[40dvh] space-y-0.5 overflow-y-auto rounded-lg border border-border p-1 sm:max-h-64">
               {addable.length === 0 ? (
                 <p className="px-2 py-4 text-center text-sm text-muted-foreground">Personne à ajouter.</p>
               ) : addable.map((u) => (
-                <label key={u.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-secondary/50">
+                <label key={u.id} className="flex items-center gap-2 rounded-md px-2 py-2.5 text-sm hover:bg-secondary/50 sm:py-1.5">
                   <input type="checkbox" checked={pick.has(u.id)} onChange={() => toggle(u.id)} className="h-4 w-4 rounded border-input" />
                   {u.name}
                 </label>
               ))}
             </div>
-            <Button size="sm" onClick={addSelected} disabled={busy || pick.size === 0}>
+            <Button size="sm" onClick={addSelected} disabled={busy || pick.size === 0} className="w-full sm:w-auto">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Ajouter{pick.size > 0 ? ` (${pick.size})` : ""}
             </Button>
           </div>

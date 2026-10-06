@@ -59,11 +59,11 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName 
   return (
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-2">
-        <CardTitle>{titre}</CardTitle>
+        <CardTitle className="min-w-0 [overflow-wrap:anywhere]">{titre}</CardTitle>
         {pieces.peutDeposer && (
           <button
             type="button" onClick={() => setOuvert((v) => !v)} aria-expanded={ouvert}
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+            className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs sm:min-h-0 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
           >
             {ouvert ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />} {ouvert ? "Fermer" : "Pièce jointe"}
           </button>

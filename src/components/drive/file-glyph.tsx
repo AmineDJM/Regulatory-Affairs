@@ -58,7 +58,7 @@ export function FileGlyph({ name, isFile, size = "sm", className }: FileGlyphPro
         <span className={cn("flex h-12 w-12 items-center justify-center rounded-xl", bg)}>
           <Glyph className={cn("h-7 w-7", fg)} />
         </span>
-        {badge && <span className={cn("text-[0.5625rem] font-semibold uppercase tracking-wide", fg)}>{badge}</span>}
+        {badge && <span className={cn("text-[0.6875rem] font-semibold sm:text-[0.5625rem] uppercase tracking-wide", fg)}>{badge}</span>}
       </span>
     );
   }

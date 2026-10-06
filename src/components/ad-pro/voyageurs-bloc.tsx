@@ -133,11 +133,11 @@ export function BlocVoyageurs({
             id={`motif-resa-${itemId}`} value={motifRetrait} onChange={(e) => setMotifRetrait(e.target.value)} rows={2}
             className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs"
           />
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" size="sm" variant="destructive" disabled={busy !== null || motifRetrait.trim() === ""}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button type="submit" size="sm" variant="destructive" className="h-10 w-full sm:h-8 sm:w-auto" disabled={busy !== null || motifRetrait.trim() === ""}>
               {busy === `resa-retrait:${itemId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Retirer la demande
             </Button>
-            <Button type="button" size="sm" variant="ghost" disabled={busy !== null} onClick={() => setRetrait(false)}>Annuler</Button>
+            <Button type="button" size="sm" variant="ghost" className="h-10 w-full sm:h-8 sm:w-auto" disabled={busy !== null} onClick={() => setRetrait(false)}>Annuler</Button>
           </div>
         </form>
       )}
@@ -163,8 +163,8 @@ export function BlocVoyageurs({
             return (
               <li key={v.id} className="space-y-1.5 py-2" data-voyageur={nomComplet(v)}>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="font-medium text-foreground">{nomComplet(v)}</span>
-                  <span className="text-muted-foreground">
+                  <span className="min-w-0 font-medium text-foreground [overflow-wrap:anywhere]">{nomComplet(v)}</span>
+                  <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">
                     {TRAJET_LIBELLE[v.trajet]}
                     {!multi && (v.villeDepart || v.villeArrivee) ? ` · ${v.villeDepart ?? "?"} → ${v.villeArrivee ?? "?"}` : ""}
                     {multi ? ` · ${v.segments.length} étape${v.segments.length > 1 ? "s" : ""}` : ` · ${dates}`}
@@ -179,7 +179,7 @@ export function BlocVoyageurs({
                     </span>
                   )}
                   {peutEditer && (
-                    <span className="ml-auto inline-flex items-center gap-1">
+                    <span className="ml-auto inline-flex flex-wrap items-center justify-end gap-1">
                       {geste === "PASSEPORT" && (
                         <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => basculer(v.id, "PASSEPORT")}>
                           <Upload className="h-3.5 w-3.5" /> Joindre le passeport
@@ -205,7 +205,7 @@ export function BlocVoyageurs({
                       )}
                       <button
                         type="button" onClick={() => basculer(v.id, "MENU")} disabled={busy !== null}
-                        className="inline-flex items-center rounded px-1.5 py-1 text-muted-foreground hover:bg-secondary"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded text-muted-foreground hover:bg-secondary sm:h-auto sm:w-auto sm:px-1.5 sm:py-1"
                         aria-label={`Autres actions pour ${nomComplet(v)}`} aria-expanded={mode === "MENU"}
                       >
                         <MoreHorizontal className="h-3.5 w-3.5" />
@@ -247,7 +247,7 @@ export function BlocVoyageurs({
                 {((passeport || v.autresDocuments.length > 0) && (mode === "PASSEPORT" || mode === "MENU")) && (
                   <div className="space-y-0.5">
                     {v.passeports.map((p) => (
-                      <div key={p.id} className="flex items-center gap-1.5">
+                      <div key={p.id} className="flex min-w-0 flex-wrap items-center gap-1.5">
                         <span className="text-[0.6875rem] text-muted-foreground">Passeport</span>
                         <DocumentPreview id={p.id} name={p.name} hasFile={p.hasFile} canDelete={peutEditer} />
                       </div>
@@ -262,7 +262,7 @@ export function BlocVoyageurs({
                       {passeport ? " (pour remplacer le passeport : joignez le nouveau, puis retirez l'ancien ci-dessus)" : ""}
                     </p>
                     <DocumentUpload entityType="AD_PRO_ITEM" entityId={itemId} categories={["ID_DOCUMENT", "SUPPORTING_DOC", "OTHER"]} stepKey={v.id} compact />
-                    <button type="button" onClick={fermer} className="mt-1 text-[0.6875rem] text-muted-foreground hover:text-foreground">Fermer</button>
+                    <button type="button" onClick={fermer} className="mt-1 min-h-9 px-1 text-[0.6875rem] text-muted-foreground hover:text-foreground sm:min-h-0 sm:px-0">Fermer</button>
                   </div>
                 )}
 
@@ -273,7 +273,7 @@ export function BlocVoyageurs({
                       <li key={d.id} className={`flex flex-wrap items-center gap-2 ${d.annule || (retenu && !d.retenu) ? "text-muted-foreground" : ""}`}>
                         {d.fichier
                           ? <DocumentPreview id={d.fichier.id} name={d.reference ?? d.titre} hasFile={d.fichier.hasFile} />
-                          : <span>{d.reference ?? d.titre}</span>}
+                          : <span className="min-w-0 [overflow-wrap:anywhere]">{d.reference ?? d.titre}</span>}
                         {d.montant != null && <span>{dzd(d.montant)}</span>}
                         {d.annule ? <span>annulé</span> : d.retenu ? <span className="text-success">retenu</span> : retenu ? <span>écarté</span> : null}
                         {peutEditer && !d.annule && !d.retenu && (mode === "CHOIX") && (
@@ -345,13 +345,13 @@ export function BlocVoyageurs({
             />
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setAjout(true)} disabled={busy !== null}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Button size="sm" variant="outline" className="h-10 w-full sm:h-8 sm:w-auto" onClick={() => setAjout(true)} disabled={busy !== null}>
               <Plus className="h-4 w-4" /> Ajouter un voyageur
             </Button>
             {voyageurs.length > 0 && peutReserver && (
               <Button
-                size="sm" variant="outline" disabled={busy !== null}
+                size="sm" variant="outline" className="w-full sm:w-auto" disabled={busy !== null}
                 onClick={() => {
                   const fd = new FormData();
                   fd.set("id", itemId);
@@ -363,7 +363,7 @@ export function BlocVoyageurs({
               </Button>
             )}
             {reservation && peutEditer && !reservation.refusRetrait && !retrait && (
-              <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setRetrait(true)}>
+              <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled={busy !== null} onClick={() => setRetrait(true)}>
                 Retirer la demande de réservation
               </Button>
             )}
@@ -373,14 +373,14 @@ export function BlocVoyageurs({
                   <select
                     value={assistanteId} onChange={(e) => setAssistanteId(e.target.value)}
                     aria-label="Assistante qui établira le bon de commande"
-                    className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
+                    className="w-full rounded-lg border border-border bg-background px-2 py-2 text-xs sm:w-auto sm:py-1"
                   >
                     <option value="">Assistante qui établit le BC…</option>
                     {assistantes.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 )}
                 <Button
-                  size="sm" disabled={busy !== null || (assistantes.length > 1 && !assistanteId)}
+                  size="sm" className="w-full sm:w-auto" disabled={busy !== null || (assistantes.length > 1 && !assistanteId)}
                   onClick={() => {
                     const fd = new FormData();
                     fd.set("id", itemId);
@@ -414,7 +414,7 @@ function MenuItem({ children, onClick, danger }: { children: React.ReactNode; on
   return (
     <button
       type="button" role="menuitem" onClick={onClick}
-      className={`rounded px-2 py-1 text-[0.6875rem] font-medium hover:bg-secondary ${danger ? "text-destructive" : "text-foreground"}`}
+      className={`min-h-9 rounded px-3 py-2 text-[0.6875rem] font-medium hover:bg-secondary sm:min-h-0 sm:px-2 sm:py-1 ${danger ? "text-destructive" : "text-foreground"}`}
     >
       {children}
     </button>
@@ -435,17 +435,17 @@ function FormulaireDevis({ nom, busy, onSubmit, onCancel }: { nom: string; busy:
         </label>
         <label className="text-xs">
           Montant (DZD)
-          <input name="montant" type="number" min="0" step="0.01" className={champ} />
+          <input name="montant" type="number" inputMode="decimal" min="0" step="0.01" className={champ} />
         </label>
-        <label className="flex items-center gap-2 self-end pb-1.5 text-xs">
-          <input name="proforma" type="checkbox" /> C&apos;est une facture pro forma
+        <label className="flex min-h-9 items-center gap-2 self-end pb-1.5 text-xs">
+          <input name="proforma" type="checkbox" className="shrink-0 max-sm:h-5 max-sm:w-5" /> C&apos;est une facture pro forma
         </label>
       </div>
-      <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={busy}>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button size="sm" type="submit" disabled={busy} className="h-10 w-full sm:h-8 sm:w-auto">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Déposer
         </Button>
-        <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+        <Button size="sm" type="button" variant="outline" onClick={onCancel} className="h-10 w-full sm:h-8 sm:w-auto">Annuler</Button>
       </div>
     </form>
   );
@@ -550,7 +550,7 @@ function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCa
           {TRAJETS_CHOIX.map(({ t, libelle: l }) => (
             <button
               key={t} type="button" role="radio" aria-checked={trajet === t} onClick={() => choisirTrajet(t)}
-              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${trajet === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              className={`min-h-9 rounded-md px-3 py-1.5 font-medium transition-colors sm:min-h-0 ${trajet === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
             >
               {l}
             </button>
@@ -572,7 +572,7 @@ function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCa
               <div className="mb-1 flex items-center gap-2 text-[0.6875rem] font-medium text-muted-foreground">
                 <span className="flex-1">{multi ? `Étape ${i + 1}` : trajet === "ALLER_RETOUR" ? "Aller (le retour suit le même chemin)" : "Aller"}</span>
                 {multi && etapes.length > 1 && (
-                  <button type="button" onClick={() => retirerEtape(i)} aria-label={`Retirer l'étape ${i + 1}`} className="rounded p-1 hover:bg-secondary">
+                  <button type="button" onClick={() => retirerEtape(i)} aria-label={`Retirer l'étape ${i + 1}`} className="inline-flex h-9 w-9 items-center justify-center rounded hover:bg-secondary sm:h-auto sm:w-auto sm:p-1">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -600,7 +600,7 @@ function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCa
               )}
               <button
                 type="button" onClick={() => insererApres(i)} disabled={etapes.length >= ETAPES_MAX}
-                className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-40"
+                className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-1 rounded-md border border-dashed border-primary/40 px-3 text-xs font-medium text-primary hover:underline disabled:opacity-40 sm:mt-1.5 sm:min-h-0 sm:w-auto sm:justify-start sm:border-0 sm:px-0"
                 aria-label={`Ajouter une destination après ${e.vers || `l'étape ${i + 1}`}`}
               >
                 <Plus className="h-3.5 w-3.5" /> Destination suivante{e.vers ? ` depuis ${e.vers}` : ""}
@@ -635,11 +635,11 @@ function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCa
         Seul le nom est exigé : le prénom, les dates, le trajet et les documents peuvent venir plus tard.
         {defaut && !defaut.prenom ? " Le nom complet a été proposé coupé en prénom et nom : corrigez si besoin." : ""}
       </p>
-      <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={busy}>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button size="sm" type="submit" disabled={busy} className="h-10 w-full sm:h-8 sm:w-auto">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} {libelle}
         </Button>
-        <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+        <Button size="sm" type="button" variant="outline" onClick={onCancel} className="h-10 w-full sm:h-8 sm:w-auto">Annuler</Button>
       </div>
     </form>
   );

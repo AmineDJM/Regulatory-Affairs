@@ -12,6 +12,7 @@ import { dossierReceivedLabel, dossierReceivedOptions, DOSSIER_RECEIVED_HINT, DO
 import { setFocusMode, useFocusState } from "@/components/layout/focus-mode";
 import { PartagerButton } from "@/components/shared/partager-button";
 import { COLONNES_REGULATORY, colonnesVisibles, type CleColonneRegulatory } from "@/lib/vues/colonnes-regulatory";
+import { Table } from "@/components/ui/table";
 
 export interface RegulatoryRow {
   id: string;
@@ -438,6 +439,21 @@ export function RegulatoryTable({
     router.refresh();
   }
 
+  /** Le filtre d'une colonne — rendu dans l'en-tête au bureau, dans le panneau « Filtrer » au téléphone. */
+  function filterControl(c: Col, size: string): React.ReactNode {
+    const opts = optsFor(c);
+    return opts ? (
+      <select value={filters[c.key] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, [c.key]: e.target.value }))}
+        className={`${size} rounded border border-input bg-background px-1 text-xs font-normal normal-case tracking-normal text-foreground`}>
+        <option value="">Tous</option>
+        {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    ) : (
+      <input value={filters[c.key] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, [c.key]: e.target.value }))} placeholder="Filtrer…"
+        className={`${size} rounded border border-input bg-background px-1.5 text-xs font-normal normal-case tracking-normal text-foreground`} />
+    );
+  }
+
   /** Cellule d'une ligne pour une colonne — même rendu qu'avant, mais pilotable colonne par colonne. */
   function cellFor(key: string, r: RegulatoryRow): React.ReactNode {
     switch (key) {
@@ -456,7 +472,7 @@ export function RegulatoryTable({
                   disabled={busyId === r.id}
                   title={r.isLocked ? "Verrouillé — invisible pour l'équipe. Cliquer pour ouvrir." : "Visible par l'équipe. Cliquer pour verrouiller."}
                   aria-label={r.isLocked ? "Déverrouiller le dossier" : "Verrouiller le dossier"}
-                  className={`rounded p-0.5 ${r.isLocked ? "text-warning hover:bg-warning/10" : "text-muted-foreground/40 hover:bg-secondary hover:text-foreground"}`}
+                  className={`rounded p-2.5 sm:p-0.5 ${r.isLocked ? "text-warning hover:bg-warning/10" : "text-muted-foreground/40 hover:bg-secondary hover:text-foreground"}`}
                 >
                   {r.isLocked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
                 </button>
@@ -474,7 +490,8 @@ export function RegulatoryTable({
           </td>
         );
       case "dci":
-        return <td key={key} className="px-3 py-2"><p className="font-medium">{r.dci}</p>{r.brandName && <p className="text-xs text-muted-foreground">{r.brandName}</p>}</td>;
+        // Une seule enveloppe : en carte mobile, la cellule est une rangée flex (intitulé | valeur).
+        return <td key={key} className="px-3 py-2"><div><p className="font-medium">{r.dci}</p>{r.brandName && <p className="text-xs text-muted-foreground">{r.brandName}</p>}</div></td>;
       case "dosage":
         return <td key={key} className="px-3 py-2 text-muted-foreground">{[r.dosage, r.form].filter(Boolean).join(" · ") || "—"}</td>;
       case "packaging":
@@ -490,7 +507,7 @@ export function RegulatoryTable({
                 onChange={(e) => changeClassification(r.id, { companyId: e.target.value })}
                 disabled={busyId === r.id}
                 aria-label="Entité du dossier"
-                className={`h-7 max-w-[10rem] rounded border px-1 text-xs ${r.companyId ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
+                className={`h-9 max-w-[10rem] rounded border px-1 text-xs sm:h-7 ${r.companyId ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
               >
                 <option value="">— Sans entité —</option>
                 {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -510,7 +527,7 @@ export function RegulatoryTable({
                 onChange={(e) => changeClassification(r.id, { bdProjectId: e.target.value })}
                 disabled={busyId === r.id}
                 aria-label="Projet BD du dossier"
-                className="h-7 max-w-[11rem] rounded border border-input bg-background px-1 text-xs"
+                className="h-9 max-w-[11rem] rounded border border-input bg-background px-1 text-xs sm:h-7"
               >
                 <option value="">— Sans projet —</option>
                 {projects.map((pr) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
@@ -545,7 +562,7 @@ export function RegulatoryTable({
             {canEditPriority ? (
               <span className="inline-flex items-center gap-1">
                 <select value={r.priority} onChange={(e) => changePriority(r.id, e.target.value)} disabled={busyId === r.id}
-                  className={`h-7 rounded border px-1 text-xs font-medium ${PRIORITY_CLASS[r.priority] ?? "border-input bg-background"}`}>
+                  className={`h-9 rounded border px-1 text-xs font-medium sm:h-7 ${PRIORITY_CLASS[r.priority] ?? "border-input bg-background"}`}>
                   {PRIORITY_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 {busyId === r.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
@@ -568,7 +585,7 @@ export function RegulatoryTable({
                   onChange={(e) => changeResponsible(r.id, e.target.value)}
                   disabled={busyId === r.id}
                   aria-label="Personne chargée du dossier"
-                  className={`h-7 max-w-[11rem] rounded border px-1 text-xs ${r.responsibleId ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
+                  className={`h-9 max-w-[11rem] rounded border px-1 text-xs sm:h-7 ${r.responsibleId ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
                 >
                   <option value="">— Non attribué —</option>
                   {assignableUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -662,7 +679,7 @@ export function RegulatoryTable({
               Exporter ({filtered.length})
             </button>
             {askExport && crossExport && (
-              <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-border bg-popover p-3 shadow-md">
+              <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-border bg-popover p-3 shadow-md max-sm:fixed max-sm:inset-x-3 max-sm:w-auto">
                 <p className="text-xs font-medium">Que faut-il exporter ?</p>
                 <div className="mt-2 space-y-1.5">
                   <button
@@ -693,7 +710,7 @@ export function RegulatoryTable({
               <Columns3 className="h-3.5 w-3.5" /> Colonnes{hiddenCols.length > 0 ? ` (${hiddenCols.length} masquée·s)` : ""}
             </button>
             {colsOpen && (
-              <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-border bg-popover p-2 shadow-md">
+              <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-border bg-popover p-2 shadow-md max-sm:fixed max-sm:inset-x-3 max-sm:w-auto">
                 <p className="px-1 pb-1.5 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Colonnes affichées</p>
                 <ul className="max-h-72 space-y-0.5 overflow-y-auto">
                   {colsDuTableau.map((c) => {
@@ -701,7 +718,7 @@ export function RegulatoryTable({
                     const lastVisible = visible && visibleCols.length === 1;
                     return (
                       <li key={c.key}>
-                        <label className={`flex items-center gap-2 rounded px-1.5 py-1 text-sm ${lastVisible ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-secondary"}`}>
+                        <label className={`flex items-center gap-2 rounded px-1.5 py-2 text-sm sm:py-1 ${lastVisible ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-secondary"}`}>
                           <input type="checkbox" checked={visible} disabled={lastVisible} onChange={() => toggleCol(c.key)} className="h-3.5 w-3.5" />
                           {c.header}
                         </label>
@@ -747,8 +764,25 @@ export function RegulatoryTable({
         <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{assignError}</p>
       )}
 
-      <div className="surface overflow-x-auto">
-        <table className="w-full min-w-[960px] text-sm">
+      {/* AU TÉLÉPHONE, chaque dossier devient une carte et l'en-tête disparaît — avec lui la
+          ligne de filtres. On la rend donc ici, en liste, branchée sur les MÊMES filtres. */}
+      <details className="rounded-xl border border-border bg-card sm:hidden">
+        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2.5 text-sm font-medium">
+          <Filter className="h-4 w-4 text-muted-foreground" /> Filtrer les colonnes
+          {anyFilter && <span className="ml-auto rounded-full bg-primary/10 px-2 text-xs text-primary">actifs</span>}
+        </summary>
+        <div className="grid grid-cols-1 gap-2 border-t border-border p-3">
+          {visibleCols.filter((c) => c.key !== "targetDate" && c.key !== "targetSubmissionDate").map((c) => (
+            <label key={c.key} className="grid gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {c.header}
+              {filterControl(c, "h-10 w-full")}
+            </label>
+          ))}
+        </div>
+      </details>
+
+      <div className="sm:surface">
+        <Table mobileCards className="sm:min-w-[960px]">
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
               {visibleCols.map((c) => <th key={c.key} className="whitespace-nowrap px-3 py-2 font-medium">{c.header}</th>)}
@@ -757,30 +791,21 @@ export function RegulatoryTable({
             <tr className="border-b border-border">
               {visibleCols.map((c) => (
                 <th key={c.key} className="px-2 py-1.5">
-                  {(c.key === "targetDate" || c.key === "targetSubmissionDate") ? null : optsFor(c) ? (
-                    <select value={filters[c.key] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, [c.key]: e.target.value }))}
-                      className="h-7 w-full rounded border border-input bg-background px-1 text-xs font-normal normal-case">
-                      <option value="">Tous</option>
-                      {optsFor(c)!.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  ) : (
-                    <input value={filters[c.key] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, [c.key]: e.target.value }))} placeholder="Filtrer…"
-                      className="h-7 w-full rounded border border-input bg-background px-1.5 text-xs font-normal normal-case" />
-                  )}
+                  {(c.key === "targetDate" || c.key === "targetSubmissionDate") ? null : filterControl(c, "h-7 w-full")}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={visibleCols.length} className="px-3 py-8 text-center text-muted-foreground">Aucun dossier dans cette catégorie{anyFilter ? " (avec ces filtres)" : ""}.</td></tr>
+              <tr><td colSpan={visibleCols.length} data-sans-etiquette className="px-3 py-8 text-center text-muted-foreground">Aucun dossier dans cette catégorie{anyFilter ? " (avec ces filtres)" : ""}.</td></tr>
             ) : filtered.map((r) => (
               <tr key={r.id} onClick={() => router.push(`/regulatory/${r.id}`)} className="cursor-pointer border-b border-border/60 hover:bg-secondary/40">
                 {visibleCols.map((c) => cellFor(c.key, r))}
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </div>
     </div>
   );
@@ -847,16 +872,17 @@ function SegmentPicker({
       <button
         type="button" disabled={busy} onClick={() => setOpen((v) => !v)}
         title={selected.join(", ")}
-        className={`h-7 max-w-[12rem] truncate rounded border px-1.5 text-xs ${selected.length > 0 ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
+        className={`h-9 max-w-[12rem] truncate rounded border px-1.5 text-xs sm:h-7 ${selected.length > 0 ? "border-input bg-background" : "border-warning/50 bg-warning/5 text-muted-foreground"}`}
       >
         {busy ? "…" : label}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-64 overflow-y-auto rounded-xl border border-border bg-popover p-1.5 shadow-xl">
+          {/* En carte mobile, le bouton est rangé à droite : le panneau s'ouvre vers la gauche. */}
+          <div className="absolute right-0 top-full z-20 mt-1 max-h-64 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-left shadow-xl sm:left-0 sm:right-auto">
             {options.map((seg) => (
-              <label key={seg} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-secondary">
+              <label key={seg} className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-xs hover:bg-secondary sm:py-1">
                 <input
                   type="checkbox" className="h-3.5 w-3.5 rounded border-input"
                   checked={selected.includes(seg)}

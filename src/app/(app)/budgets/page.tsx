@@ -77,7 +77,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
       <PageHeader title="Budgets" description="Où en est votre budget, en un coup d'œil.">
         <a
           href={`/api/budgets/export?env=${overview.envelope.id}&from=${overview.period.from.slice(0, 10)}&to=${overview.period.to.slice(0, 10)}`}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium transition-colors hover:bg-secondary"
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-secondary sm:min-h-0 sm:px-2.5"
           title="Exporter en Excel"
         >
           <Download className="h-4 w-4" /> Excel
@@ -94,13 +94,13 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
         lorsqu'il n'y a qu'une seule enveloppe — le jour où une deuxième apparaît, le total
         change tout seul, sans que l'écran change de forme.
       */}
-      <section className="surface p-5">
+      <section className="surface p-4 sm:p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
           <div>
             <p className="text-sm text-muted-foreground">
               Budget global — {grandTotal.count} enveloppe{grandTotal.count > 1 ? "s" : ""}
             </p>
-            <p className="mt-1 text-3xl font-semibold tracking-tight">{formatCurrency(grandTotal.total)}</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">{formatCurrency(grandTotal.total)}</p>
           </div>
           <p className="text-sm text-muted-foreground">
             Consommé <strong className="text-foreground tabular-nums">{formatCurrency(grandTotal.consumed)}</strong> ({gPct} %) ·
@@ -124,7 +124,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
                       {e.name}
                       {!e.isActive && <span className="ml-2 text-xs font-normal text-muted-foreground">(clôturée)</span>}
                     </span>
-                    <span className="tabular-nums text-muted-foreground">{formatCurrency(e.consumed)} / {formatCurrency(e.total)}</span>
+                    <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatCurrency(e.consumed)} / {formatCurrency(e.total)}</span>
                     <span className={`w-12 shrink-0 text-right tabular-nums ${e.remaining < 0 ? "text-destructive" : "text-muted-foreground"}`}>{pct} %</span>
                   </Link>
                 </li>
@@ -137,15 +137,15 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
       <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
 
       {/* LE chiffre : ce qui reste. Puis la jauge, puis les deux montants de contexte. */}
-      <section className="surface p-5">
+      <section className="surface p-4 sm:p-5">
         <p className="text-sm text-muted-foreground">Il vous reste</p>
-        <p className={`mt-1 text-4xl font-semibold tracking-tight sm:text-5xl ${t.remaining < 0 ? "text-destructive" : ""}`}>
+        <p className={`mt-1 text-3xl font-semibold tracking-tight tabular-nums [overflow-wrap:anywhere] sm:text-5xl ${t.remaining < 0 ? "text-destructive" : ""}`}>
           {formatCurrency(t.remaining)}
         </p>
         <div className="mt-4 max-w-xl">
           <Meter value={t.consumed} limit={t.total} format={formatCurrency} />
         </div>
-        <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2 border-t border-border pt-3 text-sm">
+        <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t sm:gap-x-8 border-border pt-3 text-sm">
           <div>
             <dt className="text-xs text-muted-foreground">Budget de l&apos;enveloppe</dt>
             <dd className="font-medium tabular-nums">{formatCurrency(t.total)}</dd>
@@ -173,11 +173,11 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
       {overview.unattributed.total > 0 && (
         <Link
           href={`/budgets/depenses?env=${overview.envelope.id}`}
-          className="flex items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm transition hover:bg-warning/10"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-3 text-sm transition hover:bg-warning/10 sm:px-4"
         >
           <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
-          <span className="flex-1">
-            <strong>{formatCurrency(overview.unattributed.total)}</strong> de dépenses ne sont rattachées à aucune catégorie —
+          <span className="min-w-0 flex-1 basis-[14rem]">
+            <strong className="tabular-nums">{formatCurrency(overview.unattributed.total)}</strong> de dépenses ne sont rattachées à aucune catégorie —
             elles faussent la lecture ci-dessus.
           </span>
           <span className="inline-flex shrink-0 items-center gap-1 font-medium text-primary">Les imputer <ArrowRight className="h-3.5 w-3.5" /></span>
@@ -185,7 +185,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <section className="surface space-y-3 p-4">
+        <section className="surface space-y-3 p-3 sm:p-4">
           <h2 className="text-sm font-semibold">Comment le budget est réparti</h2>
           {allocSlices.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
@@ -202,14 +202,14 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
           )}
         </section>
 
-        <section className="surface space-y-3 p-4">
+        <section className="surface space-y-3 p-3 sm:p-4">
           <h2 className="text-sm font-semibold">Consommation dans le temps</h2>
           <Trend points={trendPoints} format={formatCurrency} />
         </section>
       </div>
 
       {barRows.length > 0 && (
-        <section className="surface space-y-4 p-4">
+        <section className="surface space-y-4 p-3 sm:p-4">
           <h2 className="text-sm font-semibold">Où en est chaque catégorie</h2>
           <Bars rows={barRows} format={formatCurrency} />
         </section>
@@ -217,7 +217,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
 
       {/* Le poids relatif des enveloppes — les chiffres sont déjà en tête, ici c'est la forme. */}
       {envSlices.length > 0 && (
-        <section className="surface space-y-3 p-4">
+        <section className="surface space-y-3 p-3 sm:p-4">
           <h2 className="text-sm font-semibold">Répartition entre les enveloppes</h2>
           <Donut
             slices={envSlices}

@@ -97,7 +97,7 @@ export function MessagesManager({
             className={cn("flex flex-wrap items-start gap-2 rounded-xl border border-border px-3 py-2 text-sm", !m.isActive && "opacity-60")}
           >
             <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="min-w-0 flex-1">
+            <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
               <span className="font-medium">{m.title}</span>
               {m.body && <span className="block text-xs text-muted-foreground">{m.body}</span>}
               <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -114,14 +114,14 @@ export function MessagesManager({
               <span className="flex shrink-0 items-center gap-1">
                 <button
                   type="button" onClick={() => { setErr(null); setEditing(m); }} disabled={busy}
-                  className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  className="rounded-md p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"
                   aria-label={`Modifier ${m.title}`}
                 >
                   <Pencil className="h-4 w-4" />
                 </button>
                 <button
                   type="button" onClick={() => void remove(m)} disabled={busy}
-                  className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  className="rounded-md p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
                   aria-label={`Retirer ${m.title}`}
                 >
                   <Trash2 className="h-4 w-4" />
@@ -167,11 +167,11 @@ export function MessagesManager({
             </div>
             <div>
               <Label htmlFor="msg-order">Ordre d&apos;affichage</Label>
-              <Input id="msg-order" name="sortOrder" type="number" defaultValue={String(editing?.sortOrder ?? 0)} />
+              <Input id="msg-order" name="sortOrder" type="number" inputMode="numeric" defaultValue={String(editing?.sortOrder ?? 0)} />
             </div>
           </div>
           {editing && (
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex min-h-10 items-center gap-2 text-sm sm:min-h-0">
               {/* Le témoin caché fait qu'une case DÉCOCHÉE envoie « off » : sans lui, décocher
                   n'aurait aucun effet — un geste sans conséquence, en silence. */}
               <input type="hidden" name="isActive" value="off" />
@@ -180,7 +180,7 @@ export function MessagesManager({
             </label>
           )}
           {err && <p className="text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <Button type="button" variant="ghost" onClick={() => { setCreating(false); setEditing(null); }} disabled={busy}>
               Annuler
             </Button>

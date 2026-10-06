@@ -25,7 +25,7 @@ function CancelButton({ id }: { id: string }) {
       <button
         type="submit"
         disabled={saving}
-        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
       >
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} Annuler
       </button>
@@ -39,7 +39,7 @@ export function MyAdvances({ advances }: { advances: AdvanceItem[] }) {
   }
   return (
     <div className="surface overflow-hidden">
-      <Table>
+      <Table mobileCards>
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>
@@ -54,7 +54,7 @@ export function MyAdvances({ advances }: { advances: AdvanceItem[] }) {
             <TableRow key={a.id}>
               <TableCell>{formatDate(a.createdAt)}</TableCell>
               <TableCell className="text-right font-semibold">{formatCurrency(a.amount)}</TableCell>
-              <TableCell className="max-w-[220px] truncate text-muted-foreground">{a.reason || "—"}</TableCell>
+              <TableCell className="break-words text-muted-foreground sm:max-w-[220px] sm:truncate">{a.reason || "—"}</TableCell>
               <TableCell><StatusBadge map={ADVANCE_STATUS} value={a.status} /></TableCell>
               <TableCell className="text-right">{a.status === "PENDING" ? <CancelButton id={a.id} /> : <span className="text-muted-foreground">—</span>}</TableCell>
             </TableRow>

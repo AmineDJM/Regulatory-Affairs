@@ -4,6 +4,7 @@ import * as React from "react";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn, formatCurrency } from "@/lib/utils";
 import { GENRE_ALERTE_LABEL, STATUT_REFONTE_LABEL, peutDeciderRefonte, type GenreAlerte } from "@/lib/promo/comptages";
 import { FAMILLE_LABEL } from "@/lib/promo/catalogue";
@@ -63,9 +64,9 @@ export function VueTableau({ ctx }: { ctx: Ctx }) {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {t.parFamille.map((p) => (
-          <div key={p.famille} className="surface flex items-center justify-between gap-3 p-3 text-sm">
+          <div key={p.famille} className="surface flex flex-wrap items-center justify-between gap-x-3 gap-y-1 p-3 text-sm">
             <span className="font-medium text-foreground">{FAMILLE_LABEL[p.famille]}s</span>
-            <span className="text-right tabular-nums text-muted-foreground">
+            <span className="min-w-0 text-right tabular-nums text-muted-foreground">
               {nombre(p.unites)} unité(s) · <span className="font-semibold text-foreground">{formatCurrency(p.valeur)}</span>
             </span>
           </div>
@@ -86,7 +87,7 @@ export function VueTableau({ ctx }: { ctx: Ctx }) {
                     <Badge tone={TON_GENRE[a.genre]} className="shrink-0">{GENRE_ALERTE_LABEL[a.genre]}</Badge>
                     <span className="min-w-0 break-words">{a.texte}</span>
                   </span>
-                  <a href={a.lien} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
+                  <a href={a.lien} className="inline-flex min-h-9 shrink-0 items-center gap-1 self-start text-xs font-medium text-primary hover:underline sm:min-h-0 sm:self-auto">
                     Ouvrir <ExternalLink className="h-3 w-3" aria-hidden />
                   </a>
                 </li>
@@ -142,24 +143,22 @@ export function VueTableau({ ctx }: { ctx: Ctx }) {
 
 function TableArticles({ lignes, entetes }: { lignes: { id: string; libelle: string; colonnes: string[] }[]; entetes: string[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[420px] text-sm">
-        <thead className="text-left text-xs text-muted-foreground">
-          <tr>
-            <th className="py-1 pr-2 font-medium">Article</th>
-            {entetes.map((e) => <th key={e} className="py-1 pr-2 text-right font-medium">{e}</th>)}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {lignes.map((l) => (
-            <tr key={l.id}>
-              <td className="py-1.5 pr-2">{l.libelle}</td>
-              {l.colonnes.map((c, i) => <td key={i} className="whitespace-nowrap py-1.5 pr-2 text-right tabular-nums">{c}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table mobileCards className="sm:min-w-[420px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Article</TableHead>
+          {entetes.map((e) => <TableHead key={e} className="text-right">{e}</TableHead>)}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {lignes.map((l) => (
+          <TableRow key={l.id}>
+            <TableCell data-sans-etiquette className="font-medium sm:py-1.5 sm:font-normal"><span className="w-full">{l.libelle}</span></TableCell>
+            {l.colonnes.map((c, i) => <TableCell key={i} className="whitespace-nowrap text-right tabular-nums sm:py-1.5">{c}</TableCell>)}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 

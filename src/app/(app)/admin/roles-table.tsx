@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Check } from "lucide-react";
 import { setSecondaryRole } from "@/lib/actions/admin-actions";
 import { Select } from "@/components/ui/input";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { ROLE_LABELS } from "@/lib/labels";
 
 export type RoleRowData = { id: string; name: string; email: string; role: string; secondaryRole: string | null };
@@ -18,20 +19,18 @@ const SECONDARY_OPTIONS = Object.entries(ROLE_LABELS).filter(([v]) => v !== "SUP
  */
 export function RolesTable({ users, canManage }: { users: RoleRowData[]; canManage: boolean }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th className="px-3 py-2 text-left font-medium">Utilisateur</th>
-            <th className="px-3 py-2 text-left font-medium">Rôle principal</th>
-            <th className="px-3 py-2 text-left font-medium">Autre rôle (fonction secondaire)</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {users.map((u) => <RoleRow key={u.id} u={u} canManage={canManage} />)}
-        </tbody>
-      </table>
-    </div>
+    <Table mobileCards className="max-sm:p-3">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Utilisateur</TableHead>
+          <TableHead>Rôle principal</TableHead>
+          <TableHead>Autre rôle (fonction secondaire)</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {users.map((u) => <RoleRow key={u.id} u={u} canManage={canManage} />)}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -56,18 +55,20 @@ function RoleRow({ u, canManage }: { u: RoleRowData; canManage: boolean }) {
   };
 
   return (
-    <tr>
-      <td className="px-3 py-2">
-        <p className="font-medium">{u.name}</p>
-        <p className="text-xs text-muted-foreground">{u.email}</p>
-      </td>
-      <td className="px-3 py-2">
+    <TableRow>
+      <TableCell data-sans-etiquette className="max-sm:!justify-start">
+        <div className="min-w-0 text-left">
+          <p className="font-medium">{u.name}</p>
+          <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{u.email}</p>
+        </div>
+      </TableCell>
+      <TableCell>
         <span className="inline-flex rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium">{ROLE_LABELS[u.role] ?? u.role}</span>
-      </td>
-      <td className="px-3 py-2">
+      </TableCell>
+      <TableCell label="Autre rôle">
         {canManage ? (
-          <div className="flex items-center gap-2">
-            <Select value={value} onChange={(e) => change(e.target.value)} disabled={busy} className="h-8 w-64 text-xs">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:justify-start">
+            <Select value={value} onChange={(e) => change(e.target.value)} disabled={busy} className="h-10 w-full max-w-[16rem] text-xs sm:h-8 sm:w-64">
               <option value="">— Aucun —</option>
               {SECONDARY_OPTIONS.map(([v, l]) => <option key={v} value={v} disabled={v === u.role}>{l}</option>)}
             </Select>
@@ -78,7 +79,7 @@ function RoleRow({ u, canManage }: { u: RoleRowData; canManage: boolean }) {
         ) : (
           <span className="text-xs text-muted-foreground">{u.secondaryRole ? (ROLE_LABELS[u.secondaryRole] ?? u.secondaryRole) : "—"}</span>
         )}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }

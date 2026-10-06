@@ -168,7 +168,7 @@ export function CarePanel({
               {/* Identité + avis + décision */}
               <div className="flex flex-wrap items-start gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium">{b.name}</p>
+                  <p className="font-medium [overflow-wrap:anywhere]">{b.name}</p>
                   {b.subtitle && <p className="text-xs text-muted-foreground">{b.subtitle}</p>}
                   {!b.fromDirectory && <p className="text-[0.6875rem] text-muted-foreground/80">Profil saisi — pas à l&apos;annuaire</p>}
                 </div>
@@ -189,7 +189,7 @@ export function CarePanel({
                         fd.set("opinion", o);
                         void run(`op:${b.id}`, () => setCareOpinion(undefined, fd), "Avis enregistré.");
                       }}
-                      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition ${
+                      className={`inline-flex min-h-9 items-center gap-1 rounded-lg border px-2.5 py-1 text-xs transition sm:min-h-0 sm:px-2 ${
                         b.requesterOpinion === o ? "border-primary bg-primary/10 font-medium text-foreground" : "border-border text-muted-foreground hover:bg-secondary"
                       }`}
                     >
@@ -250,7 +250,7 @@ export function CarePanel({
                           <Badge tone={c.kind === "DOCUMENT" ? "info" : "purple"} dot={false}>
                             {c.kind === "DOCUMENT" ? "Pièce" : SERVICE_KIND_LABELS[c.serviceKind ?? "OTHER"]}
                           </Badge>
-                          <span className="min-w-0 flex-1">{c.label}</span>
+                          <span className="min-w-0 basis-full [overflow-wrap:anywhere] sm:grow sm:basis-0">{c.label}</span>
                           {c.amountDzd != null && <span className="tabular-nums text-xs">{formatCurrency(c.amountDzd)}</span>}
                           <Badge tone={c.status === "SETTLED" ? "success" : c.status === "WAIVED" ? "neutral" : c.status === "PROVIDED" ? "info" : "warning"} dot={false}>
                             {CELL_STATUS_LABELS[c.status]}
@@ -271,7 +271,7 @@ export function CarePanel({
                                   void run(`pm:${c.id}`, () => linkCareCellPromoMaterial(undefined, fd), "Matériel rattaché.");
                                 }}
                                 aria-label={`Rattacher un matériel à « ${c.label} »`}
-                                className="rounded-lg border border-border bg-background px-1.5 py-1 text-[0.6875rem] outline-none focus:border-primary/60"
+                                className="min-h-9 max-w-full rounded-lg border border-border bg-background px-1.5 py-1 text-base outline-none focus:border-primary/60 sm:min-h-0 sm:text-[0.6875rem]"
                               >
                                 <option value="">Rattacher un matériel…</option>
                                 {promoOptions.map((p) => <option key={p.id} value={p.id}>{p.reference} — {p.title}</option>)}
@@ -289,7 +289,7 @@ export function CarePanel({
                                   void run(`cs:${c.id}`, () => setCareCellStatus(undefined, fd), "État mis à jour.");
                                 }}
                                 aria-label={`État de « ${c.label} »`}
-                                className="rounded-lg border border-border bg-background px-1.5 py-1 text-[0.6875rem] outline-none focus:border-primary/60"
+                                className="min-h-9 rounded-lg border border-border bg-background px-1.5 py-1 text-base outline-none focus:border-primary/60 sm:min-h-0 sm:text-[0.6875rem]"
                               >
                                 {(["REQUESTED", "PROVIDED", "SETTLED", "WAIVED"] as CareCellStatus[]).map((s) => (
                                   <option key={s} value={s}>{CELL_STATUS_LABELS[s]}</option>
@@ -302,7 +302,7 @@ export function CarePanel({
                                   void run(`cd:${c.id}`, () => removeCareCell(undefined, fd), "Élément retiré.");
                                 }}
                                 aria-label={`Retirer « ${c.label} »`}
-                                className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:h-6 sm:w-6"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
@@ -324,7 +324,7 @@ export function CarePanel({
                     fd.set("id", b.id);
                     void run(`bd:${b.id}`, () => removeCareBeneficiary(undefined, fd), "Personne retirée.");
                   }}
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
+                  className="inline-flex min-h-9 items-center gap-1 text-xs text-muted-foreground hover:text-destructive sm:min-h-0"
                 >
                   <Trash2 className="h-3.5 w-3.5" /> Retirer
                 </button>
@@ -387,8 +387,8 @@ export function CarePanel({
               {quotes.map((q) => (
                 <li key={q.id} className="space-y-1 py-2.5 text-sm">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{q.supplier}</span>
-                    {q.reference && <span className="font-mono text-[0.6875rem] text-muted-foreground">{q.reference}</span>}
+                    <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{q.supplier}</span>
+                    {q.reference && <span className="min-w-0 font-mono text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere]">{q.reference}</span>}
                     <span className="tabular-nums">{formatCurrency(q.amountDzd)}</span>
                     <Badge tone={q.status === "ACCEPTED" ? "success" : q.status === "REJECTED" ? "danger" : "warning"} dot={false}>
                       {QUOTE_STATUS_LABELS[q.status]}
@@ -486,7 +486,7 @@ function AddBeneficiaryForm({ scope, requestId, directory, busy, onCancel, onSub
     listBeneficiaryRefs().then((r) => setRefs({ specialties: r.specialties, institutions: r.institutions })).catch(() => setRefs({ specialties: [], institutions: [] }));
   }, [mode, refs]);
   const filtres = filtrerAnnuaire(directory, q);
-  const champ = "mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60";
+  const champ = "mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm";
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }} className="space-y-2 rounded-xl border border-border p-3">
       <input type="hidden" name="scope" value={scope} />
@@ -497,7 +497,7 @@ function AddBeneficiaryForm({ scope, requestId, directory, busy, onCancel, onSub
         {(["directory", "new", "free"] as const).map((m) => (
           <button
             key={m} type="button" onClick={() => setMode(m)}
-            className={`rounded-lg border px-2.5 py-1 text-xs transition ${mode === m ? "border-primary bg-primary/10 font-medium" : "border-border text-muted-foreground hover:bg-secondary"}`}
+            className={`min-h-9 rounded-lg border px-2.5 py-1 text-xs transition sm:min-h-0 ${mode === m ? "border-primary bg-primary/10 font-medium" : "border-border text-muted-foreground hover:bg-secondary"}`}
           >
             {m === "directory" ? "Depuis l'annuaire" : m === "new" ? "Nouveau médecin" : "Personne libre"}
           </button>
@@ -545,11 +545,11 @@ function AddBeneficiaryForm({ scope, requestId, directory, busy, onCancel, onSub
       )}
       <label className="block text-xs">Qualité<input name="jobTitle" placeholder="Orateur, invité, chef de service…" className={champ} /></label>
 
-      <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={busy}>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button size="sm" type="submit" className="w-full sm:w-auto" disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} {mode === "new" ? "Créer et proposer" : "Proposer"}
         </Button>
-        <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+        <Button size="sm" type="button" variant="outline" className="w-full sm:w-auto" onClick={onCancel}>Annuler</Button>
       </div>
     </form>
   );
@@ -562,7 +562,7 @@ function AddCellForm({ beneficiaryId, busy, onSubmit }: { beneficiaryId: string;
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="mt-1.5 inline-flex items-center gap-1 rounded-lg border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:bg-secondary">
+      <button onClick={() => setOpen(true)} className="mt-1.5 inline-flex min-h-9 items-center gap-1 rounded-lg border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-secondary sm:min-h-0 sm:px-2">
         <Plus className="h-3.5 w-3.5" /> Ajouter un élément
       </button>
     );
@@ -577,7 +577,7 @@ function AddCellForm({ beneficiaryId, busy, onSubmit }: { beneficiaryId: string;
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="text-xs">
           Nature
-          <select name="kind" value={kind} onChange={(e) => setKind(e.target.value as CareCellKind)} className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary/60">
+          <select name="kind" value={kind} onChange={(e) => setKind(e.target.value as CareCellKind)} className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-base outline-none focus:border-primary/60 sm:text-sm">
             <option value="DOCUMENT">Pièce à fournir</option>
             <option value="SERVICE">Élément à acheter</option>
           </select>
@@ -585,19 +585,19 @@ function AddCellForm({ beneficiaryId, busy, onSubmit }: { beneficiaryId: string;
         {kind === "SERVICE" && (
           <label className="text-xs">
             Type
-            <select name="serviceKind" className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary/60">
+            <select name="serviceKind" className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-base outline-none focus:border-primary/60 sm:text-sm">
               {SERVICE_KINDS.map((s) => <option key={s} value={s}>{SERVICE_KIND_LABELS[s]}</option>)}
             </select>
           </label>
         )}
         <label className={`text-xs ${kind === "SERVICE" ? "" : "sm:col-span-2"}`}>
           Libellé
-          <input name="label" required placeholder={kind === "DOCUMENT" ? "Copie du visa" : "Hôtel 3 nuits"} className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary/60" />
+          <input name="label" required placeholder={kind === "DOCUMENT" ? "Copie du visa" : "Hôtel 3 nuits"} className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-base outline-none focus:border-primary/60 sm:text-sm" />
         </label>
       </div>
-      <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter</Button>
-        <Button size="sm" type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button size="sm" type="submit" className="w-full sm:w-auto" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter</Button>
+        <Button size="sm" type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)}>Annuler</Button>
       </div>
     </form>
   );
@@ -613,9 +613,9 @@ function QuoteForm({ scope, requestId, cells, busy, onCancel, onSubmit }: {
       <input type="hidden" name="scope" value={scope} />
       <input type="hidden" name="requestId" value={requestId} />
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <label className="text-xs">Fournisseur<input name="supplier" required placeholder="Agence de voyage…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
-        <label className="text-xs">Référence<input name="reference" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
-        <label className="text-xs">Montant (DZD)<input name="amountDzd" type="number" min="0" step="0.01" required className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" /></label>
+        <label className="text-xs">Fournisseur<input name="supplier" required placeholder="Agence de voyage…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm" /></label>
+        <label className="text-xs">Référence<input name="reference" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm" /></label>
+        <label className="text-xs">Montant (DZD)<input name="amountDzd" type="number" inputMode="decimal" min="0" step="0.01" required className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base tabular-nums outline-none focus:border-primary/60 sm:text-sm" /></label>
       </div>
 
       <fieldset className="rounded-lg border border-border p-2">
@@ -625,19 +625,19 @@ function QuoteForm({ scope, requestId, cells, busy, onCancel, onSubmit }: {
         </p>
         <div className="max-h-40 space-y-1 overflow-y-auto">
           {cells.map((c) => (
-            <label key={c.id} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="cellIds" value={c.id} className="h-4 w-4" />
-              <span className="min-w-0 flex-1 truncate">{c.label} <span className="text-xs text-muted-foreground">— {c.who}</span></span>
+            <label key={c.id} className="flex min-h-9 cursor-pointer items-center gap-2 text-sm sm:min-h-0">
+              <input type="checkbox" name="cellIds" value={c.id} className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere] sm:truncate">{c.label} <span className="text-xs text-muted-foreground">— {c.who}</span></span>
             </label>
           ))}
         </div>
       </fieldset>
 
-      <label className="block text-xs">Note<input name="note" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
+      <label className="block text-xs">Note<input name="note" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm" /></label>
 
-      <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Enregistrer le devis</Button>
-        <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button size="sm" type="submit" className="w-full sm:w-auto" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Enregistrer le devis</Button>
+        <Button size="sm" type="button" variant="outline" className="w-full sm:w-auto" onClick={onCancel}>Annuler</Button>
       </div>
     </form>
   );
@@ -683,7 +683,7 @@ function PiecesDesProfessionnels({ scope, requestId, beneficiaries, canEdit, bus
       <ul className="divide-y divide-border rounded-xl border border-border">
         {lignes.map(({ b, pieces }) => (
           <li key={b.id} className="flex flex-col gap-1.5 px-2.5 py-2 text-sm sm:flex-row sm:items-start">
-            <span className="min-w-0 font-medium sm:w-48 sm:shrink-0">{b.name}</span>
+            <span className="min-w-0 font-medium [overflow-wrap:anywhere] sm:w-48 sm:shrink-0">{b.name}</span>
             <ul className="flex min-w-0 flex-1 flex-wrap gap-1.5">
               {pieces.map((p) => (
                 <li key={p.cellId ?? p.label} className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-border px-1.5 py-0.5 text-xs">
@@ -691,9 +691,9 @@ function PiecesDesProfessionnels({ scope, requestId, beneficiaries, canEdit, bus
                   <Badge tone={p.etat === "RECUE" ? "success" : p.etat === "SANS_OBJET" ? "neutral" : p.etat === "DEMANDEE" ? "warning" : "danger"} dot={false}>
                     {ETAT_PIECE_LABELS[p.etat]}
                   </Badge>
-                  {p.documentId && <a href={`/api/documents/${p.documentId}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">voir</a>}
+                  {p.documentId && <a href={`/api/documents/${p.documentId}`} target="_blank" rel="noreferrer" className="px-1 py-1.5 text-primary hover:underline sm:p-0">voir</a>}
                   {canEdit && p.cellId && (p.etat === "DEMANDEE" || p.etat === "RECUE") && (
-                    <label className="cursor-pointer text-primary hover:underline">
+                    <label className="cursor-pointer px-1 py-1.5 text-primary hover:underline sm:p-0">
                       {busy === `dep:${p.cellId}` ? "envoi…" : p.etat === "RECUE" ? "remplacer" : "déposer"}
                       <input
                         type="file" className="sr-only" aria-label={`Déposer « ${p.label} » de ${b.name}`}
@@ -720,7 +720,7 @@ function PiecesDesProfessionnels({ scope, requestId, beneficiaries, canEdit, bus
                         void run(`cs:${p.cellId}`, () => setCareCellStatus(undefined, fd), "État mis à jour.");
                       }}
                       aria-label={`Changer l'état de « ${p.label} » de ${b.name}`}
-                      className="rounded border border-border bg-background px-1 py-0.5 text-[0.6875rem] outline-none"
+                      className="min-h-8 rounded border border-border bg-background px-1 py-0.5 text-base outline-none sm:min-h-0 sm:text-[0.6875rem]"
                     >
                       <option value="">…</option>
                       {(["REQUESTED", "PROVIDED", "SETTLED", "WAIVED"] as CareCellStatus[]).map((s) => (
@@ -746,9 +746,9 @@ function StatusChip({ status }: { status: CareBeneficiaryStatus }) {
 function Figure({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "success" | "warning" }) {
   const cls = tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : "";
   return (
-    <div className="rounded-lg border border-border px-3 py-2">
+    <div className="min-w-0 rounded-lg border border-border px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
+      <p className={`mt-0.5 text-base font-semibold tabular-nums [overflow-wrap:anywhere] ${cls}`}>{value}</p>
       {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );

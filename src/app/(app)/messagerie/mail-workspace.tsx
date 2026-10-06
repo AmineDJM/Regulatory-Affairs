@@ -146,7 +146,9 @@ export function MailWorkspace({ address, signature }: Props) {
   };
 
   return (
-    <div className="flex h-[calc(100vh-9rem)] flex-col gap-3 lg:flex-row">
+    // Au téléphone et sur tablette, un seul volet à la fois, à la hauteur de son contenu (la page défile) ;
+    // les trois volets à hauteur fixe ne reviennent qu'à partir de `lg`.
+    <div className="flex flex-col gap-3 lg:h-[calc(100dvh-9rem)] lg:flex-row">
       {/* ── Volet 1 : dossiers ── */}
       <nav className={`surface w-full shrink-0 overflow-y-auto p-2 lg:block lg:w-56 ${pane === "folders" ? "block" : "hidden lg:block"}`}>
         <Button className="mb-2 w-full" onClick={() => setCompose({ mode: "new", draft: null })}>
@@ -161,7 +163,7 @@ export function MailWorkspace({ address, signature }: Props) {
                 <button
                   type="button"
                   onClick={() => { setFolderId(f.id); setPane("list"); setOpenMsg(null); setCursor(null); setNotice(null); }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors ${
+                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-2.5 text-sm transition-colors lg:py-2 ${
                     active ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-secondary"
                   }`}
                 >
@@ -177,21 +179,22 @@ export function MailWorkspace({ address, signature }: Props) {
 
       {/* ── Volet 2 : liste ── */}
       <section className={`surface flex min-w-0 flex-col lg:flex lg:w-96 ${pane === "list" ? "flex" : "hidden lg:flex"}`}>
-        <div className="flex items-center gap-2 border-b border-border p-2">
-          <button type="button" onClick={() => setPane("folders")} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary lg:hidden" aria-label="Dossiers">
-            <ChevronLeft className="h-4 w-4" />
+        <div className="sticky top-0 z-10 flex items-center gap-2 rounded-t-[var(--radius)] border-b border-border bg-card p-2 lg:static">
+          <button type="button" onClick={() => setPane("folders")} className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-secondary lg:hidden" aria-label="Dossiers">
+            <ChevronLeft className="h-5 w-5" />
           </button>
           <div className="relative min-w-0 flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query} onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && folderId) { setCursor(null); void loadList(folderId, query.trim()); } }}
-              placeholder="Rechercher…" className="pl-8"
+              placeholder="Rechercher…" className="pl-8 text-base lg:text-sm"
+              type="search" enterKeyHint="search"
             />
           </div>
           <button
             type="button" onClick={() => { if (folderId) { setCursor(null); void loadList(folderId, query.trim()); } void loadFolders(); }}
-            className="rounded-lg p-2 text-muted-foreground hover:bg-secondary" aria-label="Actualiser"
+            className="shrink-0 rounded-lg p-2.5 text-muted-foreground hover:bg-secondary lg:p-2" aria-label="Actualiser"
           >
             <RefreshCw className={`h-4 w-4 ${loadingList ? "animate-spin" : ""}`} />
           </button>
@@ -239,7 +242,7 @@ export function MailWorkspace({ address, signature }: Props) {
         {err && (
           <div className="m-3 flex items-start justify-between gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
             <p>{err}</p>
-            <button type="button" onClick={() => setErr(null)} aria-label="Fermer" className="shrink-0 rounded p-0.5 hover:bg-destructive/10">
+            <button type="button" onClick={() => setErr(null)} aria-label="Fermer" className="-m-1.5 shrink-0 rounded p-2 hover:bg-destructive/10 sm:m-0 sm:p-0.5">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -247,7 +250,7 @@ export function MailWorkspace({ address, signature }: Props) {
         {notice && (
           <div className="m-3 flex items-start justify-between gap-2 rounded-lg border border-success/20 bg-success/10 px-3 py-2 text-sm text-success">
             <p>{notice}</p>
-            <button type="button" onClick={() => setNotice(null)} aria-label="Fermer" className="shrink-0 rounded p-0.5 hover:bg-success/10">
+            <button type="button" onClick={() => setNotice(null)} aria-label="Fermer" className="-m-1.5 shrink-0 rounded p-2 hover:bg-success/10 sm:m-0 sm:p-0.5">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -262,9 +265,9 @@ export function MailWorkspace({ address, signature }: Props) {
             {/* Une seule rangée : répondre à gauche — les gestes fréquents —, ranger/supprimer à
                 droite. Sept boutons étiquetés en vrac se lisaient comme un menu, pas comme une
                 barre d'outils. */}
-            <div className="flex items-center gap-1 border-b border-border pb-2">
-              <button type="button" onClick={() => setPane("list")} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary lg:hidden" aria-label="Retour">
-                <ChevronLeft className="h-4 w-4" />
+            <div className="flex flex-wrap items-center gap-1 border-b border-border pb-2">
+              <button type="button" onClick={() => setPane("list")} className="rounded-lg p-2 text-muted-foreground hover:bg-secondary lg:hidden" aria-label="Retour">
+                <ChevronLeft className="h-5 w-5" />
               </button>
               <ToolButton icon={Reply} label="Répondre" onClick={() => startReply("reply")} />
               <ToolButton icon={ReplyAll} label="Répondre à tous" onClick={() => startReply("replyAll")} />
@@ -295,7 +298,7 @@ export function MailWorkspace({ address, signature }: Props) {
             </div>
 
             <header className="space-y-1 border-b border-border pb-3">
-              <h1 className="text-lg font-semibold leading-snug">{openMsg.subject}</h1>
+              <h1 className="text-lg font-semibold leading-snug [overflow-wrap:anywhere]">{openMsg.subject}</h1>
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                 <p className="min-w-0 truncate text-sm font-medium">
                   {openMsg.from ? formatAddress(openMsg.from) : "(inconnu)"}
@@ -304,7 +307,7 @@ export function MailWorkspace({ address, signature }: Props) {
                   {openMsg.receivedAt ? new Date(openMsg.receivedAt).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }) : ""}
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                 À {openMsg.to.map(formatAddress).join(", ") || "—"}
                 {openMsg.cc.length > 0 && ` · Cc ${openMsg.cc.map(formatAddress).join(", ")}`}
               </p>
@@ -321,7 +324,7 @@ export function MailWorkspace({ address, signature }: Props) {
               title="Message"
               sandbox=""
               srcDoc={`<!doctype html><meta charset="utf-8"><style>body{font:14px/1.5 system-ui,sans-serif;color:#111;margin:0;padding:4px;word-break:break-word}img{max-width:100%;height:auto}</style>${openMsg.bodyHtml}`}
-              className="min-h-[24rem] w-full rounded-lg border border-border bg-white"
+              className="min-h-[24rem] w-full rounded-lg border border-border bg-white max-lg:h-[65dvh]"
             />
           </article>
         )}
@@ -363,7 +366,7 @@ function ToolButton({ icon: I, label, onClick, compact = false, danger = false }
   return (
     <button
       type="button" onClick={onClick} title={label} aria-label={label}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors ${
+      className={`inline-flex items-center gap-1.5 rounded-lg p-2.5 text-sm text-muted-foreground transition-colors lg:px-2 lg:py-1.5 ${
         danger ? "hover:bg-destructive/10 hover:text-destructive" : "hover:bg-secondary hover:text-foreground"
       }`}
     >
@@ -403,34 +406,37 @@ function AttachmentBar({ messageId, attachments }: { messageId: string; attachme
         {attachments.map((a) => (
           <li key={a.id} className="flex flex-wrap items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-secondary/50">
             <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">{a.name}</span>
+            {/* Base de 10rem : au téléphone, le nom garde sa ligne et les boutons passent dessous. */}
+            <span className="min-w-0 flex-1 basis-40 truncate">{a.name}</span>
             <span className="shrink-0 text-xs text-muted-foreground">{Math.max(1, Math.round(a.size / 1024))} Ko</span>
 
-            <a
-              href={`/api/mail/ms/attachment?message=${encodeURIComponent(messageId)}&attachment=${encodeURIComponent(a.id)}`}
-              target="_blank" rel="noopener noreferrer"
-              className="shrink-0 rounded-lg border border-input px-2 py-1 text-xs font-medium hover:bg-secondary"
-            >
-              Ouvrir
-            </a>
-            {saved[a.id] ? (
-              <a href={`/drive/${saved[a.id]}`} className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-success">
-                ✓ Dans le Drive
-              </a>
-            ) : (
-              <button
-                type="button" onClick={() => void save(a)} disabled={savingId === a.id}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60"
+            <span className="ml-auto flex shrink-0 items-center gap-2">
+              <a
+                href={`/api/mail/ms/attachment?message=${encodeURIComponent(messageId)}&attachment=${encodeURIComponent(a.id)}`}
+                target="_blank" rel="noopener noreferrer"
+                className="shrink-0 rounded-lg border border-input px-3 py-2 text-xs font-medium hover:bg-secondary sm:px-2 sm:py-1"
               >
-                {savingId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <HardDriveDownload className="h-3 w-3" />}
-                Enregistrer dans le Drive
-              </button>
-            )}
+                Ouvrir
+              </a>
+              {saved[a.id] ? (
+                <a href={`/drive/${saved[a.id]}`} className="shrink-0 rounded-lg px-2 py-2 text-xs font-medium text-success sm:py-1">
+                  ✓ Dans le Drive
+                </a>
+              ) : (
+                <button
+                  type="button" onClick={() => void save(a)} disabled={savingId === a.id}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-60 sm:px-2 sm:py-1"
+                >
+                  {savingId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <HardDriveDownload className="h-3 w-3" />}
+                  Enregistrer dans le Drive
+                </button>
+              )}
+            </span>
           </li>
         ))}
       </ul>
-      <p className="flex items-center gap-1 pt-0.5 text-[0.6875rem] text-muted-foreground">
-        <Link2 className="h-3 w-3" /> Les documents enregistrés dans le Drive gardent leurs droits, leur historique et leur provenance.
+      <p className="flex items-start gap-1 pt-0.5 text-[0.6875rem] text-muted-foreground">
+        <Link2 className="mt-0.5 h-3 w-3 shrink-0" /> Les documents enregistrés dans le Drive gardent leurs droits, leur historique et leur provenance.
       </p>
     </div>
   );
@@ -469,40 +475,40 @@ function Composer({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-6">
-      <div className="flex h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-xl border border-border bg-card shadow-xl sm:h-[80vh] sm:rounded-xl">
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <p className="text-sm font-medium">
+      <div className="flex h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-xl border border-border bg-card shadow-xl sm:h-[80dvh] sm:rounded-xl">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <p className="min-w-0 truncate text-sm font-medium">
             {initial?.inReplyTo ? (initial.inReplyTo.mode === "forward" ? "Transférer" : "Répondre") : "Nouveau message"}
             {" — "}<span className="text-muted-foreground">{address}</span>
           </p>
-          <button type="button" onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Fermer">
+          <button type="button" onClick={onClose} className="-mr-1 shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary sm:mr-0 sm:p-1" aria-label="Fermer">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="space-y-2 border-b border-border p-3">
-          <Field label="À" value={to} onChange={setTo} placeholder="nom@exemple.com, autre@exemple.com" />
+        <div className="shrink-0 space-y-2 border-b border-border p-3">
+          <Field label="À" value={to} onChange={setTo} placeholder="nom@exemple.com, autre@exemple.com" email />
           {showMore ? (
             <>
-              <Field label="Cc" value={cc} onChange={setCc} />
-              <Field label="Cci" value={bcc} onChange={setBcc} />
+              <Field label="Cc" value={cc} onChange={setCc} email />
+              <Field label="Cci" value={bcc} onChange={setBcc} email />
             </>
           ) : (
-            <button type="button" onClick={() => setShowMore(true)} className="text-xs text-primary hover:underline">Cc / Cci</button>
+            <button type="button" onClick={() => setShowMore(true)} className="py-1 text-xs text-primary hover:underline">Cc / Cci</button>
           )}
           <Field label="Objet" value={subject} onChange={setSubject} />
         </div>
 
         <textarea
           value={body} onChange={(e) => setBody(e.target.value)}
-          className="min-h-0 flex-1 resize-none bg-transparent p-3 text-sm outline-none"
+          className="min-h-0 flex-1 resize-none bg-transparent p-3 text-base outline-none lg:text-sm"
           placeholder="Votre message…"
         />
 
         {err && <p className="mx-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
-        <div className="flex items-center justify-between gap-2 border-t border-border p-3">
-          <span className="text-xs text-muted-foreground">Envoyé depuis {address}</span>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-3">
+          <span className="min-w-0 truncate text-xs text-muted-foreground">Envoyé depuis {address}</span>
           <Button type="button" onClick={() => void submit()} disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer
           </Button>
@@ -512,13 +518,15 @@ function Composer({
   );
 }
 
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+function Field({ label, value, onChange, placeholder, email = false }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; email?: boolean }) {
   return (
     <label className="flex items-center gap-2 text-sm">
       <span className="w-10 shrink-0 text-xs text-muted-foreground">{label}</span>
+      {/* Clavier d'adresses au téléphone, sans `type="email"` : le champ accepte plusieurs adresses et des « Nom <adresse> ». */}
       <input
         value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-        className="min-w-0 flex-1 border-0 bg-transparent py-1 text-sm outline-none"
+        {...(email ? { inputMode: "email" as const, autoCapitalize: "off", autoCorrect: "off", spellCheck: false } : {})}
+        className="min-w-0 flex-1 border-0 bg-transparent py-1.5 text-base outline-none lg:py-1 lg:text-sm"
       />
     </label>
   );

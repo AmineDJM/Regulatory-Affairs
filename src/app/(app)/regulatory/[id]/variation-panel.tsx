@@ -52,8 +52,8 @@ export function VariationPanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 text-sm">
           <span className="text-muted-foreground">Statut de fabrication actuel : </span>
           <span className="font-semibold">{MANUFACTURING_STATUS[currentStatus] ?? currentStatus}</span>
         </div>
@@ -88,9 +88,9 @@ export function VariationPanel({
               <input type="text" name="note" placeholder="Référence de dépôt, précision…" className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" />
             </label>
           </div>
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setAdding(false)} className="rounded-lg border border-input px-3 py-1.5 text-sm hover:bg-secondary">Annuler</button>
-            <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={() => setAdding(false)} className="rounded-lg border border-input px-3 py-2 text-sm hover:bg-secondary sm:py-1.5">Annuler</button>
+            <button type="submit" disabled={busy} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm sm:py-1.5 font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Déposer la variation
             </button>
           </div>
@@ -121,17 +121,17 @@ export function VariationPanel({
                   {v.status === "EN_ATTENTE" && (
                     <>
                       <button type="button" disabled={busy} onClick={() => run(() => { const fd = new FormData(); fd.set("id", v.id); fd.set("status", "OBTENUE"); return setVariationStatus(fd); })}
-                        className="inline-flex items-center gap-1 rounded-md bg-success/15 px-2 py-1 text-xs font-medium text-success hover:bg-success/25">
+                        className="inline-flex items-center gap-1 rounded-md bg-success/15 px-2.5 py-2 text-xs sm:px-2 sm:py-1 font-medium text-success hover:bg-success/25">
                         <Check className="h-3.5 w-3.5" /> DE obtenue
                       </button>
                       <button type="button" disabled={busy} onClick={() => run(() => { const fd = new FormData(); fd.set("id", v.id); fd.set("status", "ANNULE"); return setVariationStatus(fd); })}
-                        className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-secondary">
+                        className="inline-flex items-center gap-1 rounded-md border border-input px-2.5 py-2 text-xs sm:px-2 sm:py-1 font-medium hover:bg-secondary">
                         <X className="h-3.5 w-3.5" /> Annuler
                       </button>
                     </>
                   )}
                   <button type="button" disabled={busy} onClick={() => { if (window.confirm("Supprimer cette variation ?")) run(() => { const fd = new FormData(); fd.set("id", v.id); return deleteVariation(fd); }); }}
-                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10">
+                    className="inline-flex items-center gap-1 rounded-md px-2.5 py-2 text-xs font-medium text-destructive sm:px-2 sm:py-1 hover:bg-destructive/10">
                     <Trash2 className="h-3.5 w-3.5" /> Supprimer
                   </button>
                 </div>

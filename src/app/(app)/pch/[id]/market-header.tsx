@@ -51,11 +51,12 @@ export function MarketKpis({ finances }: { finances: Market360["finances"] }) {
     { label: "Reste à encaisser", value: f.resteAEncaisser, tone: f.resteAEncaisser > 0 ? "warn" : "ok" },
   ];
   return (
-    <div className="surface grid grid-cols-2 gap-x-4 gap-y-3 p-4 sm:grid-cols-4 lg:grid-cols-8">
+    <div className="surface grid grid-cols-2 gap-x-4 gap-y-3 p-3 sm:grid-cols-4 sm:p-4 lg:grid-cols-8">
       {kpis.map((k) => (
         <div key={k.label} className="min-w-0">
           <p className="truncate text-xs text-muted-foreground">{k.label}</p>
-          <p className={`truncate text-sm font-semibold tabular-nums ${k.tone === "warn" ? "text-warning" : k.tone === "ok" ? "text-success" : ""}`}>
+          {/* Un montant ne se tronque pas : il passe à la ligne plutôt que de perdre ses derniers chiffres. */}
+          <p className={`text-sm font-semibold tabular-nums [overflow-wrap:anywhere] ${k.tone === "warn" ? "text-warning" : k.tone === "ok" ? "text-success" : ""}`}>
             {k.value === null ? "—" : formatCurrency(k.value)}
           </p>
         </div>

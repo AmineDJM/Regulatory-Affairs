@@ -144,7 +144,7 @@ function LigneTranchee({ t }: { t: VisaTranche }) {
   return (
     <li className="space-y-2 rounded-xl border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link href={t.href} className="inline-flex min-w-0 items-center gap-1 text-sm font-medium text-primary hover:underline">
+        <Link href={t.href} className="inline-flex min-w-0 items-center gap-1 text-sm font-medium text-primary hover:underline [overflow-wrap:anywhere]">
           {t.reference ? `${t.reference} — ` : ""}{t.intitule} <ExternalLink className="h-3.5 w-3.5 shrink-0" />
         </Link>
         <Badge tone={t.etat === "REFUSED" ? "danger" : "warning"} dot={false}>{t.etat === "REFUSED" ? "Refusée" : "À corriger"}</Badge>
@@ -153,13 +153,13 @@ function LigneTranchee({ t }: { t: VisaTranche }) {
         {t.decideur ?? "Le centre"}{t.decidedAt ? ` · ${new Date(t.decidedAt).toLocaleDateString("fr-FR")}` : ""}{t.note ? ` — « ${t.note} »` : ""}
       </p>
       {t.etat === "REFUSED" && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <Input
             value={note} onChange={(e) => setNote(e.target.value)} aria-label={`Motif du réexamen — ${t.intitule}`}
             placeholder="Pourquoi le centre réexamine (obligatoire)" className="min-w-0 flex-1"
           />
           <BoutonDecisif
-            size="sm" variant="outline" disabled={busy || !note.trim()}
+            size="sm" variant="outline" className="max-sm:w-full" disabled={busy || !note.trim()}
             onClick={async () => {
               setBusy(true); setError(null);
               const fd = new FormData();
@@ -206,13 +206,13 @@ function SeuilForm({ seuil }: { seuil: number }) {
         >
           <div className="space-y-1">
             <Label htmlFor="adProDgThreshold">Seuil (DZD)</Label>
-            <Input id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="any" defaultValue={seuil} />
+            <Input id="adProDgThreshold" name="adProDgThreshold" type="number" inputMode="decimal" min="0" step="any" defaultValue={seuil} />
             <p className="text-xs text-muted-foreground">
               <strong>0</strong> = aucune demande ne passe par le centre. Une demande <em>sans montant
               renseigné</em> y passe quand même : on ne franchit pas un contrôle sur une absence de donnée.
             </p>
           </div>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
             {saved ? "Enregistré" : "Enregistrer"}
           </Button>
@@ -259,14 +259,14 @@ function SeuilBCForm({ seuil }: { seuil: number }) {
         >
           <div className="space-y-1">
             <Label htmlFor="bcValidationThreshold">Seuil des bons de commande (DZD)</Label>
-            <Input id="bcValidationThreshold" name="bcValidationThreshold" type="number" min="0" step="any" defaultValue={seuil} />
+            <Input id="bcValidationThreshold" name="bcValidationThreshold" type="number" inputMode="decimal" min="0" step="any" defaultValue={seuil} />
             <p className="text-xs text-muted-foreground">
               <strong>0</strong> = tout bon de commande passe par un centre. Un BC <em>sans montant
               renseigné</em> y passe quand même. Les BC en cours qui changent de côté du seuil sont
               réaiguillés aussitôt ; une validation déjà donnée ou une signature ne se retirent pas.
             </p>
           </div>
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Enregistrer
           </Button>
@@ -281,10 +281,11 @@ function SeuilBCForm({ seuil }: { seuil: number }) {
 function LigneCard({ row }: { row: LigneCentre }) {
   const jours = Math.floor((Date.now() - new Date(row.depuis).getTime()) / 86_400_000);
   return (
-    <li className="surface space-y-3 p-4">
+    <li className="surface space-y-3 p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
-          <p className="truncate font-medium">{row.intitule}</p>
+          {/* Deux lignes plutôt qu'un intitulé coupé au premier mot au téléphone : c'est lui qu'on arbitre. */}
+          <p className="line-clamp-2 font-medium [overflow-wrap:anywhere]" title={row.intitule}>{row.intitule}</p>
           <p className="text-xs text-muted-foreground">
             {row.demandeur ? `Demandé par ${row.demandeur} · ` : ""}
             en attente depuis {jours === 0 ? "aujourd'hui" : `${jours} jour(s)`}
@@ -318,7 +319,7 @@ function LigneCard({ row }: { row: LigneCentre }) {
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href={row.href}
-              className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius)] border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus-ring"
+              className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius)] border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus-ring sm:h-8 sm:w-auto"
             >
               Ouvrir le dossier et décider <ExternalLink className="h-3.5 w-3.5" />
             </Link>
@@ -376,17 +377,19 @@ function DecisionVisa({ row }: { row: LigneCentre }) {
           placeholder="Ce que le demandeur doit savoir"
         />
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <BoutonDecisif size="sm" disabled={busy} onClick={() => decider("VALIDER")}>
+      {/* Au téléphone, les issues s'empilent en pleine largeur : trois boutons serrés sur une ligne
+          se manquent au pouce — et ici chaque geste engage de l'argent. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <BoutonDecisif size="sm" className="max-sm:w-full" disabled={busy} onClick={() => decider("VALIDER")}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {libelleAccord}
         </BoutonDecisif>
         {troisIssues && (
-          <BoutonDecisif size="sm" variant="outline" disabled={busy || !note.trim()} onClick={() => decider("RENVOYER")}>Renvoyer pour correction</BoutonDecisif>
+          <BoutonDecisif size="sm" variant="outline" className="max-sm:w-full" disabled={busy || !note.trim()} onClick={() => decider("RENVOYER")}>Renvoyer pour correction</BoutonDecisif>
         )}
-        <BoutonDecisif size="sm" variant="destructive" disabled={busy} onClick={() => decider("REFUSER")}>Refuser</BoutonDecisif>
+        <BoutonDecisif size="sm" variant="destructive" className="max-sm:w-full" disabled={busy} onClick={() => decider("REFUSER")}>Refuser</BoutonDecisif>
         <Link
           href={row.href}
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          className="inline-flex items-center justify-center gap-1 py-2 text-xs text-primary hover:underline sm:justify-start sm:py-0"
         >
           Voir le dossier <ExternalLink className="h-3.5 w-3.5" />
         </Link>

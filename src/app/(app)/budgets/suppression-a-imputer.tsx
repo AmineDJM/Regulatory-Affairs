@@ -93,7 +93,7 @@ export function BarreSuppressionAImputer({
         </div>
       )}
       {ouvert && (
-        <div role="dialog" aria-label="Confirmer la suppression des écritures" className="surface space-y-3 border-destructive/40 p-4 text-sm">
+        <div role="dialog" aria-label="Confirmer la suppression des écritures" className="surface space-y-3 border-destructive/40 p-3 text-sm sm:p-4">
           <p className="font-medium">
             Supprimer {choisies.length} écriture{choisies.length > 1 ? "s" : ""} ({formatCurrency(total)}) ?
           </p>
@@ -104,7 +104,7 @@ export function BarreSuppressionAImputer({
           ) : (
             <ul className="space-y-1.5 text-xs">
               {apercu.map((a) => (
-                <li key={a.id}>
+                <li key={a.id} className="[overflow-wrap:anywhere]">
                   <span className="font-medium">{a.nom ?? a.id}</span>
                   {a.refus ? <span className="text-destructive"> — refusée : {a.refus}</span> : null}
                   {!a.refus && a.detache.length > 0 ? <span className="text-muted-foreground"> — perd son lien : {a.detache.join(", ")}</span> : null}

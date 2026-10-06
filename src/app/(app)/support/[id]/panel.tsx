@@ -48,7 +48,7 @@ export function SupportMessageForm({ id }: { id: string }) {
     >
       <Textarea name="body" required placeholder="Votre réponse ou un complément…" className="min-h-[70px]" />
       <Err msg={err} />
-      <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer</Button>
+      <Button type="submit" size="sm" disabled={saving} className="w-full sm:w-auto">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer</Button>
     </form>
   );
 }

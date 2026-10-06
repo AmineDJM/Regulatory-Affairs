@@ -64,13 +64,13 @@ export default async function TodayPage() {
               </ul>
             </CardContent>
           </Card>
-          <div className="flex items-center justify-between pt-0.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
             {today.restCount > 0 ? (
               <span className="text-xs text-muted-foreground">
                 +{today.restCount} autre{today.restCount > 1 ? "s" : ""} en attente
               </span>
             ) : <span />}
-            <Link href="/mon-espace" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+            <Link href="/mon-espace" className="inline-flex items-center gap-1 py-1.5 text-sm text-primary hover:underline">
               Tout voir <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -90,10 +90,10 @@ export default async function TodayPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{e.title}</p>
-                      <p className="flex items-center gap-2 truncate text-xs text-muted-foreground">
-                        {e.location && <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{e.location}</span>}
-                        {e.meetLink && <span className="inline-flex items-center gap-1"><Video className="h-3 w-3" />Visio</span>}
-                        {!e.location && !e.meetLink && <span>{e.organizerName}</span>}
+                      <p className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                        {e.location && <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{e.location}</span></span>}
+                        {e.meetLink && <span className="inline-flex shrink-0 items-center gap-1"><Video className="h-3 w-3" />Visio</span>}
+                        {!e.location && !e.meetLink && <span className="truncate">{e.organizerName}</span>}
                       </p>
                     </div>
                     <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -103,7 +103,7 @@ export default async function TodayPage() {
             </CardContent>
           </Card>
           <div className="flex justify-end">
-            <Link href="/calendar" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+            <Link href="/calendar" className="inline-flex items-center gap-1 py-1.5 text-sm text-primary hover:underline">
               Mon calendrier <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -126,14 +126,14 @@ function FocusCard({ item }: { item: TodayItem }) {
   return (
     <Link
       href={item.href}
-      className={`group block rounded-2xl border p-5 transition hover:shadow-md ${late ? "border-destructive/40 bg-destructive/5" : "border-border bg-card"}`}
+      className={`group block rounded-2xl border p-4 transition hover:shadow-md sm:p-5 ${late ? "border-destructive/40 bg-destructive/5" : "border-border bg-card"}`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Badge tone={late ? "danger" : item.reason === "blocking" ? "warning" : "info"} dot={false}>{item.reasonLabel}</Badge>
         <span className="text-xs text-muted-foreground">{item.module}</span>
       </div>
-      <h2 className="mt-2.5 text-lg font-semibold leading-snug">{item.title}</h2>
-      {item.subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{item.subtitle}</p>}
+      <h2 className="mt-2.5 break-words text-lg font-semibold leading-snug">{item.title}</h2>
+      {item.subtitle && <p className="mt-0.5 break-words text-sm text-muted-foreground">{item.subtitle}</p>}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <span className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition group-hover:brightness-110">
           Ouvrir <ArrowRight className="h-4 w-4" />

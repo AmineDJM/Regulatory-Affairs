@@ -321,7 +321,7 @@ export default async function LegalDocumentPage({ params, searchParams }: { para
               <AskChief reference={doc.reference || doc.title} call={realtimeVoiceConfigured() && canUseRealtimeVoice(user)} />
             )}
           </div>
-          <h1 className="mt-1 text-xl font-semibold sm:text-2xl">{doc.title}</h1>
+          <h1 className="mt-1 text-xl font-semibold [overflow-wrap:anywhere] sm:text-2xl">{doc.title}</h1>
           <p className="text-sm text-muted-foreground">
             Enregistré par {doc.createdBy?.name ?? "—"} le {formatDate(doc.createdAt)}
           </p>
@@ -427,7 +427,7 @@ export default async function LegalDocumentPage({ params, searchParams }: { para
               {doc.notes && (
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Notes</p>
-                  <p className="whitespace-pre-wrap">{doc.notes}</p>
+                  <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{doc.notes}</p>
                 </div>
               )}
               {emis.docx || emis.pdf ? (
@@ -468,7 +468,7 @@ export default async function LegalDocumentPage({ params, searchParams }: { para
                           </li>
                         ))}
                       </ul>
-                      <p className="font-medium">Net de la facture : {formatCurrency(netFacture)}</p>
+                      <p className="font-medium tabular-nums">Net de la facture : {formatCurrency(netFacture)}</p>
                     </div>
                   )}
                   {emise && pieceDefinitive(emise.type) && doc.status === "ACTIVE" && !peutEmettreAvoir && (
@@ -505,7 +505,7 @@ export default async function LegalDocumentPage({ params, searchParams }: { para
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Pièce de référence (dans le Drive)</p>
                   {/* Le fichier vit dans le DRIVE : on y renvoie, on n'en sert pas une copie. */}
-                  <Link href={`/drive/${doc.driveNode.id}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                  <Link href={`/drive/${doc.driveNode.id}`} className="inline-flex max-w-full items-center gap-1 font-medium text-primary [overflow-wrap:anywhere] hover:underline">
                     <Paperclip className="h-3.5 w-3.5" /> {doc.driveNode.name} <ExternalLink className="h-3 w-3" />
                   </Link>
                 </div>
@@ -624,7 +624,7 @@ function Info({ label, value }: { label: string; value: string | null | undefine
   return (
     <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="truncate font-medium" title={value ?? undefined}>{value || "—"}</p>
+      <p className="font-medium [overflow-wrap:anywhere] sm:truncate" title={value ?? undefined}>{value || "—"}</p>
     </div>
   );
 }

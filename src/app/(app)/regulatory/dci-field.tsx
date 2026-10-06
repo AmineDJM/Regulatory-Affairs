@@ -38,7 +38,9 @@ export function DciAssociationField({ defaultMolecules, onDciChange }: { default
   const kindLabel = filled <= 1 ? "Molécule unique" : filled === 2 ? "Association double" : filled === 3 ? "Association triple" : `Association (${filled} molécules)`;
 
   return (
-    <div className="col-span-2 space-y-1.5">
+    // `col-span-full` et non `col-span-2` : le champ vit dans des grilles qui partent d'UNE colonne au
+    // téléphone, où un span de 2 créerait une colonne implicite hors de l'écran.
+    <div className="col-span-full space-y-1.5">
       <Label htmlFor="molecule-0">
         DCI (molécule ou association)
         <span className="ml-0.5 text-destructive">*</span>
@@ -59,7 +61,7 @@ export function DciAssociationField({ defaultMolecules, onDciChange }: { default
               <button
                 type="button"
                 onClick={() => remove(i)}
-                className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-destructive"
+                className="shrink-0 rounded-md p-2.5 text-muted-foreground hover:bg-secondary hover:text-destructive sm:p-1.5"
                 aria-label={`Retirer la molécule ${i + 1}`}
               >
                 <X className="h-4 w-4" />
@@ -68,12 +70,12 @@ export function DciAssociationField({ defaultMolecules, onDciChange }: { default
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-3">
         {rows.length < 5 ? (
           <button
             type="button"
             onClick={add}
-            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            className="inline-flex items-center gap-1 py-2 text-xs font-medium text-primary hover:underline sm:py-0"
           >
             <Plus className="h-3.5 w-3.5" /> Ajouter une molécule
           </button>

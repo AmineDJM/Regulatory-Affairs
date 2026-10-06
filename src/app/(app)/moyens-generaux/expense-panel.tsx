@@ -113,7 +113,7 @@ export function ExpensePanel({
             </label>
             <label className="text-xs">
               Budget imputé
-              <select name="kind" defaultValue="OPERATING" className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
+              <select name="kind" defaultValue="OPERATING" className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-base sm:h-9 sm:text-sm">
                 <option value="OPERATING">{DEPT_BUDGET_LABEL.OPERATING}</option>
                 <option value="ACTIVITY">{DEPT_BUDGET_LABEL.ACTIVITY}</option>
               </select>
@@ -153,7 +153,7 @@ export function ExpensePanel({
             </p>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" type="submit" disabled={busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />} Enregistrer la dépense
             </Button>

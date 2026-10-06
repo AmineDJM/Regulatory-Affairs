@@ -164,7 +164,7 @@ export function ReglagesForm({
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder="ENVOI AUTONOME"
                 aria-label="Confirmation de l'envoi autonome"
-                className="max-w-xs"
+                className="w-full max-w-xs"
               />
               <Button
                 variant="destructive"

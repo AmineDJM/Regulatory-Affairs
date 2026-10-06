@@ -54,12 +54,12 @@ export function TaskWorkPanel({
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  type="button" disabled={busy}
+                  type="button" disabled={busy} className="flex-1 sm:flex-none"
                   onClick={() => run(() => { const fd = new FormData(); fd.set("id", id); fd.set("accept", "1"); return respondTaskRequest(fd); })}
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Accepter
                 </Button>
-                <Button type="button" variant="outline" disabled={busy} onClick={() => setDeclining(true)}>
+                <Button type="button" variant="outline" disabled={busy} className="flex-1 sm:flex-none" onClick={() => setDeclining(true)}>
                   <X className="h-4 w-4" /> Refuser
                 </Button>
               </div>
@@ -79,7 +79,7 @@ export function TaskWorkPanel({
                   Vous pouvez refuser sans vous justifier. Une ligne évite souvent un appel.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap">
                 <Button type="submit" variant="destructive" disabled={busy}>
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Confirmer le refus
                 </Button>
@@ -130,7 +130,7 @@ export function TaskWorkPanel({
             <Textarea id="work-note" name="note" rows={4} defaultValue={note ?? ""} placeholder="Ce qui a été fait, ce qui reste, où sont les pièces…" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} {submitLabel({ status })}
             </Button>
             {status === "DONE" && (

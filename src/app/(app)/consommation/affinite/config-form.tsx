@@ -26,18 +26,18 @@ export function ConfigAffiniteForm({ produits, productId, initial }: {
   const [ajout, setAjout] = React.useState("");
   return (
     <form
-      className="surface space-y-3 p-4"
+      className="surface space-y-3 p-3 sm:p-4"
       onSubmit={async (e) => { e.preventDefault(); setErreur(null); const r = await enregistrerAffiniteConfig({ productId, productIds: panier, molecules, periode, debut, fin }); if (!r.ok) setErreur(r.error); else rafraichir(); }}
     >
       <h2 className="text-sm font-semibold">Marché de référence (dénominateur)</h2>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {panier.map((id) => (
-          <span key={id} className="rounded-md border border-border px-2 py-0.5 text-xs">
-            {produits.find((p) => p.id === id)?.nom ?? id}{" "}
-            <button type="button" className="text-muted-foreground" onClick={() => setPanier(panier.filter((x) => x !== id))}>×</button>
+          <span key={id} className="inline-flex max-w-full items-center rounded-md border border-border py-0.5 pl-2 text-xs">
+            <span className="min-w-0 [overflow-wrap:anywhere]">{produits.find((p) => p.id === id)?.nom ?? id}</span>{" "}
+            <button type="button" aria-label="Retirer du marché" className="px-2.5 py-1.5 text-muted-foreground sm:px-1.5 sm:py-0" onClick={() => setPanier(panier.filter((x) => x !== id))}>×</button>
           </span>
         ))}
-        <Select value={ajout} onChange={(e) => { const v = e.target.value; if (v && !panier.includes(v)) setPanier([...panier, v]); setAjout(""); }} className="w-56">
+        <Select value={ajout} onChange={(e) => { const v = e.target.value; if (v && !panier.includes(v)) setPanier([...panier, v]); setAjout(""); }} className="w-full sm:w-56">
           <option value="">Ajouter un produit…</option>
           {produits.filter((p) => p.id !== productId && !panier.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
         </Select>

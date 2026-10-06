@@ -61,6 +61,14 @@ interface RapportInitial {
 const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 
 /**
+ * La barre d'actions des feuilles de saisie : collée au bas de la feuille pendant qu'on défile, pour
+ * que « Enregistrer » reste sous le pouce. L'ombre pleine, couleur carte, couvre la marge basse de
+ * la feuille sous la barre (sinon le texte défilerait dans l'interstice).
+ */
+const BARRE_ACTIONS =
+  "sticky bottom-0 z-10 -mx-4 flex gap-2 border-t border-border bg-card px-4 py-3 shadow-[0_3rem_0_0_hsl(var(--card))] sm:-mx-5 sm:justify-end sm:px-5";
+
+/**
  * L'EMPLOI DU TEMPS DU KAM — gris tant que le rapport n'est pas fait, vert après.
  *
  * ── TROIS COULEURS, PAS DEUX ────────────────────────────────────────────────────────────────
@@ -134,22 +142,25 @@ export function EmploiDuTemps({
   return (
     <div className="space-y-3">
       {/* ── LES QUATRE VUES ─────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {VUES.map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => changerVue(v)}
-            aria-current={v === vue ? "page" : undefined}
-            className={cn(
-              "rounded-lg px-2.5 py-1.5 text-sm",
-              v === vue ? "bg-primary text-primary-foreground" : "border border-input hover:bg-secondary",
-            )}
-          >
-            {VUE_LABELS[v]}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-muted-foreground">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
+        {/* Au téléphone, les vues forment une rangée qui glisse, à hauteur de pouce. */}
+        <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+          {VUES.map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => changerVue(v)}
+              aria-current={v === vue ? "page" : undefined}
+              className={cn(
+                "h-10 shrink-0 whitespace-nowrap rounded-lg px-3 text-sm sm:h-auto sm:px-2.5 sm:py-1.5",
+                v === vue ? "bg-primary text-primary-foreground" : "border border-input hover:bg-secondary",
+              )}
+            >
+              {VUE_LABELS[v]}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground sm:ml-auto">
           {/* LE DÉNOMINATEUR DE LA DIRECTION, sur le MOIS — « Aujourd'hui » ne dit rien d'un
               objectif mensuel, et afficher le taux du jour ferait lire 0 % chaque matin. */}
           Ce mois : <strong className="text-foreground tabular-nums">{avancement.visitees}/{avancement.planifiees}</strong> visitées
@@ -160,8 +171,98 @@ export function EmploiDuTemps({
 
       {err && <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
-      {/* ── L'EMPLOI DU TEMPS EN TABLEAU ────────────────────────────────────── */}
-      <div className="overflow-x-auto rounded-xl border border-border">
+      {/* ── AU TÉLÉPHONE : UNE LISTE PAR JOUR ───────────────────────────────────
+          Les mêmes lignes que le tableau, rangées sous l'en-tête de leur jour : chaque visite est
+          une carte, ses gestes sont des boutons pleine largeur, à portée de pouce. */}
+      <div className="space-y-4 sm:hidden">
+        {lignes.length === 0 && (
+          <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+            Aucune visite sur « {VUE_LABELS[vue]} ». Les visites viennent de votre plan de tournée validé —
+            ou d&apos;une visite imprévue que vous ajoutez ci-dessous.
+          </p>
+        )}
+        {lignes.reduce<{ jour: string; lignes: LigneVue[] }[]>((acc, l) => {
+          const jour = jourDe(l.date);
+          const dernier = acc[acc.length - 1];
+          if (dernier && dernier.jour === jour) dernier.lignes.push(l);
+          else acc.push({ jour, lignes: [l] });
+          return acc;
+        }, []).map((groupe) => (
+          <section key={groupe.jour} className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground tabular-nums">
+              {groupe.jour} · {groupe.lignes.length} visite{groupe.lignes.length > 1 ? "s" : ""}
+            </h3>
+            <ul className="space-y-2">
+              {groupe.lignes.map((l) => (
+                <li
+                  key={l.id}
+                  className={cn(
+                    "rounded-xl border border-border bg-card p-3",
+                    l.etat === "FAITE" && "border-success/30 bg-success/5",
+                    l.etat === "PERDUE" && "border-warning/30 bg-warning/5",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium [overflow-wrap:anywhere]">{l.doctorName}</p>
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {[l.specialty, l.institution, l.wilaya].filter(Boolean).join(" · ") || "—"}
+                      </p>
+                    </div>
+                    <Badge tone={tonDe(l.etat)} className="shrink-0">{ETAT_VISITE_LABELS[l.etat]}</Badge>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {l.origine === "DIRECTION" && (
+                      <Badge tone="info" dot={false} className="max-w-full rounded-lg [overflow-wrap:anywhere]">Demandée par la Direction{l.objectif ? ` — ${l.objectif}` : ""}</Badge>
+                    )}
+                    {l.origine === "UNPLANNED" && <Badge tone="neutral" dot={false}>Imprévue</Badge>}
+                    {l.etat === "A_FAIRE" && (
+                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" aria-hidden /> {l.heuresRestantes} h restantes</span>
+                    )}
+                    {l.vocal && <span className="flex items-center gap-1"><Mic className="h-3 w-3" aria-hidden /> vocal</span>}
+                  </div>
+                  {l.etat === "FAITE" && l.produits.length > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">{l.produits.join(" · ")}</p>
+                  )}
+                  {(l.remises.materiel.length > 0 || l.remises.numeriques.length > 0) && (
+                    <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+                      <Package className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                      <span className="min-w-0">
+                        {[
+                          ...l.remises.materiel.map((m) => `${nombre(m.quantite)} ${m.libelle}`),
+                          ...l.remises.numeriques.map((n) => `${n.libelle} (présenté)`),
+                        ].join(" · ")}
+                      </span>
+                    </p>
+                  )}
+                  {l.motifNonTenue && (l.etat === "ANNULEE" || l.etat === "REPORTEE") && (
+                    <p className="mt-1 text-xs text-muted-foreground">« {l.motifNonTenue} »</p>
+                  )}
+                  {l.etat === "A_FAIRE" ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <Button className="h-11" onClick={() => { setErr(null); setOuverte(l); }} disabled={occupe}>
+                        Rapport
+                      </Button>
+                      <Button variant="outline" className="h-11" onClick={() => { setErr(null); setNonTenue(l); }} disabled={occupe}>
+                        N&apos;a pas eu lieu
+                      </Button>
+                    </div>
+                  ) : l.etat === "PERDUE" ? (
+                    <p className="mt-2 text-xs text-warning">Délai dépassé</p>
+                  ) : l.etat === "FAITE" && l.heuresRestantes > 0 ? (
+                    <Button variant="outline" className="mt-3 h-11 w-full" onClick={() => { setErr(null); setOuverte(l); }} disabled={occupe}>
+                      <Pencil className="h-4 w-4" /> Corriger
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+
+      {/* ── L'EMPLOI DU TEMPS EN TABLEAU (tablette et ordinateur) ───────────── */}
+      <div className="hidden overflow-x-auto rounded-xl border border-border sm:block">
         <table className="w-full min-w-[560px] text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
@@ -261,7 +362,7 @@ export function EmploiDuTemps({
         </table>
       </div>
 
-      <Button variant="outline" onClick={() => { setErr(null); setImprevue(true); }} disabled={occupe}>
+      <Button variant="outline" className="h-12 w-full sm:h-10 sm:w-auto" onClick={() => { setErr(null); setImprevue(true); }} disabled={occupe}>
         <Plus className="h-4 w-4" /> Ajouter une visite imprévue
       </Button>
 
@@ -379,13 +480,16 @@ export function FeuilleNonTenue({
           }}
         >
           <fieldset className="space-y-1.5">
-            <legend className="text-sm font-medium">Ce qui s&apos;est passé</legend>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="radio" name="issue" value="POSTPONED" defaultChecked className="h-4 w-4" /> Reportée
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="radio" name="issue" value="CANCELLED" className="h-4 w-4" /> Annulée
-            </label>
+            <legend className="mb-1.5 text-sm font-medium">Ce qui s&apos;est passé</legend>
+            {/* Deux grandes cases côte à côte : un choix d'un seul pouce. */}
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-col sm:gap-1.5">
+              <label className="flex min-h-11 items-center gap-2 rounded-lg border border-input px-3 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5 sm:min-h-0 sm:border-0 sm:px-0 sm:has-[:checked]:bg-transparent">
+                <input type="radio" name="issue" value="POSTPONED" defaultChecked className="h-5 w-5 sm:h-4 sm:w-4" /> Reportée
+              </label>
+              <label className="flex min-h-11 items-center gap-2 rounded-lg border border-input px-3 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5 sm:min-h-0 sm:border-0 sm:px-0 sm:has-[:checked]:bg-transparent">
+                <input type="radio" name="issue" value="CANCELLED" className="h-5 w-5 sm:h-4 sm:w-4" /> Annulée
+              </label>
+            </div>
           </fieldset>
           <div>
             <Label htmlFor="non-tenue-motif">Pourquoi</Label>
@@ -393,9 +497,9 @@ export function FeuilleNonTenue({
               placeholder="Le Dr Amrani était en congé ; je le revois mardi prochain." />
           </div>
           {err && <p className="text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={occupe}>Annuler</Button>
-            <BoutonDecisif type="submit" disabled={occupe || motif.trim().length === 0} confirmation="dire que la visite n’a pas eu lieu">
+          <div className={BARRE_ACTIONS}>
+            <Button type="button" variant="outline" className="h-12 flex-1 sm:h-10 sm:flex-none" onClick={onClose} disabled={occupe}>Annuler</Button>
+            <BoutonDecisif type="submit" className="h-12 flex-1 sm:h-10" disabled={occupe || motif.trim().length === 0} confirmation="dire que la visite n’a pas eu lieu">
               {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
             </BoutonDecisif>
           </div>
@@ -563,11 +667,11 @@ function FormulaireRapport({
         ) : (
           <div className="flex flex-wrap gap-2">
             {produits.map((p) => (
-              <label key={p.productId} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2 py-1 text-sm">
+              <label key={p.productId} className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-lg border border-input px-3 py-2 text-sm [overflow-wrap:anywhere] has-[:checked]:border-primary has-[:checked]:bg-primary/5 sm:min-h-0 sm:gap-1.5 sm:px-2 sm:py-1">
                 <input
                   type="checkbox" name="productId" value={p.productId}
                   checked={coches.has(p.productId)} onChange={() => basculer(p.productId)}
-                  className="h-4 w-4 rounded border-input"
+                  className="h-5 w-5 shrink-0 rounded border-input sm:h-4 sm:w-4"
                 />
                 {p.name}
               </label>
@@ -593,10 +697,12 @@ function FormulaireRapport({
             {messageObligatoire && " Le rapport sera refusé : demandez à la Direction Marketing d'en publier (Marketing cockpit › Messages)."}
           </p>
         ) : (
-          <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+          // Au téléphone, la liste ne s'enferme pas dans une petite boîte défilante : défiler dans un
+          // défilement, au pouce, fait manquer des messages. Elle s'y range à partir de la tablette.
+          <div className="space-y-1 rounded-lg border border-border p-1.5 sm:max-h-40 sm:overflow-y-auto sm:p-2">
             {messages.map((m) => (
-              <label key={m.id} className="flex items-start gap-2 rounded-md px-1 py-1 text-sm hover:bg-secondary">
-                <input type="checkbox" name="messageId" value={m.id} defaultChecked={initial?.messageIds.includes(m.id) ?? false} className="mt-0.5 h-4 w-4 rounded border-input" />
+              <label key={m.id} className="flex items-start gap-2.5 rounded-md px-2 py-2.5 text-sm hover:bg-secondary has-[:checked]:bg-primary/5 sm:gap-2 sm:px-1 sm:py-1">
+                <input type="checkbox" name="messageId" value={m.id} defaultChecked={initial?.messageIds.includes(m.id) ?? false} className="mt-0.5 h-5 w-5 shrink-0 rounded border-input sm:h-4 sm:w-4" />
                 <span className="min-w-0">
                   <span className="font-medium">{m.title}</span>
                   {m.body && <span className="block text-xs text-muted-foreground">{m.body}</span>}
@@ -610,12 +716,12 @@ function FormulaireRapport({
 
       {/* ── VOCAL OU ÉCRIT ───────────────────────────────────────────────────── */}
       <div>
-        <div className="flex items-center justify-between gap-2">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <Label htmlFor="rapport-texte">Compte rendu <span className="text-destructive">*</span></Label>
           {dictee === "absente" ? (
             <span className="text-xs text-muted-foreground">Dictée indisponible sur ce navigateur — le clavier reste.</span>
           ) : (
-            <Button type="button" size="sm" variant={dictee === "en-cours" ? "destructive" : "outline"} onClick={basculerDictee}>
+            <Button type="button" size="sm" className="h-10 px-4 sm:h-8 sm:px-3" variant={dictee === "en-cours" ? "destructive" : "outline"} onClick={basculerDictee}>
               {dictee === "en-cours" ? <><Square className="h-3.5 w-3.5" /> Arrêter</> : <><Mic className="h-3.5 w-3.5" /> Dicter</>}
             </Button>
           )}
@@ -642,9 +748,9 @@ function FormulaireRapport({
               ? `Dernière valeur : ${potentiel.dernier.potentiel ?? "—"} ${potentiel.metrique}${potentiel.dernier.sur10 !== null ? `, ${potentiel.dernier.sur10}/10 sous ${potentiel.produit ?? "le produit"}` : ""} — ${new Date(potentiel.dernier.le).toLocaleDateString("fr-FR")}.`
               : "Jamais renseigné : le segment du praticien reste « en attente » tant que le potentiel manque."}
           </p>
-          <div className="flex flex-wrap gap-2">
-            <div><Label htmlFor="pot-patients" className="text-xs">{potentiel.metrique}</Label><Input id="pot-patients" name="potentielPatients" inputMode="decimal" className="w-28" /></div>
-            {potentiel.productId && <div><Label htmlFor="pot-sur10" className="text-xs">Sur 10, sous {potentiel.produit}</Label><Input id="pot-sur10" name="potentielSur10" inputMode="decimal" className="w-28" /></div>}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <div className="min-w-0"><Label htmlFor="pot-patients" className="text-xs">{potentiel.metrique}</Label><Input id="pot-patients" name="potentielPatients" inputMode="decimal" className="w-full sm:w-28" /></div>
+            {potentiel.productId && <div className="min-w-0"><Label htmlFor="pot-sur10" className="text-xs">Sur 10, sous {potentiel.produit}</Label><Input id="pot-sur10" name="potentielSur10" inputMode="decimal" className="w-full sm:w-28" /></div>}
           </div>
           {potentiel.productId && <input type="hidden" name="potentielProduitId" value={potentiel.productId} />}
         </div>
@@ -655,13 +761,6 @@ function FormulaireRapport({
         <Input id="rapport-suite" name="followUpActions" defaultValue={initial?.suite ?? ""} placeholder="Rappeler après le comité du 12, envoyer l'étude…" />
       </div>
 
-      {err && <p className="text-sm text-destructive">{err}</p>}
-      <div className="flex justify-end gap-2 pt-1">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Annuler</Button>
-        <Button type="submit" disabled={busy}>
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />} {libelleEnvoi}
-        </Button>
-      </div>
       {messageObligatoire && messages.length > 0 && (
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -669,6 +768,13 @@ function FormulaireRapport({
           message ne se mesurent — c&apos;est précisément ce que la Direction demande de savoir.
         </p>
       )}
+      {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
+      <div className={BARRE_ACTIONS}>
+        <Button type="button" variant="outline" className="h-12 flex-1 sm:h-10 sm:flex-none" onClick={onCancel} disabled={busy}>Annuler</Button>
+        <Button type="submit" className="h-12 min-w-0 flex-[2] sm:h-10 sm:flex-none" disabled={busy}>
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />} <span className="truncate">{libelleEnvoi}</span>
+        </Button>
+      </div>
     </form>
   );
 }

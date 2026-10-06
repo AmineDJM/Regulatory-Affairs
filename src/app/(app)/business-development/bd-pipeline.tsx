@@ -26,11 +26,11 @@ export function BDPipeline({ rows, canUpdate }: { rows: BDRow[]; canUpdate: bool
   }
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
+    <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 sm:snap-none">
       {STAGES.map((stage) => {
         const items = rows.filter((r) => r.status === stage);
         return (
-          <div key={stage} className="w-64 shrink-0">
+          <div key={stage} className="w-[85vw] max-w-xs shrink-0 snap-start sm:w-64">
             <div className="mb-2 flex items-center justify-between px-1">
               <StatusBadge map={BD_STATUS} value={stage} dot={false} />
               <span className="text-xs text-muted-foreground">{items.length}</span>
@@ -40,7 +40,7 @@ export function BDPipeline({ rows, canUpdate }: { rows: BDRow[]; canUpdate: bool
               {items.map((r) => (
                 <div key={r.id} className="surface space-y-2 p-3">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-medium leading-tight">{r.name}</p>
+                    <p className="min-w-0 text-sm font-medium leading-tight [overflow-wrap:anywhere]">{r.name}</p>
                     <StatusBadge map={PRIORITY} value={r.priority} dot={false} />
                   </div>
                   <p className="text-xs text-muted-foreground">{BD_TYPE[r.type] ?? r.type}</p>
@@ -52,7 +52,7 @@ export function BDPipeline({ rows, canUpdate }: { rows: BDRow[]; canUpdate: bool
                     <button
                       onClick={() => move(r.id, stage)}
                       disabled={pendingId === r.id}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-secondary"
+                      className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-secondary sm:min-h-0"
                     >
                       {pendingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <MoveRight className="h-3 w-3" />}
                       Étape suivante

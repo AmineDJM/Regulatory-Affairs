@@ -109,7 +109,7 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             <CalendarRange className="h-4 w-4" /> Mon emploi du temps — {VUE_LABELS[vue]}
           </h2>
-          <Link href="/medical/plan-de-tournee" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+          <Link href="/medical/plan-de-tournee" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-0">
             Mon plan de tournée <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
@@ -131,11 +131,11 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
       </section>
 
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             <CalendarCheck className="h-4 w-4" /> À voir en priorité
           </h2>
-          <Link href="/medical/annuaire" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+          <Link href="/medical/annuaire" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-0">
             Mon panel <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>

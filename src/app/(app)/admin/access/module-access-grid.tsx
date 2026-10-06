@@ -157,9 +157,9 @@ export function ModuleAccessGrid({
       className="space-y-3"
     >
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-[16rem] space-y-1">
+        <div className="w-full space-y-1 sm:w-auto sm:min-w-[16rem]">
           <label className="text-sm font-medium" htmlFor="module-pick">Module</label>
-          <Select id="module-pick" value={module} onChange={(e) => setModule(e.target.value)} className="w-64">
+          <Select id="module-pick" value={module} onChange={(e) => setModule(e.target.value)} className="w-full sm:w-64">
             {modules.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </Select>
           {spec && (
@@ -171,9 +171,9 @@ export function ModuleAccessGrid({
             </p>
           )}
         </div>
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un employé…" className="w-56 pl-8" />
+          <Input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un employé…" className="w-full pl-8 sm:w-56" />
         </div>
       </div>
 
@@ -222,11 +222,12 @@ export function ModuleAccessGrid({
         </div>
       )}
 
+      {/* Une matrice (employés × capacités) : elle défile dans sa carte, la colonne des noms reste en place. */}
       <div className="surface overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Employé</TableHead>
+              <TableHead className="sticky left-0 z-10 bg-card">Employé</TableHead>
               <TableHead>Accès</TableHead>
               {cols.map((a) => <TableHead key={a} className="text-center">{actionLabels[a] ?? a}</TableHead>)}
               {cols.length === 0 && <TableHead>Capacités</TableHead>}
@@ -243,12 +244,12 @@ export function ModuleAccessGrid({
               const custom = r.mode === "CUSTOM";
               return (
                 <TableRow key={u.id}>
-                  <TableCell>
+                  <TableCell className="sticky left-0 z-10 min-w-[8.5rem] max-w-[11rem] bg-card sm:max-w-none">
                     <div className="font-medium">{u.name}</div>
-                    <div className="text-xs text-muted-foreground">{u.role} · défaut : {r.roleSummary}</div>
+                    <div className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{u.role} · défaut : {r.roleSummary}</div>
                   </TableCell>
                   <TableCell>
-                    <Select value={r.mode} onChange={(e) => update(u.id, { mode: e.target.value as UserModuleState["mode"] })} className="h-8 w-28 text-xs">
+                    <Select value={r.mode} onChange={(e) => update(u.id, { mode: e.target.value as UserModuleState["mode"] })} className="h-10 w-32 text-xs sm:h-8 sm:w-28">
                       <option value="DEFAULT">Par défaut</option>
                       <option value="CUSTOM">Personnalisé</option>
                       <option value="BLOCKED">Bloqué</option>
@@ -261,7 +262,7 @@ export function ModuleAccessGrid({
                         checked={custom ? Boolean(r.actions[a]) : false}
                         disabled={!custom}
                         onChange={(e) => update(u.id, { actions: { ...r.actions, [a]: e.target.checked } })}
-                        className="h-4 w-4 rounded border-input disabled:opacity-30"
+                        className="h-5 w-5 rounded border-input disabled:opacity-30 sm:h-4 sm:w-4"
                       />
                     </TableCell>
                   ))}
@@ -288,7 +289,7 @@ export function ModuleAccessGrid({
                                   : "Voir les dossiers verrouillés, ici et partout ailleurs (recherche, sélecteurs, assistant)."
                             }
                             onChange={(e) => setPipe(u.id, { view: e.target.checked })}
-                            className="h-4 w-4 rounded border-input disabled:opacity-40"
+                            className="h-5 w-5 rounded border-input disabled:opacity-40 sm:h-4 sm:w-4"
                           />
                         </TableCell>
                         <TableCell className="text-center">
@@ -302,7 +303,7 @@ export function ModuleAccessGrid({
                                 : "Ouvrir un dossier le rend visible de TOUTE l'entreprise, et cela ne se reprend pas."
                             }
                             onChange={(e) => setPipe(u.id, { manage: e.target.checked })}
-                            className="h-4 w-4 rounded border-input disabled:opacity-40"
+                            className="h-5 w-5 rounded border-input disabled:opacity-40 sm:h-4 sm:w-4"
                           />
                         </TableCell>
                       </>
@@ -323,7 +324,7 @@ export function ModuleAccessGrid({
                     {module === "DRIVE" || module === "DOSSIERS" ? (
                       <span className="text-xs text-muted-foreground" title="Confidentialité stricte : l'utilisateur ne voit que ses propres fichiers / sujets et ceux qu'on lui a partagés ou confiés.">Privé (assignées)</span>
                     ) : spec?.rowScoped ? (
-                      <Select value={r.scope} disabled={!custom} onChange={(e) => update(u.id, { scope: e.target.value as "ALL" | "ASSIGNED" })} className="h-8 w-36 text-xs">
+                      <Select value={r.scope} disabled={!custom} onChange={(e) => update(u.id, { scope: e.target.value as "ALL" | "ASSIGNED" })} className="h-10 w-40 text-xs sm:h-8 sm:w-36">
                         <option value="ALL">Toutes les lignes</option>
                         <option value="ASSIGNED">Lignes assignées</option>
                       </Select>
@@ -336,13 +337,13 @@ export function ModuleAccessGrid({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs leading-6 text-muted-foreground">
           <Badge tone="neutral" dot={false}>Par défaut</Badge> droits du rôle ·
           <Badge tone="info" dot={false}>Personnalisé</Badge> droits choisis ·
           <Badge tone="danger" dot={false}>Bloqué</Badge> module masqué. « Voir » est implicite (sauf Bloqué).
         </p>
-        <Button type="submit" disabled={saving}>
+        <Button type="submit" disabled={saving} className="w-full shrink-0 sm:w-auto">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
           {saved ? "Enregistré" : "Enregistrer ce module"}
         </Button>

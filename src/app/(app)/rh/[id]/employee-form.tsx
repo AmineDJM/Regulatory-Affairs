@@ -62,11 +62,19 @@ interface Props {
   cleIa?: string | null;
 }
 
-function TextInput({ name, label, type = "text", defaultValue, full, required }: { name: string; label: string; type?: string; defaultValue?: string; full?: boolean; required?: boolean }) {
+// Clavier adapté au téléphone : pavé décimal pour les montants, numérique pour les identifiants.
+// `autoComplete="off"` sur les données d'un TIERS : le navigateur proposerait sinon celles de l'utilisateur.
+function TextInput({ name, label, type = "text", defaultValue, full, required, inputMode, autoComplete }: {
+  name: string; label: string; type?: string; defaultValue?: string; full?: boolean; required?: boolean;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]; autoComplete?: string;
+}) {
   return (
-    <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}>
+    <div className={full ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
       <Label htmlFor={name}>{label}{required && <span className="ml-0.5 text-destructive">*</span>}</Label>
-      <Input id={name} name={name} type={type} defaultValue={defaultValue} required={required} step={type === "number" ? "any" : undefined} />
+      <Input
+        id={name} name={name} type={type} defaultValue={defaultValue} required={required} step={type === "number" ? "any" : undefined}
+        inputMode={inputMode ?? (type === "number" ? "decimal" : undefined)} autoComplete={autoComplete}
+      />
     </div>
   );
 }
@@ -123,8 +131,8 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
         <p className="text-xs text-muted-foreground">Téléversez le contrat (PDF ou image) : l&apos;OCR Mistral + l&apos;IA extraient et pré-remplissent les champs. Tout reste modifiable avant enregistrement.</p>
         <div className="flex flex-wrap items-center gap-2">
           <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff" disabled={!aiConfigured || analyzing}
-            className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium" />
-          <Button type="button" size="sm" onClick={runAnalyze} disabled={!aiConfigured || analyzing} title={aiConfigured ? undefined : courtIaNonConfiguree(cleIa)}>
+            className="w-full min-w-0 text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium sm:w-auto" />
+          <Button type="button" size="sm" className="w-full sm:w-auto" onClick={runAnalyze} disabled={!aiConfigured || analyzing} title={aiConfigured ? undefined : courtIaNonConfiguree(cleIa)}>
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Analyser le contrat
           </Button>
         </div>
@@ -150,8 +158,8 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
         className="space-y-4"
       >
         <input type="hidden" name="id" value={employee.id} />
-        <div key={prefillVersion} className="grid grid-cols-2 gap-3">
-          <TextInput name="fullName" label="Nom complet" defaultValue={v.fullName} full required />
+        <div key={prefillVersion} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <TextInput name="fullName" label="Nom complet" defaultValue={v.fullName} full required autoComplete="off" />
           <TextInput name="position" label="Poste" defaultValue={v.position} />
           <SelectInput name="departmentId" label="Département" defaultValue={v.departmentId} options={departmentOptions} placeholder="— Non affecté —" />
           <SelectInput name="companyId" label="Entité" defaultValue={v.companyId} options={companyOptions} placeholder="— Entité —" />
@@ -159,7 +167,7 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
           <TextInput name="leaveBalanceDays" label="Solde congés (jours)" type="number" defaultValue={v.leaveBalanceDays} />
 
           {/* Rémunération (bulletin). Côté salarié : brut, Ret SS 35 % et TFP restent invisibles. */}
-          <p className="col-span-2 mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rémunération (bulletin de paie)</p>
+          <p className="mt-1 text-xs sm:col-span-2 font-semibold uppercase tracking-wide text-muted-foreground">Rémunération (bulletin de paie)</p>
           <TextInput name="baseSalary" label="Salaire de base (DZD)" type="number" defaultValue={v.baseSalary} />
           <TextInput name="grossSalary" label="Salaire brut (confidentiel)" type="number" defaultValue={v.grossSalary} />
           {/* CE QUE LE SALARIÉ COÛTE VRAIMENT — brut + charges patronales. C'est ce montant, et
@@ -176,33 +184,34 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
           <TextInput name="contractEnd" label="Fin de contrat" type="date" defaultValue={v.contractEnd} />
           <TextInput name="trialStart" label="Période d'essai — début" type="date" defaultValue={v.trialStart} />
           <TextInput name="trialEnd" label="Période d'essai — fin" type="date" defaultValue={v.trialEnd} />
-          <label className="flex items-center gap-2 text-sm sm:col-span-1">
+          <label className="flex min-h-10 items-center gap-2 text-sm sm:col-span-1">
             <input type="checkbox" name="trialRenewable" defaultChecked={employee.trialRenewable} className="h-4 w-4 rounded border-border accent-primary" />
             Période d'essai renouvelable
           </label>
-          <label className="flex items-center gap-2 text-sm sm:col-span-1">
+          <label className="flex min-h-10 items-center gap-2 text-sm sm:col-span-1">
             <input type="checkbox" name="trialRenewed" defaultChecked={employee.trialRenewed} className="h-4 w-4 rounded border-border accent-primary" />
             Renouvelée (2ᵉ période)
           </label>
           <TextInput name="trialRenewalStart" label="2ᵉ période — début" type="date" defaultValue={v.trialRenewalStart} />
           <TextInput name="trialRenewalEnd" label="2ᵉ période — fin" type="date" defaultValue={v.trialRenewalEnd} />
           <TextInput name="birthDate" label="Date de naissance" type="date" defaultValue={v.birthDate} />
-          <TextInput name="email" label="Email" defaultValue={v.email} />
-          <TextInput name="phone" label="Téléphone" defaultValue={v.phone} />
-          <TextInput name="iban" label="RIB / IBAN" defaultValue={v.iban} />
-          <TextInput name="nationalId" label="NIN" defaultValue={v.nationalId} />
-          <TextInput name="cnasNumber" label="N° CNAS" defaultValue={v.cnasNumber} />
-          <TextInput name="address" label="Adresse" defaultValue={v.address} full />
+          {/* Clavier e-mail SANS la validation du navigateur : une adresse déjà mal saisie en base bloquerait tout l'enregistrement. */}
+          <TextInput name="email" label="Email" inputMode="email" defaultValue={v.email} autoComplete="off" />
+          <TextInput name="phone" label="Téléphone" type="tel" defaultValue={v.phone} autoComplete="off" />
+          <TextInput name="iban" label="RIB / IBAN" defaultValue={v.iban} autoComplete="off" />
+          <TextInput name="nationalId" label="NIN" defaultValue={v.nationalId} inputMode="numeric" autoComplete="off" />
+          <TextInput name="cnasNumber" label="N° CNAS" defaultValue={v.cnasNumber} inputMode="numeric" autoComplete="off" />
+          <TextInput name="address" label="Adresse" defaultValue={v.address} full autoComplete="off" />
           <SelectInput name="managerId" label="Manager (N+1)" defaultValue={v.managerId} options={managerOptions} />
           <SelectInput name="userId" label="Compte applicatif lié" defaultValue={v.userId} options={userOptions} placeholder="Aucun" />
-          <label className="col-span-2 flex items-center gap-2 text-sm">
+          <label className="flex min-h-10 items-center gap-2 text-sm sm:col-span-2">
             <input type="checkbox" name="isActive" defaultChecked={employee.isActive} className="h-4 w-4 rounded border-input" />
             Employé actif
           </label>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           {retour && <p role={retour.ok ? "status" : "alert"} className={cn("text-xs", retour.ok ? "text-muted-foreground" : "text-destructive")}>{retour.text}</p>}
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
             {saved ? "Enregistré" : "Enregistrer les modifications"}
           </Button>

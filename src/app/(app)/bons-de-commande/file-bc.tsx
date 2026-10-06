@@ -79,7 +79,7 @@ export function FileBonsDeCommande({
               {renvoyes.map((l) => (
                 <li key={l.id} className="space-y-1 py-2 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="min-w-0 truncate">
+                    <span className="min-w-0 [overflow-wrap:anywhere] sm:truncate">
                       <Link href={`/legal/${l.id}`} className="font-medium hover:underline">{l.reference ?? l.title}</Link>
                       {l.counterparty ? <span className="text-muted-foreground"> — {l.counterparty}</span> : null}
                     </span>
@@ -87,7 +87,7 @@ export function FileBonsDeCommande({
                       {montant(l.montant)}{l.renvoi ? ` · renvoyé le ${new Date(l.renvoi.le).toLocaleDateString("fr-FR")}${l.renvoi.par ? ` par ${l.renvoi.par}` : ""}` : ""}
                     </span>
                   </div>
-                  {l.renvoi?.note && <p className="text-xs">À corriger : « {l.renvoi.note} »</p>}
+                  {l.renvoi?.note && <p className="text-xs [overflow-wrap:anywhere]">À corriger : « {l.renvoi.note} »</p>}
                 </li>
               ))}
             </ul>
@@ -107,7 +107,7 @@ export function FileBonsDeCommande({
             <ul className="divide-y divide-border">
               {signes.map((l) => (
                 <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-                  <span className="min-w-0 truncate">
+                  <span className="min-w-0 [overflow-wrap:anywhere] sm:truncate">
                     <Link href={`/legal/${l.id}`} className="font-medium hover:underline">{l.reference ?? l.title}</Link>
                     {l.counterparty ? <span className="text-muted-foreground"> — {l.counterparty}</span> : null}
                   </span>
@@ -147,19 +147,19 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
   const [copie, setCopie] = React.useState<File | null>(null);
   const jours = Math.floor((Date.now() - new Date(l.creeLe).getTime()) / 86_400_000);
   return (
-    <li className="surface space-y-3 p-4">
+    <li className="surface space-y-3 p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
-          <p className="truncate font-medium">
+          <p className="font-medium [overflow-wrap:anywhere] sm:truncate">
             {l.reference ? `${l.reference} — ` : ""}{l.title}
           </p>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
             {l.counterparty ?? "Fournisseur non renseigné"}{l.societe ? ` · ${l.societe}` : ""}
             {l.creePar ? ` · établi par ${l.creePar}` : ""}
           </p>
         </div>
-        <div className="text-right">
-          <p className="font-semibold tabular-nums">{montant(l.montant)}</p>
+        <div className="shrink-0 text-right">
+          <p className="whitespace-nowrap font-semibold tabular-nums">{montant(l.montant)}</p>
           <p className="text-xs text-muted-foreground">{jours <= 0 ? "aujourd'hui" : `il y a ${jours} j`}</p>
         </div>
       </div>
@@ -205,7 +205,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
       <div className="flex flex-wrap items-center gap-2">
         {peutSigner && !fait && renvoi === null && (
           <BoutonDecisif
-            size="sm" disabled={saving || !copie || !signataire.trim()}
+            size="sm" className="h-11 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" disabled={saving || !copie || !signataire.trim()}
             onClick={() => {
               const fd = new FormData();
               fd.set("id", l.id);
@@ -223,7 +223,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
           </BoutonDecisif>
         )}
         {peutSigner && !fait && renvoi === null && (
-          <Button size="sm" variant="secondary" disabled={saving} onClick={() => setRenvoi("")}>
+          <Button size="sm" variant="secondary" className="w-full sm:w-auto" disabled={saving} onClick={() => setRenvoi("")}>
             <Undo2 className="h-4 w-4" /> Renvoyer à l&apos;émetteur
           </Button>
         )}
@@ -232,7 +232,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
         <div className="flex flex-wrap items-center gap-2">
           <Input
             value={renvoi} onChange={(e) => setRenvoi(e.target.value)} aria-label="Ce qu'il faut corriger"
-            placeholder="Ce qu'il faut corriger (obligatoire)" className="min-w-0 flex-1"
+            placeholder="Ce qu'il faut corriger (obligatoire)" className="min-w-0 flex-1 basis-full sm:basis-auto"
           />
           <BoutonDecisif
             size="sm" variant="secondary" disabled={saving || !renvoi.trim()}

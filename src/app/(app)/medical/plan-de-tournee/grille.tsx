@@ -95,6 +95,20 @@ export function GrilleTournee({
 
   const totalSemaine = jours.reduce((n, j) => n + compte(j), 0);
 
+  // ── TÉLÉPHONE : glisser d'un jour à l'autre, et garder l'onglet du jour en vue ───────────
+  const ongletsRef = React.useRef<HTMLDivElement>(null);
+  const depart = React.useRef<{ x: number; y: number } | null>(null);
+  const glisserJour = (sens: 1 | -1) => {
+    const suivant = jours[jours.indexOf(jourMobile) + sens];
+    if (suivant) setJourMobile(suivant);
+  };
+  React.useEffect(() => {
+    // Défilement HORIZONTAL de la rangée seulement : `scrollIntoView` ferait aussi remonter la page.
+    const rangee = ongletsRef.current;
+    const actif = rangee?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (rangee && actif) rangee.scrollTo({ left: actif.offsetLeft - (rangee.clientWidth - actif.offsetWidth) / 2, behavior: "smooth" });
+  }, [jourMobile]);
+
   // ── UNE COLONNE : son en-tête (jour, compte, « + ») et ses cellules ──────────────────────
   const colonne = (j: string) => {
     const ids = parJour.get(j) ?? [];
@@ -127,7 +141,7 @@ export function GrilleTournee({
           <Badge tone={ids.length > 0 ? "info" : "neutral"} className="tabular-nums">{ids.length}</Badge>
           {modifiable && (
             <Button
-              type="button" size="sm" variant="outline" className="h-8 w-8 px-0" disabled={occupe}
+              type="button" size="sm" variant="outline" className="h-10 w-10 px-0 md:h-8 md:w-8" disabled={occupe}
               onClick={() => onAjouter(j)}
               aria-label={`Ajouter des praticiens le ${jourLisible(j, { weekday: "long", day: "numeric", month: "long" })}`}
               title="Ajouter des praticiens ce jour"
@@ -140,13 +154,13 @@ export function GrilleTournee({
           <div className="flex flex-1 flex-col items-center justify-center gap-1 px-2 py-6 text-center text-xs text-muted-foreground">
             <span>Aucun praticien prévu.</span>
             {modifiable && (
-              <button type="button" onClick={() => onAjouter(j)} disabled={occupe} className="text-primary hover:underline focus-ring rounded">
+              <button type="button" onClick={() => onAjouter(j)} disabled={occupe} className="mt-1 inline-flex min-h-11 items-center rounded-lg border border-primary/40 px-4 text-sm font-medium text-primary focus-ring hover:underline md:mt-0 md:min-h-0 md:border-0 md:px-0 md:text-xs md:font-normal">
                 Ajouter des praticiens
               </button>
             )}
           </div>
         ) : (
-          <ul className="flex flex-col gap-1.5 p-1.5">
+          <ul className="flex flex-col gap-2 p-2 md:gap-1.5 md:p-1.5">
             {ids.map((id) => {
               const cle = `${j}|${id}`;
               return (
@@ -172,7 +186,7 @@ export function GrilleTournee({
       {/* ── LA SEMAINE, ET LA NAVIGATION ENTRE SEMAINES ─────────────────────── */}
       <div className="flex items-center gap-2">
         {semaines.length > 1 && (
-          <Button type="button" size="sm" variant="ghost" className="h-8 w-8 px-0" disabled={semaine === 0} onClick={() => changerSemaine(semaine - 1)} aria-label="Semaine précédente">
+          <Button type="button" size="sm" variant="ghost" className="h-10 w-10 shrink-0 px-0 md:h-8 md:w-8" disabled={semaine === 0} onClick={() => changerSemaine(semaine - 1)} aria-label="Semaine précédente">
             <ChevronLeft className="h-4 w-4" />
           </Button>
         )}
@@ -183,20 +197,21 @@ export function GrilleTournee({
           </span>
         </p>
         {semaines.length > 1 && (
-          <Button type="button" size="sm" variant="ghost" className="h-8 w-8 px-0" disabled={semaine >= semaines.length - 1} onClick={() => changerSemaine(semaine + 1)} aria-label="Semaine suivante">
+          <Button type="button" size="sm" variant="ghost" className="h-10 w-10 shrink-0 px-0 md:h-8 md:w-8" disabled={semaine >= semaines.length - 1} onClick={() => changerSemaine(semaine + 1)} aria-label="Semaine suivante">
             <ChevronRight className="h-4 w-4" />
           </Button>
         )}
       </div>
 
       {/* ── TÉLÉPHONE : un jour par écran, les jours en onglets qui défilent ──── */}
+      {/* Le jour affiché se change d'un onglet, ou d'un glissement du pouce sur la liste. */}
       <div className="space-y-2 md:hidden">
-        <div role="group" aria-label="Jours de la semaine" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+        <div ref={ongletsRef} role="group" aria-label="Jours de la semaine" className="no-scrollbar relative -mx-1 flex snap-x gap-1.5 overflow-x-auto px-1 pb-1">
           {jours.map((j) => (
             <button
               key={j} type="button" aria-pressed={j === jourMobile} onClick={() => setJourMobile(j)}
               className={cn(
-                "flex shrink-0 flex-col items-center rounded-lg px-3 py-1.5 text-xs tabular-nums focus-ring",
+                "flex min-w-[3.75rem] shrink-0 snap-start flex-col items-center rounded-lg px-3 py-2 text-xs tabular-nums focus-ring",
                 j === jourMobile ? "bg-primary text-primary-foreground" : "border border-input bg-card",
                 j === aujourdhui && j !== jourMobile && "border-primary/60 text-primary",
               )}
@@ -207,7 +222,20 @@ export function GrilleTournee({
             </button>
           ))}
         </div>
-        {jourMobile && colonne(jourMobile)}
+        <div
+          onTouchStart={(e) => { const t = e.touches[0]; depart.current = t ? { x: t.clientX, y: t.clientY } : null; }}
+          onTouchEnd={(e) => {
+            const d = depart.current;
+            depart.current = null;
+            const t = e.changedTouches[0];
+            if (!d || !t) return;
+            const dx = t.clientX - d.x;
+            // Un geste franchement horizontal seulement : le défilement vertical de la liste ne change jamais de jour.
+            if (Math.abs(dx) > 60 && Math.abs(dx) > 1.5 * Math.abs(t.clientY - d.y)) glisserJour(dx < 0 ? 1 : -1);
+          }}
+        >
+          {jourMobile && colonne(jourMobile)}
+        </div>
       </div>
 
       {/* ── ORDINATEUR : la semaine entière, une colonne par jour ─────────────── */}
@@ -246,7 +274,7 @@ export function GrilleTournee({
                   })}
                 </Select>
                 <Button
-                  type="button" disabled={!versJour || occupe}
+                  type="button" className="h-11 w-full sm:h-10 sm:w-auto" disabled={!versJour || occupe}
                   onClick={() => { const r = onDeplacer(menu, versJour); if (r) setRefus(r); else setMenu(null); }}
                 >
                   Déplacer
@@ -255,7 +283,7 @@ export function GrilleTournee({
             </div>
             <div className="border-t border-border pt-3">
               <Button
-                type="button" variant="outline" className="text-destructive" disabled={occupe}
+                type="button" variant="outline" className="h-11 w-full text-destructive sm:h-10 sm:w-auto" disabled={occupe}
                 onClick={() => { const r = onRetirer(menu); if (r) setRefus(r); else setMenu(null); }}
               >
                 Retirer du plan
@@ -304,7 +332,7 @@ function Cellule({
           {info.wilaya && (
             <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground"><MapPin className="h-3 w-3" aria-hidden />{info.wilaya}</span>
           )}
-          {segment && <Badge tone={segment.tone} className="px-1.5 py-0 text-[10px]" title="Potentiel de prescription">{segment.label}</Badge>}
+          {segment && <Badge tone={segment.tone} className="px-1.5 py-0 text-[0.6875rem]" title="Potentiel de prescription">{segment.label}</Badge>}
         </span>
       )}
     </>
@@ -315,7 +343,7 @@ function Cellule({
       draggable={deplacable}
       onDragStart={deplacable ? (e) => { e.dataTransfer.setData("text/plain", cle); e.dataTransfer.effectAllowed = "move"; } : undefined}
       className={cn(
-        "rounded-lg border bg-background p-2 text-sm shadow-sm transition-colors",
+        "rounded-lg border bg-background p-3 text-sm shadow-sm transition-colors md:p-2",
         deplacable && "cursor-grab active:cursor-grabbing",
         etat === "FAITE" && "border-success/40 bg-success/5",
         etat === "PERDUE" && "border-warning/40 bg-warning/5",
@@ -340,7 +368,7 @@ function Cellule({
         {deplacable ? (
           <button
             type="button" onClick={onMenu} disabled={occupe}
-            className="-mr-1 shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus-ring"
+            className="-mr-1.5 -mt-1.5 shrink-0 rounded-lg p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground focus-ring md:-mr-1 md:mt-0 md:rounded md:p-1"
             aria-label={`Déplacer ou retirer ${info.name}`}
           >
             <MoreVertical className="h-4 w-4" />
@@ -351,7 +379,7 @@ function Cellule({
       </div>
       {montrerEtat && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          <Badge tone={tonEtatCellule(etat)} className="px-1.5 py-0 text-[10px]">{ETAT_CELLULE_LABELS[etat]}</Badge>
+          <Badge tone={tonEtatCellule(etat)} className="px-1.5 py-0 text-[0.6875rem]">{ETAT_CELLULE_LABELS[etat]}</Badge>
           {etat === "A_FAIRE" && ligne && (
             <span className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground"><Clock className="h-3 w-3" aria-hidden />{ligne.heuresRestantes} h</span>
           )}
@@ -360,7 +388,7 @@ function Cellule({
       )}
       {geste === "RAPPORTER" && ligne && (
         // DIRE QU'ELLE N'A PAS EU LIEU (§118.193) — dans la même fenêtre que le rapport, la même feuille que « Ma journée ».
-        <button type="button" disabled={occupe} onClick={() => onNonTenue(ligne)} className="mt-1 rounded text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-ring">
+        <button type="button" disabled={occupe} onClick={() => onNonTenue(ligne)} className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-input px-3 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-ring md:mt-1 md:min-h-0 md:rounded md:border-0 md:px-0 md:text-[11px]">
           N&apos;a pas eu lieu
         </button>
       )}

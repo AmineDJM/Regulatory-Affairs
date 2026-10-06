@@ -74,9 +74,9 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <Link href={`/rh/paie?year=${year - 1}`} className="rounded-md border border-border p-1.5 hover:bg-secondary"><ChevronLeft className="h-4 w-4" /></Link>
+          <Link href={`/rh/paie?year=${year - 1}`} aria-label={`Année ${year - 1}`} className="rounded-md border border-border p-2.5 hover:bg-secondary sm:p-1.5"><ChevronLeft className="h-4 w-4" /></Link>
           <span className="min-w-16 text-center text-sm font-semibold">{year}</span>
-          <Link href={`/rh/paie?year=${year + 1}`} className="rounded-md border border-border p-1.5 hover:bg-secondary"><ChevronRight className="h-4 w-4" /></Link>
+          <Link href={`/rh/paie?year=${year + 1}`} aria-label={`Année ${year + 1}`} className="rounded-md border border-border p-2.5 hover:bg-secondary sm:p-1.5"><ChevronRight className="h-4 w-4" /></Link>
         </div>
         {/* LE « TRANSFERT AU BUDGET » N'EXISTE PLUS (§118.176) : il écrivait un décaissement par
             salarié, hors du centre de paiement. La paie part au centre, entité par entité, depuis
@@ -86,24 +86,27 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
         </span>
       </div>
 
-      <div className="surface overflow-x-auto">
+      {/* MATRICE salariés × mois : elle défile DANS ce conteneur, jamais la page. La colonne des
+          noms reste collée à gauche — fond opaque (bg-card, teinte d'en-tête peinte par une ombre
+          intérieure) et filet droit en ombre, car une bordure de tableau fusionné ne suit pas le collage. */}
+      <div className="surface overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="sticky left-0 z-10 bg-muted/40 px-3 py-2 text-left">Employé</th>
+              <th className="sticky left-0 z-10 bg-card px-3 py-2 text-left shadow-[inset_0_0_0_9999px_hsl(var(--muted)/0.4),1px_0_0_hsl(var(--border)),4px_0_6px_-4px_rgb(0_0_0/0.12)]">Employé</th>
               {MONTHS.map((m) => <th key={m} className="px-2 py-2 text-center">{m}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.map((r) => (
               <tr key={r.employeeId}>
-                <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium">{r.name}</td>
+                <td className="sticky left-0 z-10 min-w-[7.5rem] max-w-[10rem] bg-card px-3 py-1.5 font-medium leading-snug [overflow-wrap:anywhere] shadow-[1px_0_0_hsl(var(--border)),4px_0_6px_-4px_rgb(0_0_0/0.12)] sm:max-w-none">{r.name}</td>
                 {r.months.map((cell, i) => (
                   <td key={i} className="px-1 py-1.5 text-center">
                     {cell.state === "UNPAID" ? (
                       <button
                         onClick={() => { setErr(null); setPaying({ row: r, month: i + 1 }); }}
-                        className="rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                        className="min-h-9 min-w-9 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary sm:min-h-0 sm:min-w-0"
                         title={`Marquer payé — ${MONTHS[i]} ${year}`}
                       >
                         —
@@ -126,7 +129,7 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
                           // hors de l'application, pour une simple vérification. L'aperçu commun
                           // rend le PDF comme le Word sur place ; le téléchargement reste
                           // disponible dans sa barre d'outils, pour qui en a vraiment besoin.
-                          <span className="mt-0.5 inline-flex max-w-24 items-center gap-0.5 text-[0.625rem] text-muted-foreground [&_button]:truncate [&_button]:text-[0.625rem]">
+                          <span className="mt-0.5 inline-flex max-w-24 items-center gap-0.5 text-[0.6875rem] text-muted-foreground [&_button]:truncate [&_button]:text-[0.6875rem]">
                             <Paperclip className="h-3 w-3 shrink-0" />
                             <DocumentPreview
                               id={cell.payslip.id}
@@ -140,19 +143,20 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
                             <button
                               onClick={() => { setErr(null); setEditing({ row: r, month: i + 1, cell }); }}
                               title="Aucune fiche de paie pour ce mois — la déposer"
-                              className="mt-0.5 inline-flex items-center gap-0.5 text-[0.625rem] text-warning hover:underline"
+                              className="mt-0.5 inline-flex items-center gap-0.5 py-1 text-[0.6875rem] text-warning hover:underline sm:py-0"
                             >
                               <FileWarning className="h-3 w-3" /> sans fiche
                             </button>
                           )
                         )}
                         {cell.entryId && (
-                          <span className="mt-0.5 hidden items-center gap-1.5 group-hover:inline-flex">
+                          // Au doigt (pas de survol), « modifier / annuler » restent affichés en permanence.
+                          <span className="mt-0.5 inline-flex items-center gap-1.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-focus-within:inline-flex [@media(hover:hover)]:group-hover:inline-flex">
                             {/* Une paie fausse ne se rattrape pas au mois suivant : elle se
                                 corrige, même transférée — l'écriture budgétaire suit. */}
                             <button
                               onClick={() => { setErr(null); setEditing({ row: r, month: i + 1, cell }); }}
-                              className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-primary"
+                              className="inline-flex items-center gap-0.5 py-1 text-[0.6875rem] text-muted-foreground hover:text-primary [@media(hover:hover)]:py-0"
                             >
                               <Pencil className="h-3 w-3" /> modifier
                             </button>
@@ -160,7 +164,7 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
                               <BoutonDecisif brut
                                 confirmation={`annuler la saisie de ${r.name} pour ${formatMonth(ym(year, i + 1))}`}
                                 onClick={() => undo(cell.entryId!, r.name, i + 1)}
-                                className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-destructive"
+                                className="inline-flex items-center gap-0.5 py-1 text-[0.6875rem] text-muted-foreground hover:text-destructive [@media(hover:hover)]:py-0"
                               >
                                 <Undo2 className="h-3 w-3" /> annuler
                               </BoutonDecisif>
@@ -212,17 +216,17 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
                   la masse du montant exact des charges patronales. */}
               <div className="space-y-1.5">
                 <Label htmlFor="pay-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
-                <Input id="pay-cost" name="employerCost" type="number" step="any" min="1" required defaultValue={paying.row.defaultEmployerCost ?? undefined} />
+                <Input id="pay-cost" name="employerCost" type="number" inputMode="decimal" step="any" min="1" required defaultValue={paying.row.defaultEmployerCost ?? undefined} />
                 <p className="text-xs text-muted-foreground">Brut + <span className="font-medium text-foreground">charges patronales</span> : le total imputé au budget, et la brique de la masse salariale. Pré-rempli depuis la fiche employé — modifiable.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pay-net">Salaire net (DZD) <span className="text-destructive">*</span></Label>
-                <Input id="pay-net" name="net" type="number" step="any" min="1" required defaultValue={paying.row.defaultNet ?? undefined} />
+                <Input id="pay-net" name="net" type="number" inputMode="decimal" step="any" min="1" required defaultValue={paying.row.defaultNet ?? undefined} />
                 <p className="text-xs text-muted-foreground">Montant <span className="font-medium text-foreground">affiché au salarié</span>. Ne peut pas dépasser le coût employeur.</p>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="pay-gross">Salaire brut (DZD) <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
-                <Input id="pay-gross" name="gross" type="number" step="any" min="0" defaultValue={paying.row.defaultGross ?? undefined} />
+                <Input id="pay-gross" name="gross" type="number" inputMode="decimal" step="any" min="0" defaultValue={paying.row.defaultGross ?? undefined} />
                 <p className="text-xs text-muted-foreground">Information de bulletin. Laissé vide, il est repris du coût employeur — il n'entre pas dans le calcul du budget.</p>
               </div>
             </div>
@@ -232,9 +236,9 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
               <p className="text-xs text-muted-foreground">Optionnel — vous pouvez saisir le salaire sans joindre la fiche.</p>
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setPaying(null)} disabled={busy}>Annuler</Button>
-              <Button type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la saisie</Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setPaying(null)} disabled={busy}>Annuler</Button>
+              <Button type="submit" className="w-full sm:w-auto" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la saisie</Button>
             </div>
           </form>
         )}
@@ -268,18 +272,18 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
               <div className="space-y-1.5">
                 <Label htmlFor="edit-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
                 <Input
-                  id="edit-cost" name="employerCost" type="number" step="any" min="1" required
+                  id="edit-cost" name="employerCost" type="number" inputMode="decimal" step="any" min="1" required
                   defaultValue={editing.cell.employerCost ?? editing.cell.amount ?? undefined}
                 />
                 <p className="text-xs text-muted-foreground">Le total imputé au budget. Le corriger corrige la masse salariale.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="edit-net">Salaire net (DZD) <span className="text-destructive">*</span></Label>
-                <Input id="edit-net" name="net" type="number" step="any" min="1" required defaultValue={editing.cell.net ?? undefined} />
+                <Input id="edit-net" name="net" type="number" inputMode="decimal" step="any" min="1" required defaultValue={editing.cell.net ?? undefined} />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="edit-gross">Salaire brut (DZD) <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
-                <Input id="edit-gross" name="gross" type="number" step="any" min="0" defaultValue={editing.cell.amount ?? undefined} />
+                <Input id="edit-gross" name="gross" type="number" inputMode="decimal" step="any" min="0" defaultValue={editing.cell.amount ?? undefined} />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -317,9 +321,9 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
               </p>
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={busy}>Annuler</Button>
-              <Button type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la correction</Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setEditing(null)} disabled={busy}>Annuler</Button>
+              <Button type="submit" className="w-full sm:w-auto" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la correction</Button>
             </div>
           </form>
         )}

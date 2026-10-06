@@ -109,14 +109,15 @@ export function StockEcran({ page, vueDemandee }: { page: PageStock; vueDemandee
   return (
     <div className="space-y-4">
       {visibles.length > 1 && (
-        <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1" role="tablist" aria-label="Vues du stock">
+        // Au téléphone, une rangée qui glisse : sept vues repliées sur trois lignes repousseraient le contenu.
+        <div className="no-scrollbar flex gap-1 overflow-x-auto rounded-lg border border-border bg-card p-1 sm:flex-wrap sm:overflow-visible" role="tablist" aria-label="Vues du stock">
           {visibles.map((v) => {
             const compte = v === "moi" ? aConfirmer : v === "magasin" ? pourLeMagasin : v === "comptages" ? aCompter : v === "tableau" ? pourLeTableau : 0;
             return (
               <button
                 key={v} type="button" role="tab" aria-selected={vue === v} onClick={() => choisir(v)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  "inline-flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors sm:min-h-0",
                   vue === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground",
                 )}
               >
@@ -136,11 +137,11 @@ export function StockEcran({ page, vueDemandee }: { page: PageStock; vueDemandee
             message.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive",
           )}
         >
-          <span className="flex items-start gap-2">
+          <span className="flex min-w-0 items-start gap-2 [overflow-wrap:anywhere]">
             {message.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
             {message.texte}
           </span>
-          <button type="button" onClick={() => setMessage(null)} aria-label="Fermer le message" className="shrink-0 rounded p-0.5 hover:bg-black/5">
+          <button type="button" onClick={() => setMessage(null)} aria-label="Fermer le message" className="-my-1 -mr-1.5 shrink-0 rounded p-2 hover:bg-black/5 sm:my-0 sm:mr-0 sm:p-0.5">
             <X className="h-4 w-4" />
           </button>
         </div>

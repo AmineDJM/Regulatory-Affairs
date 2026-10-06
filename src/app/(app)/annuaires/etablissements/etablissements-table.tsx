@@ -190,7 +190,7 @@ export function EtablissementsTable({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative min-w-0 flex-1 basis-full sm:min-w-[200px] sm:basis-auto">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input
             value={q} onChange={(ev) => setQ(ev.target.value)} className="pl-8"
@@ -198,12 +198,12 @@ export function EtablissementsTable({
             aria-label="Chercher un établissement"
           />
         </div>
-        <Select value={typeFilter} onChange={(ev) => setTypeFilter(ev.target.value)} className="w-auto" aria-label="Filtrer par type">
+        <Select value={typeFilter} onChange={(ev) => setTypeFilter(ev.target.value)} className="min-w-0 flex-1 sm:w-auto sm:flex-none" aria-label="Filtrer par type">
           <option value="">Tous les types</option>
           {types.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </Select>
         {canCreate && (
-          <Button onClick={() => { setErr(null); setCreating(true); }} disabled={occupe}>
+          <Button onClick={() => { setErr(null); setCreating(true); }} disabled={occupe} className="w-full sm:w-auto">
             <Plus className="h-4 w-4" /> Ajouter un établissement
           </Button>
         )}
@@ -277,7 +277,7 @@ export function EtablissementsTable({
                       <button
                         type="button" onClick={(ev) => { ev.stopPropagation(); setServicesDeId(e.id); }}
                         onMouseDown={(ev) => ev.stopPropagation()}
-                        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-primary hover:bg-primary/10"
+                        className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-primary hover:bg-primary/10 sm:px-1.5 sm:py-0.5"
                         aria-label={`Services de ${e.name}`}
                       >
                         <Layers className="h-3.5 w-3.5" aria-hidden />
@@ -294,7 +294,7 @@ export function EtablissementsTable({
                       {canEdit && (
                         <button
                           type="button" onClick={() => { setErr(null); setEditing(e); }} disabled={occupe}
-                          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          className="rounded-md p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground sm:p-1.5"
                           aria-label={`Modifier ${e.name}`}
                         >
                           <Pencil className="h-4 w-4" />
@@ -303,7 +303,7 @@ export function EtablissementsTable({
                       {canEdit && (
                         <button
                           type="button" onClick={() => void basculerActif(e)} disabled={occupe}
-                          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          className="rounded-md p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground sm:p-1.5"
                           aria-label={e.isActive ? `Désactiver ${e.name}` : `Réactiver ${e.name}`}
                           title={e.isActive ? "Désactiver" : "Réactiver"}
                         >
@@ -313,7 +313,7 @@ export function EtablissementsTable({
                       {canDelete && (
                         <button
                           type="button" onClick={() => void remove(e)} disabled={occupe}
-                          className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          className="rounded-md p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
                           aria-label={`Supprimer ${e.name}`}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -412,11 +412,11 @@ export function EtablissementsTable({
             </div>
             <div>
               <Label htmlFor="etab-phone">Téléphone</Label>
-              <Input id="etab-phone" name="phone" defaultValue={editing?.phone ?? ""} />
+              <Input id="etab-phone" name="phone" type="tel" autoComplete="tel" defaultValue={editing?.phone ?? ""} />
             </div>
             <div>
               <Label htmlFor="etab-email">E-mail</Label>
-              <Input id="etab-email" name="email" type="email" defaultValue={editing?.email ?? ""} />
+              <Input id="etab-email" name="email" type="email" autoComplete="email" defaultValue={editing?.email ?? ""} />
             </div>
             <div className="sm:col-span-2">
               <Label htmlFor="etab-address">Adresse</Label>
@@ -439,7 +439,7 @@ export function EtablissementsTable({
             </label>
           )}
           {err && <p className="text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <Button type="button" variant="ghost" onClick={() => { setCreating(false); setEditing(null); }} disabled={occupe}>
               Annuler
             </Button>

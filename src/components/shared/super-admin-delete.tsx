@@ -63,7 +63,7 @@ export function SuperAdminDeleteButton({
       {compact ? (
         <button
           type="button" onClick={() => setOpen(true)} title={label}
-          className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          aria-label={label} className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -201,7 +201,7 @@ export function ConfirmationSuppression({
 
         <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
           <p className="text-xs text-muted-foreground">Élément à supprimer</p>
-          <p className="font-medium">{name}</p>
+          <p className="break-words font-medium">{name}</p>
         </div>
 
         <CeQuiPartAvec enLecture={enLecture} lectureImpossible={lectureImpossible} apercu={lu} />
@@ -213,7 +213,7 @@ export function ConfirmationSuppression({
         )}
         {error && <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
 
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Annuler
           </Button>

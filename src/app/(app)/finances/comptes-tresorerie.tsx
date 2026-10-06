@@ -92,9 +92,9 @@ export function ComptesTresorerieButton({ comptes, entites, canUpdate }: {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
                     <span className="font-medium">{comptes.length} compte(s)</span>
-                    <span className="text-muted-foreground">Total : <strong className="text-foreground">{formatCurrency(total)}</strong></span>
+                    <span className="text-muted-foreground">Total : <strong className="tabular-nums text-foreground">{formatCurrency(total)}</strong></span>
                   </div>
                   <ul className="divide-y rounded-lg border">
                     {comptes.map((c) => (
@@ -104,7 +104,7 @@ export function ComptesTresorerieButton({ comptes, entites, canUpdate }: {
                             <p className="truncate text-sm font-medium">
                               {c.nom} {c.principal && <Badge tone="info" dot={false}>Principal</Badge>}
                             </p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                               {[c.banque, c.rib ? `RIB ${c.rib}` : null, c.societe].filter(Boolean).join(" · ") || "—"}
                             </p>
                           </div>
@@ -215,7 +215,7 @@ function CasePrincipal({ defaultChecked }: { defaultChecked: boolean }) {
   return (
     <label className="flex items-start gap-2 text-sm">
       <input type="hidden" name="principal" value="off" />
-      <input type="checkbox" name="principal" defaultChecked={defaultChecked} className="mt-0.5" />
+      <input type="checkbox" name="principal" defaultChecked={defaultChecked} className="mt-0.5 h-4 w-4 shrink-0" />
       <span>
         Compte principal de son entité
         <span className="block text-xs text-muted-foreground">Les paiements de l&apos;entité partent de ce compte quand ils n&apos;en nomment pas un autre. Un seul par entité.</span>
@@ -226,9 +226,9 @@ function CasePrincipal({ defaultChecked }: { defaultChecked: boolean }) {
 
 function BarreActions({ occupe, libelle, onAnnuler }: { occupe: boolean; libelle: string; onAnnuler: () => void }) {
   return (
-    <div className="flex justify-end gap-2">
-      <Button type="button" variant="outline" onClick={onAnnuler} disabled={occupe}>Annuler</Button>
-      <Button type="submit" disabled={occupe}>
+    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={onAnnuler} disabled={occupe}>Annuler</Button>
+      <Button type="submit" className="w-full sm:w-auto" disabled={occupe}>
         {occupe && <Loader2 className="h-4 w-4 animate-spin" />}
         {libelle}
       </Button>

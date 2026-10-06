@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { DUREE_LABELS, type Duree } from "@/lib/segmentation/cycle";
 import type { CycleCharge } from "@/lib/segmentation/cycle-service";
@@ -27,7 +28,7 @@ export function CyclesVue({ strategieId, cycles, cycle, peutGerer, moi }: {
       {cycles.length === 0 && <p className="surface p-4 text-sm text-muted-foreground">Aucun cycle ouvert pour cette stratégie.</p>}
       <div className="flex flex-wrap gap-1 text-xs">
         {cycles.map((c) => (
-          <Link key={c.id} href={`/segmentation?s=${strategieId}&vue=cycles&cycle=${c.id}`} className={`rounded-md border px-2 py-1 ${cycle?.id === c.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>
+          <Link key={c.id} href={`/segmentation?s=${strategieId}&vue=cycles&cycle=${c.id}`} className={`rounded-md border px-3 py-2 sm:px-2 sm:py-1 ${cycle?.id === c.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>
             {c.libelle} · {c.statut === "CLOS" ? "clos" : "ouvert"}
           </Link>
         ))}
@@ -48,49 +49,50 @@ export function CyclesVue({ strategieId, cycles, cycle, peutGerer, moi }: {
               <KpiCard label="Couverture" value={cycle.total.requis ? `${Math.round((cycle.total.realise / cycle.total.requis) * 100)} %` : "—"} icon="Target" tone="info" />
             </div>
           )}
-          <div className="surface overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border text-left text-xs text-muted-foreground">
-                <tr><th className="px-3 py-2">KAM</th><th className="px-3 py-2">Praticiens</th><th className="px-3 py-2">P1</th><th className="px-3 py-2">Requis</th><th className="px-3 py-2">Réalisé</th><th className="px-3 py-2">Restant</th><th className="px-3 py-2">Capacité</th><th className="px-3 py-2">Utilisation</th><th className="px-3 py-2">H sous-visités</th></tr>
-              </thead>
-              <tbody>
-                {parKam.length === 0 && <tr><td colSpan={9} className="px-3 py-3 text-muted-foreground">Aucun KAM de la BU ne couvre ces praticiens (secteurs à affecter dans Force de vente).</td></tr>}
+          {/* Une ligne = un KAM, puis un praticien : des cartes au téléphone, des tableaux au-delà. */}
+          <div className="surface max-sm:border-0 max-sm:bg-transparent">
+            <Table mobileCards>
+              <TableHeader className="bg-transparent">
+                <TableRow><TableHead>KAM</TableHead><TableHead>Praticiens</TableHead><TableHead>P1</TableHead><TableHead>Requis</TableHead><TableHead>Réalisé</TableHead><TableHead>Restant</TableHead><TableHead>Capacité</TableHead><TableHead>Utilisation</TableHead><TableHead>H sous-visités</TableHead></TableRow>
+              </TableHeader>
+              <TableBody>
+                {parKam.length === 0 && <TableRow><TableCell colSpan={9} data-sans-etiquette className="!justify-start text-muted-foreground">Aucun KAM de la BU ne couvre ces praticiens (secteurs à affecter dans Force de vente).</TableCell></TableRow>}
                 {parKam.map((k) => (
-                  <tr key={k.repId} className="border-b border-border/60">
-                    <td className="px-3 py-2 font-medium">{k.nom}</td>
-                    <td className="px-3 py-2">{k.praticiens}</td>
-                    <td className="px-3 py-2">{k.p1}</td>
-                    <td className="px-3 py-2">{Math.round(k.requis * 10) / 10}</td>
-                    <td className="px-3 py-2">{k.realise}</td>
-                    <td className="px-3 py-2">{Math.round(k.restant * 10) / 10}</td>
-                    <td className="px-3 py-2" title={k.explicationCapacite ?? undefined}>{k.capacite ?? "—"}</td>
-                    <td className={`px-3 py-2 ${k.utilisation !== null && k.utilisation > 1 ? "text-destructive" : ""}`}>{k.utilisation === null ? "—" : `${Math.round(k.utilisation * 100)} %`}</td>
-                    <td className={`px-3 py-2 ${k.hSousVisites ? "text-warning" : ""}`}>{k.hSousVisites}</td>
-                  </tr>
+                  <TableRow key={k.repId} className="border-border/60">
+                    <TableCell data-sans-etiquette className="!justify-start font-medium sm:py-2">{k.nom}</TableCell>
+                    <TableCell className="sm:py-2">{k.praticiens}</TableCell>
+                    <TableCell className="sm:py-2">{k.p1}</TableCell>
+                    <TableCell className="sm:py-2">{Math.round(k.requis * 10) / 10}</TableCell>
+                    <TableCell className="sm:py-2">{k.realise}</TableCell>
+                    <TableCell className="sm:py-2">{Math.round(k.restant * 10) / 10}</TableCell>
+                    <TableCell className="sm:py-2" title={k.explicationCapacite ?? undefined}>{k.capacite ?? "—"}</TableCell>
+                    <TableCell className={`sm:py-2 ${k.utilisation !== null && k.utilisation > 1 ? "text-destructive" : ""}`}>{k.utilisation === null ? "—" : `${Math.round(k.utilisation * 100)} %`}</TableCell>
+                    <TableCell className={`sm:py-2 ${k.hSousVisites ? "text-warning" : ""}`}>{k.hSousVisites}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-          <div className="surface overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border text-left text-xs text-muted-foreground">
-                <tr><th className="px-3 py-2">Praticien</th><th className="px-3 py-2">Priorité</th><th className="px-3 py-2">Segments</th><th className="px-3 py-2">Visites requises</th><th className="px-3 py-2">Réalisées</th></tr>
-              </thead>
-              <tbody>
+          <div className="surface max-sm:border-0 max-sm:bg-transparent">
+            <Table mobileCards>
+              <TableHeader className="bg-transparent">
+                <TableRow><TableHead>Praticien</TableHead><TableHead>Priorité</TableHead><TableHead>Segments</TableHead><TableHead>Visites requises</TableHead><TableHead>Réalisées</TableHead></TableRow>
+              </TableHeader>
+              <TableBody>
                 {praticiens.map((p) => {
                   const faites = cycle.realisees[p.doctorId] ?? 0;
                   return (
-                    <tr key={p.doctorId} className="border-b border-border/60">
-                      <td className="px-3 py-2">{p.h && <Badge tone="purple" className="mr-1">H</Badge>}{p.nom}</td>
-                      <td className="px-3 py-2">{p.priorite ?? "—"}</td>
-                      <td className="px-3 py-2">{p.affichage}</td>
-                      <td className="px-3 py-2" title={p.pourquoiVisites}>{p.visites}</td>
-                      <td className={`px-3 py-2 ${faites >= p.visites ? "text-success" : ""}`}>{faites}</td>
-                    </tr>
+                    <TableRow key={p.doctorId} className="border-border/60">
+                      <TableCell data-sans-etiquette className="!justify-start font-medium sm:py-2 sm:font-normal"><span className="min-w-0 [overflow-wrap:anywhere]">{p.h && <Badge tone="purple" className="mr-1">H</Badge>}{p.nom}</span></TableCell>
+                      <TableCell className="sm:py-2">{p.priorite ?? "—"}</TableCell>
+                      <TableCell className="sm:py-2">{p.affichage}</TableCell>
+                      <TableCell className="sm:py-2" title={p.pourquoiVisites}>{p.visites}</TableCell>
+                      <TableCell className={`sm:py-2 ${faites >= p.visites ? "text-success" : ""}`}>{faites}</TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </>
       )}

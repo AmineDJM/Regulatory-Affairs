@@ -30,14 +30,14 @@ export function SalesTable({ rows }: { rows: SaleRow[] }) {
       render: (r) => <StatusBadge map={SALE_TYPE} value={r.saleType} dot={false} /> },
     { key: "product", header: "Désignation", sortable: true, accessor: (r) => r.product,
       render: (r) => (
-        <div>
+        <div className="min-w-0 [overflow-wrap:anywhere]">
           <p className="font-medium">{r.product}</p>
           {r.dci && <p className="text-xs text-muted-foreground">{r.dci}</p>}
         </div>
       ) },
     { key: "client", header: "Client", sortable: true, accessor: (r) => r.client,
       render: (r) => (
-        <span className="flex items-center gap-1.5">
+        <span className="flex min-w-0 flex-wrap items-center gap-1.5 [overflow-wrap:anywhere]">
           {r.client}
           {r.isPch && <Badge tone="info" dot={false}>PCH</Badge>}
         </span>

@@ -93,9 +93,12 @@ export function MessageItem({
   };
 
   return (
+    // Focusable : au doigt, un appui sur le message suffit à faire paraître sa barre d'actions
+    // (il n'y a pas de survol sur un écran tactile).
     <div
       id={`msg-${m.id}`}
-      className={cn("group relative flex gap-2.5 px-3", isOwn && "flex-row-reverse", showHeader ? "mt-3" : "mt-0.5")}
+      tabIndex={0}
+      className={cn("group relative flex gap-2 px-2.5 outline-none sm:gap-2.5 sm:px-3", isOwn && "flex-row-reverse", showHeader ? "mt-3" : "mt-0.5")}
     >
       {!isOwn &&
         (showHeader ? (
@@ -104,11 +107,11 @@ export function MessageItem({
           <span className="w-7 shrink-0" />
         ))}
 
-      <div className={cn("flex min-w-0 max-w-[80%] flex-col", isOwn ? "items-end" : "items-start")}>
+      <div className={cn("flex min-w-0 max-w-[85%] flex-col sm:max-w-[80%]", isOwn ? "items-end" : "items-start")}>
         {showHeader && !isOwn && (
-          <div className="mb-0.5 flex items-baseline gap-2 px-1">
-            <span className="text-xs font-semibold text-foreground">{m.senderName}</span>
-            <span className="text-[0.625rem] text-muted-foreground">{timeOf(m.createdAt)}</span>
+          <div className="mb-0.5 flex min-w-0 max-w-full items-baseline gap-2 px-1">
+            <span className="truncate text-xs font-semibold text-foreground">{m.senderName}</span>
+            <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{timeOf(m.createdAt)}</span>
           </div>
         )}
 
@@ -120,13 +123,13 @@ export function MessageItem({
             )}
           >
             <CornerDownRight className="h-3 w-3 shrink-0" />
-            <span className="font-medium text-foreground">{m.parent.senderName}</span>
-            <span className="truncate">{m.parent.preview}</span>
+            <span className="max-w-[45%] shrink-0 truncate font-medium text-foreground">{m.parent.senderName}</span>
+            <span className="min-w-0 truncate">{m.parent.preview}</span>
           </button>
         )}
 
         {editing ? (
-          <div className="w-full min-w-[260px]">
+          <div className="w-full min-w-[min(260px,70vw)]">
             <textarea
               ref={editRef}
               value={editValue}
@@ -141,13 +144,13 @@ export function MessageItem({
                 }
               }}
               rows={2}
-              className="w-full resize-none rounded-lg border border-input bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-full resize-none rounded-lg border border-input bg-card px-3 py-2 text-base focus-visible:outline-none lg:text-sm focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-              <button onClick={() => void saveEdit()} className="font-medium text-primary hover:underline">Enregistrer</button>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+              <button onClick={() => void saveEdit()} className="py-2 font-medium text-primary hover:underline sm:py-0">Enregistrer</button>
               <span>·</span>
-              <button onClick={() => { setEditing(false); setEditValue(m.body); }} className="hover:underline">Annuler</button>
-              <span className="ml-1">Échap pour annuler</span>
+              <button onClick={() => { setEditing(false); setEditValue(m.body); }} className="py-2 hover:underline sm:py-0">Annuler</button>
+              <span className="ml-1 hidden sm:inline">Échap pour annuler</span>
             </div>
           </div>
         ) : (
@@ -159,7 +162,7 @@ export function MessageItem({
               mentionsMe && "ring-2 ring-warning ring-offset-1 ring-offset-card",
             )}
           >
-            {m.body && <div className="whitespace-pre-wrap break-words leading-relaxed">{renderRich(m.body, memberNames)}</div>}
+            {m.body && <div className="whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">{renderRich(m.body, memberNames)}</div>}
 
             {m.attachments.length > 0 && (
               <div className={cn("flex flex-col gap-2", m.body && "mt-2")}>
@@ -171,7 +174,7 @@ export function MessageItem({
                     <a
                       key={a.id}
                       href={driveRefHref(a.driveNodeId, a.isFolder)}
-                      className="flex items-center gap-2 rounded-lg border border-primary/40 bg-card px-3 py-2 text-foreground hover:bg-secondary/60"
+                      className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-primary/40 bg-card px-3 py-2 text-foreground hover:bg-secondary/60"
                     >
                       {a.isFolder
                         ? <Folder className="h-5 w-5 shrink-0 text-primary" />
@@ -194,7 +197,7 @@ export function MessageItem({
                   ) : (
                     <div
                       key={a.id}
-                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-foreground"
+                      className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-border bg-card py-1.5 pl-3 pr-1.5 text-foreground sm:py-2 sm:pr-2"
                     >
                       <FileText className="h-5 w-5 shrink-0 text-primary" />
                       {/* Clic = APERÇU (ouverture inline dans un nouvel onglet), plus de téléchargement automatique. */}
@@ -207,13 +210,14 @@ export function MessageItem({
                       >
                         {a.name}
                       </a>
-                      <span className="text-[0.6875rem] text-muted-foreground">{formatBytes(a.size)}</span>
+                      <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{formatBytes(a.size)}</span>
                       {/* Téléchargement explicite. */}
                       <a
                         href={`/api/messaging/attachment/${a.id}?dl=1`}
                         download={a.name}
                         title="Télécharger"
-                        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        aria-label="Télécharger"
+                        className="shrink-0 rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:p-1"
                       >
                         <Download className="h-4 w-4 shrink-0" />
                       </a>
@@ -223,7 +227,7 @@ export function MessageItem({
               </div>
             )}
 
-            <span className={cn("mt-0.5 flex items-center justify-end gap-1 text-[0.625rem]", isOwn ? "text-primary-foreground/60" : "text-muted-foreground")}>
+            <span className={cn("mt-0.5 flex items-center justify-end gap-1 text-[0.6875rem]", isOwn ? "text-primary-foreground/60" : "text-muted-foreground")}>
               {m.editedAt && <span>modifié ·</span>}
               <span>{timeOf(m.createdAt)}</span>
               {isOwn && m.receipt && (
@@ -243,7 +247,7 @@ export function MessageItem({
                 onClick={() => onReact(m.id, r.emoji)}
                 title={r.users.join(", ")}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs transition-colors",
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors sm:px-1.5 sm:py-0.5",
                   r.mine ? "border-primary/40 bg-accent text-accent-foreground" : "border-border bg-card hover:bg-secondary",
                 )}
               >
@@ -255,12 +259,14 @@ export function MessageItem({
         )}
       </div>
 
-      {/* Barre d'actions au survol */}
+      {/* Barre d'actions : au survol (souris) ou à l'appui sur le message (doigt, clavier).
+          Masquée, elle ne capte aucun appui — sinon elle intercepterait les touches sur le message du dessus. */}
       {!editing && (
         <div
           className={cn(
-            "absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-border bg-card px-0.5 py-0.5 opacity-0 shadow-md transition-opacity group-hover:opacity-100",
-            isOwn ? "left-3" : "right-3",
+            "pointer-events-none absolute -top-4 z-10 flex items-center gap-0.5 rounded-lg border border-border bg-card px-0.5 py-0.5 opacity-0 shadow-md transition-opacity sm:-top-3",
+            "group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+            isOwn ? "left-2.5 sm:left-3" : "right-2.5 sm:right-3",
           )}
         >
           <div className="relative">
@@ -268,15 +274,21 @@ export function MessageItem({
             {showEmoji && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowEmoji(false)} />
-                <div className={cn("absolute z-20 mt-1 w-64 rounded-xl border border-border bg-popover p-2 shadow-xl", isOwn ? "left-0" : "right-0")}>
-                  <div className="mb-1.5 flex flex-wrap gap-1 border-b border-border pb-1.5">
+                {/* Au téléphone, le sélecteur s'ancre à l'écran (pleine largeur, au-dessus du compositeur) :
+                    accroché au bouton, il sortirait de l'écran d'un côté ou de l'autre. */}
+                <div className={cn(
+                  "fixed inset-x-3 bottom-[calc(var(--app-chrome-bottom)_+_5rem)] z-20 rounded-xl border border-border bg-popover p-2 shadow-xl",
+                  "sm:absolute sm:inset-x-auto sm:bottom-auto sm:mt-1 sm:w-64",
+                  isOwn ? "sm:left-0" : "sm:right-0",
+                )}>
+                  <div className="mb-1.5 flex flex-wrap justify-between gap-1 border-b border-border pb-1.5 sm:justify-start">
                     {QUICK_REACTIONS.map((e) => (
-                      <button key={e} onClick={() => react(e)} className="rounded-md px-1.5 py-1 text-lg hover:bg-secondary">{e}</button>
+                      <button key={e} onClick={() => react(e)} className="rounded-md px-1.5 py-1 text-xl hover:bg-secondary sm:text-lg">{e}</button>
                     ))}
                   </div>
-                  <div className="grid max-h-40 grid-cols-8 gap-0.5 overflow-y-auto">
+                  <div className="grid max-h-48 grid-cols-8 gap-0.5 overflow-y-auto sm:max-h-40">
                     {EMOJI_PALETTE.map((e) => (
-                      <button key={e} onClick={() => react(e)} className="rounded-md p-1 text-base hover:bg-secondary">{e}</button>
+                      <button key={e} onClick={() => react(e)} className="rounded-md p-1.5 text-lg hover:bg-secondary sm:p-1 sm:text-base">{e}</button>
                     ))}
                   </div>
                 </div>
@@ -308,7 +320,7 @@ export function MessageItem({
 
 function ActionBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button title={title} onClick={onClick} className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground">
+    <button title={title} aria-label={title} onClick={onClick} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5">
       {children}
     </button>
   );

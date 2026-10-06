@@ -59,29 +59,29 @@ function FactRow({ fact, canEdit }: { fact: Fact; canEdit: boolean }) {
   return (
     <div className={`rounded-lg border px-3 py-2 text-sm ${fact.hasConflict ? "border-destructive/40 bg-destructive/5" : "border-border"}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="w-40 shrink-0 text-xs text-muted-foreground">{fact.label}</span>
+        <span className="w-full shrink-0 text-xs text-muted-foreground sm:w-40">{fact.label}</span>
         {editing ? (
           <input value={val} onChange={(e) => setVal(e.target.value)} className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-0.5 text-sm" />
         ) : (
           <span className={`min-w-0 flex-1 font-medium ${tone}`}>{fact.value ?? "—"}</span>
         )}
-        <span className="shrink-0 text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">{STATUS_LABEL[fact.status] ?? fact.status}</span>
+        <span className="shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground/70">{STATUS_LABEL[fact.status] ?? fact.status}</span>
         {fact.occurrences.length > 0 && (
-          <button type="button" onClick={() => setOpen((v) => !v)} className="shrink-0 text-[0.6875rem] text-primary hover:underline">{fact.occurrences.length} source·s</button>
+          <button type="button" onClick={() => setOpen((v) => !v)} className="shrink-0 py-1 text-[0.6875rem] text-primary hover:underline sm:py-0">{fact.occurrences.length} source·s</button>
         )}
         {canEdit && (
           <span className="flex shrink-0 items-center gap-1">
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             {editing ? (
               <>
-                <button type="button" disabled={busy} onClick={() => act("CORRECT", val)} className="rounded border border-success/40 px-1.5 py-0.5 text-[0.6875rem] text-success">Enregistrer</button>
-                <button type="button" onClick={() => setEditing(false)} className="rounded border border-border px-1.5 py-0.5 text-[0.6875rem]">Annuler</button>
+                <button type="button" disabled={busy} onClick={() => act("CORRECT", val)} className="rounded border border-success/40 px-2.5 py-1.5 text-[0.6875rem] text-success sm:px-1.5 sm:py-0.5">Enregistrer</button>
+                <button type="button" onClick={() => setEditing(false)} className="rounded border border-border px-2.5 py-1.5 text-[0.6875rem] sm:px-1.5 sm:py-0.5">Annuler</button>
               </>
             ) : (
               <>
-                <button type="button" disabled={busy} title="Confirmer" onClick={() => act("CONFIRM")} className="rounded border border-success/40 p-1 text-success"><Check className="h-3 w-3" /></button>
-                <button type="button" disabled={busy} title="Corriger" onClick={() => { setEditing(true); setVal(fact.value ?? ""); }} className="rounded border border-border p-1"><Pencil className="h-3 w-3" /></button>
-                <button type="button" disabled={busy} title="Rejeter" onClick={() => act("REJECT")} className="rounded border border-border p-1 text-muted-foreground"><X className="h-3 w-3" /></button>
+                <button type="button" disabled={busy} title="Confirmer" onClick={() => act("CONFIRM")} className="rounded border border-success/40 p-2 text-success sm:p-1"><Check className="h-3 w-3" /></button>
+                <button type="button" disabled={busy} title="Corriger" onClick={() => { setEditing(true); setVal(fact.value ?? ""); }} className="rounded border border-border p-2 sm:p-1"><Pencil className="h-3 w-3" /></button>
+                <button type="button" disabled={busy} title="Rejeter" onClick={() => act("REJECT")} className="rounded border border-border p-2 text-muted-foreground sm:p-1"><X className="h-3 w-3" /></button>
               </>
             )}
           </span>
@@ -123,11 +123,11 @@ function ConflictRow({ conflict, canApprove }: { conflict: Conflict; canApprove:
 
   return (
     <div className={`rounded-lg border px-3 py-2 text-sm ${conflict.severity === "CRITICAL" ? "border-destructive/50 bg-destructive/5" : "border-amber-500/40 bg-amber-500/5"}`}>
-      <p className="font-medium">{conflict.label} — valeurs divergentes {conflict.severity === "CRITICAL" && <span className="ml-1 rounded bg-destructive px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">CRITIQUE</span>}</p>
+      <p className="font-medium">{conflict.label} — valeurs divergentes {conflict.severity === "CRITICAL" && <span className="ml-1 rounded bg-destructive px-1.5 py-0.5 text-[0.6875rem] font-semibold text-white">CRITIQUE</span>}</p>
       <ul className="mt-1 space-y-0.5">
         {conflict.values.map((v, i) => (
           <li key={i} className="flex items-start gap-2 text-xs">
-            <button type="button" disabled={!canApprove} onClick={() => setFinalValue(v.value)} className="shrink-0 rounded border border-border px-1.5 py-0.5 font-medium hover:bg-accent disabled:opacity-60">{v.value}</button>
+            <button type="button" disabled={!canApprove} onClick={() => setFinalValue(v.value)} className="shrink-0 rounded border border-border px-2 py-1 font-medium hover:bg-accent disabled:opacity-60 sm:px-1.5 sm:py-0.5">{v.value}</button>
             <span className="min-w-0 text-muted-foreground">{v.sectionCode ?? "—"} · « {v.extract} »</span>
           </li>
         ))}
@@ -137,7 +137,7 @@ function ConflictRow({ conflict, canApprove }: { conflict: Conflict; canApprove:
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <input value={finalValue} onChange={(e) => setFinalValue(e.target.value)} placeholder="Valeur finale retenue" className="min-w-[10rem] flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs" />
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Justification" className="min-w-[8rem] flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs" />
-          <button type="button" disabled={busy || !finalValue.trim()} onClick={resolve} className="rounded bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">
+          <button type="button" disabled={busy || !finalValue.trim()} onClick={resolve} className="rounded bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50 sm:px-2 sm:py-1">
             {busy ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Résoudre"}
           </button>
         </div>

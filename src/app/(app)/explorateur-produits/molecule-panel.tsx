@@ -6,6 +6,7 @@ import { analyzeMarketMolecule } from "@/lib/actions/market-actions";
 import type { MoleculeAnalysis } from "@/lib/market/molecule";
 import { FORM_LABEL } from "@/lib/market/galenic";
 import { Badge } from "@/components/ui/badge";
+import { Table } from "@/components/ui/table";
 import { Donut } from "@/components/charts/donut";
 import { foldTail, seriesColor, SERIES } from "@/components/charts/palette";
 import { formatCompact, formatNumber } from "@/lib/utils";
@@ -71,7 +72,7 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
   const concentrationTone = data.hhi >= 2500 ? "warning" : data.hhi >= 1500 ? "info" : "success";
 
   return (
-    <section className="space-y-4 rounded-xl border border-primary/30 bg-primary/[0.03] p-4">
+    <section className="space-y-4 rounded-xl border border-primary/30 bg-primary/[0.03] p-3 sm:p-4">
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="text-base font-semibold">{data.molecule}</h2>
         {data.dosage && <Badge tone="neutral" dot={false}>{data.dosage}</Badge>}
@@ -82,7 +83,7 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
       </header>
 
       {/* 1. Combien pèse ce marché */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Marché total" value={fmtDzd(data.total.valueDzd)} hint={`$${formatCompact(data.total.valueUsd)}`} />
         <Stat label="Volume" value={formatNumber(Math.round(data.total.volume))} hint="unités" />
         <Stat label="Acteurs présents" value={String(data.total.players)} hint={`top 3 : ${data.top3Share.toFixed(0)} %`} />
@@ -143,8 +144,9 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
           <div className="border-b border-border px-4 py-2.5">
             <h3 className="text-sm font-semibold">Environnement concurrentiel</h3>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          {/* Au téléphone, un laboratoire = une carte : sept colonnes ne tiennent pas dans 360 px. */}
+          <div className="p-2 sm:p-0">
+            <Table mobileCards>
               <thead className="bg-secondary/50 text-xs text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Laboratoire</th>
@@ -156,10 +158,10 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
                   <th className="px-3 py-2 text-left font-medium">Marques</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody className="sm:divide-y sm:divide-border">
                 {data.competitors.slice(0, 25).map((c, i) => (
                   <tr key={c.lab}>
-                    <td className="px-3 py-2">
+                    <td data-sans-etiquette className="px-3 py-2 max-sm:!justify-start">
                       <span className="flex items-center gap-2">
                         <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: seriesColor(i) }} aria-hidden />
                         <span className="font-medium">{c.lab}</span>
@@ -171,13 +173,13 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{c.villeDzd > 0 ? fmtDzd(c.villeDzd) : "—"}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{c.hopitalDzd > 0 ? fmtDzd(c.hopitalDzd) : "—"}</td>
                     <td className="px-3 py-2"><OriginBadge origin={c.origin} registrations={c.registrations} /></td>
-                    <td className="max-w-[16rem] truncate px-3 py-2 text-muted-foreground" title={c.brands.join(", ")}>
+                    <td className="px-3 py-2 text-muted-foreground sm:max-w-[16rem] sm:truncate" title={c.brands.join(", ")}>
                       {c.brands.join(", ") || "—"}
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </div>
           {data.competitors.length > 25 && (
             <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">

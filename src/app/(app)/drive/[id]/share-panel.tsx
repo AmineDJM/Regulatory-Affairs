@@ -40,7 +40,7 @@ function ShareRow({ nodeId, share, canEdit, onChanged }: { nodeId: string; share
             value={share.access}
             onChange={(e) => change(e.target.value)}
             disabled={busy}
-            className="h-8 w-32 text-xs"
+            className="h-9 w-32 text-xs sm:h-8"
           >
             <option value="VIEW">Lecture</option>
             <option value="EDIT">Éditeur</option>
@@ -117,7 +117,7 @@ export function SharePanel({
               <li className="px-1 py-2 text-xs text-muted-foreground">Personne ne correspond.</li>
             ) : shown.map((u) => (
               <li key={u.id}>
-                <label className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                <label className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-2 text-sm hover:bg-secondary sm:py-1">
                   <input
                     type="checkbox"
                     checked={picked.has(u.id)}
@@ -134,7 +134,7 @@ export function SharePanel({
             ))}
           </ul>
 
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <Select name="access" defaultValue="VIEW" className="h-9 w-32 text-sm">
               <option value="VIEW">Lecture</option>
               <option value="EDIT">Éditeur</option>

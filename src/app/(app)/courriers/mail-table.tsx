@@ -44,7 +44,7 @@ export interface MailRow {
   attachments: number;
 }
 
-const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
+const cellInput = "h-9 w-full rounded-md border border-input bg-card px-2 text-base sm:h-8 sm:text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
 
 /** Une date qui se pose (ou s'efface) en un clic depuis la ligne. */
 function DateCell({ id, field, value, canEdit }: {
@@ -71,7 +71,7 @@ function DateCell({ id, field, value, canEdit }: {
     <button type="button" disabled={busy}
       onClick={() => save(new Date().toISOString())}
       title="Marquer à aujourd'hui"
-      className="inline-flex items-center gap-1 rounded-md border border-dashed border-input px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground hover:bg-secondary disabled:opacity-50">
+      className="inline-flex min-h-8 items-center gap-1 rounded-md border border-dashed border-input px-2 py-0.5 text-[0.6875rem] sm:min-h-0 sm:px-1.5 text-muted-foreground hover:bg-secondary disabled:opacity-50">
       <Check className="h-3 w-3" /> aujourd&apos;hui
     </button>
   );
@@ -113,14 +113,14 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
         <span>{shown.length} / {rows.length} courrier{rows.length > 1 ? "s" : ""}</span>
         <button
           type="button" onClick={() => setF((p) => ({ ...p, ack: p.ack === "without" ? "" : "without" }))}
-          className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium",
+          className={cn("inline-flex min-h-9 items-center gap-1 rounded-md border px-2.5 py-1 font-medium sm:min-h-0 sm:px-2",
             f.ack === "without" ? "border-warning/60 bg-warning/10 text-warning" : "border-input hover:bg-secondary")}
         >
           Sans accusé de réception ({noAck})
         </button>
         {active && (
           <button type="button" onClick={() => setF({ ...EMPTY_FILTERS })}
-            className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary">
+            className="inline-flex min-h-9 items-center gap-1 rounded-md border border-input px-2.5 py-1 font-medium hover:bg-secondary sm:min-h-0 sm:px-2">
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser
           </button>
         )}
@@ -130,7 +130,7 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
         <table className="w-full min-w-[68rem] border-collapse text-sm">
           <thead className="border-b border-border">
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 pt-2 text-left font-medium">Chrono</th>
+              <th className="sticky left-0 z-10 bg-card px-3 pt-2 text-left font-medium">Chrono</th>
               <th className="px-3 pt-2 text-left font-medium">Sens</th>
               <th className="px-3 pt-2 text-left font-medium">Objet</th>
               <th className="px-3 pt-2 text-left font-medium">Expéditeur</th>
@@ -145,7 +145,7 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               <th className="px-3 pt-2 text-left font-medium"><Paperclip className="h-3.5 w-3.5" aria-label="Pièces jointes" /></th>
             </tr>
             <tr>
-              <th className="px-2 pb-2 pt-1"><input value={f.reference} onChange={set("reference")} placeholder="Filtrer" className={cellInput} /></th>
+              <th className="sticky left-0 z-10 bg-card px-2 pb-2 pt-1"><input value={f.reference} onChange={set("reference")} placeholder="Filtrer" className={cellInput} /></th>
               <th className="px-2 pb-2 pt-1">
                 <select value={f.direction} onChange={set("direction")} className={cellInput}>
                   <option value="">Tous</option>
@@ -177,7 +177,7 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
               const dir = MAIL_DIRECTION[r.direction];
               return (
                 <tr key={r.id} className="hover:bg-secondary/30">
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference || "—"}</td>
+                  <td className="sticky left-0 z-10 bg-card px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference || "—"}</td>
                   <td className="px-3 py-2"><Badge tone={dir?.tone ?? "neutral"} dot={false}>{dir?.label ?? r.direction}</Badge></td>
                   <td className="px-3 py-2 font-medium">
                     <Link href={`/courriers/${r.id}`} className="hover:underline">{r.title}</Link>

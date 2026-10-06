@@ -59,7 +59,7 @@ export function SendToMailSheet({
   return (
     <Sheet open={open} onClose={onClose} title="Classer en courrier" width="md">
       <form onSubmit={submit} className="space-y-3">
-        <p className="rounded-lg border border-border bg-secondary/30 p-2.5 text-xs text-muted-foreground">
+        <p className="rounded-lg border border-border bg-secondary/30 p-2.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">
           <strong>{name}</strong> reste dans le Drive : le carnet de courriers ne fait pas de copie,
           il pointe vers ce fichier.
         </p>
@@ -93,7 +93,7 @@ export function SendToMailSheet({
 
         {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
           <Button type="submit" disabled={saving || done}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <Check className="h-4 w-4" /> : <Mails className="h-4 w-4" />}

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table } from "@/components/ui/table";
 import {
   REG_LEGAL_REFERENCES, REGISTRATION_FEES, OTHER_FEES, FEE_SPECIAL_CASES, REGISTRATION_PHASES,
   CTD_MODULES, CTD_RULES, MODIFICATION_CATEGORIES, MODIFICATION_RULES,
@@ -71,8 +72,8 @@ export default async function EnregistrementPage() {
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><Coins className="h-4 w-4 text-primary" /> Droits d'enregistrement (bordereau de versement — E-TASDJIL)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          {/* Au téléphone, chaque type de produit devient une carte : quatre montants côte à côte ne tiennent pas. */}
+          <Table mobileCards>
               <thead>
                 <tr className="border-b border-border text-left text-muted-foreground">
                   <th className="py-1.5 pr-3 font-medium">Type de produit</th>
@@ -84,15 +85,14 @@ export default async function EnregistrementPage() {
               <tbody>
                 {REGISTRATION_FEES.map((f) => (
                   <tr key={f.productType} className="border-b border-border/60">
-                    <td className="py-1.5 pr-3">{f.productType}</td>
+                    <td data-sans-etiquette className="py-1.5 pr-3 font-medium sm:font-normal">{f.productType}</td>
                     <td className="py-1.5 pr-3 text-right text-muted-foreground">{dzd(f.presubmission)}</td>
                     <td className="py-1.5 pr-3 text-right text-muted-foreground">{dzd(f.deposit)}</td>
                     <td className="py-1.5 text-right font-medium">{dzd(f.total)}</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+          </Table>
           <div className="flex flex-wrap gap-2">
             {OTHER_FEES.map((o) => (
               <span key={o.operation} className="rounded-lg border border-border bg-secondary/40 px-2.5 py-1 text-xs">{o.operation} : <span className="font-medium">{dzd(o.amount)}</span></span>

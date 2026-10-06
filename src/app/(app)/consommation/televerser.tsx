@@ -21,8 +21,8 @@ export function TeleverserConsommation() {
     if (!r.ok) setErreur(r.error); else router.push(`/consommation/${r.importId}`);
   }
   return (
-    <div className="surface flex flex-wrap items-end gap-3 p-4">
-      <Input type="file" accept=".xlsx,.xls,.xlsm,.csv" onChange={(e) => setFichier(e.target.files?.[0] ?? null)} className="w-80" />
+    <div className="surface flex flex-col gap-3 p-3 sm:flex-row sm:flex-wrap sm:items-end sm:p-4">
+      <Input type="file" accept=".xlsx,.xls,.xlsm,.csv" onChange={(e) => setFichier(e.target.files?.[0] ?? null)} className="w-full sm:w-80" />
       <Button type="button" disabled={!fichier || envoi} onClick={envoyer}>{envoi ? "Lecture…" : "Importer et analyser"}</Button>
       {erreur && <p className="w-full text-sm text-destructive">{erreur}</p>}
     </div>

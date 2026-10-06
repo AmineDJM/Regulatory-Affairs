@@ -221,9 +221,9 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
             <House className="h-4 w-4" /> {VIEW_TITLE.browse}
           </Link>
           {listing.breadcrumb.map((c) => (
-            <span key={c.id} className="inline-flex items-center gap-1">
-              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-              <Link href={`/drive?folder=${c.id}`} className="text-muted-foreground hover:text-foreground">{c.name}</Link>
+            <span key={c.id} className="inline-flex min-w-0 max-w-full items-center gap-1">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <Link href={`/drive?folder=${c.id}`} title={c.name} className="truncate py-1 text-muted-foreground hover:text-foreground">{c.name}</Link>
             </span>
           ))}
         </div>

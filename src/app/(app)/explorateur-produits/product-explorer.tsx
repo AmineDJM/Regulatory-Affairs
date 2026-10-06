@@ -116,28 +116,29 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
           />
         </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
+        {/* Au téléphone, les quatre filtres se rangent deux par deux au lieu de s'empiler en largeurs fixes. */}
+        <div className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap">
+          <div className="min-w-0 space-y-1">
             <Label className="text-xs">Dosage</Label>
-            <Input value={dosage} onChange={(e) => setDosage(e.target.value)} placeholder="Ex. 500 mg" className="h-9 w-32" />
+            <Input value={dosage} onChange={(e) => setDosage(e.target.value)} placeholder="Ex. 500 mg" className="h-9 w-full sm:w-32" />
           </div>
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <Label className="text-xs">Forme</Label>
-            <Select value={form} onChange={(e) => setForm(e.target.value)} className="h-9 w-48">
+            <Select value={form} onChange={(e) => setForm(e.target.value)} className="h-9 w-full sm:w-48">
               <option value="">Toutes les formes</option>
               {GALENIC_FORMS.filter((f) => f !== "AUTRE").map((f) => <option key={f} value={f}>{FORM_LABEL[f]}</option>)}
             </Select>
           </div>
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <Label className="text-xs">Classe (ATC4)</Label>
-            <Select value={cls} onChange={(e) => setCls(e.target.value)} className="h-9 w-56">
+            <Select value={cls} onChange={(e) => setCls(e.target.value)} className="h-9 w-full sm:w-56">
               <option value="">Toutes les classes</option>
               {classes.map((c) => <option key={c} value={c}>{c}</option>)}
             </Select>
           </div>
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <Label className="text-xs">Marché</Label>
-            <Select value={segment} onChange={(e) => setSegment(e.target.value)} className="h-9 w-40">
+            <Select value={segment} onChange={(e) => setSegment(e.target.value)} className="h-9 w-full sm:w-40">
               <option value="">Ville + hôpital</option>
               <option value="VILLE">Ville (IQVIA)</option>
               <option value="HOPITAL">Hôpital (PCH)</option>
@@ -147,7 +148,7 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Rechercher
           </Button>
           {anyCriteria && <Button type="button" size="sm" variant="outline" onClick={reset} disabled={pending}>Réinitialiser</Button>}
-          {err && <p className="w-full text-xs text-destructive">{err}</p>}
+          {err && <p className="col-span-2 w-full text-xs text-destructive">{err}</p>}
         </div>
       </form>
 
@@ -160,15 +161,15 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
       {/* Comparaison de la sélection */}
       {selectedArr.length > 0 && (
         <Card className="border-primary/40">
-          <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-            <div>
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+            <div className="min-w-0">
               <CardTitle className="flex items-center gap-2 text-base"><Scale className="h-4 w-4" /> Comparaison ({selectedArr.length} produit{selectedArr.length > 1 ? "s" : ""})</CardTitle>
               <CardDescription>Volume, valeur (DZD/USD), prix unitaire moyen et croissance N-1.</CardDescription>
             </div>
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Map())}>Tout désélectionner</Button>
           </CardHeader>
-          <CardContent className="overflow-x-auto p-0 sm:p-2">
-            <Table>
+          <CardContent className="p-3 pt-0 sm:overflow-x-auto sm:p-2">
+            <Table mobileCards>
               <TableHeader>
                 <TableRow>
                   <TableHead>Produit</TableHead><TableHead>Laboratoire</TableHead>
@@ -181,9 +182,11 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
               <TableBody>
                 {selectedArr.map((p) => (
                   <TableRow key={p.key}>
-                    <TableCell className="font-medium">
-                      <span className="flex flex-wrap items-center gap-1.5">{p.brand}<SegmentBadge segment={p.segment} /></span>
-                      <span className="block text-xs font-normal text-muted-foreground">{p.pres}</span>
+                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">
+                      <div className="min-w-0">
+                        <span className="flex flex-wrap items-center gap-1.5">{p.brand}<SegmentBadge segment={p.segment} /></span>
+                        <span className="block text-xs font-normal text-muted-foreground">{p.pres}</span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{p.lab}</TableCell>
                     <TableCell className="text-right">{formatNumber(p.volume)}</TableCell>
@@ -193,13 +196,13 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
                     <TableCell className={`text-right font-medium ${pctTone(p.growth)}`}>{fmtPct(p.growth)}</TableCell>
                     <TableCell className="text-right text-muted-foreground">{sumValue > 0 ? `${((p.valueDzd / sumValue) * 100).toFixed(1)} %` : "—"}</TableCell>
                     <TableCell className="text-right">
-                      <button title="Retirer" onClick={() => toggle(p)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><X className="h-4 w-4" /></button>
+                      <button title="Retirer" onClick={() => toggle(p)} aria-label="Retirer de la comparaison" className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1"><X className="h-4 w-4" /></button>
                     </TableCell>
                   </TableRow>
                 ))}
                 {selectedArr.length > 1 && (
                   <TableRow className="border-t-2 font-semibold">
-                    <TableCell>Total sélection</TableCell><TableCell />
+                    <TableCell data-sans-etiquette>Total sélection</TableCell><TableCell />
                     <TableCell className="text-right">{formatNumber(sumVolume)}</TableCell>
                     <TableCell className="text-right">{fmtDzd(sumValue)}</TableCell>
                     <TableCell className="text-right text-muted-foreground">{fmtUsd(sumValueUsd)}</TableCell>
@@ -223,11 +226,11 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
             {total > results.length ? ` — ${results.length} plus fortes valeurs affichées (affinez la recherche)` : ""}. Cliquez « + » pour ajouter à la comparaison.
           </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto p-0 sm:p-2">
+        <CardContent className="p-3 pt-0 sm:overflow-x-auto sm:p-2">
           {results.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">Aucun produit ne correspond à ces critères.</p>
           ) : (
-            <Table>
+            <Table mobileCards>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10"></TableHead>
@@ -245,14 +248,16 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
                         <button
                           title={on ? "Retirer de la comparaison" : "Ajouter à la comparaison"}
                           onClick={() => toggle(p)}
-                          className={`inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors ${on ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"}`}
+                          className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors sm:h-6 sm:w-6 ${on ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"}`}
                         >
                           {on ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
                         </button>
                       </TableCell>
-                      <TableCell className="font-medium">
-                        <span className="flex flex-wrap items-center gap-1.5">{p.brand}<SegmentBadge segment={p.segment} /></span>
-                        <span className="block text-xs font-normal text-muted-foreground">{p.pres}{p.cls ? ` · ${p.cls}` : ""}</span>
+                      <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">
+                        <div className="min-w-0">
+                          <span className="flex flex-wrap items-center gap-1.5">{p.brand}<SegmentBadge segment={p.segment} /></span>
+                          <span className="block text-xs font-normal text-muted-foreground">{p.pres}{p.cls ? ` · ${p.cls}` : ""}</span>
+                        </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{p.mol || "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{p.lab}</TableCell>
@@ -275,7 +280,7 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
 /** Marché d'origine du produit : ville (IQVIA) ou hôpital (PCH). */
 function SegmentBadge({ segment }: { segment: MarketProduct["segment"] }) {
   return (
-    <Badge tone={segment === "HOPITAL" ? "purple" : "info"} dot={false} className="text-[0.625rem]">
+    <Badge tone={segment === "HOPITAL" ? "purple" : "info"} dot={false} className="text-[0.6875rem]">
       {segment === "HOPITAL" ? "Hôpital" : "Ville"}
     </Badge>
   );
@@ -333,7 +338,7 @@ function SuggestField({
               <button
                 type="button"
                 onMouseDown={(e) => { e.preventDefault(); onChange(o); setOpen(false); }}
-                className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-secondary"
+                className="block w-full truncate px-3 py-2.5 text-left text-sm hover:bg-secondary sm:py-1.5"
                 title={o}
               >
                 {o}

@@ -34,6 +34,9 @@ export function TextField(props: {
   hint?: string;
   className?: string;
   step?: string;
+  /** Le clavier du téléphone ; un montant (`type="number"`) ouvre le pavé décimal par défaut. */
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  autoComplete?: string;
 }) {
   return (
     <Field label={props.label} name={props.name} required={props.required} hint={props.hint} className={props.className}>
@@ -45,6 +48,8 @@ export function TextField(props: {
         defaultValue={props.defaultValue}
         placeholder={props.placeholder}
         step={props.step}
+        inputMode={props.inputMode ?? (props.type === "number" ? "decimal" : undefined)}
+        autoComplete={props.autoComplete}
       />
     </Field>
   );

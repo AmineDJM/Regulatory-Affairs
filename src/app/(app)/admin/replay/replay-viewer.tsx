@@ -118,7 +118,7 @@ export function ReplayViewer({
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr]">
       {/* LES SESSIONS — celles qui ont une erreur d'abord à l'œil, par leur pastille rouge. */}
-      <aside className="surface flex max-h-[70vh] flex-col gap-2 p-3">
+      <aside className="surface flex max-h-[40vh] flex-col gap-2 p-3 lg:max-h-[70vh]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -161,7 +161,7 @@ export function ReplayViewer({
       </aside>
 
       {/* LA CHRONOLOGIE. */}
-      <section className="surface flex max-h-[70vh] flex-col p-3 sm:p-4">
+      <section className="surface flex max-h-[75dvh] min-w-0 flex-col p-3 sm:p-4 lg:max-h-[70vh]">
         <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
           <Button
             size="sm"
@@ -177,7 +177,7 @@ export function ReplayViewer({
               <SkipForward className="h-4 w-4" /> Première erreur
             </Button>
           )}
-          <p className="ml-auto text-xs text-muted-foreground">
+          <p className="ml-auto min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]">
             {events.length > 0 ? (
               <>
                 <span className="font-medium text-foreground">{cursor + 1}</span> / {events.length} ·{" "}
@@ -223,7 +223,7 @@ export function ReplayViewer({
                   <span className={isError ? "font-medium text-destructive" : ""}>{describeEvent(c)}</span>
                   {/* Le chemin ne se répète que lorsqu'il CHANGE : sinon il noie la chronologie. */}
                   {(i === 0 || events[i - 1].path !== e.path) && (
-                    <span className="ml-1.5 text-xs text-muted-foreground">{e.path}</span>
+                    <span className="ml-1.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">{e.path}</span>
                   )}
                 </span>
               </li>

@@ -46,7 +46,7 @@ export function VersionsManager({ rows, testMode }: { rows: FeatureRow[]; testMo
     <div className="space-y-6">
       {/* Interrupteur du mode test personnel */}
       <section className={`surface flex flex-wrap items-center gap-3 p-4 ${testMode ? "border-warning/50" : ""}`}>
-        {testMode ? <Eye className="h-5 w-5 text-warning" /> : <EyeOff className="h-5 w-5 text-muted-foreground" />}
+        {testMode ? <Eye className="h-5 w-5 shrink-0 text-warning" /> : <EyeOff className="h-5 w-5 shrink-0 text-muted-foreground" />}
         <div className="min-w-0 flex-1">
           <p className="font-medium">Mon mode test {testMode ? "— activé" : "— désactivé"}</p>
           <p className="text-xs text-muted-foreground">
@@ -107,7 +107,7 @@ function Group({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{r.label}</span>
                   <Badge tone={s.tone} dot={false}>{s.label}</Badge>
-                  <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.625rem] text-muted-foreground">{r.key}</span>
+                  <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere]">{r.key}</span>
                 </div>
                 {r.description && <p className="text-sm text-muted-foreground">{r.description}</p>}
                 {r.stage === "PROD" && r.promotedAt && (

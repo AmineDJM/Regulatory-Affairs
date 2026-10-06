@@ -33,7 +33,7 @@ function Notice({ children, back }: { children: React.ReactNode; back: string })
         <ArrowLeft className="h-4 w-4" /> Retour
       </BackLink>
       <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-4 py-3 text-sm">
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> <div>{children}</div>
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> <div className="min-w-0 [overflow-wrap:anywhere]">{children}</div>
       </div>
     </div>
   );

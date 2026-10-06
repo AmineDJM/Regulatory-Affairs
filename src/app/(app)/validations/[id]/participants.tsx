@@ -46,7 +46,7 @@ export function ParticipantsValidation({ requestId, participants, candidats, peu
                 <button
                   type="button" disabled={busy || enCours} aria-label={p.userId === moi ? "Me retirer de la demande" : `Retirer ${p.nom}`}
                   onClick={() => void agir(() => retirerParticipantValidation(fd({ userId: p.userId })))}
-                  className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-destructive"
+                  className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-destructive sm:p-1"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -59,10 +59,10 @@ export function ParticipantsValidation({ requestId, participants, candidats, peu
         <div className="space-y-1.5 border-t border-border pt-2">
           <input
             value={filtre} onChange={(e) => setFiltre(e.target.value)} placeholder="Chercher un collègue…" aria-label="Chercher un collègue"
-            className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+            className="w-full rounded-md border border-input bg-background px-2 py-2 text-base sm:py-1 sm:text-sm"
           />
           <div className="flex gap-1.5">
-            <select value={choisi} onChange={(e) => setChoisi(e.target.value)} aria-label="Collègue à ajouter" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm">
+            <select value={choisi} onChange={(e) => setChoisi(e.target.value)} aria-label="Collègue à ajouter" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-2 text-base sm:py-1 sm:text-sm">
               <option value="">— Choisir —</option>
               {proposes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>

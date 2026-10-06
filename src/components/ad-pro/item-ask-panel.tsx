@@ -116,14 +116,14 @@ export function ItemAskPanel({
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <button
           type="button" onClick={() => void open("piece")}
-          className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 font-medium hover:bg-secondary"
+          className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 font-medium hover:bg-secondary sm:min-h-0 sm:px-2 sm:py-1"
         >
           <FileQuestion className="h-3.5 w-3.5" /> Demander une pièce
         </button>
         {canAskValidation && (
         <button
           type="button" onClick={() => void open("validation")}
-          className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 font-medium hover:bg-secondary"
+          className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 font-medium hover:bg-secondary sm:min-h-0 sm:px-2 sm:py-1"
         >
           <ShieldCheck className="h-3.5 w-3.5" /> Demander une validation
         </button>
@@ -142,11 +142,11 @@ export function ItemAskPanel({
         {done ? (
           <div className="space-y-3">
             <p className="flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-sm text-success">
-              <Check className="h-4 w-4" /> {done.text}
+              <Check className="h-4 w-4 shrink-0" /> {done.text}
             </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setMode(null)}>Fermer</Button>
-              <Link href={done.href} className="inline-flex items-center rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => setMode(null)}>Fermer</Button>
+              <Link href={done.href} className="inline-flex min-h-10 w-full items-center justify-center rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:w-auto">
                 Voir la demande
               </Link>
             </div>
@@ -207,9 +207,10 @@ export function ItemAskPanel({
 
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
-            <div className="flex justify-end gap-2 pt-1">
-              <Button variant="outline" onClick={() => setMode(null)}>Annuler</Button>
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => setMode(null)}>Annuler</Button>
               <Button
+                className="w-full sm:w-auto"
                 disabled={busy || !who || (mode === "piece" && !label.trim())}
                 onClick={() => void (mode === "validation" ? submitValidation() : submitPiece())}
               >

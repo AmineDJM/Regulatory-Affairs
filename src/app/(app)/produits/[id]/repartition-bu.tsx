@@ -18,7 +18,7 @@ export function RepartitionBu({ businessUnitId, nom, annee, produits, parts }: {
       <p className="text-xs font-semibold">Répartition des coûts partagés de la BU {nom} — {annee}</p>
       <div className="flex flex-wrap items-end gap-3">
         {produits.map((p) => (
-          <label key={p.productId} className="flex items-center gap-1 text-xs">
+          <label key={p.productId} className="flex max-w-full flex-wrap items-center gap-1 text-xs">
             {p.nom}
             <Input inputMode="decimal" value={valeurs[p.productId] ?? ""} onChange={(e) => setValeurs({ ...valeurs, [p.productId]: e.target.value })} className="w-20" /> %
           </label>

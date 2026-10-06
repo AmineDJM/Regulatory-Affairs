@@ -52,7 +52,7 @@ export function CarteLiaison({
             <Badge tone={blocage ? "danger" : relie ? "success" : attente ? "info" : "warning"} dot>
               {blocage ? "Clé refusée" : relie ? "Relié" : attente ? "En attente du site" : "Pas encore relié"}
             </Badge>
-            {config.racine && <span className="font-mono text-xs">{config.racine}</span>}
+            {config.racine && <span className="min-w-0 font-mono text-xs [overflow-wrap:anywhere]">{config.racine}</span>}
           </p>
           {config.configuree && (
             <p className="text-muted-foreground">
@@ -60,7 +60,7 @@ export function CarteLiaison({
                 ? <>Clé générée par l&apos;ERP{liaison.active.activeeLe ? `, reconnue par le site le ${formatDateTime(liaison.active.activeeLe)}` : ""}</>
                 : <>Clé posée dans l&apos;environnement du serveur (ADVENTUM_API_KEY)</>}
               {" · "}signature des envois {config.signature ? "activée" : "non activée"}
-              {" · "}empreinte <span className="font-mono text-xs">{config.empreinte}</span> — la clé elle-même ne s&apos;affiche jamais.
+              {" · "}empreinte <span className="font-mono text-xs [overflow-wrap:anywhere]">{config.empreinte}</span> — la clé elle-même ne s&apos;affiche jamais.
             </p>
           )}
           {liaison.illisibles.length > 0 && (
@@ -105,7 +105,7 @@ export function CarteLiaison({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Générée le {formatDateTime(attente.creeLe)} · empreinte <span className="font-mono">{attente.empreinte}</span>
+              Générée le {formatDateTime(attente.creeLe)} · empreinte <span className="font-mono [overflow-wrap:anywhere]">{attente.empreinte}</span>
               {attente.derniereVerification && <> · dernière vérification {formatDateTime(attente.derniereVerification)} : {attente.dernierConstat}</>}
             </p>
             {config.configuree && (

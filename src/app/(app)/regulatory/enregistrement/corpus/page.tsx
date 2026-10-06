@@ -89,7 +89,7 @@ export default async function CorpusPage() {
 
       {/* Second rideau : le catalogue officiel en ligne — utile, jamais bloquant. */}
       <details className="surface p-4">
-        <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
+        <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-sm font-semibold">
           <BookOpen className="h-4 w-4 text-primary" /> Textes officiels en ligne (catalogue ANPP / ICH / EMA…)
           {missing.length > 0 && <Badge tone="info" dot={false}>{missing.length} à ingérer</Badge>}
         </summary>
@@ -145,7 +145,7 @@ function SourceRow({ source: s }: { source: SourceWithVersion }) {
         ? <a href={s.sourceUrl} target="_blank" rel="noreferrer noopener" className="min-w-0 flex-1 truncate hover:underline">{s.title}</a>
         : <span className="min-w-0 flex-1 truncate">{s.title}</span>}
       {v && (
-        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+        <span className="min-w-0 text-xs text-muted-foreground sm:shrink-0 sm:whitespace-nowrap">
           v. {v.version} · {v._count.sections} section(s) · {formatDate(v.createdAt)}
           {/* UN TEXTE OCÉRISÉ N'EST PAS UNE LECTURE DE LA LOI. Sans cette mention, une source
               reconnue à 63 % de confiance est indiscernable d'un arrêté copié du Journal

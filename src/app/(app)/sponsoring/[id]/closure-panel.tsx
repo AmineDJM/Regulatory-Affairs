@@ -115,10 +115,11 @@ export function ClosurePanel({
         La tenue est pré-validée. Une fois l&apos;événement complété, {quiCloture} valide chaque poste, le range dans un budget,
         puis clôture : la somme des postes accordés devient le montant accordé de la demande.
       </p>
-      <div className="grid grid-cols-3 gap-2 text-center">
+      {/* Le total (un montant en DZD) prend toute la largeur au téléphone : trois colonnes l'écrasaient. */}
+      <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-3">
         <Chiffre libelle="Accordés" valeur={String(bilan.accordes)} />
         <Chiffre libelle="À décider" valeur={String(bilan.aDecider)} alerte={bilan.aDecider > 0} />
-        <Chiffre libelle="Total accordé" valeur={formatCurrency(bilan.total)} />
+        <Chiffre libelle="Total accordé" valeur={formatCurrency(bilan.total)} className="col-span-2 sm:col-span-1" />
       </div>
       {!bilan.cloturable && (
         <ul className="space-y-1 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
@@ -147,19 +148,19 @@ export function ClosurePanel({
   );
 }
 
-function Chiffre({ libelle, valeur, alerte = false }: { libelle: string; valeur: string; alerte?: boolean }) {
+function Chiffre({ libelle, valeur, alerte = false, className = "" }: { libelle: string; valeur: string; alerte?: boolean; className?: string }) {
   return (
-    <div className={`rounded-lg border px-2 py-1.5 ${alerte ? "border-warning/50 bg-warning/5" : "border-border"}`}>
+    <div className={`min-w-0 rounded-lg border px-2 py-1.5 ${alerte ? "border-warning/50 bg-warning/5" : "border-border"} ${className}`}>
       <p className="text-[0.6875rem] text-muted-foreground">{libelle}</p>
-      <p className="font-semibold tabular-nums">{valeur}</p>
+      <p className="break-words font-semibold tabular-nums">{valeur}</p>
     </div>
   );
 }
 
 function Erreur({ texte }: { texte: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-      <AlertCircle className="h-4 w-4 shrink-0" /> {texte}
+    <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0 break-words">{texte}</span>
     </div>
   );
 }

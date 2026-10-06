@@ -97,7 +97,7 @@ export function MailPartnersManager({ partners }: { partners: MailPartnerRow[] }
                   <button
                     type="button" onClick={() => { setErr(null); setEditing(p); }}
                     aria-label={`Modifier ${p.name}`} title="Modifier"
-                    className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    className="shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"
                   >
                     <Pencil className="h-4 w-4" />
                   </button>
@@ -105,14 +105,14 @@ export function MailPartnersManager({ partners }: { partners: MailPartnerRow[] }
                   <button
                     type="button" onClick={() => void deactivate(p)}
                     aria-label={`Désactiver ${p.name}`} title="Désactiver (le retire des menus)"
-                    className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    className="shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"
                   >
                     <Power className="h-4 w-4" />
                   </button>
                   <button
                     type="button" onClick={() => void drop(p)}
                     aria-label={`Supprimer ${p.name}`} title="Supprimer"
-                    className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    className="shrink-0 rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

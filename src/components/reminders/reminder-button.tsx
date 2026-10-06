@@ -71,7 +71,7 @@ export function ReminderButton({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-accent"
+        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-medium transition-colors hover:bg-accent sm:px-2.5 sm:py-1.5"
       >
         {done ? <Check className="h-3.5 w-3.5 text-success" /> : <BellPlus className="h-3.5 w-3.5" />}
         {done ? "Rappel posé" : label}
@@ -79,8 +79,10 @@ export function ReminderButton({
 
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-1 w-72 rounded-lg border border-border bg-popover p-3 shadow-lg">
+          <div className="fixed inset-0 z-40 bg-black/30 sm:bg-transparent" onClick={() => setOpen(false)} />
+          {/* Au téléphone, un panneau ancré en bas de l'écran : un menu flottant de 18 rem sortait par la gauche
+              dès que le bouton n'était pas collé au bord droit. */}
+          <div className="fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-50 max-h-[90dvh] overflow-y-auto rounded-lg border border-border bg-popover p-3 shadow-lg sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:mt-1 sm:max-h-none sm:w-72 sm:overflow-visible">
             <p className="mb-1.5 text-xs font-semibold text-foreground">Me rappeler…</p>
             <input
               value={title}
@@ -95,7 +97,7 @@ export function ReminderButton({
                   type="button"
                   disabled={busy}
                   onClick={() => submit(p.at)}
-                  className="rounded-full border border-border px-2.5 py-1 text-[0.6875rem] transition-colors hover:bg-accent disabled:opacity-50"
+                  className="rounded-full border border-border px-3 py-2 text-xs transition-colors sm:px-2.5 sm:py-1 sm:text-[0.6875rem] hover:bg-accent disabled:opacity-50"
                 >
                   {p.label}
                 </button>
@@ -106,13 +108,13 @@ export function ReminderButton({
                 type="datetime-local"
                 value={custom}
                 onChange={(e) => setCustom(e.target.value)}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring"
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-2 text-xs outline-none focus:ring-2 focus:ring-ring sm:py-1"
               />
               <button
                 type="button"
                 disabled={busy || !custom}
                 onClick={() => submit(new Date(custom))}
-                className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50 sm:px-2 sm:py-1"
               >
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : "OK"}
               </button>

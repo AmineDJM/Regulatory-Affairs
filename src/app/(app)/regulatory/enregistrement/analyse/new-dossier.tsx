@@ -47,7 +47,7 @@ export function NewDossier() {
     <form onSubmit={onSubmit} className="w-full space-y-3 rounded-xl border border-border bg-card p-4">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold">Nouveau dossier CTD</p>
-        <button type="button" onClick={() => setOpen(false)} className="rounded p-1 text-muted-foreground hover:text-foreground" aria-label="Fermer">
+        <button type="button" onClick={() => setOpen(false)} className="-m-1 rounded p-2 text-muted-foreground hover:text-foreground sm:m-0 sm:p-1" aria-label="Fermer">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -70,7 +70,7 @@ export function NewDossier() {
         </label>
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>Annuler</Button>
         <Button type="submit" size="sm" disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Créer le dossier

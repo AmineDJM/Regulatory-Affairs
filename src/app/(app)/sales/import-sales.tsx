@@ -38,13 +38,13 @@ export function ImportSalesButton() {
       </Button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Importer des ventes" description="Collez vos données CSV. La première ligne est l'en-tête.">
         <form action={(fd) => { setPending(true); formAction(fd); }} className="space-y-3">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
             Colonnes&nbsp;: <code>date, product, dci, dosage, form, client, institution, isPch, quantity, unitPrice</code>
           </p>
           <Textarea name="csv" defaultValue={SAMPLE} className="min-h-[220px] font-mono text-xs" />
           {state?.error && (
-            <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4" /> {state.error}
+            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive [overflow-wrap:anywhere]">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {state.error}
             </div>
           )}
           {state?.ok && (
@@ -52,7 +52,7 @@ export function ImportSalesButton() {
               <CheckCircle2 className="h-4 w-4" /> Import réussi.
             </div>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Fermer</Button>
             <Button type="submit" disabled={pending}>
               {pending && <Loader2 className="h-4 w-4 animate-spin" />}

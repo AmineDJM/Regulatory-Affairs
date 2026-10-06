@@ -46,24 +46,24 @@ export function MyReminders({ reminders }: { reminders: ReminderRow[] }) {
           <li key={r.id} className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${due ? "border-amber-500/40 bg-amber-500/5" : "border-border"}`}>
             <Bell className={`mt-0.5 h-4 w-4 shrink-0 ${due ? "text-amber-600" : "text-muted-foreground"}`} />
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-foreground">{r.title}</p>
+              <p className="break-words font-medium text-foreground">{r.title}</p>
               <p className="text-xs text-muted-foreground">
                 <Clock className="mr-1 inline h-3 w-3" />
                 {at.toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}
                 {due && <span className="ml-1 font-medium text-amber-600">— échu</span>}
               </p>
-              {r.note && <p className="mt-0.5 text-xs text-muted-foreground">{r.note}</p>}
+              {r.note && <p className="mt-0.5 break-words text-xs text-muted-foreground">{r.note}</p>}
               {r.link && (
-                <Link href={r.link} className="mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                <Link href={r.link} className="mt-0.5 inline-flex items-center gap-1 py-1 text-xs text-primary hover:underline sm:py-0">
                   <ExternalLink className="h-3 w-3" /> Ouvrir
                 </Link>
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-              <button type="button" title="Terminé" disabled={busy} onClick={() => act(completeReminder, r.id)} className="rounded border border-success/40 p-1 text-success hover:bg-success/10"><Check className="h-3.5 w-3.5" /></button>
-              <button type="button" title="Reporter à demain" disabled={busy} onClick={() => act(snoozeReminder, r.id, { remindAt: new Date(Date.now() + 24 * 3600_000).toISOString() })} className="rounded border border-border p-1 hover:bg-accent"><Clock className="h-3.5 w-3.5" /></button>
-              <button type="button" title="Annuler" disabled={busy} onClick={() => act(cancelReminder, r.id)} className="rounded border border-border p-1 text-muted-foreground hover:bg-accent"><X className="h-3.5 w-3.5" /></button>
+              <button type="button" title="Terminé" aria-label="Terminé" disabled={busy} onClick={() => act(completeReminder, r.id)} className="rounded border border-success/40 p-2 text-success hover:bg-success/10 sm:p-1"><Check className="h-3.5 w-3.5" /></button>
+              <button type="button" title="Reporter à demain" aria-label="Reporter à demain" disabled={busy} onClick={() => act(snoozeReminder, r.id, { remindAt: new Date(Date.now() + 24 * 3600_000).toISOString() })} className="rounded border border-border p-2 hover:bg-accent sm:p-1"><Clock className="h-3.5 w-3.5" /></button>
+              <button type="button" title="Annuler" aria-label="Annuler" disabled={busy} onClick={() => act(cancelReminder, r.id)} className="rounded border border-border p-2 text-muted-foreground hover:bg-accent sm:p-1"><X className="h-3.5 w-3.5" /></button>
             </div>
           </li>
         );

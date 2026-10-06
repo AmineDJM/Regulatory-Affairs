@@ -6,6 +6,7 @@ import { AlertCircle, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -79,7 +80,7 @@ export function VueComptages({ ctx }: { ctx: Ctx }) {
                     {c.note ? ` · « ${c.note} »` : ""}
                   </p>
                 </div>
-                <Button size="sm" onClick={() => setSaisie(c)}>Saisir le comptage</Button>
+                <Button size="sm" onClick={() => setSaisie(c)} className="h-10 w-full sm:h-8 sm:w-auto">Saisir le comptage</Button>
               </li>
             ))}
           </ul>
@@ -186,36 +187,36 @@ function LigneResultat({ c, page, peutCorriger }: { c: ComptageVue; page: PageSt
         </span>
       </button>
       {ouvert && (
-        <div className="overflow-x-auto border-t border-border px-3 py-2">
-          <table className="w-full min-w-[480px] text-sm">
-            <thead className="text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="py-1 pr-2 font-medium">Article</th>
-                <th className="py-1 pr-2 text-right font-medium">Registre</th>
-                <th className="py-1 pr-2 text-right font-medium">Compté</th>
-                <th className="py-1 text-right font-medium">Écart</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+        <div className="border-t border-border px-3 py-2">
+          <Table mobileCards className="sm:min-w-[480px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Article</TableHead>
+                <TableHead className="text-right">Registre</TableHead>
+                <TableHead className="text-right">Compté</TableHead>
+                <TableHead className="text-right">Écart</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {c.lignes.map((l) => (
-                <tr key={l.itemId}>
-                  <td className="py-1.5 pr-2">{l.libelle}</td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums">{nombre(l.attendu)}</td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums">{nombre(l.compte)}</td>
-                  <td className={cn("py-1.5 text-right tabular-nums", l.ecart < 0 ? "text-destructive" : l.ecart > 0 ? "text-success" : "text-muted-foreground")}>
+                <TableRow key={l.itemId}>
+                  <TableCell data-sans-etiquette className="font-medium sm:py-1.5 sm:font-normal"><span className="w-full">{l.libelle}</span></TableCell>
+                  <TableCell className="text-right tabular-nums sm:py-1.5">{nombre(l.attendu)}</TableCell>
+                  <TableCell className="text-right tabular-nums sm:py-1.5">{nombre(l.compte)}</TableCell>
+                  <TableCell className={cn("text-right tabular-nums sm:py-1.5", l.ecart < 0 ? "text-destructive" : l.ecart > 0 ? "text-success" : "text-muted-foreground")}>
                     {l.ecart > 0 ? "+" : ""}{nombre(l.ecart)}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {c.corrigeLe && (
             <p className="mt-2 text-xs text-muted-foreground">
               Corrigé le {date(c.corrigeLe)}{c.corrigeParId ? ` par ${nomDe(page, c.corrigeParId)}` : ""}{c.corrigeMotif ? ` : « ${c.corrigeMotif} »` : ""}.
             </p>
           )}
           {peutCorriger && !correction && (
-            <Button size="sm" variant="outline" className="mt-2" onClick={() => setCorrection(true)}>Corriger ce comptage</Button>
+            <Button size="sm" variant="outline" className="mt-2 w-full sm:w-auto" onClick={() => setCorrection(true)}>Corriger ce comptage</Button>
           )}
           {peutCorriger && correction && <FormulaireCorrection c={c} onClose={() => setCorrection(false)} />}
         </div>
@@ -270,7 +271,7 @@ function FormulaireCorrection({ c, onClose }: { c: ComptageVue; onClose: () => v
         {c.lignes.map((l) => (
           <li key={l.itemId} className="flex items-center justify-between gap-2">
             <label htmlFor={`corr-${c.id}-${l.itemId}`} className="min-w-0 break-words text-sm">{l.libelle}</label>
-            <Input id={`corr-${c.id}-${l.itemId}`} inputMode="decimal" className="w-24 text-right" value={valeurs[l.itemId] ?? ""}
+            <Input id={`corr-${c.id}-${l.itemId}`} inputMode="decimal" className="w-24 shrink-0 text-right" value={valeurs[l.itemId] ?? ""}
               onChange={(e) => setValeurs({ ...valeurs, [l.itemId]: e.target.value })} />
           </li>
         ))}
@@ -278,8 +279,8 @@ function FormulaireCorrection({ c, onClose }: { c: ComptageVue; onClose: () => v
       <Label htmlFor={`corr-motif-${c.id}`}>Pourquoi vous corrigez</Label>
       <Textarea id={`corr-motif-${c.id}`} value={motif} onChange={(e) => setMotif(e.target.value)} rows={2} placeholder="Ex. 40 saisi au lieu de 14 pour les fiches posologiques." />
       {erreur && <p role="alert" className="text-sm text-destructive">{erreur}</p>}
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={occupe || enCours || changees.length === 0 || !motif.trim()}>Enregistrer la correction</Button>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button type="submit" size="sm" className="h-10 sm:h-8" disabled={occupe || enCours || changees.length === 0 || !motif.trim()}>Enregistrer la correction</Button>
         <Button type="button" size="sm" variant="ghost" onClick={onClose} disabled={occupe}>Annuler</Button>
       </div>
     </form>
@@ -349,16 +350,17 @@ function FormulaireSaisie({ comptage, page, onClose, onSucces }: {
                       {a?.catalogue.reference}{a && !a.isActive ? " · archivé" : ""}{trouve ? " · trouvé (absent du registre)" : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  {/* Au téléphone, le champ prend la largeur : on compte debout, au pouce. */}
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
                     <input type="hidden" name="itemId" value={id} />
                     <Input
                       type="number" name="compte" min={0} step="any" required inputMode="decimal"
-                      aria-label={`Quantité comptée — ${a?.libelle ?? "article"}`} className="w-28 text-right"
+                      aria-label={`Quantité comptée — ${a?.libelle ?? "article"}`} className="h-11 min-w-0 flex-1 text-right sm:h-10 sm:w-28 sm:flex-none"
                     />
-                    <span className="w-14 text-xs text-muted-foreground">{a?.catalogue.unite}</span>
+                    <span className="w-14 shrink-0 text-xs text-muted-foreground">{a?.catalogue.unite}</span>
                     {trouve && (
                       <button type="button" aria-label="Retirer cet article trouvé" onClick={() => setTrouves(trouves.filter((x) => x !== id))}
-                        className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground sm:h-7 sm:w-7">
                         <X className="h-4 w-4" />
                       </button>
                     )}
@@ -378,7 +380,7 @@ function FormulaireSaisie({ comptage, page, onClose, onSucces }: {
                 {proposables.map((id) => <option key={id} value={id}>{parId.get(id)?.libelle ?? "Article"}</option>)}
               </Select>
             </label>
-            <Button type="button" size="sm" variant="outline" disabled={!choix}
+            <Button type="button" size="sm" variant="outline" disabled={!choix} className="h-10 w-full sm:h-10 sm:w-auto"
               onClick={() => { if (choix) { setTrouves([...trouves, choix]); setChoix(""); } }}>
               <Plus className="mr-1 h-4 w-4" aria-hidden /> Ajouter
             </Button>
@@ -396,7 +398,7 @@ function FormulaireSaisie({ comptage, page, onClose, onSucces }: {
           </p>
         )}
 
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
           <Button type="button" variant="ghost" onClick={onClose}>Fermer</Button>
           <Button type="submit" disabled={occupe || lignes.length === 0}>{occupe ? "Enregistrement…" : "Enregistrer le comptage"}</Button>
         </div>

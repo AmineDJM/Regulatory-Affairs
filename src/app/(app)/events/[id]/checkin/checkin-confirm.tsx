@@ -14,17 +14,18 @@ export function CheckinConfirm({ token, name, eventId }: { token: string; name: 
   }, [token]);
 
   return (
-    <div className="surface flex flex-col items-center gap-3 p-8 text-center">
-      {state === "loading" && <><Loader2 className="h-12 w-12 animate-spin text-muted-foreground" /><p>Enregistrement de la présence…</p></>}
+    // Utilisé debout, téléphone en main, à l'entrée : verdict en grand, et un vrai bouton pleine largeur pour repartir.
+    <div className="surface flex flex-col items-center gap-3 p-6 text-center sm:p-8" aria-live="polite">
+      {state === "loading" && <><Loader2 className="h-12 w-12 animate-spin text-muted-foreground" /><p className="text-base">Enregistrement de la présence…</p></>}
       {state === "ok" && (
         <>
-          <CheckCircle2 className="h-14 w-14 text-success" />
-          <p className="text-xl font-bold">{name}</p>
-          <p className="text-success">Présence enregistrée ✓</p>
+          <CheckCircle2 className="h-16 w-16 text-success sm:h-14 sm:w-14" />
+          <p className="max-w-full break-words text-2xl font-bold sm:text-xl">{name}</p>
+          <p className="text-lg font-medium text-success sm:text-base">Présence enregistrée ✓</p>
         </>
       )}
-      {state === "error" && (<><XCircle className="h-14 w-14 text-destructive" /><p>Impossible d'enregistrer la présence.</p></>)}
-      <Link href={`/events/${eventId}`} className="mt-2 text-sm text-primary hover:underline">Retour à l'événement</Link>
+      {state === "error" && (<><XCircle className="h-16 w-16 text-destructive sm:h-14 sm:w-14" /><p className="text-base font-medium">Impossible d'enregistrer la présence.</p></>)}
+      <Link href={`/events/${eventId}`} className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-lg border border-border px-4 text-base font-medium text-primary transition-colors hover:bg-secondary sm:h-10 sm:w-auto sm:text-sm">Retour à l'événement</Link>
     </div>
   );
 }

@@ -35,9 +35,9 @@ export const dynamic = "force-dynamic";
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null;
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium">{value}</p>
+      <p className="break-words font-medium">{value}</p>
     </div>
   );
 }
@@ -145,7 +145,7 @@ export default async function ConsultingContractPage({ params }: { params: { id:
             Renvoyé pour correction le {formatDate(contract.returnedAt.toISOString())}
             {contract.returnedById && names.get(contract.returnedById) ? ` par ${names.get(contract.returnedById)}` : ""}
           </p>
-          <p>À corriger : « {contract.returnNote ?? "non renseigné"} ».</p>
+          <p className="break-words">À corriger : « {contract.returnNote ?? "non renseigné"} ».</p>
           <p className="text-muted-foreground">
             {mine
               ? "Corrigez le contrat (« Modifier »), puis renvoyez-le pour validation."
@@ -163,7 +163,7 @@ export default async function ConsultingContractPage({ params }: { params: { id:
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>Ce qui a été convenu</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6">
               <Info label="Consultant / cabinet" value={contract.counterparty} />
               <Info label="Contact" value={contract.counterpartyContact} />
               <Info label="Entité signataire" value={contract.company?.name} />
@@ -183,25 +183,25 @@ export default async function ConsultingContractPage({ params }: { params: { id:
               {contract.scope && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Objet de la mission</p>
-                  <p className="whitespace-pre-wrap">{contract.scope}</p>
+                  <p className="whitespace-pre-wrap break-words">{contract.scope}</p>
                 </div>
               )}
               {contract.paymentTerms && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Modalités de paiement</p>
-                  <p className="whitespace-pre-wrap">{contract.paymentTerms}</p>
+                  <p className="whitespace-pre-wrap break-words">{contract.paymentTerms}</p>
                 </div>
               )}
               {contract.decisionNote && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Note de décision</p>
-                  <p className="whitespace-pre-wrap">{contract.decisionNote}</p>
+                  <p className="whitespace-pre-wrap break-words">{contract.decisionNote}</p>
                 </div>
               )}
               {contract.notes && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Notes internes</p>
-                  <p className="whitespace-pre-wrap">{contract.notes}</p>
+                  <p className="whitespace-pre-wrap break-words">{contract.notes}</p>
                 </div>
               )}
             </CardContent>

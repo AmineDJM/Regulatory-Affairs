@@ -160,16 +160,17 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
       </BackLink>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs text-muted-foreground">{req.reference}</span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="break-all font-mono text-xs text-muted-foreground">{req.reference}</span>
             <StatusBadge map={PRIORITY} value={req.strategicImportance} />
             {req.appealCount > 0 && <Badge tone="purple" dot={false}><Gavel className="mr-1 h-3 w-3" /> Appel ×{req.appealCount}</Badge>}
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">{req.institution}</h1>
-          {req.doctor && <p className="text-muted-foreground">{req.doctor} · {req.specialty}</p>}
+          <h1 className="break-words text-xl font-semibold tracking-tight sm:text-2xl">{req.institution}</h1>
+          {req.doctor && <p className="break-words text-muted-foreground">{req.doctor} · {req.specialty}</p>}
         </div>
-        <div className="flex flex-col items-end gap-2">
+        {/* Au téléphone, statut et actions forment une rangée qui se replie ; en colonne à droite au-delà. */}
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:flex-col sm:items-end">
           <StatusBadge map={SPONSORING_STATUS} value={req.status} />
           {canEditRequest && editValues && (
             <AdProEditButton kind="SPONSORING" id={req.id} decided={sponsoringDecided} values={editValues} />
@@ -187,7 +188,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               La chaîne d'achat (devis → BC → facture) vit sur chaque poste, plus bas. */}
           <CarteDetailsDemande
             titre="Détails de la demande"
-            contentClassName="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3"
+            contentClassName="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6"
             pieces={{
               entityType: "SPONSORING", entityId: req.id, documents: docItems,
               peutDeposer: canUpload, motif: canUpload ? null : (uploadHint ?? null),
@@ -213,12 +214,12 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               <Info label="Validé par" value={req.validatedBy} />
               <div className="col-span-full">
                 <p className="text-xs text-muted-foreground">Description</p>
-                <p className="font-medium">{req.description || "—"}</p>
+                <p className="break-words font-medium">{req.description || "—"}</p>
               </div>
               {req.comments && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Appréciation / recommandation (délégué)</p>
-                  <p className="font-medium">{req.comments}</p>
+                  <p className="break-words font-medium">{req.comments}</p>
                 </div>
               )}
           </CarteDetailsDemande>
@@ -334,9 +335,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium">{value || "—"}</p>
+      <p className="break-words font-medium">{value || "—"}</p>
     </div>
   );
 }

@@ -174,7 +174,7 @@ export default async function RecruitmentPage({ params }: { params: { id: string
               <span className="text-xs text-muted-foreground">{req.company.shortName || req.company.name}</span>
             )}
           </div>
-          <h1 className="mt-1 text-xl font-semibold sm:text-2xl">{req.position}</h1>
+          <h1 className="mt-1 break-words text-xl font-semibold sm:text-2xl">{req.position}</h1>
           <p className="text-sm text-muted-foreground">
             Demandé par {req.requester?.name ?? "—"} le {formatDate(req.createdAt)}
             {req.department ? ` · ${req.department.name}` : ""}
@@ -186,11 +186,11 @@ export default async function RecruitmentPage({ params }: { params: { id: string
       {/* RENVOYÉE POUR CORRECTION (§118.192) — dit à TOUS ceux qui ouvrent la fiche, pas seulement au
           demandeur : un validateur qui l'ouvre doit savoir qu'elle n'attend pas sa décision. */}
       {stage === "RETURNED" && (
-        <div className="space-y-1 rounded-xl border border-warning/40 bg-warning/5 p-4 text-sm">
+        <div className="space-y-1 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm sm:p-4">
           <p className="font-semibold">
             Renvoyée pour correction{renvoyePar ? ` par ${renvoyePar.name}` : ""}{req.returnedAt ? ` le ${formatDate(req.returnedAt)}` : ""}
           </p>
-          {req.returnNote && <p className="whitespace-pre-wrap">« {req.returnNote} »</p>}
+          {req.returnNote && <p className="whitespace-pre-wrap break-words">« {req.returnNote} »</p>}
           <p className="text-xs text-muted-foreground">
             La demande est chez {req.requester?.name ?? "son demandeur"}, qui la corrige et la renvoie — ou la retire.
           </p>
@@ -257,7 +257,7 @@ export default async function RecruitmentPage({ params }: { params: { id: string
                 {fil.map((c) => (
                   <div key={c.id} className="rounded-lg border border-border p-2.5">
                     <p className="text-xs text-muted-foreground">{c.author?.name ?? "—"} · {formatDateTime(c.createdAt)}</p>
-                    <p className="mt-0.5 whitespace-pre-wrap">{c.body}</p>
+                    <p className="mt-0.5 whitespace-pre-wrap break-words">{c.body}</p>
                   </div>
                 ))}
               </CardContent>
@@ -301,7 +301,7 @@ export default async function RecruitmentPage({ params }: { params: { id: string
               parallèle, à des vitesses différentes. */}
           {(stage === "SOURCING" || stage === "ONBOARDING" || candidates.length > 0) && (
             <Card>
-              <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+              <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
                 <CardTitle>CV reçus <span className="text-sm font-normal text-muted-foreground">({candidates.length})</span></CardTitle>
                 {can.addCandidate && <AddCandidateButton requestId={req.id} />}
               </CardHeader>
@@ -314,15 +314,15 @@ export default async function RecruitmentPage({ params }: { params: { id: string
                   <div key={c.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border p-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">{c.fullName}</p>
+                        <p className="min-w-0 break-words font-medium">{c.fullName}</p>
                         <Badge tone={CANDIDATE_TONE[c.status as CandidateStatus]} dot={false}>
                           {CANDIDATE_LABEL[c.status as CandidateStatus]}
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                         {[c.email, c.phone, c.source].filter(Boolean).join(" · ") || "—"}
                       </p>
-                      {c.notes && <p className="mt-1 text-xs text-muted-foreground">{c.notes}</p>}
+                      {c.notes && <p className="mt-1 break-words text-xs text-muted-foreground">{c.notes}</p>}
                       {c.interviewAt && (
                         <p className="mt-1 text-xs text-muted-foreground">
                           Entretien le {formatDate(c.interviewAt)}{c.interviewNote ? ` — ${c.interviewNote}` : ""}
@@ -331,9 +331,9 @@ export default async function RecruitmentPage({ params }: { params: { id: string
                       {(cvByCandidate.get(c.id) ?? []).map((d) => (
                         <a
                           key={d.id} href={`/api/documents/${d.id}`}
-                          className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          className="mt-1 mr-3 inline-flex max-w-full items-center gap-1 py-1 text-xs text-primary [overflow-wrap:anywhere] hover:underline"
                         >
-                          <Paperclip className="h-3 w-3" /> {d.name}
+                          <Paperclip className="h-3 w-3 shrink-0" /> {d.name}
                         </a>
                       ))}
                     </div>
@@ -444,7 +444,7 @@ function Info({ label, value }: { label: string; value: string | null | undefine
   return (
     <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium">{value || "—"}</p>
+      <p className="break-words font-medium">{value || "—"}</p>
     </div>
   );
 }
@@ -453,7 +453,7 @@ function Block({ label, value }: { label: string; value: string }) {
   return (
     <div className="col-span-2 sm:col-span-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="whitespace-pre-wrap">{value}</p>
+      <p className="whitespace-pre-wrap break-words">{value}</p>
     </div>
   );
 }

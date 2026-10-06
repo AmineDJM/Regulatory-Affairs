@@ -21,7 +21,7 @@ export function ServiceSwitch({ departmentId, departmentName, current }: {
   const [busy, setBusy] = React.useState(false);
   if (current === departmentId) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg border border-success/40 bg-success/10 px-3 py-1.5 text-sm font-medium text-success">
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-success/40 bg-success/10 px-3 py-1.5 text-sm font-medium text-success">
         <Check className="h-4 w-4" /> Service des moyens généraux de la société
       </span>
     );
@@ -95,7 +95,7 @@ export function ChangerDeService({ departements, actuel, ouvertParDefaut = false
     >
       <label htmlFor="mg-service" className="sr-only">Département qui tient les moyens généraux</label>
       <select id="mg-service" value={choix} onChange={(e) => setChoix(e.target.value)} disabled={busy}
-        className="h-9 w-full min-w-0 rounded-lg border border-input bg-background px-2 text-sm sm:w-64">
+        className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-2 text-base sm:h-9 sm:w-64 sm:text-sm">
         <option value="">— Département qui tient la caisse —</option>
         {candidats.map((d) => <option key={d.id} value={d.id}>{d.libelle}</option>)}
       </select>

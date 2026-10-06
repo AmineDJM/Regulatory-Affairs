@@ -139,7 +139,7 @@ export default async function SiteWebPage() {
             description="Publiez un article ou une offre d'emploi : il apparaîtra ici avec son état, puis « En ligne » dès que le site aura confirmé."
           />
         ) : (
-          <div className="surface overflow-hidden">
+          <div className="sm:surface sm:overflow-hidden">
             <Table mobileCards>
               <TableHeader>
                 <TableRow>
@@ -152,7 +152,7 @@ export default async function SiteWebPage() {
               <TableBody>
                 {vues.map(({ p, e }) => (
                   <TableRow key={p.id}>
-                    <TableCell label="Contenu" className="max-w-[22rem] font-medium">
+                    <TableCell label="Contenu" className="font-medium sm:max-w-[22rem]">
                       <Link href={lienDuContenu(p.nature, p.externalId)} className="break-words hover:underline">{p.libelle}</Link>
                     </TableCell>
                     <TableCell label="Nature">{LIBELLE_NATURE[p.nature]}</TableCell>
@@ -249,7 +249,7 @@ export default async function SiteWebPage() {
       {journal.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Journal des derniers envois</h2>
-          <div className="surface overflow-hidden">
+          <div className="sm:surface sm:overflow-hidden">
             <Table mobileCards>
               <TableHeader>
                 <TableRow>
@@ -264,16 +264,20 @@ export default async function SiteWebPage() {
                   <TableRow key={`${l.at.toISOString()}-${i}`}>
                     <TableCell label="Quand" className="whitespace-nowrap text-xs">{formatDateTime(l.at)}</TableCell>
                     <TableCell label="Requête" className="font-mono text-xs">
-                      {l.methode} {l.chemin}
-                      <span className="block font-sans text-muted-foreground">{l.libelle}</span>
+                      <span>
+                        {l.methode} {l.chemin}
+                        <span className="block font-sans text-muted-foreground">{l.libelle}</span>
+                      </span>
                     </TableCell>
                     <TableCell label="Réponse" className="text-xs">
-                      <Badge tone={l.issue === "SUCCES" || l.issue === "DEJA_ABSENT" ? "success" : l.issue === "REESSAYER" || l.issue === "LOCAL" ? "warning" : "danger"}>
-                        {l.statut ?? "—"} · {l.issue}
-                      </Badge>
-                      <span className="block text-muted-foreground">{l.ms} ms</span>
+                      <span>
+                        <Badge tone={l.issue === "SUCCES" || l.issue === "DEJA_ABSENT" ? "success" : l.issue === "REESSAYER" || l.issue === "LOCAL" ? "warning" : "danger"}>
+                          {l.statut ?? "—"} · {l.issue}
+                        </Badge>
+                        <span className="block text-muted-foreground">{l.ms} ms</span>
+                      </span>
                     </TableCell>
-                    <TableCell label="Détail" className="max-w-[26rem] break-words text-xs text-muted-foreground">{l.erreur ?? l.extrait ?? "—"}</TableCell>
+                    <TableCell label="Détail" className="break-words text-xs text-muted-foreground sm:max-w-[26rem]">{l.erreur ?? l.extrait ?? "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

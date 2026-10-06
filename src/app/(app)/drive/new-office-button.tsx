@@ -66,7 +66,7 @@ export function NewOfficeButton({
                 return (
                   <button
                     key={t.kind} type="button" onClick={() => setKind(t.kind)}
-                    className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 text-center transition ${active ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-secondary"}`}
+                    className={`flex min-w-0 flex-col items-center gap-1.5 rounded-lg border p-2 text-center transition sm:p-3 ${active ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-secondary"}`}
                   >
                     <t.icon className={`h-6 w-6 ${active ? "text-primary" : "text-muted-foreground"}`} />
                     <span className="text-sm font-medium">{t.label}</span>
@@ -95,7 +95,7 @@ export function NewOfficeButton({
           )}
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Annuler</Button>
             <Button type="submit" disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}

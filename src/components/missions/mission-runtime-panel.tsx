@@ -76,13 +76,13 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
 
   return (
     <section
-      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+      className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:p-4"
       data-testid="mission-panel"
       data-statut={vue.statut}
     >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="truncate text-base font-semibold text-slate-900">{vue.title}</h2>
+          <h2 className="break-words text-base font-semibold text-slate-900 sm:truncate">{vue.title}</h2>
           {/* LE SOUS-TITRE VIENT DE LA VUE, PAS D'UN CALCUL LOCAL. Sur une mission longue il
               dit « jalon 3/7 » ; le recomposer ici en « faites/total » redirait les étapes du
               sous-plan courant, c'est-à-dire « presque fini » sur une mission de six semaines
@@ -109,7 +109,7 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
       {accord ? (
         <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">
           <p className="flex items-center gap-1.5 text-sm font-medium text-amber-900">
-            <AlertTriangle className="h-4 w-4" aria-hidden /> Cette mission attend votre accord
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden /> Cette mission attend votre accord
           </p>
           <div className="mt-2">
             <AccordControls approvalId={accord.id} resume={accord.summary} />
@@ -146,7 +146,7 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
                 }`}
                 aria-hidden
               />
-              <span className="min-w-0">
+              <span className="min-w-0 break-words">
                 <span className="text-slate-800">{e.label}</span>
                 {e.detail ? <span className="ml-2 text-slate-500">{e.detail}</span> : null}
                 {e.erreur ? <span className="ml-2 text-rose-700">{e.erreur}</span> : null}
@@ -180,7 +180,7 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
               const etat = LIVRABLE_ETAT[l.statut] ?? { texte: l.statut, classe: "text-slate-500" };
               return (
                 <li key={l.key} className="text-sm" data-testid="mission-livrable">
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
                     {/* LE LIEN N'EXISTE QUE SI LE FICHIER EST RANGÉ. Un lien mort vaut moins qu'un
                         libellé honnête : la personne cliquerait, échouerait, et perdrait confiance
@@ -193,14 +193,14 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
                         autres restent au Drive, qui est ce qu'on sait faire pour eux. */}
                     {l.driveNodeId ? (
                       <a
-                        className="truncate text-slate-800 underline"
+                        className="min-w-0 truncate py-1 text-slate-800 underline sm:py-0"
                         href={l.ouvrable ? `/office/live/${l.driveNodeId}` : `/drive?file=${l.driveNodeId}`}
                         data-ouvrable={l.ouvrable ? "1" : "0"}
                       >
                         {l.fichier}
                       </a>
                     ) : (
-                      <span className="truncate text-slate-800">{l.fichier}</span>
+                      <span className="min-w-0 truncate text-slate-800">{l.fichier}</span>
                     )}
                     <span className={`shrink-0 text-xs ${etat.classe}`}>{etat.texte}</span>
                   </div>
@@ -224,7 +224,7 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
       ) : null}
 
       {vue.sousMissions.length > 0 ? (
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 break-words text-xs text-slate-500">
           {vue.sousMissions.length} sous-mission(s) :{" "}
           {vue.sousMissions.map((s) => `${s.titre} (${s.avancement})`).join(", ")}
         </p>

@@ -1,7 +1,8 @@
 import { formatCurrency } from "@/lib/utils";
 import type { MasseMensuelle } from "@/lib/hr/payroll-mass";
 
-const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+const COLLEE = "sticky left-0 z-10 bg-card shadow-[4px_0_6px_-4px_rgb(0_0_0/0.12)]";
+const MOIS = ["Janvier","Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 
 export interface ColonneMasse {
   companyId: string | null;
@@ -19,18 +20,19 @@ export interface ColonneMasse {
  */
 export function MasseMensuelleTable({ year, colonnes }: { year: number; colonnes: ColonneMasse[] }) {
   return (
-    <section className="surface space-y-2 p-4" aria-labelledby="masse-mensuelle-titre">
+    <section className="surface space-y-2 p-3 sm:p-4" aria-labelledby="masse-mensuelle-titre">
       <div>
         <h2 id="masse-mensuelle-titre" className="text-sm font-semibold">Masse salariale {year} — par entité, mois par mois</h2>
         <p className="text-xs text-muted-foreground">
           Salaires saisis comme payés : le coût employeur (charges comprises), et dessous le net versé au salarié.
         </p>
       </div>
-      <div className="overflow-x-auto">
+      {/* La colonne des mois reste collée à gauche quand les entités font défiler le tableau. */}
+      <div className="overflow-x-auto overscroll-x-contain">
         <table className="w-full min-w-[28rem] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
-              <th scope="col" className="py-1.5 pr-3 font-medium">Mois</th>
+              <th scope="col" className={`${COLLEE} py-1.5 pr-3 font-medium`}>Mois</th>
               {colonnes.map((c) => (
                 <th key={c.companyId ?? "sans"} scope="col" className={`py-1.5 pl-3 text-right font-medium ${c.companyId ? "" : "text-warning"}`}>
                   {c.label}
@@ -41,14 +43,14 @@ export function MasseMensuelleTable({ year, colonnes }: { year: number; colonnes
           <tbody>
             {MOIS.map((m, i) => (
               <tr key={m} className="border-b border-border/60">
-                <th scope="row" className="py-1.5 pr-3 text-left font-normal">{m}</th>
+                <th scope="row" className={`${COLLEE} py-1.5 pr-3 text-left font-normal`}>{m}</th>
                 {colonnes.map((c) => <Case key={c.companyId ?? "sans"} cost={c.masse.mois[i]!.cost} net={c.masse.mois[i]!.net} />)}
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr className="font-semibold">
-              <th scope="row" className="py-2 pr-3 text-left">Total {year}</th>
+              <th scope="row" className={`${COLLEE} py-2 pr-3 text-left`}>Total {year}</th>
               {colonnes.map((c) => <Case key={c.companyId ?? "sans"} cost={c.masse.total.cost} net={c.masse.total.net} />)}
             </tr>
           </tfoot>

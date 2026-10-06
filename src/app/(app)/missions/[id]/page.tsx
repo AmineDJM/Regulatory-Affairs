@@ -49,7 +49,7 @@ export default async function MissionRuntimePage({ params }: { params: { id: str
       {/* LE RETOUR VA AU CENTRE DE MISSIONS, PAS À `/missions`. Ce dernier est le module RH —
           ordres de mission, congrès, accompagnants : le lien historique menait à une liste qui
           ne contiendrait JAMAIS la mission qu'on vient de quitter. */}
-      <Link href="/centre-de-missions" className="inline-flex w-fit items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900">
+      <Link href="/centre-de-missions" className="inline-flex w-fit items-center gap-1.5 py-1.5 text-sm text-slate-600 hover:text-slate-900">
         <ArrowLeft className="h-4 w-4" aria-hidden /> Toutes les missions d&apos;Adam
       </Link>
 
@@ -57,7 +57,7 @@ export default async function MissionRuntimePage({ params }: { params: { id: str
 
       <Link
         href={`/assistant?q=${encodeURIComponent(`Où en est la mission « ${vue.title} » ?`)}`}
-        className="inline-flex w-fit items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700"
+        className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 sm:w-fit sm:justify-start sm:py-1.5"
       >
         <MessageSquare className="h-4 w-4" aria-hidden /> En parler à Adam
       </Link>

@@ -43,8 +43,8 @@ export function AppealPanel({ id, etape }: { id: string; etape: string | null })
   return (
     <div className="space-y-2">
       <Textarea value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-[70px]" placeholder="Expliquez pourquoi vous demandez un réexamen…" />
-      {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-      <div className="flex gap-2">
+      {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0 break-words">{err}</span></div>}
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={pending || !reason.trim()} onClick={submit}>{pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gavel className="h-4 w-4" />} Envoyer l'appel</Button>
         <Button size="sm" variant="ghost" onClick={() => { setOpen(false); setErr(null); }}>Annuler</Button>
       </div>

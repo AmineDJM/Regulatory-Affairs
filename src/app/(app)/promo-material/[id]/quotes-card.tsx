@@ -98,7 +98,11 @@ interface LigneSaisie {
   /** « Vérifiée sur le papier » — exigée par le serveur pour toute ligne venue du scan. */
   verifiee: boolean;
 }
-const LIGNE_VIDE: LigneSaisie = { reference: "", unit: "", quantity: "", unitPrice: "", action: "", article: "", lue: null, verifiee: false };
+/** L'intitulé d'un champ de ligne, visible seulement au téléphone (ligne en carte) : au bureau, l'en-tête du tableau le porte. */
+const intituleMobile = "mb-1 block text-xs font-medium text-muted-foreground sm:hidden";
+/** Un bouton au libellé long passe à la ligne au lieu de sortir de l'écran (le bouton est `nowrap` par défaut). */
+const aLaLigne = "h-auto min-h-9 whitespace-normal py-1.5 sm:h-auto sm:min-h-8";
+const LIGNE_VIDE: LigneSaisie ={ reference: "", unit: "", quantity: "", unitPrice: "", action: "", article: "", lue: null, verifiee: false };
 const nombre = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
 /** Une rangée inutilisée : le serveur l'ignore, et elle ne demande aucune case. */
 const ligneVide = (l: LigneSaisie) => !l.reference.trim() && !l.quantity.trim() && !l.unitPrice.trim();
@@ -205,7 +209,7 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
       <p className="text-sm font-medium">{devis ? `Corriger le devis de ${devis.supplierName}` : "Retranscrire un devis"}</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Label htmlFor={`dv-scan-${devis?.id ?? "n"}`}>Scan du devis {devis?.documentName ? <span className="font-normal text-muted-foreground">(actuel : {devis.documentName})</span> : "*"}</Label>
+          <Label htmlFor={`dv-scan-${devis?.id ?? "n"}`}>Scan du devis {devis?.documentName ? <span className="font-normal text-muted-foreground [overflow-wrap:anywhere]">(actuel : {devis.documentName})</span> : "*"}</Label>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Input
               ref={scanRef} id={`dv-scan-${devis?.id ?? "n"}`} name="scan" type="file" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx" className="max-w-md"
@@ -226,7 +230,7 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
               controle={lecture.controle} fournisseur={lecture.fournisseur.phrase} reserves={lecture.prerempli.reserves} suspectes={lecture.suspectes}
             />
             {!appliquee && (
-              <Button type="button" size="sm" variant="outline" onClick={() => appliquer(lecture)}>
+              <Button type="button" size="sm" variant="outline" className={aLaLigne} onClick={() => appliquer(lecture)}>
                 <ScanText className="h-4 w-4" /> Reprendre la lecture (remplace les lignes saisies)
               </Button>
             )}
@@ -247,9 +251,9 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
           <Label htmlFor={`dv-annonce-${devis?.id ?? "n"}`}>Total HT imprimé sur le devis *</Label>
           <Input id={`dv-annonce-${devis?.id ?? "n"}`} name="announcedTotal" inputMode="decimal" value={entete.announcedTotal} onChange={(e) => majEntete("announcedTotal", e.target.value)} placeholder="contrôle la retranscription" />
           {appliquee && (
-            <label className="mt-1 flex items-center gap-1.5 text-xs">
+            <label className="mt-1 flex min-h-9 items-center gap-2 text-xs sm:min-h-0 sm:gap-1.5">
               <input type="hidden" name="totalVerifie" value="0" />
-              <input type="checkbox" name="totalVerifie" value="1" checked={totalVerifie} onChange={(e) => setTotalVerifie(e.target.checked)} />
+              <input type="checkbox" className="h-4 w-4 sm:h-auto sm:w-auto" name="totalVerifie" value="1" checked={totalVerifie} onChange={(e) => setTotalVerifie(e.target.checked)} />
               total vérifié sur le papier
             </label>
           )}
@@ -258,8 +262,10 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
         <div><Label htmlFor={`dv-taxer-${devis?.id ?? "n"}`}>Taxe additionnelle (%)</Label><Input id={`dv-taxer-${devis?.id ?? "n"}`} name="extraTaxRate" inputMode="decimal" value={entete.extraTaxRate} onChange={(e) => majEntete("extraTaxRate", e.target.value)} placeholder="vide = aucune" /></div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[880px] text-sm">
+      {/* AU TÉLÉPHONE, UNE LIGNE DE DEVIS = UNE CARTE (classe `mobile-cards`) : chaque champ sous son intitulé,
+          pleine largeur. Huit colonnes de saisie qui glissent de côté ne se remplissent pas au pouce. */}
+      <div className="sm:overflow-x-auto">
+        <table className="mobile-cards w-full text-sm sm:min-w-[880px]">
           <thead>
             <tr className="text-left text-xs text-muted-foreground">
               <th className="py-1 pr-2 font-medium">Référence / désignation</th>
@@ -281,40 +287,66 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
                 <React.Fragment key={i}>
                   <tr className="align-top">
                     <td className="py-1 pr-2">
-                      <Input name="ligneReference" value={l.reference} onChange={(e) => maj(i, "reference", e.target.value)} aria-label={`Référence ligne ${i + 1}`} />
+                      <div className="w-full">
+                        <span aria-hidden className={intituleMobile}>Ligne {i + 1} · Référence / désignation</span>
+                        <Input name="ligneReference" value={l.reference} onChange={(e) => maj(i, "reference", e.target.value)} aria-label={`Référence ligne ${i + 1}`} />
+                      </div>
                       {/* Deux champs cachés par rangée, ALIGNÉS sur les autres : la ligne lue dont elle vient, et sa case. */}
                       <input type="hidden" name="ligneLue" value={l.lue ?? ""} />
                       <input type="hidden" name="ligneVerifiee" value={l.verifiee ? "1" : "0"} />
                     </td>
                     <td className="py-1 pr-2">
-                      <select name="ligneAction" value={l.action} onChange={(e) => maj(i, "action", e.target.value)} aria-label={`Action ligne ${i + 1}`}
-                        className="h-9 w-36 rounded-md border border-input bg-background px-2 text-sm">
-                        <option value="">Action…</option>
-                        {ACTIONS.map((a) => <option key={a} value={a}>{ACTION_LABEL[a]}</option>)}
-                      </select>
+                      <div className="w-full">
+                        <span aria-hidden className={intituleMobile}>Action *</span>
+                        <select name="ligneAction" value={l.action} onChange={(e) => maj(i, "action", e.target.value)} aria-label={`Action ligne ${i + 1}`}
+                          className="h-10 w-full rounded-md border border-input bg-background px-2 text-base sm:h-9 sm:w-36 sm:text-sm">
+                          <option value="">Action…</option>
+                          {ACTIONS.map((a) => <option key={a} value={a}>{ACTION_LABEL[a]}</option>)}
+                        </select>
+                      </div>
                     </td>
                     <td className="py-1 pr-2">
-                      <select name="ligneArticle" value={l.article} onChange={(e) => maj(i, "article", e.target.value)} aria-label={`Article demandé ligne ${i + 1}`}
-                        className="h-9 w-48 rounded-md border border-input bg-background px-2 text-sm">
-                        <option value="">En plus (non demandé)</option>
-                        {articles.map((a) => <option key={a.id} value={a.id}>{libelleArticleDemande(a)}</option>)}
-                      </select>
+                      <div className="w-full">
+                        <span aria-hidden className={intituleMobile}>Article demandé</span>
+                        <select name="ligneArticle" value={l.article} onChange={(e) => maj(i, "article", e.target.value)} aria-label={`Article demandé ligne ${i + 1}`}
+                          className="h-10 w-full rounded-md border border-input bg-background px-2 text-base sm:h-9 sm:w-48 sm:text-sm">
+                          <option value="">En plus (non demandé)</option>
+                          {articles.map((a) => <option key={a.id} value={a.id}>{libelleArticleDemande(a)}</option>)}
+                        </select>
+                      </div>
                     </td>
-                    <td className="py-1 pr-2"><Input name="ligneUnite" value={l.unit} onChange={(e) => maj(i, "unit", e.target.value)} aria-label={`Unité ligne ${i + 1}`} placeholder="pièce" className="w-24" /></td>
-                    <td className="py-1 pr-2"><Input name="ligneQuantite" value={l.quantity} onChange={(e) => maj(i, "quantity", e.target.value)} inputMode="decimal" aria-label={`Quantité ligne ${i + 1}`} className="w-24" /></td>
-                    <td className="py-1 pr-2"><Input name="lignePrix" value={l.unitPrice} onChange={(e) => maj(i, "unitPrice", e.target.value)} inputMode="decimal" aria-label={`Prix unitaire ligne ${i + 1}`} className="w-32" /></td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{t != null ? formatDzd(t) : "—"}</td>
+                    <td className="py-1 pr-2">
+                      <div className="w-full">
+                        <span aria-hidden className={intituleMobile}>Unité</span>
+                        <Input name="ligneUnite" value={l.unit} onChange={(e) => maj(i, "unit", e.target.value)} aria-label={`Unité ligne ${i + 1}`} placeholder="pièce" className="w-full sm:w-24" />
+                      </div>
+                    </td>
+                    <td className="py-1 pr-2">
+                      <div className="w-full">
+                        <span aria-hidden className={intituleMobile}>Quantité</span>
+                        <Input name="ligneQuantite" value={l.quantity} onChange={(e) => maj(i, "quantity", e.target.value)} inputMode="decimal" aria-label={`Quantité ligne ${i + 1}`} className="w-full sm:w-24" />
+                      </div>
+                    </td>
+                    <td className="py-1 pr-2">
+                      <div className="w-full">
+                        <span aria-hidden className={intituleMobile}>Prix unitaire HT</span>
+                        <Input name="lignePrix" value={l.unitPrice} onChange={(e) => maj(i, "unitPrice", e.target.value)} inputMode="decimal" aria-label={`Prix unitaire ligne ${i + 1}`} className="w-full sm:w-32" />
+                      </div>
+                    </td>
+                    <td data-label="Prix total HT" className="py-1 pr-2 text-right tabular-nums">{t != null ? formatDzd(t) : "—"}</td>
                     <td className="py-1">
-                      <Button type="button" size="sm" variant="ghost" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} aria-label={`Retirer la ligne ${i + 1}`}><Trash2 className="h-4 w-4" /></Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} aria-label={`Retirer la ligne ${i + 1}`}><Trash2 className="h-4 w-4" /><span className="sm:hidden">Retirer la ligne</span></Button>
                     </td>
                   </tr>
                   {appliquee && lecture && l.lue !== null && (
                     <tr>
                       <td colSpan={8} className="pb-2 pr-2">
-                        <LigneLue
-                          id={`dv-lue-${devis?.id ?? "n"}-${i}`} methode={lecture.methode} confiance={lecture.confiance}
-                          verifiee={l.verifiee} onVerifiee={(v) => coche(i, v)} notes={lue?.notes ?? []} suspecte={lue?.suspecte ?? []}
-                        />
+                        <div className="w-full">
+                          <LigneLue
+                            id={`dv-lue-${devis?.id ?? "n"}-${i}`} methode={lecture.methode} confiance={lecture.confiance}
+                            verifiee={l.verifiee} onVerifiee={(v) => coche(i, v)} notes={lue?.notes ?? []} suspecte={lue?.suspecte ?? []}
+                          />
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -322,12 +354,13 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
               );
             })}
           </tbody>
-          <tfoot>
+          {/* `block` au téléphone : la feuille de style des cartes ne traite pas le pied de tableau. */}
+          <tfoot className="block sm:table-footer-group">
             <tr>
               <td colSpan={6} className="pt-2">
-                <Button type="button" size="sm" variant="outline" onClick={() => setLignes((ls) => [...ls, { ...LIGNE_VIDE }])}><Plus className="h-4 w-4" /> Ajouter une ligne</Button>
+                <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => setLignes((ls) => [...ls, { ...LIGNE_VIDE }])}><Plus className="h-4 w-4" /> Ajouter une ligne</Button>
               </td>
-              <td className="pt-2 text-right font-medium tabular-nums">{formatDzd(totalHT)}</td>
+              <td data-label="Total HT" className="pt-2 text-right font-medium tabular-nums">{formatDzd(totalHT)}</td>
               <td />
             </tr>
           </tfoot>
@@ -340,7 +373,7 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
           Avant d&apos;enregistrer : comparez au papier et cochez {resteACocher > 0 ? `${resteACocher} ligne${resteACocher > 1 ? "s" : ""} lue${resteACocher > 1 ? "s" : ""}` : ""}{resteACocher > 0 && !totalVerifie ? " et " : ""}{!totalVerifie ? "le total" : ""}.
         </p>
       )}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <Button type="submit" size="sm" disabled={saving || enLecture || !confirmable}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer le devis</Button>
         <Button type="button" size="sm" variant="ghost" onClick={onDone} disabled={saving}>Annuler</Button>
       </div>
@@ -391,7 +424,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
               <li key={d.id} className="space-y-1.5 rounded-md border border-border bg-background p-2">
                 <p className="flex flex-wrap items-center gap-2 text-sm">
                   <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <a className="font-medium hover:underline" href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer">{d.nom}</a>
+                  <a className="min-w-0 font-medium [overflow-wrap:anywhere] hover:underline" href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer">{d.nom}</a>
                   <span className="text-xs text-muted-foreground">{d.deposePar ? `déposé par ${d.deposePar}, ` : ""}le {new Date(d.le).toLocaleDateString("fr-FR")}</span>
                 </p>
                 {peutRanger && (
@@ -399,10 +432,10 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                     className="flex flex-wrap items-end gap-2"
                     action={(f: FormData) => { f.set("promoMaterialId", id); f.set("documentId", d.id); run(() => rangerDevisPromo(f)); }}
                   >
-                    <div className="min-w-[14rem] flex-1">
+                    <div className="w-full min-w-0 sm:w-auto sm:min-w-[14rem] sm:flex-1">
                       <PartyPicker name="supplierId" arity={1} options={parties} canCreate={canCreateContact} placeholder="L'agence ou le partenaire de ce devis" />
                     </div>
-                    <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Ranger comme devis de cette agence</Button>
+                    <Button type="submit" size="sm" className={`w-full sm:w-auto ${aLaLigne}`} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Ranger comme devis de cette agence</Button>
                   </form>
                 )}
               </li>
@@ -427,7 +460,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
               <div className="min-w-0">
                 <p className="truncate font-medium">{q.supplierName}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {q.reference ? `Devis n° ${q.reference}` : "Devis sans numéro"}{q.quoteDate ? ` · ${new Date(q.quoteDate).toLocaleDateString("fr-FR")}` : ""} · TVA {q.tvaRate} %{q.extraTaxRate ? ` · ${q.extraTaxLabel ?? "Taxe"} ${q.extraTaxRate} %` : ""}
                   {q.documentName ? <> · <FileText className="inline h-3 w-3" /> {q.documentName}</> : <> · <span className="text-amber-600">scan manquant</span></>}
                   {/* Dit à celle qui peut le saisir, à l'étape où il compte : sur un dossier déjà passé au
@@ -437,8 +470,8 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {canSelect && (
-                  <label className="flex items-center gap-1.5 text-xs">
-                    <input type="checkbox" checked={toutCoche} onChange={(e) => toutLeDevis(q, e.target.checked)} /> Tout le devis
+                  <label className="flex min-h-9 items-center gap-2 text-xs sm:min-h-0 sm:gap-1.5">
+                    <input type="checkbox" className="h-4 w-4 sm:h-auto sm:w-auto" checked={toutCoche} onChange={(e) => toutLeDevis(q, e.target.checked)} /> Tout le devis
                   </label>
                 )}
                 {canTranscribe && (
@@ -452,8 +485,8 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                 )}
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-sm">
+            <div className="p-2 sm:overflow-x-auto sm:p-0">
+              <table className="mobile-cards w-full text-sm sm:min-w-[520px]">
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground">
                     {canSelect && <th className="w-8 px-3 py-1.5" />}
@@ -468,28 +501,30 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                   {q.lines.map((l) => {
                     const retenue = canSelect ? choisies.has(l.id) : l.selected;
                     return (
-                      <tr key={l.id} className={`border-t border-border ${retenue ? "bg-emerald-500/5" : ""}`}>
+                      <tr key={l.id} className={`border-t border-border ${retenue ? "!bg-emerald-500/5" : ""}`}>
                         {canSelect && (
-                          <td className="px-3 py-1.5"><input type="checkbox" checked={retenue} onChange={() => bascule(l.id)} aria-label={`Retenir ${l.reference}`} /></td>
+                          <td data-label="Retenir" className="px-3 py-1.5"><input type="checkbox" className="h-5 w-5 sm:h-auto sm:w-auto" checked={retenue} onChange={() => bascule(l.id)} aria-label={`Retenir ${l.reference}`} /></td>
                         )}
-                        <td className="px-3 py-1.5">
-                          {l.reference}{!canSelect && retenue && <Badge tone="success" className="ml-2">retenue</Badge>}
-                          <span className="mt-0.5 flex flex-wrap gap-1 text-xs">
-                            {l.action && <Badge tone="info">{ACTION_LABEL[l.action as PromoAction]}</Badge>}
-                            {l.requestItemId
-                              ? <span className="text-muted-foreground">{nomArticle.get(l.requestItemId) ?? "article demandé"}</span>
-                              : articles.length > 0 && <span className="text-amber-700 dark:text-amber-400">en plus (non demandé)</span>}
-                          </span>
+                        <td className="px-3 py-1.5 font-medium sm:font-normal">
+                          <div className="w-full">
+                            {l.reference}{!canSelect && retenue && <Badge tone="success" className="ml-2">retenue</Badge>}
+                            <span className="mt-0.5 flex flex-wrap gap-1 text-xs font-normal">
+                              {l.action && <Badge tone="info">{ACTION_LABEL[l.action as PromoAction]}</Badge>}
+                              {l.requestItemId
+                                ? <span className="text-muted-foreground">{nomArticle.get(l.requestItemId) ?? "article demandé"}</span>
+                                : articles.length > 0 && <span className="text-amber-700 dark:text-amber-400">en plus (non demandé)</span>}
+                            </span>
+                          </div>
                         </td>
-                        <td className="px-3 py-1.5 text-muted-foreground">{l.unit ?? "—"}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{l.quantity.toLocaleString("fr-FR")}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{formatDzd(l.unitPrice)}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{formatDzd(totalLigneHT(l))}</td>
+                        <td data-label="Unité" className="px-3 py-1.5 text-muted-foreground">{l.unit ?? "—"}</td>
+                        <td data-label="Quantité" className="px-3 py-1.5 text-right tabular-nums">{l.quantity.toLocaleString("fr-FR")}</td>
+                        <td data-label="Prix unitaire HT" className="px-3 py-1.5 text-right tabular-nums">{formatDzd(l.unitPrice)}</td>
+                        <td data-label="Prix total HT" className="px-3 py-1.5 text-right tabular-nums">{formatDzd(totalLigneHT(l))}</td>
                       </tr>
                     );
                   })}
                 </tbody>
-                <tfoot>
+                <tfoot className="block sm:table-footer-group">
                   <tr className="border-t border-border text-xs">
                     <td colSpan={canSelect ? 5 : 4} className="px-3 py-1.5 text-right text-muted-foreground">
                       Total du devis — HT {formatDzd(t.ht)} · TVA {formatDzd(t.tva)}{t.taxe ? ` · ${q.extraTaxLabel ?? "Taxe"} ${formatDzd(t.taxe)}` : ""}
@@ -509,7 +544,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
       })}
 
       {rapprochement && (
-        <div className="space-y-2 rounded-lg border border-border p-3">
+        <div className="space-y-2 rounded-lg border border-border p-3 [overflow-wrap:anywhere]">
           <p className="text-sm font-medium">Rapprochement avec la demande</p>
           <div className="space-y-2">
             {rapprochement.articles.map(({ article, lignes, actionsSansDevis }) => (
@@ -555,8 +590,8 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
       {canTranscribe && edition === null && (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Déposer un devis</Button>
-            <Button size="sm" onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); run(() => terminerRetranscriptionPromo(f)); }} disabled={saving || manques.length > 0}>
+            <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Déposer un devis</Button>
+            <Button size="sm" className="w-full sm:w-auto" onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); run(() => terminerRetranscriptionPromo(f)); }} disabled={saving || manques.length > 0}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Retranscription terminée
             </Button>
           </div>
@@ -592,7 +627,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
               <Label htmlFor="promo-redemande">Ce que vous cherchez</Label>
               <Textarea id="promo-redemande" name="note" value={cherche} onChange={(e) => setCherche(e.target.value)} className="min-h-[50px]" placeholder="Ex. d'autres imprimeurs, 2 000 exemplaires au lieu de 5 000, livraison avant le 15." />
               <p className="text-xs text-muted-foreground">Une nouvelle demande part à l&apos;assistante ; les devis déjà reçus restent, pour comparer.</p>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button type="submit" size="sm" disabled={saving || !cherche.trim()}>Envoyer la demande</Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setRedemande(false)} disabled={saving}>Annuler</Button>
               </div>
@@ -601,7 +636,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
             <form action={(f: FormData) => { f.set("promoMaterialId", id); run(() => demanderCorrectionDevisPromo(f), () => setCorrection(false)); }} className="space-y-2">
               <Label htmlFor="promo-correction">Ce qui est à corriger dans la retranscription</Label>
               <Textarea id="promo-correction" name="motif" required className="min-h-[50px]" placeholder="Ex. le prix unitaire des présentoirs est 2 500 DZD, pas 25 000." />
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button type="submit" size="sm" disabled={saving}>Renvoyer à l&apos;assistante</Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setCorrection(false)} disabled={saving}>Annuler</Button>
               </div>

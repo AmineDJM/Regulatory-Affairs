@@ -86,10 +86,10 @@ export function CompanyAccessCard({ userId, rows, seesWholeGroup }: {
             <ul className="divide-y divide-border">
               {rows.map((r) => (
                 <li key={r.companyId} className="flex flex-wrap items-center gap-2 py-2 text-sm">
-                  <span className="min-w-0 flex-1">{r.name}</span>
+                  <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{r.name}</span>
                   {r.isHome && <Badge tone="info" dot={false}>son entité</Badge>}
                   {busy === r.companyId && <Loader2 className="h-4 w-4 animate-spin" />}
-                  <div className="flex gap-1">
+                  <div className="flex w-full gap-1 sm:w-auto">
                     {(["none", "view", "edit"] as const).map((m) => {
                       // Retirer l'accès à sa propre entité n'aurait aucun effet : elle reste
                       // lisible de droit. On désactive plutôt que de laisser croire au contraire.
@@ -100,7 +100,7 @@ export function CompanyAccessCard({ userId, rows, seesWholeGroup }: {
                           disabled={disabled}
                           onClick={() => change(r.companyId, m)}
                           title={m === "none" && r.isHome ? "Son entité d'appartenance reste toujours lisible." : undefined}
-                          className={`rounded-lg border px-2 py-1 text-xs transition disabled:opacity-40 ${
+                          className={`min-h-9 flex-1 rounded-lg border px-2 py-1 text-xs transition disabled:opacity-40 sm:min-h-0 sm:flex-none ${
                             r.mode === m
                               ? "border-primary bg-primary/10 font-medium text-foreground"
                               : "border-border text-muted-foreground hover:bg-secondary"

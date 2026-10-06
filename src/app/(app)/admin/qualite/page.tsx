@@ -12,6 +12,7 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { BoutonsConstat, BoutonBalayage } from "./qualite-client";
 
 export const dynamic = "force-dynamic";
@@ -56,8 +57,10 @@ export default async function QualitePage({ searchParams }: { searchParams?: { s
         {hasGlobalView(user) && <BoutonBalayage />}
       </PageHeader>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Constats ouverts" value={String(compte.ouverts)} hint="sous vos droits" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="col-span-2 sm:col-span-1 [&>*]:h-full">
+          <KpiCard label="Constats ouverts" value={String(compte.ouverts)} hint="sous vos droits" />
+        </div>
         {CRITICITES.map((c) => (
           <KpiCard key={c} label={LIBELLE_CRITICITE[c]} value={String(compte.parCriticite[c] ?? 0)} tone={c === "CRITIQUE" && (compte.parCriticite[c] ?? 0) > 0 ? "danger" : "default"} />
         ))}
@@ -81,41 +84,43 @@ export default async function QualitePage({ searchParams }: { searchParams?: { s
       </Card>
 
       <div className="flex flex-wrap gap-2 text-sm" data-testid="qualite-filtres">
-        {STATUTS.map((s) => <Link key={s.v} href={lien({ statut: s.v })} className={`rounded-full border px-3 py-1 ${statut === s.v ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{s.l}</Link>)}
+        {STATUTS.map((s) => <Link key={s.v} href={lien({ statut: s.v })} className={`rounded-full border px-3 py-1.5 sm:py-1 ${statut === s.v ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>{s.l}</Link>)}
         <span className="mx-1 text-muted-foreground">·</span>
-        <Link href={lien({ famille: null })} className={`rounded-full border px-3 py-1 ${!famille ? "bg-secondary" : "hover:bg-secondary"}`}>Toutes familles</Link>
+        <Link href={lien({ famille: null })} className={`rounded-full border px-3 py-1.5 sm:py-1 ${!famille ? "bg-secondary" : "hover:bg-secondary"}`}>Toutes familles</Link>
         {FAMILLES.filter((f) => (compte.parFamille[f] ?? 0) > 0 || f === famille).map((f) => (
-          <Link key={f} href={lien({ famille: f })} className={`rounded-full border px-3 py-1 ${famille === f ? "bg-secondary" : "hover:bg-secondary"}`}>{LIBELLE_FAMILLE[f]} <span className="text-muted-foreground">{compte.parFamille[f] ?? 0}</span></Link>
+          <Link key={f} href={lien({ famille: f })} className={`rounded-full border px-3 py-1.5 sm:py-1 ${famille === f ? "bg-secondary" : "hover:bg-secondary"}`}>{LIBELLE_FAMILLE[f]} <span className="text-muted-foreground">{compte.parFamille[f] ?? 0}</span></Link>
         ))}
       </div>
 
       {constats.length === 0 ? (
         <EmptyState title="Rien dans ce filtre" description="Le moteur n'a aucun constat à montrer ici. Un balayage complet tourne chaque nuit ; les règles financières toutes les heures." />
       ) : (
-        <div className="overflow-x-auto rounded-xl border">
-          <table className="w-full text-sm" data-testid="qualite-table">
-            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-              <tr><th className="p-3">Criticité</th><th className="p-3">Constat</th><th className="p-3">Famille · règle</th><th className="p-3">Confiance</th><th className="p-3">Résolution</th><th className="p-3">Vu</th><th className="p-3">Geste</th></tr>
-            </thead>
-            <tbody>
+        <div className="sm:overflow-x-auto sm:rounded-xl sm:border">
+          <Table mobileCards data-testid="qualite-table">
+            <TableHeader>
+              <TableRow><TableHead className="p-3">Criticité</TableHead><TableHead className="p-3">Constat</TableHead><TableHead className="p-3">Famille · règle</TableHead><TableHead className="p-3">Confiance</TableHead><TableHead className="p-3">Résolution</TableHead><TableHead className="p-3">Vu</TableHead><TableHead className="p-3">Geste</TableHead></TableRow>
+            </TableHeader>
+            <TableBody>
               {constats.map((c) => (
-                <tr key={c.id} className="border-t align-top" data-testid="qualite-ligne" data-regle={c.regle} data-status={c.status}>
-                  <td className="p-3"><Badge tone={TON[c.criticite]}>{LIBELLE_CRITICITE[c.criticite]}</Badge></td>
-                  <td className="p-3 max-w-xl">
-                    <p className="font-medium">{c.href ? <Link href={c.href} className="hover:underline">{c.titre}</Link> : c.titre}</p>
-                    <p className="mt-0.5 text-muted-foreground">{c.detail}</p>
-                    {c.correction && <p className="mt-1 text-xs">Correction proposée : {c.correction.description}</p>}
-                    {c.motif && <p className="mt-1 text-xs italic">Écarté : {c.motif}</p>}
-                  </td>
-                  <td className="p-3 text-xs"><div>{LIBELLE_FAMILLE[c.famille as FamilleQualite] ?? c.famille}</div><Link href={lien({ regle: c.regle })} className="text-muted-foreground hover:underline">{c.regle}</Link><div className="text-muted-foreground">{c.module}</div></td>
-                  <td className="p-3 tabular-nums">{Math.round(c.confiance * 100)} %</td>
-                  <td className="p-3 text-xs">{c.resolution === "AUTO" ? "automatique" : c.resolution === "PROPOSE" ? "d'un clic" : "décision"}<div className="text-muted-foreground">{c.status === "OPEN" ? "ouvert" : c.status === "FIXED" ? `corrigé (${c.resolvedBy ?? "—"})` : c.status === "DISMISSED" ? `écarté (${c.resolvedBy ?? "—"})` : "disparu"}</div></td>
-                  <td className="p-3 text-xs tabular-nums">{dateFr(c.firstSeenAt)}<div className="text-muted-foreground">{c.occurrences}× {c.reopenCount ? `· rouvert ${c.reopenCount}×` : ""}</div></td>
-                  <td className="p-3"><BoutonsConstat id={c.id} status={c.status} aCorrection={Boolean(c.correction)} /></td>
-                </tr>
+                <TableRow key={c.id} className="align-top" data-testid="qualite-ligne" data-regle={c.regle} data-status={c.status}>
+                  <TableCell className="sm:p-3"><Badge tone={TON[c.criticite]}>{LIBELLE_CRITICITE[c.criticite]}</Badge></TableCell>
+                  <TableCell data-sans-etiquette className="max-w-xl max-sm:!justify-start sm:p-3">
+                    <div className="min-w-0">
+                      <p className="font-medium">{c.href ? <Link href={c.href} className="hover:underline">{c.titre}</Link> : c.titre}</p>
+                      <p className="mt-0.5 text-muted-foreground">{c.detail}</p>
+                      {c.correction && <p className="mt-1 text-xs">Correction proposée : {c.correction.description}</p>}
+                      {c.motif && <p className="mt-1 text-xs italic">Écarté : {c.motif}</p>}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs sm:p-3"><div><div>{LIBELLE_FAMILLE[c.famille as FamilleQualite] ?? c.famille}</div><Link href={lien({ regle: c.regle })} className="text-muted-foreground hover:underline">{c.regle}</Link><div className="text-muted-foreground">{c.module}</div></div></TableCell>
+                  <TableCell className="tabular-nums sm:p-3">{Math.round(c.confiance * 100)} %</TableCell>
+                  <TableCell className="text-xs sm:p-3"><div>{c.resolution === "AUTO" ? "automatique" : c.resolution === "PROPOSE" ? "d'un clic" : "décision"}<div className="text-muted-foreground">{c.status === "OPEN" ? "ouvert" : c.status === "FIXED" ? `corrigé (${c.resolvedBy ?? "—"})` : c.status === "DISMISSED" ? `écarté (${c.resolvedBy ?? "—"})` : "disparu"}</div></div></TableCell>
+                  <TableCell className="text-xs tabular-nums sm:p-3"><div>{dateFr(c.firstSeenAt)}<div className="text-muted-foreground">{c.occurrences}× {c.reopenCount ? `· rouvert ${c.reopenCount}×` : ""}</div></div></TableCell>
+                  <TableCell data-sans-etiquette className="sm:p-3"><BoutonsConstat id={c.id} status={c.status} aCorrection={Boolean(c.correction)} /></TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>

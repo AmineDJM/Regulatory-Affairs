@@ -32,7 +32,7 @@ export function AiSynthesis({ scope }: { scope: "overview" | "people" }) {
 
   return (
     <div className="surface space-y-3 border-primary/30 bg-gradient-to-br from-accent/40 to-card p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
           <Sparkles className="h-4 w-4 text-primary" /> Synthèse IA
         </h2>

@@ -167,7 +167,7 @@ export default async function MailEntryPage({ params }: { params: { id: string }
               <span className="text-xs text-muted-foreground">{entry.company.shortName || entry.company.name}</span>
             )}
           </div>
-          <h1 className="mt-1 text-xl font-semibold sm:text-2xl">{entry.title}</h1>
+          <h1 className="mt-1 text-xl font-semibold [overflow-wrap:anywhere] sm:text-2xl">{entry.title}</h1>
           <p className="text-sm text-muted-foreground">
             Enregistré par {entry.createdBy?.name ?? "—"} le {formatDate(entry.createdAt)}
           </p>
@@ -240,7 +240,7 @@ export default async function MailEntryPage({ params }: { params: { id: string }
               {entry.notes && (
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Notes</p>
-                  <p className="whitespace-pre-wrap">{entry.notes}</p>
+                  <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{entry.notes}</p>
                 </div>
               )}
             </CardContent>
@@ -316,7 +316,7 @@ function Info({ label, value }: { label: string; value: string | null | undefine
   return (
     <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="truncate font-medium" title={value ?? undefined}>{value || "—"}</p>
+      <p className="font-medium [overflow-wrap:anywhere] sm:truncate" title={value ?? undefined}>{value || "—"}</p>
     </div>
   );
 }

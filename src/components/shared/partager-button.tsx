@@ -154,7 +154,7 @@ export function PartagerSheet({ open, onClose, ...cible }: CiblePartage & { open
             {(["COLLEGUE", "GROUPE"] as const).map((o) => (
               <button
                 key={o} type="button" role="tab" aria-selected={onglet === o} onClick={() => setOnglet(o)}
-                className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-sm ${onglet === o ? "bg-card font-medium shadow-sm" : "text-muted-foreground"}`}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-2 text-sm sm:py-1.5 ${onglet === o ? "bg-card font-medium shadow-sm" : "text-muted-foreground"}`}
               >
                 {o === "COLLEGUE" ? <User className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />} {o === "COLLEGUE" ? "Un collègue" : "Un groupe"}
               </button>
@@ -214,7 +214,7 @@ export function PartagerSheet({ open, onClose, ...cible }: CiblePartage & { open
         </div>
 
         {err && <p className="text-sm text-destructive">{err}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
           <Button type="submit" disabled={busy || !choix}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer

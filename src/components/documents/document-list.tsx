@@ -71,7 +71,8 @@ export function DocumentList({
             <div className="min-w-0 flex-1">
               <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} canDelete={canDelete} canRename={canRename} path={path} supprimer={supprimer} />
               {doc.folder && <p className="flex items-center gap-1 truncate text-[0.6875rem] text-muted-foreground" title={doc.folder}><Folder className="h-3 w-3 shrink-0" /> {doc.folder}</p>}
-              <p className="truncate text-[0.6875rem] text-muted-foreground" title={meta}>{meta}</p>
+              {/* Au téléphone, pas d'infobulle pour rattraper la fin : la méta passe à la ligne. */}
+              <p className="text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere] sm:truncate" title={meta}>{meta}</p>
             </div>
           </li>
         );

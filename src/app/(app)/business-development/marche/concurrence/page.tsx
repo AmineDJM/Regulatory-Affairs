@@ -41,7 +41,7 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
       <div className="flex flex-wrap items-center gap-2">
         {MODES.map((m) => (
-          <Link key={m.key} href={`?mode=${m.key}`} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === m.key ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>{m.label}</Link>
+          <Link key={m.key} href={`?mode=${m.key}`} className={`inline-flex min-h-9 items-center rounded-full px-3 py-1 text-xs font-medium sm:min-h-0 ${mode === m.key ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>{m.label}</Link>
         ))}
       </div>
 
@@ -62,7 +62,7 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
               <Card>
                 <CardContent className="overflow-x-auto p-0 sm:p-2">
-                  <Table>
+                  <Table mobileCards>
                     <TableHeader><TableRow><TableHead className="text-right">#</TableHead><TableHead>Laboratoire</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead className="text-right">Part</TableHead><TableHead className="text-right">Croissance</TableHead><TableHead className="text-right">Produits</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {cc.labs.map((l, i) => (
@@ -82,12 +82,12 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
               <Card>
                 <CardContent className="overflow-x-auto p-0 sm:p-2">
-                  <Table>
+                  <Table mobileCards>
                     <TableHeader><TableRow><TableHead>Produit</TableHead><TableHead>Laboratoire</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead className="text-right">Part</TableHead><TableHead className="text-right">Croissance</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {cc.products.slice(0, 60).map((p) => (
                         <TableRow key={`${p.brand}-${p.lab}`}>
-                          <TableCell className="font-medium">{p.brand}</TableCell>
+                          <TableCell data-sans-etiquette className="font-medium">{p.brand}</TableCell>
                           <TableCell className="text-muted-foreground">{p.lab}</TableCell>
                           <TableCell className="text-right">{fmtDzd(p.valueDzd)}</TableCell>
                           <TableCell className="text-right">{(p.share * 100).toFixed(1)} %</TableCell>
@@ -117,12 +117,12 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
               <Card>
                 <CardContent className="overflow-x-auto p-0 sm:p-2">
-                  <Table>
+                  <Table mobileCards>
                     <TableHeader><TableRow><TableHead>Classe (ATC4)</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead className="text-right">Croissance</TableHead><TableHead className="text-right">Produits</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {lp.byClass.map((c) => (
                         <TableRow key={c.cls}>
-                          <TableCell className="font-medium">{c.cls}</TableCell>
+                          <TableCell data-sans-etiquette className="font-medium [overflow-wrap:anywhere]">{c.cls}</TableCell>
                           <TableCell className="text-right">{fmtDzd(c.valueDzd)}</TableCell>
                           <TableCell className={`text-right font-medium ${pctTone(c.growth)}`}>{fmtPct(c.growth)}</TableCell>
                           <TableCell className="text-right text-muted-foreground">{c.products}</TableCell>
@@ -135,13 +135,13 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
               <Card>
                 <CardContent className="overflow-x-auto p-0 sm:p-2">
-                  <Table>
+                  <Table mobileCards>
                     <TableHeader><TableRow><TableHead>Produit</TableHead><TableHead>Présentation</TableHead><TableHead>Classe</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead className="text-right">Croissance</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {lp.products.slice(0, 80).map((p, i) => (
                         <TableRow key={`${p.brand}-${i}`}>
-                          <TableCell className="font-medium">{p.brand}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{p.presentation}</TableCell>
+                          <TableCell data-sans-etiquette className="font-medium">{p.brand}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{p.presentation}</TableCell>
                           <TableCell className="text-muted-foreground">{p.cls}</TableCell>
                           <TableCell className="text-right">{fmtDzd(p.valueDzd)}</TableCell>
                           <TableCell className={`text-right font-medium ${pctTone(p.growth)}`}>{fmtPct(p.growth)}</TableCell>

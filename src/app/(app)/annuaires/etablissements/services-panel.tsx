@@ -118,20 +118,20 @@ export function ServicesPanel({
                         if (e.key === "Escape") { e.preventDefault(); setRenomme(null); }
                       }}
                       aria-label={`Nouveau nom du service ${s.name}`}
-                      className="h-8 min-w-0 flex-1"
+                      className="h-10 min-w-0 flex-1 sm:h-8"
                     />
                     <button type="button" onClick={() => void renommer()} disabled={busy} aria-label="Enregistrer le nom"
-                      className="rounded-md p-1.5 text-success hover:bg-success/10">
+                      className="rounded-md p-2.5 sm:p-1.5 text-success hover:bg-success/10">
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                     </button>
                     <button type="button" onClick={() => setRenomme(null)} disabled={busy} aria-label="Annuler le renommage"
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-muted">
+                      className="rounded-md p-2.5 sm:p-1.5 text-muted-foreground hover:bg-muted">
                       <X className="h-4 w-4" />
                     </button>
                   </>
                 ) : (
                   <>
-                    <span className="min-w-0 flex-1 font-medium">{s.name}</span>
+                    <span className="min-w-0 flex-1 break-words font-medium">{s.name}</span>
                     <span className="text-xs text-muted-foreground">
                       {s.doctorCount} praticien(s){s.sectorCount > 0 ? ` · ${s.sectorCount} secteur(s)` : ""}
                     </span>
@@ -139,12 +139,12 @@ export function ServicesPanel({
                       <>
                         <button type="button" onClick={() => { setMsg(null); setRenomme({ id: s.id, name: s.name }); }} disabled={busy}
                           aria-label={`Renommer le service ${s.name}`}
-                          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+                          className="rounded-md p-2.5 sm:p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button type="button" onClick={() => void supprimer(s)} disabled={busy}
                           aria-label={`Supprimer le service ${s.name}`}
-                          className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                          className="rounded-md p-2.5 sm:p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </>
@@ -179,7 +179,7 @@ export function ServicesPanel({
               placeholder="Cardiologie — ou plusieurs, séparés par des virgules"
             />
             <div className="flex justify-end">
-              <Button type="button" onClick={() => void ajouter()} disabled={busy || !saisie.trim()}>
+              <Button type="button" onClick={() => void ajouter()} disabled={busy || !saisie.trim()} className="w-full sm:w-auto">
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter
               </Button>
             </div>

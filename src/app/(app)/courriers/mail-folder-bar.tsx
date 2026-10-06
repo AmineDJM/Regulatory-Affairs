@@ -104,18 +104,18 @@ export function MailFolderBar({
                 f.id === current ? "border-primary bg-primary/5" : "border-border hover:bg-secondary",
               )}
             >
-              <Link href={href(f.id)} className="inline-flex min-w-0 items-center gap-1.5">
+              <Link href={href(f.id)} className="inline-flex min-h-7 min-w-0 items-center gap-1.5">
                 <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="truncate">{f.name}</span>
                 <span className="text-xs text-muted-foreground">({f.entryCount})</span>
                 {f.companyLabel && <span className="text-[0.6875rem] text-muted-foreground">· {f.companyLabel}</span>}
               </Link>
               {canManage && (
-                <span className="hidden items-center gap-0.5 group-hover:inline-flex">
-                  <button type="button" title="Renommer / déplacer" onClick={() => { setErr(null); setEditing(f); }} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                <span className="inline-flex items-center gap-0.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover:inline-flex">
+                  <button type="button" title="Renommer / déplacer" onClick={() => { setErr(null); setEditing(f); }} aria-label="Renommer / déplacer" className="rounded p-1.5 text-muted-foreground hover:text-foreground sm:p-0.5">
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
-                  <button type="button" title="Supprimer" disabled={busy} onClick={() => void remove(f)} className="rounded p-0.5 text-muted-foreground hover:text-destructive">
+                  <button type="button" title="Supprimer" disabled={busy} onClick={() => void remove(f)} aria-label="Supprimer" className="rounded p-1.5 text-muted-foreground hover:text-destructive sm:p-0.5">
                     {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
                 </span>

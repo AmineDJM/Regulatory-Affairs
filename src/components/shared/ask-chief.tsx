@@ -18,10 +18,10 @@ export function AskChief({ reference, question, call }: { reference?: string; qu
     ? `/chief-of-staff?q=${encodeURIComponent(question)}`
     : `/chief-of-staff?ref=${encodeURIComponent(reference ?? "")}`;
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="inline-flex flex-wrap items-center gap-1.5">
       <Link
         href={href}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/10"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-2 text-xs font-medium text-primary transition hover:bg-primary/10 sm:py-1.5"
         title="Ouvrir My Chief of Staff avec ce dossier"
       >
         <Crown className="h-3.5 w-3.5" /> Demander au Chief of Staff
@@ -29,7 +29,7 @@ export function AskChief({ reference, question, call }: { reference?: string; qu
       {call && (
         <Link
           href={`/chief-of-staff?call=1&ref=${encodeURIComponent(reference ?? "")}`}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-1.5 text-xs font-medium text-emerald-600 transition hover:bg-emerald-500/10 dark:text-emerald-400"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-2.5 py-2 text-xs font-medium text-emerald-600 sm:py-1.5 transition hover:bg-emerald-500/10 dark:text-emerald-400"
           title="Appeler My Chief of Staff — l'appel démarre avec ce dossier en contexte"
         >
           <Phone className="h-3.5 w-3.5" /> Appeler

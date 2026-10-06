@@ -114,7 +114,7 @@ export function PartyPicker({
                   <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", ouvert === p.id && "rotate-180")} />
                 </button>
                 <button type="button" onClick={() => { retirer(p.id); setOuvert(null); }} title="Retirer cette partie"
-                  className="rounded-full p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                  aria-label={`Retirer ${p.name}`} className="-my-1 rounded-full p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:my-0 sm:p-0.5">
                   <X className="h-3 w-3" />
                 </button>
               </span>
@@ -125,13 +125,13 @@ export function PartyPicker({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1 basis-56">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder={placeholder ?? "Chercher dans l’annuaire — un métier, un nom, un numéro…"}
             aria-label="Chercher une partie dans l&apos;annuaire de l&apos;entreprise"
-            className="h-9 pl-8"
+            className="h-10 pl-8 sm:h-9"
           />
         </div>
         {creationPermise && (
@@ -151,7 +151,7 @@ export function PartyPicker({
             </p>
           ) : proposees.map((o) => (
             <button key={o.id} type="button" onClick={() => ajouter(o.id)}
-              className="flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left text-sm hover:bg-secondary">
+              className="flex w-full flex-wrap items-baseline gap-x-2 rounded px-1.5 py-2 text-left text-sm hover:bg-secondary sm:py-1">
               <span className="font-medium">{o.name}</span>
               {o.kind && <span className="text-xs text-muted-foreground">{o.kind}</span>}
               {o.city && <span className="text-xs text-muted-foreground">· {o.city}</span>}
@@ -197,7 +197,7 @@ function FicheContact({ p }: { p: PartyOption }) {
   if (p.phoneAlt) lignes.push({ Icone: Phone, value: p.phoneAlt, href: `tel:${p.phoneAlt.replace(/\s/g, "")}` });
   if (p.city) lignes.push({ Icone: MapPin, value: p.city });
   return (
-    <div className="absolute left-0 top-full z-20 mt-1 w-64 space-y-1 rounded-lg border border-border bg-popover p-2.5 text-xs shadow-lg">
+    <div className="absolute left-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] space-y-1 rounded-lg border border-border bg-popover p-2.5 text-xs shadow-lg">
       <p className="font-medium text-foreground">{p.name}</p>
       {p.kind && <p className="text-muted-foreground">{p.kind}{p.companyLabel ? ` · ${p.companyLabel}` : ""}</p>}
       {lignes.length === 0 ? (
@@ -265,10 +265,10 @@ function CreerContact({
           <Champ id="pp-contactName" label="Personne à demander" value={v.contactName} onChange={set("contactName")} />
           <Champ id="pp-city" label="Ville" value={v.city} onChange={set("city")} />
           <Champ id="pp-email" label="E-mail" value={v.email} onChange={set("email")} type="email" />
-          <Champ id="pp-phone" label="Téléphone" value={v.phone} onChange={set("phone")} />
+          <Champ id="pp-phone" label="Téléphone" value={v.phone} onChange={set("phone")} type="tel" />
         </div>
         {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Annuler</Button>
           <Button type="button" onClick={enregistrer} disabled={busy}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" />} Créer et sélectionner

@@ -36,7 +36,7 @@ export function StatusEditor({
   const [saved, setSaved] = React.useState(false);
 
   return (
-    <div className="flex flex-wrap items-end justify-end gap-3">
+    <div className="flex flex-wrap items-end justify-start gap-3 sm:justify-end">
       <div className="space-y-1">
         <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
           Niveau de process
@@ -62,7 +62,7 @@ export function StatusEditor({
         <input type="hidden" name="id" value={id} />
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">Priorité</label>
-          <Select name="priority" defaultValue={priority} className="h-8 text-xs">
+          <Select name="priority" defaultValue={priority} className="h-9 text-xs sm:h-8">
             {Object.entries(PRIORITY).map(([v, d]) => (
               <option key={v} value={v}>
                 {d.label}

@@ -51,7 +51,7 @@ export default async function ArticlesPage() {
           description={ecrit ? "Rédigez le premier : il reste un brouillon, invisible du site, tant que vous ne le publiez pas." : "Les articles rédigés par l'équipe apparaîtront ici."}
         />
       ) : (
-        <div className="surface overflow-hidden">
+        <div className="sm:surface sm:overflow-hidden">
           <Table mobileCards>
             <TableHeader>
               <TableRow>
@@ -67,10 +67,12 @@ export default async function ArticlesPage() {
                 const e = etatAffiche(publications.get(a.id) ?? null, a.published, suspendu);
                 return (
                   <TableRow key={a.id}>
-                    <TableCell label="Titre" className="max-w-[26rem] font-medium">
-                      <Link href={`/site-web/articles/${a.id}`} className="break-words hover:underline">{a.title}</Link>
-                      {a.featured && <Star className="ml-1.5 inline h-3.5 w-3.5 text-warning" aria-label="À la une" />}
-                      <RepriseBadge origine={a.reprise?.origine} />
+                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start sm:max-w-[26rem]">
+                      <span className="min-w-0">
+                        <Link href={`/site-web/articles/${a.id}`} className="break-words hover:underline">{a.title}</Link>
+                        {a.featured && <Star className="ml-1.5 inline h-3.5 w-3.5 text-warning" aria-label="À la une" />}
+                        <RepriseBadge origine={a.reprise?.origine} />
+                      </span>
                     </TableCell>
                     <TableCell label="Catégorie">{a.category ?? <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell label="Date affichée" className="tabular-nums">{a.publishedOn ? formatDate(a.publishedOn) : "—"}</TableCell>

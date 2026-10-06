@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2, CopyPlus } from "lucide-react";
 import { saveAssignment, deleteAssignment, carryForwardAssignments } from "@/lib/actions/sales-planning-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface Kam { repId: string; name: string; buName: string; capacity: number; active: boolean }
 interface Prod { id: string; name: string; buName: string; buColor: string | null }
@@ -24,7 +25,7 @@ const nOr0 = (s: string) => { const n = Number(String(s).replace(",", ".")); ret
  *
  * La largeur appartient donc à l'appelant, une seule fois.
  */
-const inputCls = "h-8 rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+const inputCls = "h-10 rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none sm:h-8";
 
 export function AssignmentMatrix({
   cycleId, canConfigure, fromYear, fromMonth, positionWeights, kams, products, assignments,
@@ -153,7 +154,7 @@ export function AssignmentMatrix({
                 <Card key={k.repId}>
                   <CardHeader className="pb-2">
                     <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-                      <span>{k.name}</span>
+                      <span className="min-w-0 [overflow-wrap:anywhere]">{k.name}</span>
                       <span className="text-xs font-normal text-muted-foreground">Cap. {k.capacity} vis./mois · FTE {load.toFixed(2)}</span>
                     </CardTitle>
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
@@ -181,7 +182,7 @@ export function AssignmentMatrix({
                             {/* Le rang PONDÈRE la charge — le libellé le dit, pour qu'on ne
                                 choisisse pas « P2 » en croyant nommer un ordre d'affichage. */}
                             <select
-                              className="h-8 rounded-md border border-input bg-background px-1 text-xs"
+                              className="h-10 rounded-md border border-input bg-background px-1 text-xs sm:h-8"
                               value={d.position}
                               aria-label={`Rang de ${p.name} dans la mallette`}
                               title="Rang du produit : P1 est le produit principal, P2 et P3 pèsent moins dans la charge."
@@ -194,7 +195,7 @@ export function AssignmentMatrix({
                               onBlur={() => persist(k.repId, pid, drafts[key(k.repId, pid)] ?? d)} />
                             <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground" title="FTE consommé par ce produit">{fteOf(k.repId, pid, k.capacity).toFixed(2)}</span>
                             {saving === key(k.repId, pid) ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : (
-                              <button type="button" onClick={() => removeRow(k.repId, pid)} aria-label={`Retirer ${p.name}`} className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
+                              <button type="button" onClick={() => removeRow(k.repId, pid)} aria-label={`Retirer ${p.name}`} className="rounded p-2.5 text-destructive hover:bg-destructive/10 sm:p-1"><Trash2 className="h-3.5 w-3.5" /></button>
                             )}
                           </div>
                         </div>
@@ -206,7 +207,7 @@ export function AssignmentMatrix({
                         {/* AJOUTER, C'EST ENREGISTRER. La ligne n'existait que dans l'état local
                             jusqu'à ce qu'on touche un champ : quitter l'écran la perdait, sans
                             rien dire. On l'écrit tout de suite — rang 1, visites à planifier. */}
-                        <select className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm" value=""
+                        <select className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm sm:h-8" value=""
                           onChange={(e) => {
                             const pid = e.target.value;
                             if (!pid) return;
@@ -231,27 +232,25 @@ export function AssignmentMatrix({
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">Synthèse par produit (KAM visibles)</CardTitle></CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[420px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs font-medium text-muted-foreground">
-                  <th className="px-3 py-2">Produit</th>
-                  <th className="px-3 py-2 w-28">Visites</th>
-                  <th className="px-3 py-2 w-24">FTE affecté</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rollup.length === 0 && <tr><td colSpan={3} className="px-3 py-3 text-muted-foreground">Aucune affectation.</td></tr>}
-                {rollup.map((r) => (
-                  <tr key={r.id} className="border-b border-border/60">
-                    <td className="px-3 py-1.5"><span className="font-medium">{r.name}</span> <span className="text-xs text-muted-foreground">· {r.buName}</span></td>
-                    <td className="px-3 py-1.5 tabular-nums">{r.visits}</td>
-                    <td className="px-3 py-1.5 tabular-nums font-medium">{r.fte.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table mobileCards>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Produit</TableHead>
+                <TableHead className="w-28">Visites</TableHead>
+                <TableHead className="w-24">FTE affecté</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rollup.length === 0 && <TableRow><TableCell colSpan={3} data-sans-etiquette className="!justify-start text-muted-foreground">Aucune affectation.</TableCell></TableRow>}
+              {rollup.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell data-sans-etiquette className="!justify-start [overflow-wrap:anywhere]"><span className="min-w-0"><span className="font-medium">{r.name}</span> <span className="text-xs text-muted-foreground">· {r.buName}</span></span></TableCell>
+                  <TableCell className="tabular-nums">{r.visits}</TableCell>
+                  <TableCell className="tabular-nums font-medium">{r.fte.toFixed(2)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

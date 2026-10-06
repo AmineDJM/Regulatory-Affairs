@@ -43,11 +43,11 @@ export function FournisseursBoard({ fournisseurs, canCreate, canEdit, canDelete 
   return (
     <div className="space-y-4">
       <div className="surface flex flex-wrap items-center gap-2 p-3">
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1 basis-full sm:basis-auto">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Un fabricant, un pays, un contact…" className="pl-8" />
+          <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Un fabricant, un pays, un contact…" className="pl-8" />
         </div>
-        {canCreate && <Button size="sm" onClick={() => { setMsg(null); setEdition("nouveau"); }}><Plus className="h-4 w-4" /> Nouveau fournisseur</Button>}
+        {canCreate && <Button size="sm" className="w-full sm:w-auto" onClick={() => { setMsg(null); setEdition("nouveau"); }}><Plus className="h-4 w-4" /> Nouveau fournisseur</Button>}
       </div>
       {msg && <p role={msg.ok ? "status" : "alert"} className={`text-sm ${msg.ok ? "text-success" : "text-destructive"}`}>{msg.text}</p>}
 
@@ -66,7 +66,7 @@ export function FournisseursBoard({ fournisseurs, canCreate, canEdit, canDelete 
             {CHAMPS.map((c) => (
               <div key={c.name}>
                 <Label htmlFor={`f-${c.name}`}>{c.label}{c.name === "name" ? " *" : ""}</Label>
-                <Input id={`f-${c.name}`} name={c.name} required={c.name === "name"} defaultValue={edition === "nouveau" ? "" : ((edition[c.name] as string | null) ?? "")} />
+                <Input id={`f-${c.name}`} name={c.name} type={c.name === "contactEmail" ? "email" : c.name === "phone" ? "tel" : undefined} required={c.name === "name"} defaultValue={edition === "nouveau" ? "" : ((edition[c.name] as string | null) ?? "")} />
               </div>
             ))}
             {edition !== "nouveau" && (
@@ -76,7 +76,7 @@ export function FournisseursBoard({ fournisseurs, canCreate, canEdit, canDelete 
               </label>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" type="submit" disabled={occupe}>Enregistrer</Button>
             <Button size="sm" type="button" variant="ghost" onClick={() => setEdition(null)}>Annuler</Button>
           </div>
@@ -95,7 +95,7 @@ export function FournisseursBoard({ fournisseurs, canCreate, canEdit, canDelete 
                   <p className="text-xs text-muted-foreground">{[f.country, `${f.dossiers} dossier(s)`, f.comptes ? `${f.comptes} compte(s) portail` : null].filter(Boolean).join(" · ")}</p>
                 </div>
                 <span className="flex shrink-0 gap-0.5">
-                  {canEdit && <button type="button" title="Modifier" disabled={occupe} onClick={() => { setMsg(null); setEdition(f); }} className="rounded p-1 text-muted-foreground hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>}
+                  {canEdit && <button type="button" title="Modifier" disabled={occupe} onClick={() => { setMsg(null); setEdition(f); }} aria-label={`Modifier ${f.name}`} className="rounded p-2 text-muted-foreground hover:text-foreground sm:p-1"><Pencil className="h-3.5 w-3.5" /></button>}
                   {canDelete && (
                     <button type="button" title="Retirer" disabled={occupe}
                       onClick={() => {
@@ -103,14 +103,14 @@ export function FournisseursBoard({ fournisseurs, canCreate, canEdit, canDelete 
                         const fd = new FormData(); fd.set("id", f.id);
                         void agir(() => retirerFournisseurAnnuaire(fd));
                       }}
-                      className="rounded p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                      aria-label={`Retirer ${f.name}`} className="rounded p-2 text-muted-foreground hover:text-destructive sm:p-1"><Trash2 className="h-3.5 w-3.5" /></button>
                   )}
                 </span>
               </div>
               {f.contactName && <p className="text-xs">{f.contactName}</p>}
-              {f.contactEmail && <p className="flex items-center gap-1.5 text-xs"><Mail className="h-3 w-3 text-muted-foreground" /><a href={`mailto:${f.contactEmail}`} className="truncate text-primary hover:underline">{f.contactEmail}</a></p>}
+              {f.contactEmail && <p className="flex items-center gap-1.5 text-xs"><Mail className="h-3 w-3 text-muted-foreground" /><a href={`mailto:${f.contactEmail}`} className="min-w-0 truncate text-primary hover:underline">{f.contactEmail}</a></p>}
               {f.phone && <p className="flex items-center gap-1.5 text-xs"><Phone className="h-3 w-3 text-muted-foreground" /><a href={`tel:${f.phone.replace(/\s/g, "")}`} className="text-primary hover:underline">{f.phone}</a></p>}
-              {f.website && <p className="flex items-center gap-1.5 text-xs"><Globe className="h-3 w-3 text-muted-foreground" /><a href={f.website.startsWith("http") ? f.website : `https://${f.website}`} target="_blank" rel="noopener noreferrer" className="truncate text-primary hover:underline">{f.website}</a></p>}
+              {f.website && <p className="flex items-center gap-1.5 text-xs"><Globe className="h-3 w-3 text-muted-foreground" /><a href={f.website.startsWith("http") ? f.website : `https://${f.website}`} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate text-primary hover:underline">{f.website}</a></p>}
               {(f.city || f.address) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /><span className="truncate">{[f.address, f.city].filter(Boolean).join(", ")}</span></p>}
               {f.notes && <p className="text-xs text-muted-foreground">{f.notes}</p>}
             </li>

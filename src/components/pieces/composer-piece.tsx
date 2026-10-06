@@ -237,7 +237,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
         resultat?.ok ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm text-muted-foreground">Pièce émise.</span>
-            <div className="flex gap-2">
+            <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
               <Button type="button" variant="outline" onClick={() => { setResultat(null); setLignes([nouvelleLigne()]); setTiers({ nom: "", adresse: "", telephone: "", email: "", rc: "", nif: "", ai: "", nis: "" }); setAmont(""); setApercu(null); }}>
                 Composer une autre pièce
               </Button>
@@ -249,7 +249,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
             <span className="text-sm text-muted-foreground">
               {apercu && apercu.ok ? `Numéro prévu : ${apercu.numeroProchain}` : pret ? (chargement ? "Calcul…" : "") : "Renseignez le tiers et au moins une ligne."}
             </span>
-            <div className="flex gap-2">
+            <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
               <Button type="button" variant="outline" onClick={props.onClose}>Annuler</Button>
               <Button type="button" onClick={emettre} disabled={!peutEmettre}>{emission ? "Émission…" : `Émettre ${lib.article}`}</Button>
             </div>
@@ -293,8 +293,8 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
               <Label htmlFor="cp-tiers-adresse">Adresse (une ligne par retour)</Label>
               <Textarea id="cp-tiers-adresse" rows={2} value={tiers.adresse} onChange={(e) => setTiers({ ...tiers, adresse: e.target.value })} />
             </div>
-            <div><Label htmlFor="cp-tiers-tel">Téléphone / Fax</Label><Input id="cp-tiers-tel" value={tiers.telephone} onChange={(e) => setTiers({ ...tiers, telephone: e.target.value })} /></div>
-            <div><Label htmlFor="cp-tiers-email">E-mail</Label><Input id="cp-tiers-email" value={tiers.email} onChange={(e) => setTiers({ ...tiers, email: e.target.value })} /></div>
+            <div><Label htmlFor="cp-tiers-tel">Téléphone / Fax</Label><Input id="cp-tiers-tel" type="tel" inputMode="tel" value={tiers.telephone} onChange={(e) => setTiers({ ...tiers, telephone: e.target.value })} /></div>
+            <div><Label htmlFor="cp-tiers-email">E-mail</Label><Input id="cp-tiers-email" inputMode="email" autoCapitalize="off" spellCheck={false} value={tiers.email} onChange={(e) => setTiers({ ...tiers, email: e.target.value })} /></div>
             <div><Label htmlFor="cp-tiers-rc">RC</Label><Input id="cp-tiers-rc" value={tiers.rc} onChange={(e) => setTiers({ ...tiers, rc: e.target.value })} /></div>
             <div><Label htmlFor="cp-tiers-nif">NIF</Label><Input id="cp-tiers-nif" value={tiers.nif} onChange={(e) => setTiers({ ...tiers, nif: e.target.value })} /></div>
             <div><Label htmlFor="cp-tiers-ai">AI</Label><Input id="cp-tiers-ai" value={tiers.ai} onChange={(e) => setTiers({ ...tiers, ai: e.target.value })} /></div>
@@ -348,7 +348,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
             {type !== "FACTURE" && (
               <>
                 <div><Label htmlFor="cp-contact-nom">Contact</Label><Input id="cp-contact-nom" value={champs.contactNom} onChange={(e) => setChamps({ ...champs, contactNom: e.target.value })} placeholder="Mme ABDELAZIZ ASSIA" /></div>
-                <div><Label htmlFor="cp-contact-tel">Téléphone du contact</Label><Input id="cp-contact-tel" value={champs.contactTelephone} onChange={(e) => setChamps({ ...champs, contactTelephone: e.target.value })} /></div>
+                <div><Label htmlFor="cp-contact-tel">Téléphone du contact</Label><Input id="cp-contact-tel" type="tel" inputMode="tel" value={champs.contactTelephone} onChange={(e) => setChamps({ ...champs, contactTelephone: e.target.value })} /></div>
               </>
             )}
             {type === "BON_DE_COMMANDE" && (
@@ -364,7 +364,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
         <section className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="font-semibold">Lignes</h3>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="outline" onClick={() => setLignes([...lignes, nouvelleLigne(true)])}>Titre de section</Button>
               <Button type="button" size="sm" variant="outline" onClick={() => setLignes([...lignes, nouvelleLigne()])}><Plus className="h-4 w-4" aria-hidden />Ligne</Button>
             </div>
@@ -373,7 +373,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
             {lignes.map((l, i) => (
               <div key={l.id} className={`rounded-lg border border-border p-2 ${l.section ? "bg-secondary/40" : "bg-card"}`}>
                 <div className="grid grid-cols-12 gap-2">
-                  <div className={l.section ? "col-span-10" : "col-span-12 sm:col-span-5"}>
+                  <div className={l.section ? "col-span-12 sm:col-span-10" : "col-span-12 sm:col-span-5"}>
                     <Input aria-label={l.section ? `Titre de section ${i + 1}` : `Désignation ${i + 1}`} value={l.designation} onChange={(e) => modifierLigne(l.id, { designation: e.target.value })} placeholder={l.section ? "Campagne Raltégravir" : "Désignation"} />
                     {!l.section && (
                       <Textarea className="mt-1" rows={1} aria-label={`Détails de la ligne ${i + 1}`} value={l.details} onChange={(e) => modifierLigne(l.id, { details: e.target.value })} placeholder="Détails (une ligne par retour) : Format A4, Impression quadri…" />
@@ -381,20 +381,21 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
                   </div>
                   {!l.section && (
                     <>
-                      <div className="col-span-4 sm:col-span-2"><Input aria-label="Quantité" inputMode="decimal" value={l.quantite} onChange={(e) => modifierLigne(l.id, { quantite: e.target.value })} placeholder="Qté" /></div>
-                      <div className="col-span-4 sm:col-span-2"><Input aria-label="Prix unitaire HT" inputMode="decimal" value={l.prix} onChange={(e) => modifierLigne(l.id, { prix: e.target.value })} placeholder="PU HT (0 = Offert)" /></div>
-                      <div className="col-span-2 sm:col-span-1"><Input aria-label="Remise %" inputMode="decimal" value={l.remise} onChange={(e) => modifierLigne(l.id, { remise: e.target.value })} placeholder="Rem. %" /></div>
-                      <div className="col-span-2 sm:col-span-1">
+                      {/* Au téléphone, deux champs par rangée : quatre sur un tiers de largeur ne laissaient rien lire. */}
+                      <div className="col-span-6 sm:col-span-2"><Input aria-label="Quantité" inputMode="decimal" value={l.quantite} onChange={(e) => modifierLigne(l.id, { quantite: e.target.value })} placeholder="Qté" /></div>
+                      <div className="col-span-6 sm:col-span-2"><Input aria-label="Prix unitaire HT" inputMode="decimal" value={l.prix} onChange={(e) => modifierLigne(l.id, { prix: e.target.value })} placeholder="PU HT (0 = Offert)" /></div>
+                      <div className="col-span-6 sm:col-span-1"><Input aria-label="Remise %" inputMode="decimal" value={l.remise} onChange={(e) => modifierLigne(l.id, { remise: e.target.value })} placeholder="Rem. %" /></div>
+                      <div className="col-span-6 sm:col-span-1">
                         <Select aria-label="TVA de la ligne" value={l.tva} onChange={(e) => modifierLigne(l.id, { tva: e.target.value })}>
                           <option value="">TVA déf.</option><option value="19">19 %</option><option value="9">9 %</option><option value="0">0 %</option>
                         </Select>
                       </div>
                     </>
                   )}
-                  <div className={`${l.section ? "col-span-2" : "col-span-12 sm:col-span-1"} flex items-start justify-end gap-1`}>
-                    <button type="button" className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Monter" onClick={() => deplacer(l.id, -1)}><ArrowUp className="h-4 w-4" /></button>
-                    <button type="button" className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Descendre" onClick={() => deplacer(l.id, 1)}><ArrowDown className="h-4 w-4" /></button>
-                    <button type="button" className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Supprimer la ligne" onClick={() => setLignes(lignes.filter((x) => x.id !== l.id))}><Trash2 className="h-4 w-4" /></button>
+                  <div className={`${l.section ? "col-span-12 sm:col-span-2" : "col-span-12 sm:col-span-1"} flex items-start justify-end gap-1`}>
+                    <button type="button" className="rounded p-2 text-muted-foreground hover:bg-secondary sm:p-1" aria-label="Monter" onClick={() => deplacer(l.id, -1)}><ArrowUp className="h-4 w-4" /></button>
+                    <button type="button" className="rounded p-2 text-muted-foreground hover:bg-secondary sm:p-1" aria-label="Descendre" onClick={() => deplacer(l.id, 1)}><ArrowDown className="h-4 w-4" /></button>
+                    <button type="button" className="rounded p-2 text-muted-foreground hover:bg-secondary sm:p-1" aria-label="Supprimer la ligne" onClick={() => setLignes(lignes.filter((x) => x.id !== l.id))}><Trash2 className="h-4 w-4" /></button>
                   </div>
                 </div>
               </div>
@@ -415,7 +416,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
         <section className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="font-semibold">Taxes supplémentaires <span className="font-normal text-muted-foreground">(sur le HT, hors base de TVA)</span></h3>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="outline" onClick={() => setTaxes([...taxes.filter((x) => x.libelle.trim() !== "" || x.taux.trim() !== ""), { id: compteur++, libelle: "Taxe Pub", taux: "2" }])}>Taxe Pub 2 %</Button>
               <Button type="button" size="sm" variant="outline" onClick={() => setTaxes([...taxes, { id: compteur++, libelle: "", taux: "" }])}><Plus className="h-4 w-4" aria-hidden />Taxe</Button>
             </div>
@@ -424,7 +425,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
             <div key={t.id} className="grid grid-cols-12 gap-2">
               <div className="col-span-7"><Input aria-label="Libellé de la taxe" value={t.libelle} onChange={(e) => setTaxes(taxes.map((x) => (x.id === t.id ? { ...x, libelle: e.target.value } : x)))} placeholder="Taxe Pub" /></div>
               <div className="col-span-3"><Input aria-label="Taux de la taxe en %" inputMode="decimal" value={t.taux} onChange={(e) => setTaxes(taxes.map((x) => (x.id === t.id ? { ...x, taux: e.target.value } : x)))} placeholder="%" /></div>
-              <div className="col-span-2 flex justify-end"><button type="button" className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Retirer la taxe" onClick={() => setTaxes(taxes.length <= 1 ? [{ id: compteur++, libelle: "", taux: "" }] : taxes.filter((x) => x.id !== t.id))}><Trash2 className="h-4 w-4" /></button></div>
+              <div className="col-span-2 flex justify-end"><button type="button" className="rounded p-2 text-muted-foreground hover:bg-secondary sm:p-1" aria-label="Retirer la taxe" onClick={() => setTaxes(taxes.length <= 1 ? [{ id: compteur++, libelle: "", taux: "" }] : taxes.filter((x) => x.id !== t.id))}><Trash2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </section>
@@ -482,9 +483,9 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
               </object>
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>Aperçu : {impression.pages} page{impression.pages > 1 ? "s" : ""} · numéro prévu {impression.numero} · rendu du serveur, le Word fait foi pour l&apos;impression officielle.</span>
-                <span className="flex gap-3">
-                  <a className="underline" href={impression.url} target="_blank" rel="noreferrer">Ouvrir dans un onglet</a>
-                  <button type="button" className="underline" onClick={() => setImpression(null)}>Fermer l&apos;aperçu</button>
+                <span className="flex flex-wrap gap-x-4 gap-y-1">
+                  <a className="py-1 underline" href={impression.url} target="_blank" rel="noreferrer">Ouvrir dans un onglet</a>
+                  <button type="button" className="py-1 underline" onClick={() => setImpression(null)}>Fermer l&apos;aperçu</button>
                 </span>
               </div>
             </div>

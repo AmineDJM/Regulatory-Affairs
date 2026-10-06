@@ -142,7 +142,7 @@ function ReviserPieceSheet(props: React.ComponentProps<typeof ReviserPieceButton
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="revision-telephone">Téléphone du contact</Label>
-                  <Input id="revision-telephone" value={contactTelephone} onChange={(e) => setContactTelephone(e.target.value)} />
+                  <Input id="revision-telephone" type="tel" inputMode="tel" value={contactTelephone} onChange={(e) => setContactTelephone(e.target.value)} />
                 </div>
               </>
             )}
@@ -159,7 +159,7 @@ function ReviserPieceSheet(props: React.ComponentProps<typeof ReviserPieceButton
           </div>
 
           {erreur && <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{erreur}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="ghost" disabled={envoi} onClick={props.onClose}>Annuler</Button>
             <Button type="button" disabled={envoi || (!props.motifFacultatif && motif.trim().length === 0)} onClick={envoyer}>
               {envoi && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />} Émettre la version {props.version + 1}

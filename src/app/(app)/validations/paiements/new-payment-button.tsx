@@ -118,7 +118,7 @@ export function NewPaymentButton() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pay-amount">Montant (DZD) <span className="text-destructive">*</span></Label>
-              <Input id="pay-amount" name="amount" type="number" step="any" required />
+              <Input id="pay-amount" name="amount" type="number" inputMode="decimal" step="any" required />
             </div>
             {/* PLUS DE DESTINATAIRE — la demande va AU CENTRE DE PAIEMENT.
                 Choisir une personne aux Finances n'avait plus de sens depuis que le centre est le
@@ -165,15 +165,15 @@ export function NewPaymentButton() {
           <div className="space-y-2 rounded-xl border border-border p-3">
             <Label>Contact chez le bénéficiaire <span className="text-xs font-normal text-muted-foreground">— facultatif</span></Label>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <Input name="contactName" placeholder="Nom" />
-              <Input name="contactPhone" placeholder="Téléphone" />
-              <Input name="contactEmail" type="email" placeholder="E-mail" />
+              <Input name="contactName" placeholder="Nom" autoComplete="off" />
+              <Input name="contactPhone" type="tel" inputMode="tel" placeholder="Téléphone" autoComplete="off" />
+              <Input name="contactEmail" type="email" inputMode="email" placeholder="E-mail" autoComplete="off" />
             </div>
             <p className="text-xs text-muted-foreground">Celui qu&apos;on appelle si une pièce manque ou si le virement n&apos;arrive pas.</p>
           </div>
 
           <div className="space-y-2 rounded-xl border border-border p-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>Pièces du dossier</Label>
               <input
                 ref={fileRef} type="file" multiple className="hidden"
@@ -204,7 +204,7 @@ export function NewPaymentButton() {
                       <button
                         type="button" aria-label="Retirer"
                         onClick={() => setPieces((prev) => prev.filter((_, j) => j !== i))}
-                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -249,13 +249,14 @@ export function NewPaymentButton() {
           )}
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
-          <div className="flex flex-wrap justify-end gap-2 pt-1">
-            <Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>Annuler</Button>
-            <Button type="button" variant="outline" disabled={busy} onClick={() => void submit(true)}>
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:flex-wrap sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" disabled={busy} onClick={() => setOpen(false)}>Annuler</Button>
+            <Button type="button" variant="outline" className="w-full sm:w-auto" disabled={busy} onClick={() => void submit(true)}>
               Enregistrer en brouillon
             </Button>
             <Button
               type="button"
+              className="w-full sm:w-auto"
               disabled={busy || manque !== null}
               title={manque ?? undefined}
               onClick={() => void submit(false)}

@@ -44,7 +44,7 @@ export function MissionAttentes(
           return (
             <li key={a.stepKey} className="flex items-start gap-2 text-sm" data-testid="mission-attente">
               <n.Icone className={`mt-0.5 h-4 w-4 shrink-0 ${n.classe}`} aria-hidden />
-              <span className="min-w-0">
+              <span className="min-w-0 break-words">
                 <span className="text-slate-800">{a.titre}</span>
                 <span className="ml-2 text-slate-500">
                   {n.texte}
@@ -84,7 +84,7 @@ export function MissionJournal(
         {journal.lignes.map((l) => (
           <li key={l.id} className="flex items-start gap-2 text-sm" data-testid="mission-journal-ligne">
             <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-300" aria-hidden />
-            <span className="min-w-0">
+            <span className="min-w-0 break-words">
               <span className={TON[l.gravite] ?? "text-slate-600"}>{l.texte}</span>
               {l.fois > 1 ? <span className="ml-1 text-slate-400">(×{l.fois})</span> : null}
               <span className="ml-2 text-xs text-slate-400">{depuis(l.quand, maintenant)}</span>
@@ -120,12 +120,12 @@ export function MissionLectures({ lectures }: { lectures: LectureDatee[] }) {
   return (
     <section className="mt-4 rounded-md border border-amber-200 bg-amber-50/60 p-3" data-testid="mission-lectures">
       <h3 className="flex items-center gap-1.5 text-sm font-medium text-amber-900">
-        <TimerReset className="h-4 w-4" aria-hidden />
+        <TimerReset className="h-4 w-4 shrink-0" aria-hidden />
         {lectures.length} lecture(s) ont de l&apos;âge
       </h3>
       <ul className="mt-1.5 space-y-1">
         {lectures.slice(0, 8).map((l) => (
-          <li key={`${l.cle}-${l.lueLe}`} className="text-xs text-amber-900" data-testid="mission-lecture">
+          <li key={`${l.cle}-${l.lueLe}`} className="break-words text-xs text-amber-900" data-testid="mission-lecture">
             {l.phrase}
           </li>
         ))}

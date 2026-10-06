@@ -162,7 +162,7 @@ function CaseCard({ c }: { c: CaseRow }) {
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold" title={c.title}>{c.title}</h3>
         <span className={`rounded px-1.5 py-0.5 text-[0.6875rem] font-semibold ${OUTCOME_TONES[outcome]}`}>{OUTCOME_LABELS[outcome]}</span>
         <span className="text-xs text-muted-foreground">{c.documents.length} pièce·s</span>
-        <button type="button" onClick={remove} className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"><Trash2 className="h-3 w-3" /> Supprimer</button>
+        <button type="button" onClick={remove} className="inline-flex items-center gap-1 py-1.5 text-xs text-destructive hover:underline sm:py-0"><Trash2 className="h-3 w-3" /> Supprimer</button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[12rem,1fr,auto]">

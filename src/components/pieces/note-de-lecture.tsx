@@ -43,7 +43,7 @@ export function NoteDeLecture({ nomFichier, noteMethode, sansLignes, coupe, cont
   return (
     <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3" aria-live="polite">
       <p className="flex items-start gap-2 text-sm font-medium">
-        <ScanText className="mt-0.5 h-4 w-4 shrink-0" /> <span>Lecture de « {nomFichier} » — une proposition, à comparer au papier</span>
+        <ScanText className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0 [overflow-wrap:anywhere]">Lecture de « {nomFichier} » — une proposition, à comparer au papier</span>
       </p>
       <p className="text-xs text-muted-foreground">{noteMethode}</p>
       {sansLignes && (

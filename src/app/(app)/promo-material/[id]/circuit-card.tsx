@@ -176,12 +176,12 @@ export function PromoCircuitCard(p: Props) {
             return (
               <li key={t.key} className={`space-y-2 rounded-lg border px-3 py-2 text-sm ${closed ? "border-emerald-600/30 bg-emerald-500/5" : "border-border"}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2">
-                    {closed ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  <span className="flex min-w-0 items-center gap-2">
+                    {closed ?<CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />}
                     {t.label}
                   </span>
                   {!closed && p.canDrive && (
-                    <Button size="sm" variant="outline" onClick={() => run(() => completePromoTrack(fd({ track: t.key })))} disabled={saving || Boolean(t.manque)}>
+                    <Button size="sm" variant="outline" className="shrink-0" onClick={() => run(() => completePromoTrack(fd({ track: t.key })))} disabled={saving || Boolean(t.manque)}>
                       Clore
                     </Button>
                   )}
@@ -211,7 +211,7 @@ export function PromoCircuitCard(p: Props) {
 
       {/* LE RENVOI POUR CORRECTION (§118.190) — dit à tous, avec son motif. */}
       {p.renvoi && (
-        <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+        <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm [overflow-wrap:anywhere]">
           <span className="font-medium">À corriger</span> — renvoyé à l&apos;étape « {p.renvoi.depuis} » le {p.renvoi.quand} : « {p.renvoi.motif} »
         </div>
       )}
@@ -222,7 +222,7 @@ export function PromoCircuitCard(p: Props) {
         >
           <Label htmlFor="promo-resoumission">Ce qui a changé</Label>
           <Textarea id="promo-resoumission" name="note" value={correction} onChange={(e) => setCorrection(e.target.value)} className="min-h-[60px]" placeholder="Ex. quantités revues, article ajouté, précision du brief." />
-          <Button type="submit" size="sm" disabled={saving || !correction.trim()}>
+          <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={saving || !correction.trim()}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resoumettre la demande
           </Button>
         </form>
@@ -255,7 +255,7 @@ export function PromoCircuitCard(p: Props) {
         >
           <Label htmlFor="promo-renvoi-motif">Ce qu&apos;il faut corriger</Label>
           <Textarea id="promo-renvoi-motif" name="motif" value={motif} onChange={(e) => setMotif(e.target.value)} className="min-h-[60px]" placeholder="Ex. retenez plutôt le devis de l'imprimeur B, moins cher à qualité égale." />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <BoutonDecisif type="submit" size="sm" disabled={saving || !motif.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Renvoyer au demandeur
             </BoutonDecisif>
@@ -270,7 +270,7 @@ export function PromoCircuitCard(p: Props) {
         >
           <Label htmlFor="promo-refuse-reason">Motif du refus</Label>
           <Textarea id="promo-refuse-reason" name="reason" value={motif} onChange={(e) => setMotif(e.target.value)} className="min-h-[60px]" placeholder="Un refus est définitif : pour une correction, renvoyez plutôt le dossier." />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving || !motif.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer le refus
             </BoutonDecisif>

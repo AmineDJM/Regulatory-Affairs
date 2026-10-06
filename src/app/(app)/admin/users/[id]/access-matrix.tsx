@@ -71,7 +71,7 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Onglet / Module</TableHead>
+              <TableHead className="sticky left-0 z-10 bg-card">Onglet / Module</TableHead>
               <TableHead>Accès</TableHead>
               {ACTION_COLS.map((a) => (
                 <TableHead key={a} className="text-center">{ACTION_LABELS[a]}</TableHead>
@@ -85,13 +85,13 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
               return (
                 <React.Fragment key={r.module}>
                 <TableRow>
-                  <TableCell>
+                  <TableCell className="sticky left-0 z-10 min-w-[8.5rem] max-w-[11rem] bg-card sm:max-w-none">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-medium">{r.label}</span>
                       {/* Hors service : le droit s'enregistre, mais n'ouvre rien tant que le
                           module n'est pas remis en service (Réglages › Modules en service). */}
                       {r.hidden && (
-                        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-warning" title="Module retiré du service : les droits réglés ici n'ouvriront rien tant qu'il n'est pas remis en service (Administration › Réglages › Modules en service).">
+                        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[0.6875rem] font-medium text-warning" title="Module retiré du service : les droits réglés ici n'ouvriront rien tant qu'il n'est pas remis en service (Administration › Réglages › Modules en service).">
                           hors service
                         </span>
                       )}
@@ -103,7 +103,7 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
                     <Select
                       value={r.mode}
                       onChange={(e) => update(r.module, { mode: e.target.value as ModuleAccessRow["mode"] })}
-                      className="h-8 w-32 text-xs"
+                      className="h-10 w-32 text-xs sm:h-8"
                     >
                       <option value="DEFAULT">Par défaut</option>
                       <option value="CUSTOM">Personnalisé</option>
@@ -119,7 +119,7 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
                           checked={custom ? Boolean(r.actions[a]) : false}
                           disabled={!custom}
                           onChange={(e) => update(r.module, { actions: { ...r.actions, [a]: e.target.checked } })}
-                          className="h-4 w-4 rounded border-input disabled:opacity-30"
+                          className="h-5 w-5 rounded border-input disabled:opacity-30 sm:h-4 sm:w-4"
                         />
                       ) : (
                         <span className="text-xs text-muted-foreground" title="Ce module n'offre pas cette capacité.">—</span>
@@ -142,7 +142,7 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
                         value={r.scope}
                         disabled={!custom}
                         onChange={(e) => update(r.module, { scope: e.target.value as "ALL" | "ASSIGNED" })}
-                        className="h-8 w-40 text-xs"
+                        className="h-10 w-40 text-xs sm:h-8"
                       >
                         <option value="ALL">Toutes les lignes</option>
                         <option value="ASSIGNED">Lignes assignées</option>
@@ -170,14 +170,14 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs leading-6 text-muted-foreground">
           <Badge tone="neutral" dot={false}>Par défaut</Badge> applique les droits du rôle ·
           <Badge tone="info" dot={false}>Personnalisé</Badge> droits choisis ·
           <Badge tone="danger" dot={false}>Bloqué</Badge> onglet masqué.
         </p>
         {erreur && <p role="alert" className="text-sm text-destructive">{erreur}</p>}
-        <Button type="submit" disabled={saving}>
+        <Button type="submit" disabled={saving} className="w-full shrink-0 sm:w-auto">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
           {saved ? "Enregistré" : "Enregistrer les accès"}
         </Button>

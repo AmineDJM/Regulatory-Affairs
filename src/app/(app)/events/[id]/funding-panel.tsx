@@ -62,8 +62,8 @@ function RelaunchForm({ id }: { id: string }) {
     <div className="space-y-2 border-t border-border pt-3">
       <p className="text-sm font-medium">Soumettre une nouvelle demande de prise en charge</p>
       <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ce qui a changé depuis le refus (obligatoire) — budget revu, format, pièces…" className="min-h-[56px]" />
-      {err && <p className="text-xs text-destructive">{err}</p>}
-      <Button size="sm" onClick={relancer} disabled={pending || !note.trim()}>
+      {err && <p className="break-words text-xs text-destructive">{err}</p>}
+      <Button size="sm" onClick={relancer} disabled={pending || !note.trim()} className="w-full sm:w-auto">
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Relancer la demande
       </Button>
     </div>
@@ -103,8 +103,8 @@ function SubmitButton({ id }: { id: string }) {
         directement chez Direction Marketing, qui tranche. Les étapes situées au niveau ou en
         dessous de votre rang sont franchies automatiquement.
       </p>
-      {err && <p className="text-xs text-destructive">{err}</p>}
-      <Button size="sm" onClick={submit} disabled={pending}>
+      {err && <p className="break-words text-xs text-destructive">{err}</p>}
+      <Button size="sm" onClick={submit} disabled={pending} className="w-full sm:w-auto">
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Soumettre pour prise en charge
       </Button>
     </div>

@@ -66,9 +66,9 @@ export default async function AffectationsPage({ searchParams }: { searchParams:
       <PlanningTabs active="affectations" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} />
 
       <div className="flex items-center gap-2">
-        <Link href={`/planning/affectations?y=${prev.y}&m=${prev.m}`} className="rounded-lg border border-input p-2 hover:bg-secondary"><ChevronLeft className="h-4 w-4" /></Link>
+        <Link href={`/planning/affectations?y=${prev.y}&m=${prev.m}`} aria-label="Mois précédent" className="rounded-lg border border-input p-2.5 hover:bg-secondary sm:p-2"><ChevronLeft className="h-4 w-4" /></Link>
         <span className="min-w-40 text-center text-lg font-semibold">{monthLabel(year, month)}</span>
-        <Link href={`/planning/affectations?y=${next.y}&m=${next.m}`} className="rounded-lg border border-input p-2 hover:bg-secondary"><ChevronRight className="h-4 w-4" /></Link>
+        <Link href={`/planning/affectations?y=${next.y}&m=${next.m}`} aria-label="Mois suivant" className="rounded-lg border border-input p-2.5 hover:bg-secondary sm:p-2"><ChevronRight className="h-4 w-4" /></Link>
       </div>
 
       {kams.length === 0 ? (

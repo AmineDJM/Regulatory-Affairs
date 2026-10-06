@@ -94,7 +94,7 @@ export function AnalysisProgressCard({ versionId, initial }: { versionId: string
             {p.stalled ? <PauseCircle className="h-5 w-5" /> : p.awaitingDeferred ? <Hourglass className="h-5 w-5" /> : <Loader2 className="h-5 w-5 animate-spin" />}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 text-sm font-semibold">
+            <p className="flex flex-wrap items-center gap-x-2 text-sm font-semibold">
               {p.awaitingDeferred ? "Revue de fond en attente" : "Analyse en cours"}
               <span className="text-muted-foreground">·</span>
               <span className="font-normal text-muted-foreground">{p.phaseLabel}</span>
@@ -132,7 +132,7 @@ export function AnalysisProgressCard({ versionId, initial }: { versionId: string
           {p.phases.map((ph) => (
             <li key={ph.key} className="flex items-center gap-2.5 text-sm">
               <StepIcon state={ph.state} />
-              <span className={ph.state === "failed" ? "font-semibold text-destructive" : ph.state === "active" ? "font-semibold text-foreground" : ph.state === "done" ? "text-foreground" : "text-muted-foreground"}>
+              <span className={"min-w-0 " + (ph.state === "failed" ? "font-semibold text-destructive" : ph.state === "active" ? "font-semibold text-foreground" : ph.state === "done" ? "text-foreground" : "text-muted-foreground")}>
                 {ph.label}
               </span>
               {ph.detail && (

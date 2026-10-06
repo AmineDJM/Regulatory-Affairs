@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2, RotateCcw, Columns3, Building2, Stethoscope,
+  LayoutGrid, Table2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -276,10 +277,12 @@ function EditeurCellule({
  */
 function GridTable({
   rows, offset, colonnes, editable, selected, onToggle, onToggleAll, grille, edition, onCommit, onCancel,
-  couleurs, overrides, etablissements, effective,
+  couleurs, overrides, etablissements, effective, vueMobile,
 }: {
   rows: AnnuaireRow[];
   offset: number;
+  /** Au téléphone : cartes lisibles (par défaut) ou feuille complète, éditable. Sans effet au-delà. */
+  vueMobile: "cartes" | "feuille";
   colonnes: ColonneVue[];
   etablissements: readonly EtablissementOption[];
   editable: boolean;
@@ -297,7 +300,12 @@ function GridTable({
 }) {
   const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
-    <div className="surface overflow-x-auto">
+    <div>
+    <CartesPraticiens
+      rows={rows} colonnes={colonnes} selected={selected} onToggle={onToggle} onToggleAll={onToggleAll} overrides={overrides}
+      className={vueMobile === "cartes" ? "sm:hidden" : "hidden"}
+    />
+    <div className={cn("surface overflow-x-auto", vueMobile === "cartes" && "hidden sm:block")}>
       <table className="w-full min-w-[72rem] border-collapse text-sm select-none">
         <thead>
           <tr className="bg-secondary/60 text-xs uppercase tracking-wide text-muted-foreground">
@@ -366,14 +374,14 @@ function GridTable({
                               à la main n'est rattaché à aucun établissement de l'annuaire — il ne
                               compte dans aucun secteur et n'a pas de service. */}
                           {col.reference === "etablissement" && estARattacher(row) && !overrides.has(cleCellule(row.id, col.cle)) && (
-                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-warning"
+                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[0.6875rem] font-medium uppercase tracking-wide text-warning"
                               title="Texte saisi à la main, sans lien vers l'annuaire des établissements : choisissez l'établissement dans la liste.">
                               à rattacher
                             </span>
                           )}
                           {/* À TRANCHER : plusieurs hôpitaux possibles dans la wilaya — la cellule les propose en tête. */}
                           {col.reference === "etablissement" && !row.institutionId && row.deduction?.statut === "a_trancher" && !overrides.has(cleCellule(row.id, col.cle)) && (
-                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-warning"
+                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[0.6875rem] font-medium uppercase tracking-wide text-warning"
                               title={`${row.deduction.raison} Choisissez l'établissement : les possibles sont en tête de la liste.`}>
                               à trancher ({row.deduction.candidats.length})
                             </span>
@@ -382,7 +390,7 @@ function GridTable({
                               n'est rattaché à aucune spécialité du référentiel — rien de ce qui lit le
                               référentiel ne le voit. */}
                           {col.field === "specialty" && specialiteEstARattacher(row) && !overrides.has(cleCellule(row.id, col.cle)) && (
-                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-warning"
+                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[0.6875rem] font-medium uppercase tracking-wide text-warning"
                               title="Spécialité écrite sans lien vers le référentiel : retapez-la telle que le référentiel la nomme, ou rattachez-la dans Annuaires › Spécialités (ou Marketing cockpit › Spécialités).">
                               à rattacher
                             </span>
@@ -397,6 +405,102 @@ function GridTable({
           })}
         </tbody>
       </table>
+    </div>
+    </div>
+  );
+}
+
+/** Les pastilles « à rattacher » / « à trancher », dans leur version carte. */
+function PastilleCarte({ children, title }: { children: React.ReactNode; title?: string }) {
+  return (
+    <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[0.6875rem] font-medium uppercase tracking-wide text-warning" title={title}>
+      {children}
+    </span>
+  );
+}
+
+/** Un téléphone ou un e-mail se touche pour appeler ou écrire — c'est l'usage du terrain. */
+function lienContact(col: ColonneVue, v: string): React.ReactNode {
+  const classe = "inline-flex min-h-9 items-center text-primary underline-offset-2 hover:underline";
+  if (col.field === "phone" && /^[+\d\s().-]{6,}$/.test(v)) return <a href={`tel:${v.replace(/[^\d+]/g, "")}`} className={classe}>{v}</a>;
+  if (col.field === "email" && /^\S+@\S+$/.test(v)) return <a href={`mailto:${v}`} className={classe}>{v}</a>;
+  return null;
+}
+
+/**
+ * AU TÉLÉPHONE, UNE CARTE PAR PRATICIEN — une feuille de 72 rem ne se lit pas au pouce.
+ *
+ * Les cartes montrent ce que montre la feuille (mêmes valeurs, mêmes pastilles), sans les cases
+ * vides. Elles sont en lecture : la correction cellule par cellule se fait dans la vue « Feuille »,
+ * que le sélecteur du haut rouvre. La sélection de lignes (archiver, restaurer) y reste.
+ */
+function CartesPraticiens({
+  rows, colonnes, selected, onToggle, onToggleAll, overrides, className,
+}: {
+  rows: AnnuaireRow[];
+  colonnes: ColonneVue[];
+  selected: Set<string>;
+  onToggle: (id: string, on: boolean) => void;
+  onToggleAll: (ids: string[], on: boolean) => void;
+  overrides: Map<string, string>;
+  className?: string;
+}) {
+  const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const valeur = (row: AnnuaireRow, col: ColonneVue) => overrides.get(cleCellule(row.id, col.cle)) ?? valeurAffichee(row, col);
+  const colNom = colonnes.find((c) => c.field === "lastName");
+  const colPrenom = colonnes.find((c) => c.field === "firstName");
+  const details = colonnes.filter((c) => c !== colNom && c !== colPrenom);
+  return (
+    <div className={cn("space-y-2", className)}>
+      <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 px-1 text-xs text-muted-foreground">
+        <input
+          type="checkbox" checked={allChecked}
+          onChange={(e) => onToggleAll(rows.map((r) => r.id), e.target.checked)}
+          className="h-5 w-5 rounded border-input"
+        />
+        Tout sélectionner
+      </label>
+      <ul className="space-y-2">
+        {rows.map((row) => {
+          const nom = [colNom ? valeur(row, colNom) : "", colPrenom ? valeur(row, colPrenom) : ""].filter(Boolean).join(" ");
+          return (
+            <li key={row.id} className={cn("rounded-xl border border-border bg-card p-3", selected.has(row.id) && "border-primary/50 bg-primary/5")}>
+              <div className="flex items-start gap-2">
+                <label className="-m-2 inline-flex shrink-0 cursor-pointer p-2">
+                  <input
+                    type="checkbox" checked={selected.has(row.id)}
+                    onChange={(e) => onToggle(row.id, e.target.checked)}
+                    aria-label={`Sélectionner ${row.lastName ?? row.firstName ?? "cette ligne"}`}
+                    className="h-5 w-5 rounded border-input"
+                  />
+                </label>
+                <p className="min-w-0 flex-1 pl-1 font-medium [overflow-wrap:anywhere]">{nom || "—"}</p>
+              </div>
+              <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm xs:grid-cols-2">
+                {details.map((col) => {
+                  const v = valeur(row, col);
+                  const touchee = overrides.has(cleCellule(row.id, col.cle));
+                  const aRattacher = !touchee && ((col.reference === "etablissement" && estARattacher(row)) || (col.field === "specialty" && specialiteEstARattacher(row)));
+                  const aTrancher = !touchee && col.reference === "etablissement" && !row.institutionId && row.deduction?.statut === "a_trancher";
+                  if (!v && !aRattacher && !aTrancher) return null;
+                  return (
+                    <div key={col.cle} className="min-w-0">
+                      <dt className={cn("text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground", col.custom && "text-primary")}>{col.header}</dt>
+                      <dd className="[overflow-wrap:anywhere]">
+                        {lienContact(col, v) ?? (v || "—")}
+                        {aRattacher && <PastilleCarte>à rattacher</PastilleCarte>}
+                        {aTrancher && row.deduction && (
+                          <PastilleCarte title={row.deduction.raison}>à trancher ({row.deduction.candidats.length})</PastilleCarte>
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -464,6 +568,8 @@ export function AnnuaireGrid({
   const [deleting, setDeleting] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [bySpecialty, setBySpecialty] = React.useState(false);
+  // Choix d'affichage au téléphone seulement (cartes ou feuille) ; le bureau garde toujours la feuille.
+  const [vueMobile, setVueMobile] = React.useState<"cartes" | "feuille">("cartes");
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [colonnesOuvertes, setColonnesOuvertes] = React.useState(false);
@@ -762,7 +868,7 @@ export function AnnuaireGrid({
 
   const tableProps = {
     colonnes, editable: canEdit, selected, onToggle: toggleOne, onToggleAll: toggleMany, grille, edition,
-    onCommit: validerEdition, onCancel: annulerEdition, couleurs: couleursLocales, overrides, etablissements, effective,
+    onCommit: validerEdition, onCancel: annulerEdition, couleurs: couleursLocales, overrides, etablissements, effective, vueMobile,
   };
 
   return (
@@ -786,29 +892,45 @@ export function AnnuaireGrid({
       </datalist>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <div className="relative w-full sm:w-auto">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
+            type="search" enterKeyHint="search"
             value={q} onChange={(e) => setQ(e.target.value)}
             placeholder="Chercher un nom, une wilaya, une spécialité…"
-            className="w-72 pl-8"
+            className="w-full pl-8 sm:w-72"
           />
         </div>
         <span className="text-xs text-muted-foreground">
           {filtered.length} / {rows.length} praticien{rows.length > 1 ? "s" : ""}
         </span>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+          {/* Téléphone seulement : cartes lisibles au pouce, ou la feuille complète pour corriger. */}
+          <div className="inline-flex overflow-hidden rounded-lg border border-input sm:hidden">
+            <button
+              type="button" onClick={() => setVueMobile("cartes")} aria-pressed={vueMobile === "cartes"}
+              className={cn("inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-medium", vueMobile === "cartes" ? "bg-secondary text-foreground" : "text-muted-foreground")}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" /> Cartes
+            </button>
+            <button
+              type="button" onClick={() => setVueMobile("feuille")} aria-pressed={vueMobile === "feuille"}
+              className={cn("inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-medium", vueMobile === "feuille" ? "bg-secondary text-foreground" : "text-muted-foreground")}
+            >
+              <Table2 className="h-3.5 w-3.5" /> Feuille
+            </button>
+          </div>
           <div className="inline-flex overflow-hidden rounded-lg border border-input">
             <button
               type="button" onClick={() => setBySpecialty(false)}
-              className={cn("inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium", !bySpecialty ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50")}
+              className={cn("inline-flex min-h-10 items-center gap-1.5 px-2.5 py-2 text-xs font-medium sm:min-h-0", !bySpecialty ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50")}
             >
               <LayoutList className="h-3.5 w-3.5" /> Liste
             </button>
             <button
               type="button" onClick={() => setBySpecialty(true)}
-              className={cn("inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium", bySpecialty ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50")}
+              className={cn("inline-flex min-h-10 items-center gap-1.5 px-2.5 py-2 text-xs font-medium sm:min-h-0", bySpecialty ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50")}
             >
               <Rows3 className="h-3.5 w-3.5" /> Par spécialité
             </button>
@@ -841,7 +963,7 @@ export function AnnuaireGrid({
           )}
           <a
             href={exportHref}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-xs font-medium hover:bg-secondary"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-xs font-medium hover:bg-secondary sm:min-h-0"
             title="Exporter l'annuaire en Excel"
           >
             <FileSpreadsheet className="h-3.5 w-3.5" /> Exporter
@@ -871,7 +993,8 @@ export function AnnuaireGrid({
       {canImport && <AddDoctorRow specialtyListId={SPECIALTY_LIST_ID} titreParDefaut={titreParDefaut} directoryId={directoryId} etablissements={etablissements} specialiteImposee={specialiteImposee} />}
 
       {canEdit && (
-        <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-2.5 text-xs text-muted-foreground">
+        // Le mode d'emploi du clavier ne concerne que la feuille : en cartes, au téléphone, il s'efface.
+        <p className={cn("flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-2.5 text-xs text-muted-foreground", vueMobile === "cartes" && "max-sm:hidden")}>
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             <strong>Un clic sélectionne</strong> une cellule — Maj étend, Ctrl ajoute, on peut aussi glisser et se
@@ -1000,7 +1123,7 @@ function AddDoctorRow({
 
   if (!open) {
     return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)} className="w-full sm:w-auto">
         <Plus className="h-3.5 w-3.5" /> {titreParDefaut === "PHARMACIEN" ? "Ajouter un pharmacien" : "Ajouter un praticien"}
       </Button>
     );
@@ -1029,10 +1152,10 @@ function AddDoctorRow({
       </div>
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="flex items-center gap-2">
-        <Button size="sm" disabled={busy} onClick={submit}>
+        <Button size="sm" disabled={busy} onClick={submit} className="flex-1 sm:flex-none">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Ajouter
         </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => { reset(); setOpen(false); }}>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => { reset(); setOpen(false); }} className="flex-1 sm:flex-none">
           <X className="h-3.5 w-3.5" /> Annuler
         </Button>
       </div>
@@ -1089,12 +1212,12 @@ function GestionColonnes({ directoryId, colonnes, onDone }: { directoryId: strin
       ) : (
         <ul className="flex flex-wrap gap-2">
           {colonnes.map((c) => (
-            <li key={c.id} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs">
-              <span className="font-medium">{c.label}</span>
-              <span className="text-muted-foreground">
+            <li key={c.id} className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border py-1 pl-2 pr-1 text-xs">
+              <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{c.label}</span>
+              <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">
                 · {c.kind === "TEXT" ? "texte" : c.kind === "NUMBER" ? "nombre" : c.kind === "DATE" ? "date" : `choix : ${c.options.join(", ")}`}
               </span>
-              <button type="button" onClick={() => retirer(c)} disabled={busy} className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={`Retirer la colonne ${c.label}`}>
+              <button type="button" onClick={() => retirer(c)} disabled={busy} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:h-6 sm:w-6" aria-label={`Retirer la colonne ${c.label}`}>
                 <X className="h-3 w-3" />
               </button>
             </li>

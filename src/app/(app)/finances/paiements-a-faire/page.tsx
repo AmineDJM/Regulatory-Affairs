@@ -254,9 +254,9 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
             {tresorerie.comptes.map((c) => (
-              <div key={c.id} className="surface flex items-center gap-3 px-4 py-2.5" data-compte={c.nom}>
-                <span className="text-sm text-muted-foreground">{c.nom} <span className="text-xs">· au {jourFr(c.jourAncrage)}</span></span>
-                <span className={`font-semibold tabular-nums ${c.solde >= 0 ? "text-foreground" : "text-destructive"}`}>{formatCurrency(c.solde)}</span>
+              <div key={c.id} className="surface flex w-full items-center justify-between gap-3 px-3 py-2.5 sm:w-auto sm:justify-start sm:px-4" data-compte={c.nom}>
+                <span className="min-w-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">{c.nom} <span className="text-xs">· au {jourFr(c.jourAncrage)}</span></span>
+                <span className={`shrink-0 whitespace-nowrap font-semibold tabular-nums ${c.solde >= 0 ? "text-foreground" : "text-destructive"}`}>{formatCurrency(c.solde)}</span>
               </div>
             ))}
           </div>

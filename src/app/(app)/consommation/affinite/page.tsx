@@ -7,6 +7,7 @@ import { calculerAffinites, PERIODE_LABELS } from "@/lib/consommation/affinite";
 import { lireConfig, lignesDuMarche } from "@/lib/consommation/affinite-service";
 import { pct } from "@/lib/segmentation/regles";
 import { ConfigAffiniteForm } from "./config-form";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Affinité par établissement — AMD Internal OS" };
@@ -38,15 +39,15 @@ export default async function AffinitePage({ searchParams }: { searchParams?: { 
       </PageHeader>
       {/* TOUS LES PRODUITS DU RÉFÉRENTIEL se choisissent ici ; les pastilles sont ceux dont l'affinité est déjà réglée. */}
       <form className="flex flex-wrap items-center gap-2 text-sm">
-        <select name="p" defaultValue={choisi?.id ?? ""} className="h-9 min-w-[18rem] rounded-lg border border-border bg-background px-2 text-sm" aria-label="Produit">
+        <select name="p" defaultValue={choisi?.id ?? ""} className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-sm sm:h-9 sm:min-w-[18rem] sm:flex-none" aria-label="Produit">
           {produits.map((p) => <option key={p.id} value={p.id}>{p.canonicalName}{configs.some((c) => c.productId === p.id) ? " ✓" : ""}</option>)}
         </select>
-        <button type="submit" className="h-9 rounded-lg border border-border px-3 text-sm hover:bg-secondary">Ouvrir</button>
+        <button type="submit" className="h-10 rounded-lg border border-border px-3 text-sm hover:bg-secondary sm:h-9">Ouvrir</button>
         <span className="text-xs text-muted-foreground">{produits.length} produit(s) du référentiel · ✓ = affinité réglée</span>
       </form>
       <div className="flex flex-wrap gap-1 text-xs">
         {produits.filter((p) => configs.some((c) => c.productId === p.id)).map((p) => (
-          <Link key={p.id} href={`/consommation/affinite?p=${p.id}`} className={`rounded-md border px-2 py-1 ${p.id === choisi?.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{p.canonicalName}</Link>
+          <Link key={p.id} href={`/consommation/affinite?p=${p.id}`} className={`rounded-md border px-3 py-2 sm:px-2 sm:py-1 ${p.id === choisi?.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{p.canonicalName}</Link>
         ))}
       </div>
       {choisi && peutRegler && (
@@ -58,25 +59,26 @@ export default async function AffinitePage({ searchParams }: { searchParams?: { 
       )}
       {!cfg && <p className="surface p-4 text-sm text-muted-foreground">Aucune affinité n&apos;est réglée pour ce produit : aucun marché ni aucune période n&apos;est supposé.</p>}
       {cfg && resultat && (
-        <section className="surface overflow-x-auto p-4">
+        <section className="surface p-4 max-sm:border-0 max-sm:bg-transparent max-sm:p-0">
           <p className="mb-2 text-sm">{PERIODE_LABELS[cfg.periode]}{resultat.fenetre ? ` — ${resultat.fenetre.libelle}` : " — aucune donnée validée dans le marché"}</p>
-          <table className="w-full text-sm">
-            <thead className="border-b border-border text-left text-xs text-muted-foreground">
-              <tr><th className="px-2 py-2">Établissement</th><th className="px-2 py-2">Affinité</th><th className="px-2 py-2">Produit</th><th className="px-2 py-2">Marché</th><th className="px-2 py-2">Unité</th><th className="px-2 py-2">Lignes exclues (autre unité)</th></tr>
-            </thead>
-            <tbody>
+          {/* Une ligne = un établissement : une carte au téléphone. */}
+          <Table mobileCards>
+            <TableHeader className="bg-transparent">
+              <TableRow><TableHead className="px-2">Établissement</TableHead><TableHead className="px-2">Affinité</TableHead><TableHead className="px-2">Produit</TableHead><TableHead className="px-2">Marché</TableHead><TableHead className="px-2">Unité</TableHead><TableHead className="px-2">Lignes exclues (autre unité)</TableHead></TableRow>
+            </TableHeader>
+            <TableBody>
               {resultat.parEtablissement.map((a) => (
-                <tr key={a.institutionId} className="border-b border-border/60">
-                  <td className="px-2 py-1">{noms.get(a.institutionId) ?? a.institutionId}</td>
-                  <td className="px-2 py-1 font-medium">{pct(a.valeur)}</td>
-                  <td className="px-2 py-1">{a.numerateur}</td>
-                  <td className="px-2 py-1">{a.denominateur}</td>
-                  <td className="px-2 py-1">{a.unite ?? "—"}</td>
-                  <td className="px-2 py-1">{a.exclues}</td>
-                </tr>
+                <TableRow key={a.institutionId} className="border-border/60">
+                  <TableCell data-sans-etiquette className="!justify-start px-2 font-medium [overflow-wrap:anywhere] sm:py-1 sm:font-normal">{noms.get(a.institutionId) ?? a.institutionId}</TableCell>
+                  <TableCell className="px-2 font-medium sm:py-1">{pct(a.valeur)}</TableCell>
+                  <TableCell className="px-2 sm:py-1">{a.numerateur}</TableCell>
+                  <TableCell className="px-2 sm:py-1">{a.denominateur}</TableCell>
+                  <TableCell className="px-2 sm:py-1">{a.unite ?? "—"}</TableCell>
+                  <TableCell className="px-2 sm:py-1">{a.exclues}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </section>
       )}
     </div>

@@ -27,15 +27,15 @@ export default async function MessageriePage({ searchParams }: { searchParams: {
     return (
       <div className="space-y-4">
         <PageHeader title="Messagerie" />
-        <div className="surface space-y-2 p-6">
-          <p className="flex items-center gap-2 font-medium"><ShieldAlert className="h-4 w-4 text-muted-foreground" /> {ACCESS_MESSAGE[access.reason]}</p>
+        <div className="surface space-y-2 p-4 sm:p-6">
+          <p className="flex items-start gap-2 font-medium"><ShieldAlert className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" /> {ACCESS_MESSAGE[access.reason]}</p>
           {access.missingVars.length > 0 && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
               Variables manquantes sur le serveur : <code>{access.missingVars.join(", ")}</code>
             </p>
           )}
           {user.role === "SUPER_ADMIN" && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
               La marche à suivre complète est dans <code>docs/microsoft-mail-integration-audit.md</code>.
             </p>
           )}
@@ -51,7 +51,7 @@ export default async function MessageriePage({ searchParams }: { searchParams: {
     return (
       <div className="space-y-4">
         <PageHeader title="Messagerie" description="Votre boîte Microsoft 365, dans AMD Internal OS." />
-        <div className="surface mx-auto max-w-xl space-y-4 p-8 text-center">
+        <div className="surface mx-auto max-w-xl space-y-4 p-5 text-center sm:p-8">
           <Mail className="mx-auto h-10 w-10 text-primary" />
           <div className="space-y-1">
             <h2 className="text-lg font-semibold">Connectez votre boîte Microsoft 365</h2>

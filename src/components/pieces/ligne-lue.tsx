@@ -37,8 +37,8 @@ export function LigneLue({ id, methode, confiance, verifiee, onVerifiee, notes =
         <Badge tone={verifiee ? "success" : "warning"}>
           <ScanText className="h-3 w-3" /> lue — {methodeCourte({ methode, confiance })}
         </Badge>
-        <label htmlFor={id} className="flex items-center gap-1.5">
-          <input id={id} type="checkbox" checked={verifiee} disabled={disabled} onChange={(e) => onVerifiee(e.target.checked)} />
+        <label htmlFor={id} className="flex items-center gap-1.5 py-1.5 sm:py-0">
+          <input id={id} type="checkbox" className="h-4 w-4" checked={verifiee} disabled={disabled} onChange={(e) => onVerifiee(e.target.checked)} />
           vérifiée sur le papier
         </label>
       </div>

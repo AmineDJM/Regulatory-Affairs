@@ -22,7 +22,7 @@ export function PurgeOrphansButton({ count, bytes }: { count: number; bytes: num
   };
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button variant="outline" onClick={run} disabled={busy || count === 0}>
+      <Button variant="outline" onClick={run} disabled={busy || count === 0} className="h-auto min-h-10 w-full whitespace-normal sm:w-auto">
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Recycle className="h-4 w-4" />}
         Purger le stockage orphelin{count > 0 ? ` (${fmtBytes(bytes)})` : ""}
       </Button>
@@ -46,7 +46,7 @@ export function PermanentDeleteButton({ kind, id, name }: { kind: "drive" | "doc
     else window.alert(r.error ?? "Échec.");
   };
   return (
-    <button title="Supprimer définitivement" onClick={run} disabled={busy} className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+    <button title="Supprimer définitivement" aria-label={`Supprimer définitivement « ${name} »`} onClick={run} disabled={busy} className="rounded-lg p-2.5 text-muted-foreground sm:p-1.5 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
     </button>
   );

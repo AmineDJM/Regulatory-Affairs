@@ -119,32 +119,32 @@ export function TrainingBoard({
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs sm:col-span-2">
               Intitulé <span className="text-destructive">*</span>
-              <Input name="title" required placeholder="Ex. Bonnes pratiques de fabrication — module 2" className="mt-1 h-9" />
+              <Input name="title" required placeholder="Ex. Bonnes pratiques de fabrication — module 2" className="mt-1 h-10 sm:h-9" />
             </label>
             <label className="text-xs">
               Coût estimé (DZD)
-              <Input name="amount" inputMode="decimal" placeholder="0" className="mt-1 h-9 text-right tabular-nums" />
+              <Input name="amount" inputMode="decimal" placeholder="0" className="mt-1 h-10 text-right tabular-nums sm:h-9" />
             </label>
             <label className="text-xs">
               Organisme / formateur
-              <Input name="provider" placeholder="Ex. Institut Pasteur d'Algérie" className="mt-1 h-9" />
+              <Input name="provider" placeholder="Ex. Institut Pasteur d'Algérie" className="mt-1 h-10 sm:h-9" />
             </label>
             <label className="text-xs">
               Du
-              <Input type="date" name="startDate" className="mt-1 h-9" />
+              <Input type="date" name="startDate" className="mt-1 h-10 sm:h-9" />
             </label>
             <label className="text-xs">
               Au
-              <Input type="date" name="endDate" className="mt-1 h-9" />
+              <Input type="date" name="endDate" className="mt-1 h-10 sm:h-9" />
             </label>
             <label className="text-xs sm:col-span-2">
               Lieu
-              <Input name="location" placeholder="Ex. Alger — hôtel Sofitel, ou distanciel" className="mt-1 h-9" />
+              <Input name="location" placeholder="Ex. Alger — hôtel Sofitel, ou distanciel" className="mt-1 h-10 sm:h-9" />
             </label>
             {form === "organise" && departments.length > 0 && (
               <label className="text-xs">
                 Département concerné
-                <select name="departmentId" className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
+                <select name="departmentId" className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-sm sm:h-9">
                   <option value="">— Toute l&apos;entreprise —</option>
                   {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
@@ -153,7 +153,7 @@ export function TrainingBoard({
           </div>
           <label className="block text-xs">
             Objectif / contenu
-            <Input name="description" placeholder="Ce que la formation apporte, et pourquoi maintenant" className="mt-1 h-9" />
+            <Input name="description" placeholder="Ce que la formation apporte, et pourquoi maintenant" className="mt-1 h-10 sm:h-9" />
           </label>
           <label className="block text-xs">
             Devis, programme, convention…
@@ -163,8 +163,8 @@ export function TrainingBoard({
               empêcherait d&apos;en parler. Il se joint ensuite.
             </span>
           </label>
-          <div className="flex gap-2">
-            <Button size="sm" type="submit" disabled={busy === "create"}>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button size="sm" type="submit" disabled={busy === "create"} className="h-10 sm:h-8">
               {busy === "create" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Envoyer
             </Button>
             <Button size="sm" type="button" variant="outline" onClick={() => setForm("none")}>Annuler</Button>
@@ -194,15 +194,16 @@ export function TrainingBoard({
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-sm">
                   <button
                     type="button" onClick={() => setOpen(expanded ? null : t.id)}
-                    className="inline-flex shrink-0 items-center text-muted-foreground hover:text-foreground"
+                    className="-my-1 -ml-2 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground sm:-ml-1 sm:h-7 sm:w-7"
                     aria-label={expanded ? "Replier" : "Déplier"}
                   >
                     {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </button>
                   <Badge tone={TRAINING_STATUS_LABELS[t.status].tone} dot={false}>{TRAINING_STATUS_LABELS[t.status].label}</Badge>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{t.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">
+                  {/* Au téléphone : l'intitulé sur deux lignes plutôt que coupé ; montant et réponses passent dessous. */}
+                  <div className="min-w-0 flex-1 basis-40">
+                    <p className="line-clamp-2 font-medium [overflow-wrap:anywhere] sm:line-clamp-none sm:truncate">{t.title}</p>
+                    <p className="line-clamp-2 text-xs text-muted-foreground [overflow-wrap:anywhere] sm:line-clamp-none sm:truncate">
                       <span className="font-mono">{t.reference}</span>
                       {t.origin === "HR" ? " · organisée par les RH" : ` · demandée par ${t.requester || "—"}`}
                       {t.department ? ` · ${t.department}` : ""}
@@ -223,17 +224,17 @@ export function TrainingBoard({
 
                   {/* Répondre à SON invitation — seulement quand on a le choix. */}
                   {t.myParticipation?.attendance === "VOLUNTARY" && t.myParticipation.state === "INVITED" && (
-                    <span className="flex items-center gap-1">
+                    <span className="flex items-center gap-2 sm:gap-1">
                       <button type="button" disabled={busy === `resp:${t.id}`} onClick={() => {
                         const fd = new FormData(); fd.set("id", t.myParticipation!.id); fd.set("answer", "ACCEPTED");
                         void run(`resp:${t.id}`, () => respondToTrainingInvitation(fd), "Participation acceptée.");
-                      }} className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50">
+                      }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-success/30 px-3 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50 sm:min-h-0 sm:px-2">
                         <Check className="h-3.5 w-3.5" /> J&apos;y participe
                       </button>
                       <button type="button" disabled={busy === `resp:${t.id}`} onClick={() => {
                         const fd = new FormData(); fd.set("id", t.myParticipation!.id); fd.set("answer", "DECLINED");
                         void run(`resp:${t.id}`, () => respondToTrainingInvitation(fd), "Participation déclinée.");
-                      }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                      }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:min-h-0 sm:px-2">
                         <X className="h-3.5 w-3.5" /> Décliner
                       </button>
                     </span>
@@ -257,8 +258,8 @@ export function TrainingBoard({
                       <div className="flex flex-wrap gap-1.5">
                         {t.documents.map((d) => (
                           <a key={d.id} href={`/api/documents/${d.id}?dl=1`} title={d.name}
-                            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs hover:bg-secondary">
-                            <FileText className="h-3 w-3" /> {d.name} <Download className="h-3 w-3" />
+                            className="inline-flex min-h-9 max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs hover:bg-secondary sm:min-h-0">
+                            <FileText className="h-3 w-3 shrink-0" /> <span className="min-w-0 truncate">{d.name}</span> <Download className="h-3 w-3 shrink-0" />
                           </a>
                         ))}
                       </div>
@@ -275,7 +276,7 @@ export function TrainingBoard({
                               <Input
                                 value={granted[t.id] ?? String(t.amount)}
                                 onChange={(e) => setGranted((p) => ({ ...p, [t.id]: e.target.value }))}
-                                inputMode="decimal" className="mt-1 h-9 text-right tabular-nums"
+                                inputMode="decimal" className="mt-1 h-10 text-right tabular-nums sm:h-9"
                               />
                               <span className="text-[0.6875rem] text-muted-foreground">
                                 La direction accorde souvent moins que demandé — le budget suit CE montant.
@@ -286,18 +287,18 @@ export function TrainingBoard({
                             Note (transmise à l&apos;étape suivante)
                             <Input
                               value={note[t.id] ?? ""} onChange={(e) => setNote((p) => ({ ...p, [t.id]: e.target.value }))}
-                              placeholder="Facultatif" className="mt-1 h-9"
+                              placeholder="Facultatif" className="mt-1 h-10 sm:h-9"
                             />
                           </label>
                         </div>
-                        <div className="flex gap-1.5">
+                        <div className="flex flex-wrap gap-2 sm:gap-1.5">
                           <BoutonDecisif brut type="button" disabled={busy === `dec:${t.id}`} onClick={() => {
                             const fd = new FormData();
                             fd.set("id", t.id); fd.set("decision", "APPROVED");
                             if (note[t.id]) fd.set("note", note[t.id]);
                             if (t.stage === "DG") fd.set("amountGranted", granted[t.id] ?? String(t.amount));
                             void run(`dec:${t.id}`, () => decideTraining(fd), "Formation validée.");
-                          }} className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50">
+                          }} className="inline-flex min-h-10 items-center gap-1 rounded-md border border-success/30 px-3 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50 sm:min-h-0 sm:px-2">
                             {busy === `dec:${t.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ThumbsUp className="h-3.5 w-3.5" />} Approuver
                           </BoutonDecisif>
                           <BoutonDecisif brut type="button" disabled={busy === `dec:${t.id}`} onClick={() => {
@@ -305,7 +306,7 @@ export function TrainingBoard({
                             fd.set("id", t.id); fd.set("decision", "REJECTED");
                             if (note[t.id]) fd.set("note", note[t.id]);
                             void run(`dec:${t.id}`, () => decideTraining(fd), "Formation refusée.");
-                          }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                          }} className="inline-flex min-h-10 items-center gap-1 rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:min-h-0 sm:px-2">
                             <ThumbsDown className="h-3.5 w-3.5" /> Refuser
                           </BoutonDecisif>
                         </div>
@@ -320,7 +321,7 @@ export function TrainingBoard({
                         const fd = new FormData();
                         fd.set("id", t.id); if (motif.trim()) fd.set("motif", motif.trim());
                         void run(`ann:${t.id}`, () => annulerFormation(fd), "Formation annulée.");
-                      }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                      }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:min-h-0 sm:px-2">
                         Annuler ma demande
                       </button>
                     )}
@@ -334,7 +335,7 @@ export function TrainingBoard({
                         {t.participants.length > 0 && (
                           <ul className="flex flex-wrap gap-1.5">
                             {t.participants.map((p) => (
-                              <li key={p.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2 py-0.5 text-xs">
+                              <li key={p.id} className="inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-full border border-border bg-background px-2 py-0.5 text-xs">
                                 {p.name}
                                 <Badge tone={p.attendance === "MANDATORY" ? "warning" : "neutral"} dot={false}>
                                   {p.attendance === "MANDATORY" ? "convoqué" : "volontaire"}
@@ -356,22 +357,22 @@ export function TrainingBoard({
                               fd.set("trainingId", t.id);
                               void run(`inv:${t.id}`, () => inviteTrainingParticipants(fd), "Participants prévenus.");
                             }}
-                            className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-background p-2.5"
+                            className="flex flex-col gap-2 rounded-lg border border-border bg-background p-2.5 sm:flex-row sm:flex-wrap sm:items-end"
                           >
                             <label className="text-xs">
                               Nature
-                              <select name="attendance" defaultValue="VOLUNTARY" className="mt-1 h-9 rounded-lg border border-border bg-background px-2 text-sm">
+                              <select name="attendance" defaultValue="VOLUNTARY" className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-sm sm:h-9 sm:w-auto">
                                 <option value="VOLUNTARY">{ATTENDANCE_LABELS.VOLUNTARY}</option>
                                 <option value="MANDATORY">{ATTENDANCE_LABELS.MANDATORY}</option>
                               </select>
                             </label>
-                            <label className="min-w-[14rem] flex-1 text-xs">
+                            <label className="text-xs sm:min-w-[14rem] sm:flex-1">
                               Personnes
                               <select name="userIds" multiple size={4} className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1 text-sm">
                                 {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                               </select>
                             </label>
-                            <Button size="sm" type="submit" disabled={busy === `inv:${t.id}`}>
+                            <Button size="sm" type="submit" disabled={busy === `inv:${t.id}`} className="h-10 sm:h-8">
                               {busy === `inv:${t.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />} Inviter
                             </Button>
                           </form>

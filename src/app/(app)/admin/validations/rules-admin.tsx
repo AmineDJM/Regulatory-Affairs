@@ -46,7 +46,7 @@ export function RuleEditor({
   return (
     <>
       {editing ? (
-        <button onClick={() => { setErr(null); setOpen(true); }} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Modifier la règle">
+        <button onClick={() => { setErr(null); setOpen(true); }} className="rounded p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5" title="Modifier la règle" aria-label="Modifier la règle">
           <Pencil className="h-4 w-4" />
         </button>
       ) : (
@@ -70,8 +70,8 @@ export function RuleEditor({
               <Select name="module" defaultValue={rule?.module ?? ""}><option value="">Tous</option>{moduleOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>
             </Wrap>
             <Wrap label="Type d'objet"><Input name="objectType" defaultValue={rule?.objectType} placeholder="PURCHASE, PAYMENT…" /></Wrap>
-            <Wrap label="Montant min (DZD)"><Input name="minAmount" type="number" step="any" defaultValue={rule?.minAmount} /></Wrap>
-            <Wrap label="Montant max (DZD)"><Input name="maxAmount" type="number" step="any" defaultValue={rule?.maxAmount} /></Wrap>
+            <Wrap label="Montant min (DZD)"><Input name="minAmount" type="number" inputMode="decimal" step="any" defaultValue={rule?.minAmount} /></Wrap>
+            <Wrap label="Montant max (DZD)"><Input name="maxAmount" type="number" inputMode="decimal" step="any" defaultValue={rule?.maxAmount} /></Wrap>
             <Wrap label="Département"><Input name="department" defaultValue={rule?.department} /></Wrap>
             <Wrap label="Rôle du demandeur">
               <Select name="requesterRole" defaultValue={rule?.requesterRole ?? ""}><option value="">Tous</option>{roleOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>
@@ -116,10 +116,10 @@ export function RuleControls({ id, active }: { id: string; active: boolean }) {
   return (
     <span className="inline-flex items-center gap-1">
       {pending && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-      <button onClick={() => run(() => toggleValidationRule(fd({ id })))} className={`rounded p-1.5 hover:bg-secondary ${active ? "text-success" : "text-muted-foreground"}`} title={active ? "Désactiver" : "Activer"}>
+      <button onClick={() => run(() => toggleValidationRule(fd({ id })))} className={`rounded p-2.5 hover:bg-secondary sm:p-1.5 ${active ? "text-success" : "text-muted-foreground"}`} title={active ? "Désactiver" : "Activer"} aria-label={active ? "Désactiver la règle" : "Activer la règle"}>
         <Power className="h-4 w-4" />
       </button>
-      <button onClick={() => { if (window.confirm("Supprimer cette règle ?")) run(() => deleteValidationRule(fd({ id }))); }} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Supprimer">
+      <button onClick={() => { if (window.confirm("Supprimer cette règle ?")) run(() => deleteValidationRule(fd({ id }))); }} className="rounded p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5" title="Supprimer" aria-label="Supprimer la règle">
         <Trash2 className="h-4 w-4" />
       </button>
     </span>

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TeleverserConsommation } from "./televerser";
 
 export const dynamic = "force-dynamic";
@@ -33,8 +34,8 @@ export default async function ConsommationPage() {
         <Link href="/consommation/affinite" className="text-sm text-primary underline">Affinité par établissement</Link>
       </PageHeader>
       {/* LE MODE D'EMPLOI (Direction, 06/10 : « qu'est-ce que tu attends de moi exactement, quel fichier uploader ? »). */}
-      <details className="surface p-4 text-sm" open={imports.length === 0}>
-        <summary className="cursor-pointer font-semibold">Ce qu&apos;il faut importer, et dans quel ordre</summary>
+      <details className="surface p-3 text-sm sm:p-4" open={imports.length === 0}>
+        <summary className="cursor-pointer py-1 font-semibold">Ce qu&apos;il faut importer, et dans quel ordre</summary>
         <div className="mt-3 space-y-2 text-muted-foreground">
           <p><b className="text-foreground">Quoi :</b> les fichiers de consommation des établissements, tels que les pharmacies hospitalières, la PCH ou les DSP les envoient. Ce sont les sorties de médicaments par établissement, par produit (ou molécule) et par période.</p>
           <p><b className="text-foreground">Format :</b> Excel (.xlsx, .xls, .xlsm) ou CSV, avec une ou plusieurs feuilles. Les colonnes n&apos;ont pas besoin d&apos;avoir nos noms :</p>
@@ -57,26 +58,27 @@ export default async function ConsommationPage() {
         </div>
       </details>
       {peutImporter && <TeleverserConsommation />}
-      <div className="surface overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-b border-border text-left text-xs text-muted-foreground">
-            <tr><th className="px-3 py-2">Fichier</th><th className="px-3 py-2">Statut</th><th className="px-3 py-2">Lignes</th><th className="px-3 py-2">Sûres</th><th className="px-3 py-2">À revoir</th><th className="px-3 py-2">Doublons</th><th className="px-3 py-2">Importé le</th></tr>
-          </thead>
-          <tbody>
-            {imports.length === 0 && <tr><td colSpan={7} className="px-3 py-4 text-muted-foreground">Aucun fichier importé.</td></tr>}
+      {/* Une ligne = un fichier importé : une carte au téléphone. */}
+      <div className="surface max-sm:border-0 max-sm:bg-transparent">
+        <Table mobileCards>
+          <TableHeader className="bg-transparent">
+            <TableRow><TableHead>Fichier</TableHead><TableHead>Statut</TableHead><TableHead>Lignes</TableHead><TableHead>Sûres</TableHead><TableHead>À revoir</TableHead><TableHead>Doublons</TableHead><TableHead>Importé le</TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
+            {imports.length === 0 && <TableRow><TableCell colSpan={7} data-sans-etiquette className="!justify-start py-4 text-muted-foreground sm:py-4">Aucun fichier importé.</TableCell></TableRow>}
             {imports.map((i) => (
-              <tr key={i.id} className="border-b border-border/60">
-                <td className="px-3 py-2"><Link href={`/consommation/${i.id}`} className="font-medium text-primary hover:underline">{i.nomFichier}</Link></td>
-                <td className="px-3 py-2"><Badge tone={STATUT[i.statut]?.tone ?? "neutral"}>{STATUT[i.statut]?.label ?? i.statut}</Badge></td>
-                <td className="px-3 py-2">{i._count.lignes}</td>
-                <td className="px-3 py-2">{compte(i.id, "OK")}</td>
-                <td className="px-3 py-2">{compte(i.id, "A_REVOIR")}</td>
-                <td className="px-3 py-2">{compte(i.id, "DOUBLON")}</td>
-                <td className="px-3 py-2">{i.createdAt.toLocaleDateString("fr-FR")}</td>
-              </tr>
+              <TableRow key={i.id} className="border-border/60">
+                <TableCell data-sans-etiquette className="!justify-start sm:py-2"><Link href={`/consommation/${i.id}`} className="min-w-0 py-1 font-medium text-primary [overflow-wrap:anywhere] hover:underline">{i.nomFichier}</Link></TableCell>
+                <TableCell className="sm:py-2"><Badge tone={STATUT[i.statut]?.tone ?? "neutral"}>{STATUT[i.statut]?.label ?? i.statut}</Badge></TableCell>
+                <TableCell className="sm:py-2">{i._count.lignes}</TableCell>
+                <TableCell className="sm:py-2">{compte(i.id, "OK")}</TableCell>
+                <TableCell className="sm:py-2">{compte(i.id, "A_REVOIR")}</TableCell>
+                <TableCell className="sm:py-2">{compte(i.id, "DOUBLON")}</TableCell>
+                <TableCell className="sm:py-2">{i.createdAt.toLocaleDateString("fr-FR")}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

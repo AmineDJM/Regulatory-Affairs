@@ -102,10 +102,10 @@ export default async function MedicalInfoPage() {
                 {familles[circuit].map((d) => {
                   const pending = d.requests.filter((r) => r.status === "PENDING").length;
                   return (
-                    <Link key={d.id} href={`/information-medicale/${d.id}`} className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-secondary/50">
+                    <Link key={d.id} href={`/information-medicale/${d.id}`} className="flex items-center gap-3 px-3 py-3 transition-colors hover:bg-secondary/50 sm:gap-4 sm:px-4">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-muted-foreground">{d.reference}</span>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="shrink-0 font-mono text-xs text-muted-foreground">{d.reference}</span>
                           <span className="truncate font-medium">{d.label}</span>
                         </div>
                         <p className="mt-0.5 text-xs text-muted-foreground">

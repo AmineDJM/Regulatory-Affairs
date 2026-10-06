@@ -59,7 +59,7 @@ export function CtdALaCreation({ entrees, onChange }: { entrees: EntreeDepot[]; 
 
   return (
     <fieldset className="space-y-2 rounded-lg border border-primary/40 bg-primary/[0.04] p-3">
-      <legend className="flex items-center gap-1.5 px-1 text-sm font-medium"><Archive className="h-4 w-4 text-primary" /> {CTD_INITIALE_LIBELLE} <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></legend>
+      <legend className="flex flex-wrap items-center gap-1.5 px-1 text-sm font-medium"><Archive className="h-4 w-4 text-primary" /> {CTD_INITIALE_LIBELLE} <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></legend>
       <p className="text-xs text-muted-foreground">
         Un <strong>.zip complet</strong> ou un <strong>dossier entier</strong> (arborescence conservée). Elle sera déposée sur l&apos;étape 1 du processus (« Réception du CTD complet »)
         dès que le dossier est créé ; l&apos;envoi continue en arrière-plan, sans retenir la création. Vous pourrez la remplacer, la supprimer ou y ajouter des fichiers ensuite.
@@ -97,7 +97,7 @@ export function CtdALaCreation({ entrees, onChange }: { entrees: EntreeDepot[]; 
             {racines.size === 1 && entrees[0].path.includes("/") ? <> · dossier « {[...racines][0]} »</> : null}
             {entrees.length === 1 ? <> · <span className="break-all">{entrees[0].path}</span></> : null}
           </span>
-          <button type="button" onClick={() => { onChange([]); setRefuses([]); }} className="inline-flex shrink-0 items-center gap-1 rounded p-0.5 text-muted-foreground hover:text-destructive" aria-label="Retirer la CTD choisie">
+          <button type="button" onClick={() => { onChange([]); setRefuses([]); }} className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-2 text-muted-foreground hover:text-destructive sm:p-0.5" aria-label="Retirer la CTD choisie">
             <X className="h-3.5 w-3.5" /> Retirer
           </button>
         </div>

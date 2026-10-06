@@ -70,14 +70,14 @@ export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks:
   return (
     <div className="space-y-5">
       {/* En-tête + barre IA */}
-      <div className="rounded-2xl bg-gradient-to-br from-primary/90 to-purple-600 p-5 text-primary-foreground shadow-lg">
-        <div className="flex items-center gap-2.5">
-          <BrainCircuit className="h-7 w-7" />
-          <div>
+      <div className="rounded-2xl bg-gradient-to-br from-primary/90 to-purple-600 p-4 text-primary-foreground shadow-lg sm:p-5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <BrainCircuit className="h-7 w-7 shrink-0" />
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold tracking-tight">Adventum Brain</h1>
             <p className="text-sm opacity-90">Le cockpit qui voit ce que les autres ne voient pas.</p>
           </div>
-          <button onClick={brief} disabled={briefLoading} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-sm font-medium hover:bg-white/25 disabled:opacity-60">
+          <button onClick={brief} disabled={briefLoading} className="inline-flex min-h-10 basis-full items-center justify-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-sm font-medium hover:bg-white/25 disabled:opacity-60 sm:ml-auto sm:min-h-0 sm:basis-auto">
             {briefLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Générer un briefing
           </button>
         </div>
@@ -88,13 +88,13 @@ export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks:
             /* `min-w-0` : un <input> a une largeur minimale intrinsèque (celle de son
                placeholder, ici une phrase entière) et refuse de se comprimer sans cette
                borne — le bouton « Demander » était poussé hors de l'écran sur téléphone. */
-            className="h-10 min-w-0 flex-1 rounded-lg border-0 bg-white/95 px-3.5 text-sm text-neutral-900 shadow-sm placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-white/60"
+            className="h-10 min-w-0 flex-1 rounded-lg border-0 bg-white/95 px-3.5 text-base text-neutral-900 sm:text-sm shadow-sm placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-white/60"
           />
           <Button onClick={ask} disabled={asking} className="shrink-0 bg-white text-primary hover:bg-white/90">{asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Demander</Button>
         </div>
         <div className="mt-1.5 flex flex-wrap gap-1.5 text-[0.6875rem] opacity-80">
           {["Quels risques critiques aujourd'hui ?", "Montre-moi les fournisseurs qui ralentissent Regulatory", "Quels médecins KOL ne sont plus suivis ?"].map((s) => (
-            <button key={s} onClick={() => setQ(s)} className="rounded-full bg-white/10 px-2 py-0.5 hover:bg-white/20">{s}</button>
+            <button key={s} onClick={() => setQ(s)} className="rounded-full bg-white/10 px-2.5 py-1.5 text-left hover:bg-white/20 sm:px-2 sm:py-0.5">{s}</button>
           ))}
         </div>
         {(answer || briefing) && (
@@ -118,9 +118,9 @@ export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks:
       </div>
 
       {/* Onglets discrets */}
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-1 overflow-x-auto border-b border-border no-scrollbar">
         {([["war", "War Room"], ["risks", "Risques"], ["relations", "Relations"], ["feed", "Feed"]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} className={cn("border-b-2 px-3 py-2 text-sm font-medium transition-colors", tab === k ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>{l}</button>
+          <button key={k} onClick={() => setTab(k)} className={cn("shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:py-2", tab === k ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>{l}</button>
         ))}
       </div>
 
@@ -134,7 +134,7 @@ export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks:
       {tab === "risks" && (
         <section className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
-            {cats.map((c) => <button key={c} onClick={() => setCat(c)} className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", cat === c ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-secondary")}>{CAT_LABEL[c] ?? c}</button>)}
+            {cats.map((c) => <button key={c} onClick={() => setCat(c)} className={cn("rounded-full border px-2.5 py-1.5 text-xs font-medium sm:py-1", cat === c ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-secondary")}>{CAT_LABEL[c] ?? c}</button>)}
           </div>
           {filtered.length === 0 ? <Empty /> : <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{filtered.map((r) => <RiskCard key={r.id} risk={r} onOpen={() => setSelected(r)} onAction={(a) => (a.payload ? setConfirm({ action: a, risk: r }) : undefined)} />)}</div>}
         </section>
@@ -179,9 +179,9 @@ function RiskCard({ risk, onOpen, onAction }: { risk: Risk; onOpen: () => void; 
         </button>
         <div className="flex flex-wrap gap-1.5 pt-0.5">
           {risk.actions.map((a, i) => a.href
-            ? <Link key={i} href={a.href} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary">{a.icon && <Icon name={a.icon} className="h-3.5 w-3.5" />}{a.label}</Link>
-            : <button key={i} onClick={() => onAction(a)} className="inline-flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10">{a.icon && <Icon name={a.icon} className="h-3.5 w-3.5" />}{a.label}</button>)}
-          <button onClick={onOpen} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground">Analyser <ArrowRight className="h-3.5 w-3.5" /></button>
+            ? <Link key={i} href={a.href} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary sm:py-1">{a.icon && <Icon name={a.icon} className="h-3.5 w-3.5" />}{a.label}</Link>
+            : <button key={i} onClick={() => onAction(a)} className="inline-flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 sm:py-1">{a.icon && <Icon name={a.icon} className="h-3.5 w-3.5" />}{a.label}</button>)}
+          <button onClick={onOpen} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground sm:py-1">Analyser <ArrowRight className="h-3.5 w-3.5" /></button>
         </div>
       </CardContent>
     </Card>
@@ -191,14 +191,14 @@ function RiskCard({ risk, onOpen, onAction }: { risk: Risk; onOpen: () => void; 
 function RootCauseDrawer({ risk, onClose, onAction }: { risk: Risk; onClose: () => void; onAction: (a: RiskAction) => void }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div className="h-full w-full max-w-md overflow-y-auto bg-background shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="h-full w-full max-w-md overflow-y-auto overscroll-contain bg-background shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-4 py-3">
           <p className="font-semibold">Analyse du blocage</p>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Fermer" className="rounded-lg p-2.5 text-muted-foreground hover:bg-secondary sm:p-1.5"><X className="h-4 w-4" /></button>
         </div>
-        <div className="space-y-4 p-4 text-sm">
+        <div className="space-y-4 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] text-sm">
           <div>
-            <p className="text-lg font-semibold">{levelEmoji(risk.level)} {risk.title}</p>
+            <p className="break-words text-lg font-semibold">{levelEmoji(risk.level)} {risk.title}</p>
             <p className="text-muted-foreground">{risk.module} · {risk.object}</p>
           </div>
           <Row label="Niveau" value={LEVELS[risk.level].label} />
@@ -236,8 +236,9 @@ function AutopilotConfirm({ action, risk, onClose }: { action: RiskAction; risk:
     if (r.ok) { setDone(true); router.refresh(); } else setErr(r.error ?? "Action impossible.");
   };
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={onClose}>
+      {/* Au téléphone : une feuille qui monte du bas, bornée à l'écran et qui défile. */}
+      <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-background p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:pb-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-2 flex items-center gap-2"><Wand2 className="h-5 w-5 text-primary" /><p className="font-semibold">Action proposée</p></div>
         {done ? (
           <div className="flex flex-col items-center gap-3 py-6 text-success"><CheckCircle2 className="h-10 w-10" /><p className="font-medium">Fait.</p><Button size="sm" variant="outline" onClick={onClose}>Fermer</Button></div>
@@ -250,7 +251,7 @@ function AutopilotConfirm({ action, risk, onClose }: { action: RiskAction; risk:
             </div>
             <p className="mt-2 text-xs text-muted-foreground">Adventum Brain prépare l'action — vous validez. Rien n'est exécuté sans votre confirmation.</p>
             {err && <div className="mt-2 flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-            <div className="mt-3 flex justify-end gap-2">
+            <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button variant="ghost" onClick={onClose}>Annuler</Button>
               <Button onClick={run} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Confirmer</Button>
             </div>
@@ -273,7 +274,7 @@ function FeedTab({ feed, onOpen }: { feed: Risk[]; onOpen: (r: Risk) => void }) 
               <p className="text-sm"><span className="text-muted-foreground">{fmtTime(r.at)} — </span><span className="font-medium">{r.title}</span></p>
               <p className="truncate text-sm text-muted-foreground">{r.module} · {r.object}</p>
             </div>
-            <button onClick={() => onOpen(r)} className="shrink-0 text-xs text-primary hover:underline">Analyser</button>
+            <button onClick={() => onOpen(r)} className="-my-2 shrink-0 px-1 py-2 text-xs text-primary hover:underline">Analyser</button>
           </li>
         ))}
       </ul>
@@ -296,27 +297,27 @@ function RelationsTab({ suggestions }: { suggestions: string[] }) {
   };
   return (
     <section className="space-y-3">
-      <div className="flex gap-2">
-        <div className="relative flex-1">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search(q)} placeholder="Une molécule / un produit (ex. Pralatrexate)…" className="pl-9" />
         </div>
         <Button onClick={() => search(q)} disabled={loading}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />} Voir relations</Button>
       </div>
       {suggestions.length > 0 && !res && (
-        <div className="flex flex-wrap gap-1.5">{suggestions.map((s) => <button key={s} onClick={() => search(s)} className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-secondary">{s}</button>)}</div>
+        <div className="flex flex-wrap gap-1.5">{suggestions.map((s) => <button key={s} onClick={() => search(s)} className="rounded-full border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary sm:py-1">{s}</button>)}</div>
       )}
       {res && (res.found ? (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
               <p className="text-sm text-muted-foreground">Objet central</p>
-              <p className="text-lg font-semibold">{res.query}</p>
+              <p className="break-words text-lg font-semibold">{res.query}</p>
             </div>
             {/* Bascule liste / graphe */}
             <div className="inline-flex rounded-lg border border-border p-0.5">
-              <button onClick={() => setView("list")} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium", view === "list" ? "bg-secondary text-foreground" : "text-muted-foreground")}><List className="h-3.5 w-3.5" /> Liste</button>
-              <button onClick={() => setView("graph")} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium", view === "graph" ? "bg-secondary text-foreground" : "text-muted-foreground")}><Share2 className="h-3.5 w-3.5" /> Graphe</button>
+              <button onClick={() => setView("list")} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium sm:py-1", view === "list" ? "bg-secondary text-foreground" : "text-muted-foreground")}><List className="h-3.5 w-3.5" /> Liste</button>
+              <button onClick={() => setView("graph")} className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium sm:py-1", view === "graph" ? "bg-secondary text-foreground" : "text-muted-foreground")}><Share2 className="h-3.5 w-3.5" /> Graphe</button>
             </div>
           </div>
 

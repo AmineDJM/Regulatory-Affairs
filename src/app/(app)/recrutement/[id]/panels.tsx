@@ -34,7 +34,7 @@ function ErrorLine({ error }: { error: string | null }) {
   if (!error) return null;
   return (
     <p className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-      <AlertCircle className="h-4 w-4" /> {error}
+      <AlertCircle className="h-4 w-4 shrink-0" /> {error}
     </p>
   );
 }
@@ -52,7 +52,7 @@ export function ChainDecisionPanel({ id, stepLabel }: { id: string; stepLabel: s
   const [reason, setReason] = React.useState("");
 
   return (
-    <div className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-4">
+    <div className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-3 sm:p-4">
       <div>
         <p className="text-sm font-semibold">Votre validation est attendue</p>
         <p className="text-xs text-muted-foreground">{stepLabel}</p>
@@ -116,7 +116,7 @@ export function HrPanel({ id, canAsk, canOpen, canReject, canReturn }: {
   const [note, setNote] = React.useState("");
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-secondary/30 p-4">
+    <div className="space-y-3 rounded-xl border border-border bg-secondary/30 p-3 sm:p-4">
       <p className="text-sm font-semibold">Instruction RH</p>
 
       {canAsk && (
@@ -209,8 +209,8 @@ export function AddCandidateButton({ requestId }: { requestId: string }) {
   const fields: FieldDef[] = [
     { type: "hidden", name: "requestId", value: requestId },
     { type: "text", name: "fullName", label: "Nom et prénom", required: true, full: true },
-    { type: "text", name: "email", label: "Courriel" },
-    { type: "text", name: "phone", label: "Téléphone" },
+    { type: "text", name: "email", label: "Courriel", inputMode: "email", autoComplete: "off" },
+    { type: "text", name: "phone", label: "Téléphone", inputMode: "tel", autoComplete: "off" },
     { type: "text", name: "source", label: "Origine", placeholder: "Candidature spontanée, cabinet, cooptation…" },
     { type: "textarea", name: "notes", label: "Notes", full: true },
     { type: "file", name: "attachment", label: "CV et pièces", multiple: true, full: true, hint: "Le CV reste rattaché à CETTE personne." },
@@ -247,8 +247,8 @@ export function CandidateActions({ candidateId, status, can }: {
 
   const done = status === "HIRED" || status === "DECLINED";
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex flex-wrap justify-end gap-1.5">
+    <div className="flex flex-col items-start gap-1 sm:items-end">
+      <div className="flex flex-wrap justify-start gap-1.5 sm:justify-end">
         {can.shortlist && !done && status !== "SHORTLISTED" && status !== "SELECTED" && (
           <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => move("SHORTLIST")}>
             {busy === "SHORTLIST" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Star className="h-3.5 w-3.5" />}
@@ -301,7 +301,7 @@ export function OnboardPanel({ id, hiredName, external, canCancelHire }: {
   const { busy, error, run } = useAction();
   const [motif, setMotif] = React.useState("");
   return (
-    <div className="space-y-2 rounded-xl border border-success/40 bg-success/5 p-4">
+    <div className="space-y-2 rounded-xl border border-success/40 bg-success/5 p-3 sm:p-4">
       <p className="text-sm font-semibold">{hiredName} est recruté</p>
       <p className="text-xs text-muted-foreground">
         {external
@@ -371,7 +371,7 @@ export function CorrigerDemandePanel({ id, besoin }: { id: string; besoin: Besoi
   return (
     <form
       ref={formRef}
-      className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-4"
+      className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-3 sm:p-4"
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -387,21 +387,21 @@ export function CorrigerDemandePanel({ id, besoin }: { id: string; besoin: Besoi
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Type de contrat</Label>
-          <select name="contractType" defaultValue={besoin.contractType} className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+          <select name="contractType" defaultValue={besoin.contractType} className="h-9 w-full rounded-md border border-input bg-background px-2 text-base sm:text-sm">
             {RECRUITMENT_CONTRACTS.map((c) => <option key={c} value={c}>{CONTRACT_LABEL[c]}</option>)}
           </select>
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Nombre de postes</Label>
-          <Input name="headcount" type="number" min={1} defaultValue={besoin.headcount} className="h-9 text-sm" />
+          <Input name="headcount" type="number" inputMode="numeric" min={1} defaultValue={besoin.headcount} className="h-9 text-sm" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Rémunération minimale (DZD)</Label>
-          <Input name="salaryMin" type="number" step="any" min={0} defaultValue={besoin.salaryMin ?? ""} className="h-9 text-sm" />
+          <Input name="salaryMin" type="number" inputMode="decimal" step="any" min={0} defaultValue={besoin.salaryMin ?? ""} className="h-9 text-sm" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Rémunération maximale (DZD)</Label>
-          <Input name="salaryMax" type="number" step="any" min={0} defaultValue={besoin.salaryMax ?? ""} className="h-9 text-sm" />
+          <Input name="salaryMax" type="number" inputMode="decimal" step="any" min={0} defaultValue={besoin.salaryMax ?? ""} className="h-9 text-sm" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Prise de poste</Label>
@@ -436,7 +436,7 @@ export function CorrigerDemandePanel({ id, besoin }: { id: string; besoin: Besoi
         Un autre poste, un autre contrat, plus de postes, une rémunération relevée ou un contrat plus long font
         repartir la validation depuis la première marche ; le reste revient là d&apos;où la demande vous a été renvoyée.
       </p>
-      <Button type="submit" size="sm" disabled={busy !== null || !changements.trim()}>
+      <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={busy !== null || !changements.trim()}>
         {busy === "corr" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Corriger et renvoyer
       </Button>
       <ErrorLine error={error} />

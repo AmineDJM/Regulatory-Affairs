@@ -481,7 +481,7 @@ function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[];
             {active > 0 ? `Téléversement en cours (${active})` : "Téléversements"}
           </span>
           <span className="flex items-center gap-0.5">
-            <button type="button" onClick={() => setMinimized(true)} className="rounded p-0.5 text-muted-foreground hover:bg-muted" aria-label="Réduire"><ChevronDown className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setMinimized(true)} className="rounded p-2 text-muted-foreground hover:bg-muted sm:p-0.5" aria-label="Réduire"><ChevronDown className="h-4 w-4" /></button>
           </span>
         </div>
         <ul className="max-h-[40vh] divide-y divide-border overflow-y-auto">
@@ -507,11 +507,11 @@ function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[];
                   </span>
                   {j.phase === "uploading" ? (
                     <button type="button" onClick={() => onCancel(j.id)}
-                      className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive">
+                      className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive sm:px-2 sm:py-0.5">
                       Annuler
                     </button>
                   ) : (
-                    <button type="button" onClick={() => onDismiss(j.id)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted" aria-label="Masquer"><X className="h-3.5 w-3.5" /></button>
+                    <button type="button" onClick={() => onDismiss(j.id)} className="shrink-0 rounded p-2 text-muted-foreground hover:bg-muted sm:p-0.5" aria-label="Masquer"><X className="h-3.5 w-3.5" /></button>
                   )}
                 </div>
                 {j.phase === "uploading" && (
@@ -556,7 +556,7 @@ function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[];
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs text-destructive">{done} réussi·s, {failed} en échec.</p>
                       {erreurs.some((f) => !f.definitif) && (
-                        <button type="button" onClick={() => onRetry(j.id)} className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted">Réessayer</button>
+                        <button type="button" onClick={() => onRetry(j.id)} className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted sm:px-2 sm:py-0.5">Réessayer</button>
                       )}
                     </div>
                     <ul className="space-y-0.5">

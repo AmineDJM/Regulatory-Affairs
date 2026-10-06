@@ -325,7 +325,7 @@ export function MailDiagnosticPanel({ mailboxes }: { mailboxes: Mailbox[] }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-[16rem] flex-1 space-y-1">
+        <div className="min-w-0 flex-1 basis-full space-y-1 sm:min-w-[16rem] sm:basis-auto">
           <Label htmlFor="diag-mailbox">Boîte à tester</Label>
           <Select id="diag-mailbox" value={userId} onChange={(e) => setUserId(e.target.value)}>
             {mailboxes.map((m) => <option key={m.userId} value={m.userId}>{m.name} — {m.email}</option>)}
@@ -382,7 +382,7 @@ export function RegulatorySupervisorForm({ roles, selected }: { roles: Opt[]; se
               key={r.value}
               type="button"
               onClick={() => toggle(r.value)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+              className={`rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
             >
               {r.label}
             </button>
@@ -442,7 +442,7 @@ export function RegulatoryHiddenColumnsForm({ hidden }: { hidden: string[] }) {
               type="button"
               onClick={() => toggle(c.key)}
               aria-pressed={masquee}
-              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium transition-colors ${
                 masquee ? "border-destructive/60 bg-destructive/10 text-destructive" : "border-input text-muted-foreground hover:bg-secondary"
               }`}
             >
@@ -513,11 +513,11 @@ export function RegulatoryTherapeuticSegmentsForm({ segments }: { segments: stri
         {(usingDefault ? THERAPEUTIC_SEGMENTS : list).map((seg) => (
           <span
             key={seg}
-            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${usingDefault ? "border-input text-muted-foreground" : "border-primary bg-primary/10 text-primary"}`}
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium ${usingDefault ? "border-input text-muted-foreground" : "border-primary bg-primary/10 text-primary"}`}
           >
             {seg}
             {!usingDefault && (
-              <button type="button" onClick={() => remove(seg)} className="rounded-full p-0.5 hover:bg-primary/20" aria-label={`Retirer ${seg}`}>
+              <button type="button" onClick={() => remove(seg)} className="-my-1 -mr-1.5 rounded-full p-1.5 hover:bg-primary/20 sm:m-0 sm:p-0.5" aria-label={`Retirer ${seg}`}>
                 <X className="h-3 w-3" />
               </button>
             )}
@@ -531,7 +531,7 @@ export function RegulatoryTherapeuticSegmentsForm({ segments }: { segments: stri
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
           placeholder="Ajouter un segment (ex. Cardiologie)…"
-          className="w-64"
+          className="w-full sm:w-64"
         />
         <Button type="button" size="sm" variant="outline" onClick={add} disabled={!draft.trim()}>
           <Plus className="h-4 w-4" /> Ajouter
@@ -583,7 +583,7 @@ export function DriveSpaceCreatorForm({ roles, selected }: { roles: Opt[]; selec
               key={r.value}
               type="button"
               onClick={() => toggle(r.value)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+              className={`rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
             >
               {r.label}
             </button>
@@ -631,7 +631,7 @@ export function PromoMessageAuthorsForm({ roles, selected }: { roles: Opt[]; sel
               key={r.value}
               type="button"
               onClick={() => toggle(r.value)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+              className={`rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
             >
               {r.label}
             </button>
@@ -679,7 +679,7 @@ export function FieldReportsOverviewForm({ roles, selected }: { roles: Opt[]; se
               key={r.value}
               type="button"
               onClick={() => toggle(r.value)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+              className={`rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
             >
               {r.label}
             </button>
@@ -741,7 +741,7 @@ export function OrgChartViewersForm({ roles, users, selectedRoles, selectedUserI
                 key={r.value}
                 type="button"
                 onClick={() => toggle(r.value)}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+                className={`rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
               >
                 {r.label}
               </button>
@@ -754,7 +754,7 @@ export function OrgChartViewersForm({ roles, users, selectedRoles, selectedUserI
         <Label className="text-xs">Personnes nommément autorisées {pickedUsers.length > 0 ? `(${pickedUsers.length})` : ""}</Label>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher une personne…" className="h-8 pl-8 text-xs" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher une personne…" className="h-10 pl-8 text-xs sm:h-8" />
         </div>
         <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
           {shown.length === 0 ? (
@@ -766,7 +766,7 @@ export function OrgChartViewersForm({ roles, users, selectedRoles, selectedUserI
                 key={u.id}
                 type="button"
                 onClick={() => toggleUser(u.id)}
-                className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+                className={`rounded-full border px-2.5 py-1.5 text-xs sm:py-1 transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
               >
                 {u.name}
               </button>
@@ -822,7 +822,7 @@ export function HiddenModulesForm({ modules, selected }: { modules: Opt[]; selec
               type="button"
               onClick={() => toggle(m.value)}
               aria-pressed={off}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${off ? "border-destructive/50 bg-destructive/10 text-destructive" : "border-input text-muted-foreground hover:bg-secondary"}`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium transition-colors ${off ? "border-destructive/50 bg-destructive/10 text-destructive" : "border-input text-muted-foreground hover:bg-secondary"}`}
             >
               {off ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               {m.label}
@@ -883,7 +883,7 @@ function RolePeoplePicker({
               key={r.value}
               type="button"
               onClick={() => onToggleRole(r.value)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+              className={`rounded-full border px-3 py-1.5 text-xs sm:py-1 font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
             >
               {r.label}
             </button>
@@ -895,7 +895,7 @@ function RolePeoplePicker({
         <Label className="text-xs">Personnes nommées {pickedUsers.length > 0 ? `(${pickedUsers.length})` : ""}</Label>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher une personne…" className="h-8 pl-8 text-xs" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher une personne…" className="h-10 pl-8 text-xs sm:h-8" />
         </div>
         <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
           {shown.length === 0 ? (
@@ -907,7 +907,7 @@ function RolePeoplePicker({
                 key={u.id}
                 type="button"
                 onClick={() => onToggleUser(u.id)}
-                className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+                className={`rounded-full border px-2.5 py-1.5 text-xs sm:py-1 transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
               >
                 {u.name}
               </button>

@@ -66,7 +66,7 @@ export default async function AnalyseWorkspacePage() {
         <RegScopeCard userId={user.id} />
       ) : (
         <>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
               <ShieldCheck className="mr-1 inline h-4 w-4 text-success" />
               Ingestion sécurisée (anti-archive piégée, exécutables refusés, chemins vérifiés).
@@ -101,7 +101,7 @@ async function DossierList({ companyId }: { companyId: string }) {
         const v = d.versions[0];
         return (
           <Link key={d.id} href={`/regulatory/enregistrement/analyse/${d.id}`}
-            className="group flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-accent/30">
+            className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors sm:p-4 hover:border-primary/40 hover:bg-accent/30">
             <FileArchive className="h-5 w-5 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">

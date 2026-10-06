@@ -45,6 +45,8 @@ export function FicheActions({
   return (
     <span className="flex flex-wrap items-center gap-2">
       {err && <span className="text-xs text-destructive" role="alert">{err}</span>}
+      {/* Au doigt, l'infobulle du bouton grisé ne s'affiche pas : la raison est écrite. */}
+      {finaliser && !complete && <span className="w-full text-xs text-muted-foreground sm:hidden">Notez chaque axe pour pouvoir finaliser.</span>}
       {finaliser && (
         <Button size="sm" onClick={() => void agir("finaliser")} disabled={busy !== null || !complete} title={complete ? undefined : "Notez chaque axe pour pouvoir finaliser."}>
           {busy === "finaliser" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

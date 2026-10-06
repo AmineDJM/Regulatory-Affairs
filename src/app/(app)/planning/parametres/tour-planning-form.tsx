@@ -9,7 +9,7 @@ import {
 } from "@/lib/sfe/tournee";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const inputCls = "h-9 w-full rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60";
+const inputCls = "h-10 w-full rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none disabled:opacity-60 sm:h-9";
 
 /**
  * LA MAILLE ET L'ÉCHÉANCE DES PLANS DE TOURNÉE — le formulaire qui manquait.
@@ -78,7 +78,7 @@ export function TourPlanningForm({ reglage, canEdit }: { reglage: ReglageTournee
         {canEdit && (
           <button
             type="button" onClick={save} disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 sm:w-auto sm:py-2"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
             {done ? "Enregistré" : "Enregistrer la planification"}

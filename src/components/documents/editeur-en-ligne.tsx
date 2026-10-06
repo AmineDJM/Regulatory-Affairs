@@ -51,7 +51,7 @@ type Etat =
   | { phase: "indisponible"; message: string };
 
 export function EditeurEnLigne({
-  type, id, name, secours, hauteur = "78vh",
+  type, id, name, secours, hauteur = "78dvh",
 }: {
   type: "drive" | "document";
   id: string;
@@ -102,7 +102,7 @@ export function EditeurEnLigne({
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
         {etat.phase === "ouvert" && (etat.mode === "edit"
           ? <><Pencil className="h-3.5 w-3.5 text-primary" /> Modifiable ici — enregistrement automatique</>
           : <><Eye className="h-3.5 w-3.5" /> Lecture seule</>)}

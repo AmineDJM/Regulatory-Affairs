@@ -76,7 +76,7 @@ export default async function DocumentRequestPage({ params }: { params: { id: st
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>La demande</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6 [&>div]:min-w-0 [&_p]:break-words">
               <div><p className="text-xs text-muted-foreground">Demandée par</p><p className="font-medium">{req.askedBy.name}</p></div>
               <div><p className="text-xs text-muted-foreground">Demandée à</p><p className="font-medium">{req.askedTo.name}</p></div>
               <div><p className="text-xs text-muted-foreground">Le</p><p className="font-medium">{formatDate(req.createdAt.toISOString())}</p></div>

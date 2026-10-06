@@ -69,7 +69,7 @@ export function StoragePanel({ initial }: { initial: SelfTestReport["config"] })
           <Badge tone="neutral" dot={false}>Non configuré — stockage en base</Badge>
         )}
         {cfg.configured && (
-          <span className="text-xs text-muted-foreground">
+          <span className="min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]">
             {cfg.endpointHost}{cfg.endpointPath} · bucket <strong className="text-foreground">{cfg.bucket}</strong> · région {cfg.region}
             {cfg.pathStyle ? " · chemin" : " · sous-domaine"}
             {cfg.variableSource === "REG_S3" && " · variables REG_S3_* (anciennes)"}

@@ -18,7 +18,7 @@ import type { LienCouverture } from "@/lib/annuaires/services";
  * filtrées, et enregistrer après avoir filtré RETIRAIT ce qu'on ne voyait plus (§118.172).
  */
 
-export const inputCls = "h-9 rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+export const inputCls = "h-10 rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none sm:h-9";
 
 /** Un établissement à cocher — avec sa wilaya, son état et ses services (§118.172). */
 export interface EtabOpt {
@@ -94,7 +94,7 @@ export function ChoixEtablissements({ etablissements, choix, onChange }: {
         </p>
         <input
           value={filtre} onChange={(e) => setFiltre(e.target.value)}
-          placeholder="Filtrer par nom ou wilaya" className={`${inputCls} w-56`}
+          placeholder="Filtrer par nom ou wilaya" className={`${inputCls} w-full sm:w-56`}
           aria-label="Filtrer les établissements"
         />
       </div>
@@ -115,7 +115,7 @@ export function ChoixEtablissements({ etablissements, choix, onChange }: {
             const c = choix.get(e.id);
             return (
               <div key={e.id} className={cn("rounded-md px-1 py-1", !correspond(e) && "hidden", c && "bg-primary/5")}>
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex min-h-10 items-center gap-2 text-sm sm:min-h-0">
                   <input
                     type="checkbox" checked={Boolean(c)}
                     onChange={(ev) => basculerEtab(e.id, ev.target.checked)}
@@ -123,7 +123,7 @@ export function ChoixEtablissements({ etablissements, choix, onChange }: {
                     aria-label={`Couvrir ${e.name}`}
                   />
                   <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="min-w-0 truncate">{e.name}</span>
+                  <span className="min-w-0 [overflow-wrap:anywhere] sm:truncate">{e.name}</span>
                   {!e.isActive && <Badge tone="warning" dot={false}>désactivé</Badge>}
                   {e.wilaya && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{e.wilaya}</span>}
                 </label>
@@ -131,7 +131,7 @@ export function ChoixEtablissements({ etablissements, choix, onChange }: {
                     renseigné est couvert en entier : il n'y a rien à choisir. */}
                 {c && e.services.length > 0 && (
                   <div className="ml-6 mt-1 space-y-1">
-                    <label className="inline-flex items-center gap-1.5 text-xs">
+                    <label className="inline-flex min-h-9 items-center gap-1.5 text-xs sm:min-h-0">
                       <input
                         type="checkbox" checked={c.tous}
                         onChange={(ev) => basculerTous(e.id, ev.target.checked)}
@@ -144,7 +144,7 @@ export function ChoixEtablissements({ etablissements, choix, onChange }: {
                       <div className="flex flex-wrap gap-1.5">
                         {e.services.map((sv) => (
                           <label key={sv.id} className={cn(
-                            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
+                            "inline-flex items-center gap-1 rounded-md border px-2 py-2 text-xs sm:px-1.5 sm:py-0.5",
                             c.services.has(sv.id) ? "border-primary/50 bg-primary/10" : "border-input",
                           )}>
                             <input

@@ -47,7 +47,7 @@ export function ParticipantsCasPv({ caseId, participants, candidats, peutGerer, 
                 <button
                   type="button" disabled={busy || enCours} aria-label={p.userId === moi ? "Me retirer de l'échange" : `Retirer ${p.nom}`}
                   onClick={() => void agir(() => retirerParticipantPv(fd({ userId: p.userId })))}
-                  className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-destructive"
+                  className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-destructive sm:p-1"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>

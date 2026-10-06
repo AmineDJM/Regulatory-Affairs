@@ -89,8 +89,8 @@ export default async function CandidaturesDuSitePage({ searchParams }: { searchP
             href={o.etat === "NOUVELLE" ? "/recrutement/candidatures" : `/recrutement/candidatures?etat=${o.etat}`}
             aria-current={o.etat === etat ? "page" : undefined}
             className={o.etat === etat
-              ? "rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-              : "rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-secondary"}
+              ? "rounded-full bg-primary px-3 py-2 text-sm font-medium text-primary-foreground sm:py-1.5"
+              : "rounded-full border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary sm:py-1.5"}
           >
             {o.libelle} ({nombre(o.etat)})
           </Link>
@@ -108,19 +108,19 @@ export default async function CandidaturesDuSitePage({ searchParams }: { searchP
       ) : (
         <ul className="space-y-3">
           {candidatures.map((c) => (
-            <li key={c.id} className="surface space-y-3 p-4">
+            <li key={c.id} className="surface space-y-3 p-3 sm:p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 space-y-1">
-                  <p className="text-base font-semibold">{c.nom}</p>
+                  <p className="break-words text-base font-semibold">{c.nom}</p>
                   <p className="text-sm text-muted-foreground">
                     {c.offreTitre ? <>Pour « {c.offreTitre} »</> : "Candidature spontanée"} · reçue le {formatDateTime(c.recueLe)}
                   </p>
                   <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                    <a href={`mailto:${c.email}`} className="inline-flex items-center gap-1 break-all text-primary hover:underline">
+                    <a href={`mailto:${c.email}`} className="inline-flex min-w-0 items-center gap-1 break-all py-1 text-primary hover:underline">
                       <Mail className="h-3.5 w-3.5 shrink-0" /> {c.email}
                     </a>
                     {c.telephone && (
-                      <a href={`tel:${c.telephone.replace(/[^+\d]/g, "")}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <a href={`tel:${c.telephone.replace(/[^+\d]/g, "")}`} className="inline-flex items-center gap-1 py-1 text-primary hover:underline">
                         <Phone className="h-3.5 w-3.5 shrink-0" /> {c.telephone}
                       </a>
                     )}
@@ -144,10 +144,10 @@ export default async function CandidaturesDuSitePage({ searchParams }: { searchP
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 {c.cvCle && c.etat !== "RATTACHEE" ? (
                   <>
-                    <a href={`/api/site-web/candidatures/${c.id}/cv`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-                      <FileText className="h-4 w-4" /> {c.cvNom ?? "CV"} {c.cvTaille ? <span className="text-muted-foreground">({tailleLisible(c.cvTaille)})</span> : null}
+                    <a href={`/api/site-web/candidatures/${c.id}/cv`} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 py-1 text-primary [overflow-wrap:anywhere] hover:underline">
+                      <FileText className="h-4 w-4 shrink-0" /> {c.cvNom ?? "CV"} {c.cvTaille ? <span className="text-muted-foreground">({tailleLisible(c.cvTaille)})</span> : null}
                     </a>
-                    <a href={`/api/site-web/candidatures/${c.id}/cv?dl=1`} className="inline-flex items-center gap-1 text-muted-foreground hover:underline">
+                    <a href={`/api/site-web/candidatures/${c.id}/cv?dl=1`} className="inline-flex items-center gap-1 py-1 text-muted-foreground hover:underline">
                       <Download className="h-4 w-4" /> Télécharger
                     </a>
                   </>

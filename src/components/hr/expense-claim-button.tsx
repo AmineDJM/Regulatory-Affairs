@@ -76,13 +76,13 @@ export function ExpenseClaimButton() {
           </p>
 
           {err && (
-            <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4" /> {err}
+            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0">{err}</span>
             </div>
           )}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={busy}>Annuler</Button>
-            <Button type="submit" disabled={busy}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)} disabled={busy}>Annuler</Button>
+            <Button type="submit" className="w-full sm:w-auto" disabled={busy}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer la note de frais
             </Button>
           </div>

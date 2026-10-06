@@ -24,7 +24,7 @@ function Loading() {
 
 function Fallback({ src, message }: { src: string; message: string }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-10 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-5 text-center sm:p-10">
       <p className="text-sm text-muted-foreground">{message}</p>
       <a href={`${src}?dl=1`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
         <Download className="h-4 w-4" /> Télécharger
@@ -33,7 +33,8 @@ function Fallback({ src, message }: { src: string; message: string }) {
   );
 }
 
-const SHELL = "max-h-[78vh] overflow-auto rounded-lg border border-border bg-white p-5 text-sm text-neutral-900";
+// Le tableau d'une feuille Excel défile DANS ce cadre (overflow-auto), jamais la page.
+const SHELL = "max-h-[78dvh] overflow-auto rounded-lg border border-border bg-white p-3 text-sm text-neutral-900 [overflow-wrap:anywhere] sm:p-5";
 
 /** Word (.docx) → HTML via mammoth (chargé à la demande). */
 export function DocxView({ src }: { src: string; name: string }) {
@@ -88,7 +89,7 @@ export function XlsxView({ src }: { src: string; name: string }) {
       {sheets.length > 1 && (
         <div className="flex flex-wrap gap-1.5">
           {sheets.map((s, i) => (
-            <button key={s.name} onClick={() => setActive(i)} className={`rounded-md px-2.5 py-1 text-xs font-medium ${i === active ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}>{s.name}</button>
+            <button key={s.name} onClick={() => setActive(i)} className={`rounded-md px-2.5 py-2 text-xs font-medium sm:py-1 ${i === active ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}>{s.name}</button>
           ))}
         </div>
       )}
@@ -134,10 +135,10 @@ export function PptxView({ src }: { src: string; name: string }) {
   if (!slides) return <Loading />;
   if (slides.length === 0) return <Fallback src={src} message="Aucune diapositive détectée." />;
   return (
-    <div className="max-h-[78vh] space-y-3 overflow-auto">
+    <div className="max-h-[78dvh] space-y-3 overflow-auto">
       <p className="text-xs text-muted-foreground">Aperçu texte des {slides.length} diapositive{slides.length > 1 ? "s" : ""}. Téléchargez le fichier pour la mise en page complète.</p>
       {slides.map((texts, i) => (
-        <div key={i} className="rounded-lg border border-border bg-white p-4 text-neutral-900">
+        <div key={i} className="rounded-lg border border-border bg-white p-3 text-neutral-900 [overflow-wrap:anywhere] sm:p-4">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Diapositive {i + 1}</p>
           {texts.length === 0 ? (
             <p className="text-sm text-muted-foreground">(Aucun texte)</p>

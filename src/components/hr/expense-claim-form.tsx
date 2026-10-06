@@ -84,7 +84,7 @@ export function ExpenseClaimFields({
         <input
           id="nf-piece" type="file" name="files" accept="image/*,application/pdf" multiple
           required={filesRequired}
-          className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
+          className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-sm file:font-medium sm:file:py-1.5"
         />
         <p className="text-xs text-muted-foreground">
           {filesHint ?? "Sur téléphone, choisissez « Numériser un document » dans le sélecteur : la page est redressée et recadrée, bien plus lisible qu'une photo. Plusieurs papiers pour une même dépense (reçu + ticket de péage) vont sur la même note."}

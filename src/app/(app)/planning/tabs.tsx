@@ -33,13 +33,13 @@ const TABS: { key: string; label: string; href: string; show: (p: PlanningTabsPr
 export function PlanningTabs(props: PlanningTabsProps) {
   const { active } = props;
   return (
-    <div className="flex gap-1 overflow-x-auto border-b border-border">
+    <div className="no-scrollbar flex gap-1 overflow-x-auto border-b border-border">
       {TABS.filter((t) => t.show(props)).map((t) => (
         <Link
           key={t.key}
           href={t.href}
           className={cn(
-            "shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+            "shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:py-2",
             active === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
           )}
         >

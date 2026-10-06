@@ -34,7 +34,7 @@ export function NewFolderButton({ parentId, spaceId }: { parentId: string | null
             <Input id="name" name="name" required />
           </div>
           {err && <p className="text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
             <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Créer</Button>
           </div>

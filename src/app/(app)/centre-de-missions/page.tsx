@@ -125,7 +125,7 @@ export default async function CentreDeMissionsPage() {
           {accords.map((a) => (
             <div key={a.id} className="rounded-lg border border-amber-300 bg-amber-50 p-3">
               <p className="flex flex-wrap items-baseline gap-2 text-sm">
-                <Link href={`/missions/${a.missionId}`} className="font-medium text-amber-900 hover:underline">
+                <Link href={`/missions/${a.missionId}`} className="min-w-0 break-words font-medium text-amber-900 hover:underline">
                   {a.missionTitle}
                 </Link>
                 <span className="text-xs text-amber-800">

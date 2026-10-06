@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate } from "@/lib/utils";
 import { recruitmentScope } from "@/lib/recruitment/access";
 import { STAGE_LABEL, STAGE_TONE, summarize, type RecruitmentStage } from "@/lib/recruitment/request-flow";
@@ -135,44 +136,50 @@ export default async function RecrutementPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="surface overflow-x-auto">
-          <table className="w-full min-w-[54rem] border-collapse text-sm">
-            <thead className="border-b border-border">
-              <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-3 py-2 text-left font-medium">Référence</th>
-                <th className="px-3 py-2 text-left font-medium">Poste</th>
-                <th className="px-3 py-2 text-left font-medium">Direction</th>
-                <th className="px-3 py-2 text-left font-medium">Demandeur</th>
-                <th className="px-3 py-2 text-left font-medium">Étape</th>
-                <th className="px-3 py-2 text-left font-medium">CV</th>
-                <th className="px-3 py-2 text-left font-medium">Déposée</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+        // Au téléphone, chaque demande devient une carte (intitulés repris de l'en-tête) ; au bureau,
+        // le tableau garde sa largeur et défile dans son cadre.
+        <div className="surface p-2 sm:p-0">
+          <Table mobileCards className="border-collapse sm:min-w-[54rem]">
+            <TableHeader className="bg-transparent">
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Référence</TableHead>
+                <TableHead>Poste</TableHead>
+                <TableHead>Direction</TableHead>
+                <TableHead>Demandeur</TableHead>
+                <TableHead>Étape</TableHead>
+                <TableHead>CV</TableHead>
+                <TableHead>Déposée</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((r) => (
-                <tr key={r.id} className="hover:bg-secondary/30">
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference}</td>
-                  <td className="px-3 py-2">
-                    <Link href={`/recrutement/${r.id}`} className="font-medium hover:underline">{r.position}</Link>
-                    <p className="text-xs text-muted-foreground">{r.summary}</p>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.department || "—"}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.requester}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge tone={STAGE_TONE[r.stage]} dot={false}>{STAGE_LABEL[r.stage]}</Badge>
-                      {r.mine && <Badge tone="warning" dot={false}>à vous</Badge>}
+                <TableRow key={r.id} className="hover:bg-secondary/30">
+                  <TableCell className="font-mono text-xs text-muted-foreground">{r.reference}</TableCell>
+                  <TableCell data-sans-etiquette className="min-w-0">
+                    <div className="w-full min-w-0">
+                      <Link href={`/recrutement/${r.id}`} className="font-medium break-words hover:underline">{r.position}</Link>
+                      <p className="text-xs text-muted-foreground">{r.summary}</p>
                     </div>
-                    {r.waitingOn && !r.mine && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">en attente de {r.waitingOn}</p>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.candidates || "—"}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">{formatDate(r.createdAt)}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{r.department || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{r.requester}</TableCell>
+                  <TableCell>
+                    <div>
+                      <div className="flex flex-wrap items-center justify-end gap-1.5 sm:justify-start">
+                        <Badge tone={STAGE_TONE[r.stage]} dot={false}>{STAGE_LABEL[r.stage]}</Badge>
+                        {r.mine && <Badge tone="warning" dot={false}>à vous</Badge>}
+                      </div>
+                      {r.waitingOn && !r.mine && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">en attente de {r.waitingOn}</p>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{r.candidates || "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(r.createdAt)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 

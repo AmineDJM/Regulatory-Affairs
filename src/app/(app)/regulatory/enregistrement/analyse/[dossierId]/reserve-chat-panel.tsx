@@ -69,7 +69,7 @@ export function ReserveChatPanel({ dossierId, configured }: { dossierId: string;
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((s) => (
                 <button key={s} type="button" onClick={() => setInput(s)}
-                  className="rounded-full border border-border px-2.5 py-1 text-[0.6875rem] transition-colors hover:bg-accent">
+                  className="rounded-full border border-border px-2.5 py-1.5 text-left text-[0.6875rem] transition-colors hover:bg-accent sm:py-1">
                   {s}
                 </button>
               ))}

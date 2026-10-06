@@ -48,7 +48,7 @@ export function ParticipantsPanel({
             <span key={id} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${isCore ? "bg-secondary text-muted-foreground" : "bg-primary/10 text-primary"}`}>
               {nameById.get(id) ?? id}{isCore ? " · titulaire" : ""}
               {canEdit && !isCore && (
-                <button type="button" onClick={() => persist(ids.filter((x) => x !== id))} className="rounded-full hover:bg-primary/20" aria-label="Retirer">
+                <button type="button" onClick={() => persist(ids.filter((x) => x !== id))} className="-my-1 -mr-1.5 rounded-full p-1.5 hover:bg-primary/20 sm:m-0 sm:p-0" aria-label="Retirer">
                   <X className="h-3 w-3" />
                 </button>
               )}
@@ -59,7 +59,7 @@ export function ParticipantsPanel({
       </div>
       {canEdit && (
         <div className="flex items-center gap-1.5">
-          <UserPlus className="h-4 w-4 text-muted-foreground" />
+          <UserPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
           <Select value="" onChange={(e) => { if (e.target.value) persist([...ids, e.target.value]); }} disabled={available.length === 0 || saving}>
             <option value="">{available.length ? "+ Ajouter un collaborateur…" : "Tout le monde est déjà participant"}</option>
             {available.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}

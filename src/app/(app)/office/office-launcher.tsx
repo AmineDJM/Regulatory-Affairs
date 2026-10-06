@@ -94,7 +94,7 @@ export function OfficeLauncher({
                 onClick={() => pin(a.key)}
                 aria-pressed={pinned}
                 title={pinned ? "Retirer du menu" : "Épingler dans le menu de gauche"}
-                className={`absolute right-2 top-2 rounded-lg p-1.5 transition-colors ${pinned ? "text-primary" : "text-muted-foreground/60 hover:bg-secondary hover:text-foreground"}`}
+                className={`absolute right-2 top-2 rounded-lg p-2.5 transition-colors sm:p-1.5 ${pinned ? "text-primary" : "text-muted-foreground/60 hover:bg-secondary hover:text-foreground"}`}
               >
                 {pinned ? <Pin className="h-4 w-4 fill-current" /> : <PinOff className="h-4 w-4" />}
               </button>
@@ -140,7 +140,7 @@ export function OfficeLauncher({
             </p>
           )}
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(null)} disabled={busy}>Annuler</Button>
             <Button type="button" onClick={() => void create()} disabled={busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}

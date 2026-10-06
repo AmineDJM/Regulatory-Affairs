@@ -74,10 +74,12 @@ export default async function JournalAchatsPage() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <KpiCard label="Gestes enregistrés" value={total} icon="ScrollText" />
         <KpiCard label="Demandes déposées" value={depots} icon="ShoppingBasket" />
-        <KpiCard
-          label="Estimé demandé (affiché)" value={`${demande.toLocaleString("fr-FR")} DZD`} icon="Coins"
-          hint="Somme des estimations catalogue des dépôts affichés — une estimation, jamais une dépense."
-        />
+        <div className="col-span-2 md:col-span-1 [&>*]:h-full">
+          <KpiCard
+            label="Estimé demandé (affiché)" value={`${demande.toLocaleString("fr-FR")} DZD`} icon="Coins"
+            hint="Somme des estimations catalogue des dépôts affichés — une estimation, jamais une dépense."
+          />
+        </div>
       </div>
 
       {rows.length === 0 ? (

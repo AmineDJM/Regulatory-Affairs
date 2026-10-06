@@ -85,7 +85,7 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
                 <button
                   type="button"
                   onClick={() => setKind(k.kind)}
-                  className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/50 hover:bg-primary/5"
+                  className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:border-primary/50 hover:bg-primary/5"
                 >
                   <Icon name={k.icon} className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                   <span className="min-w-0">
@@ -101,7 +101,7 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
             <button
               type="button"
               onClick={back}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex min-h-9 items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground sm:min-h-0"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Toutes les natures
             </button>

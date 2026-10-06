@@ -115,11 +115,11 @@ export default async function CoachingPage({ searchParams }: { searchParams?: { 
           <ul className="divide-y divide-border rounded-xl border border-warning/40">
             {brouillons.map((f) => (
               <li key={f.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-                <span className="font-medium">{f.collaborateur}</span>
+                <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{f.collaborateur}</span>
                 <span className="text-muted-foreground">tournée du {formaterJour(f.visitDate)}</span>
                 {f.manager && <span className="text-xs text-muted-foreground">· {f.manager}</span>}
                 <ScoreBadge fiche={f} />
-                <Link href={`/medical/coaching/${f.id}`} className="ml-auto inline-flex items-center gap-1 text-primary hover:underline">
+                <Link href={`/medical/coaching/${f.id}`} className="ml-auto inline-flex min-h-9 items-center gap-1 text-primary hover:underline">
                   Reprendre <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </li>
@@ -215,24 +215,24 @@ export default async function CoachingPage({ searchParams }: { searchParams?: { 
         <section className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fiches de l&apos;équipe</h2>
-            <form className="flex flex-wrap items-end gap-2" method="get">
-              <label className="space-y-1">
+            <form className="flex w-full flex-wrap items-end gap-2 sm:w-auto" method="get">
+              <label className="min-w-0 flex-1 space-y-1 sm:flex-none">
                 <span className="block text-xs text-muted-foreground">Collaborateur</span>
-                <select name="collaborateur" defaultValue={filtreCollaborateur ?? ""} className="h-9 rounded-[var(--radius)] border border-border bg-card px-2 text-sm">
+                <select name="collaborateur" defaultValue={filtreCollaborateur ?? ""} className="h-10 w-full rounded-[var(--radius)] border border-border bg-card px-2 text-base sm:h-9 sm:w-auto sm:text-sm">
                   <option value="">Tous</option>
                   {[...optionsFiltre].sort((a, b) => a[1].localeCompare(b[1], "fr")).map(([id, nom]) => <option key={id} value={id}>{nom}</option>)}
                 </select>
               </label>
-              <label className="space-y-1">
+              <label className="min-w-0 flex-1 space-y-1 sm:flex-none">
                 <span className="block text-xs text-muted-foreground">Statut</span>
-                <select name="statut" defaultValue={filtreStatut ?? ""} className="h-9 rounded-[var(--radius)] border border-border bg-card px-2 text-sm">
+                <select name="statut" defaultValue={filtreStatut ?? ""} className="h-10 w-full rounded-[var(--radius)] border border-border bg-card px-2 text-base sm:h-9 sm:w-auto sm:text-sm">
                   <option value="">Tous</option>
                   <option value="FINALIZED">Finalisées</option>
                   <option value="DRAFT">Brouillons</option>
                 </select>
               </label>
               <Button type="submit" size="sm" variant="secondary">Filtrer</Button>
-              {(filtreCollaborateur || filtreStatut) && <Link href="/medical/coaching" className="pb-2 text-xs text-primary hover:underline">Réinitialiser</Link>}
+              {(filtreCollaborateur || filtreStatut) && <Link href="/medical/coaching" className="inline-flex min-h-9 items-center text-xs text-primary hover:underline sm:min-h-0 sm:pb-2">Réinitialiser</Link>}
             </form>
           </div>
           {equipe.length === 0 ? (
@@ -265,7 +265,8 @@ function ScoreBadge({ fiche }: { fiche: FicheListee }) {
 function Jauge({ total, max }: { total: number; max: number }) {
   const pct = max ? Math.round((total / max) * 100) : 0;
   return (
-    <span className="flex min-w-[8rem] items-center gap-2">
+    // w-full : dans une carte mobile, la barre prend la place restante au lieu de s'écraser à zéro.
+    <span className="flex w-full min-w-[8rem] max-w-[14rem] items-center gap-2 sm:max-w-none">
       <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
         <span className={cn("block h-full rounded-full", pct >= 75 ? "bg-success" : pct >= 50 ? "bg-primary" : pct >= 35 ? "bg-warning" : "bg-destructive")} style={{ width: `${pct}%` }} />
       </span>
@@ -296,15 +297,17 @@ function ListeFiches({ fiches, colonneCollaborateur }: { fiches: FicheListee[]; 
               <TableCell label="Manager">{f.manager ?? "—"}</TableCell>
               <TableCell label="Total">{f.total === null || f.max === null ? <Badge tone="danger">Grille illisible</Badge> : <Jauge total={f.total} max={f.max} />}</TableCell>
               <TableCell label="Statut">
-                <Badge tone={f.status === "FINALIZED" ? "success" : "warning"}>{f.status === "FINALIZED" ? "Finalisée" : "Brouillon"}</Badge>
-                <span className="ml-2 text-[11px] text-muted-foreground">grille v{f.gridVersion}</span>
+                <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Badge tone={f.status === "FINALIZED" ? "success" : "warning"}>{f.status === "FINALIZED" ? "Finalisée" : "Brouillon"}</Badge>
+                  <span className="text-[11px] text-muted-foreground">grille v{f.gridVersion}</span>
+                </span>
               </TableCell>
               <TableCell label="Fiche" className="text-right">
-                <span className="inline-flex items-center gap-3">
-                  <a href={`/api/medical/coaching/${f.id}/export`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" title="Télécharger la fiche (Excel)">
+                <span className="inline-flex items-center gap-4 sm:gap-3">
+                  <a href={`/api/medical/coaching/${f.id}/export`} className="inline-flex min-h-9 items-center gap-1 text-xs text-muted-foreground hover:text-foreground sm:min-h-0" title="Télécharger la fiche (Excel)">
                     <Download className="h-3.5 w-3.5" /> Excel
                   </a>
-                  <Link href={`/medical/coaching/${f.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                  <Link href={`/medical/coaching/${f.id}`} className="inline-flex min-h-9 items-center gap-1 text-primary hover:underline sm:min-h-0">
                     Ouvrir <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 </span>

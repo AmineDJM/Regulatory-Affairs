@@ -59,9 +59,9 @@ export default async function AdminFeedbackPage() {
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-baseline gap-x-2">
                       <span className="text-sm font-medium">{f.user?.name ?? "Utilisateur"}</span>
-                      <span className="text-xs text-muted-foreground">{f.user?.email}</span>
+                      <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{f.user?.email}</span>
                     </div>
-                    <p className="whitespace-pre-wrap text-sm text-foreground/90">{f.message}</p>
+                    <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{f.message}</p>
                     <p className="text-xs text-muted-foreground">
                       {f.module ? `${f.module} · ` : ""}{formatDateTime(f.createdAt)}
                     </p>

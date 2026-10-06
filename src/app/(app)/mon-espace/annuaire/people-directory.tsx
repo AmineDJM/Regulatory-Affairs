@@ -37,7 +37,7 @@ const CHANNEL_ICON = {
   WHATSAPP: MessageCircle,
 } as const;
 
-const champ = "h-8 rounded-lg border border-border bg-background px-2 text-sm";
+const champ = "h-10 max-w-full rounded-lg border border-border bg-background px-2 text-sm sm:h-8";
 
 export function PeopleDirectory({ people, canEdit }: { people: DirectoryPerson[]; canEdit: boolean }) {
   const { enCours, rafraichir } = useRafraichir();
@@ -161,16 +161,16 @@ export function PeopleDirectory({ people, canEdit }: { people: DirectoryPerson[]
                                   {e.confidence === "VERIFIED_PROVIDER" && <option value="VERIFIED_PROVIDER">Fiche ERP</option>}
                                 </select>
                                 <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" name="isPrimary" defaultChecked={e.isPrimary} className="h-4 w-4 accent-success" /> Principale</label>
-                                <button type="submit" disabled={occupe} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"><Check className="h-3.5 w-3.5" /> Enregistrer</button>
-                                <button type="button" onClick={() => setEditId(null)} className="h-8 rounded-lg px-2 text-sm text-muted-foreground hover:bg-secondary">Annuler</button>
+                                <button type="submit" disabled={occupe} className="inline-flex h-10 items-center gap-1 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:h-8"><Check className="h-3.5 w-3.5" /> Enregistrer</button>
+                                <button type="button" onClick={() => setEditId(null)} className="h-10 rounded-lg px-3 text-sm text-muted-foreground hover:bg-secondary sm:h-8 sm:px-2">Annuler</button>
                               </form>
                             </li>
                           );
                         }
                         return (
-                          <li key={e.id} className="flex items-center gap-2 text-sm">
+                          <li key={e.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                             <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span className="truncate">{e.value}</span>
+                            <span className="min-w-0 truncate">{e.value}</span>
                             {e.label && <span className="text-xs text-muted-foreground">({e.label})</span>}
                             {e.isPrimary && (
                               <span className="inline-flex items-center gap-0.5 rounded bg-success/15 px-1.5 py-0.5 text-[0.6875rem] text-success">
@@ -184,7 +184,7 @@ export function PeopleDirectory({ people, canEdit }: { people: DirectoryPerson[]
                             {canEdit && (
                               <span className="ml-auto flex shrink-0 items-center gap-1">
                                 <button type="button" aria-label={`Modifier ${e.value}`} disabled={occupe} onClick={() => setEditId(e.id)}
-                                  className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                                  className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1">
                                   <Pencil className="h-3.5 w-3.5" />
                                 </button>
                                 <button
@@ -194,7 +194,7 @@ export function PeopleDirectory({ people, canEdit }: { people: DirectoryPerson[]
                                     const fd = new FormData(); fd.set("id", e.id);
                                     void agir(() => deactivateDirectoryEndpoint(fd));
                                   }}
-                                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1"
                                 >
                                   <X className="h-3.5 w-3.5" />
                                 </button>
@@ -206,7 +206,7 @@ export function PeopleDirectory({ people, canEdit }: { people: DirectoryPerson[]
                       {p.erpEmails.map((mail) => (
                         <li key={mail} className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Mail className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{mail}</span>
+                          <span className="min-w-0 truncate">{mail}</span>
                           <span className="rounded bg-secondary px-1.5 py-0.5 text-[0.6875rem]">fiche ERP</span>
                         </li>
                       ))}
@@ -260,7 +260,7 @@ export function PeopleDirectory({ people, canEdit }: { people: DirectoryPerson[]
                         </label>
                         <button
                           type="submit" disabled={occupe}
-                          className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                          className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:h-8 sm:w-auto"
                         >
                           <Plus className="h-3.5 w-3.5" /> Ajouter
                         </button>
@@ -315,7 +315,7 @@ function InfosPersonne({ person, occupe, onSave }: { person: DirectoryPerson; oc
         <input value={notes} onChange={(e) => setNotes(e.target.value)} className={`${champ} w-full`} />
       </label>
       {change && (
-        <button type="submit" disabled={occupe} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        <button type="submit" disabled={occupe} className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50 sm:h-8 sm:w-auto">
           <Check className="h-3.5 w-3.5" /> Enregistrer les infos
         </button>
       )}

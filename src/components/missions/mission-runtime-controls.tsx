@@ -89,7 +89,7 @@ function useGeste() {
 function Message({ etat }: { etat: Etat }) {
   if (!etat) return null;
   return (
-    <p className={`mt-2 text-sm ${etat.ok ? "text-emerald-700" : "text-rose-700"}`} role="status">
+    <p className={`mt-2 w-full break-words text-sm ${etat.ok ? "text-emerald-700" : "text-rose-700"}`} role="status">
       {etat.message}
     </p>
   );
@@ -100,11 +100,11 @@ export function AccordControls({ approvalId, resume }: { approvalId: string; res
   const { enCours, etat, lancer, pret } = useGeste();
   return (
     <div data-testid="mission-accord">
-      <p className="text-sm text-slate-700">{resume}</p>
+      <p className="break-words text-sm text-slate-700">{resume}</p>
       <div className="mt-2 flex flex-wrap gap-2">
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-60 sm:flex-none sm:py-1.5"
           disabled={!pret || enCours !== null}
           onClick={() => lancer("accorder", () => deciderAccordMission(approvalId, "GRANTED"))}
         >
@@ -113,7 +113,7 @@ export function AccordControls({ approvalId, resume }: { approvalId: string; res
         </button>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-60"
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60 sm:flex-none sm:py-1.5"
           disabled={!pret || enCours !== null}
           onClick={() => lancer("refuser", () => deciderAccordMission(approvalId, "REFUSED"))}
         >
@@ -149,12 +149,12 @@ export function ElementControls(
           id={`el-${stepKey}`}
           value={texte}
           onChange={(e) => setTexte(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+          className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm sm:py-1.5"
           placeholder="Votre réponse"
         />
         <button
           type="submit"
-          className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60 sm:py-1.5"
           disabled={!pret || vide || enCours !== null}
         >
           {enCours === "fournir" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -183,7 +183,7 @@ export function ConduiteControls({ missionId, statut }: { missionId: string; sta
       {statut === "PAUSED" ? (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 sm:py-1.5"
           disabled={!pret || enCours !== null}
           onClick={() => lancer("reprendre", () => reprendreMission(missionId))}
         >
@@ -193,7 +193,7 @@ export function ConduiteControls({ missionId, statut }: { missionId: string; sta
       ) : (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 sm:py-1.5"
           disabled={!pret || enCours !== null}
           onClick={() => lancer("pause", () => mettreMissionEnPause(missionId))}
         >
@@ -203,7 +203,7 @@ export function ConduiteControls({ missionId, statut }: { missionId: string; sta
       )}
       <button
         type="button"
-        className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700 disabled:opacity-60"
+        className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 px-3 py-2 text-sm text-rose-700 disabled:opacity-60 sm:py-1.5"
         disabled={!pret || enCours !== null}
         onClick={() => {
           // UNE SEULE CONFIRMATION, et elle dit ce qui ne sera PAS défait. « Êtes-vous sûr ? »
@@ -239,7 +239,7 @@ export function PrioriteControls({ missionId, priorite }: { missionId: string; p
       </span>
       <button
         type="button"
-        className="rounded-md border border-slate-300 px-2 py-1 text-xs disabled:opacity-60"
+        className="rounded-md border border-slate-300 px-3 py-2 text-xs disabled:opacity-60 sm:px-2 sm:py-1"
         disabled={!pret || enCours !== null || priorite >= 10}
         onClick={() => lancer("monter", () => changerPrioriteMission(missionId, priorite + 1))}
       >
@@ -248,7 +248,7 @@ export function PrioriteControls({ missionId, priorite }: { missionId: string; p
       {priorite !== 0 ? (
         <button
           type="button"
-          className="rounded-md border border-slate-300 px-2 py-1 text-xs disabled:opacity-60"
+          className="rounded-md border border-slate-300 px-3 py-2 text-xs disabled:opacity-60 sm:px-2 sm:py-1"
           disabled={!pret || enCours !== null}
           onClick={() => lancer("normale", () => changerPrioriteMission(missionId, 0))}
         >
@@ -337,7 +337,7 @@ export function ModificationControls({ missionId }: { missionId: string }) {
           <button
             key={g.valeur}
             type="button"
-            className={`rounded-md border px-2 py-1 text-xs ${
+            className={`rounded-md border px-3 py-2 text-xs sm:px-2 sm:py-1 ${
               genre === g.valeur ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-slate-700"
             }`}
             onClick={() => { setGenre(g.valeur); setApercu(null); }}
@@ -352,7 +352,7 @@ export function ModificationControls({ missionId }: { missionId: string }) {
         <input
           value={cible}
           onChange={(e) => { setCible(e.target.value); setApercu(null); }}
-          className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm sm:py-1.5"
           placeholder={genre === "AJOUTER" ? "Ce à quoi ça se rattache" : "Ce qui est visé (une personne, un livrable, une source)"}
           aria-label="Cible de la modification"
         />
@@ -360,7 +360,7 @@ export function ModificationControls({ missionId }: { missionId: string }) {
           <input
             value={remplacant}
             onChange={(e) => { setRemplacant(e.target.value); setApercu(null); }}
-            className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm sm:py-1.5"
             placeholder={genre === "REMPLACER" ? "Par qui / par quoi" : "Ce qu'on ajoute, en clair"}
             aria-label={genre === "REMPLACER" ? "Remplaçant" : "Ajout"}
           />
@@ -370,7 +370,7 @@ export function ModificationControls({ missionId }: { missionId: string }) {
       <div className="mt-2 flex flex-wrap gap-2">
         <button
           type="button"
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
+          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 sm:flex-none sm:py-1.5"
           disabled={!pret || enCours !== null}
           onClick={() => void voir()}
         >
@@ -379,7 +379,7 @@ export function ModificationControls({ missionId }: { missionId: string }) {
         {apercu?.ok ? (
           <button
             type="button"
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+            className="flex-1 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60 sm:flex-none sm:py-1.5"
             disabled={!pret || enCours !== null}
             onClick={() => void appliquer()}
           >
@@ -396,7 +396,7 @@ export function ModificationControls({ missionId }: { missionId: string }) {
           data-testid="mission-modification-apercu"
           role="status"
         >
-          <p>{apercu.message}</p>
+          <p className="break-words">{apercu.message}</p>
           {apercu.empreinte ? (
             <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
               <li>{apercu.empreinte.aRecompiler.length} étape(s) à refaire · {apercu.empreinte.preservees.length} préservée(s)</li>
@@ -441,11 +441,11 @@ export function MissionBulkControls({ suspendables, bloquees }: { suspendables: 
   return (
     <div className="surface p-3" data-testid="mission-bulk-controls">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="mr-auto text-sm text-slate-700">Sur tout votre parc :</p>
+        <p className="w-full text-sm text-slate-700 sm:mr-auto sm:w-auto">Sur tout votre parc :</p>
         {suspendables > 0 && (
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60 sm:w-auto sm:py-1.5"
             disabled={!pret || enCours !== null}
             onClick={() => {
               if (!window.confirm(
@@ -461,7 +461,7 @@ export function MissionBulkControls({ suspendables, bloquees }: { suspendables: 
         {bloquees > 0 && (
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 px-3 py-1.5 text-sm font-medium text-rose-700 disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-rose-300 px-3 py-2 text-sm font-medium text-rose-700 disabled:opacity-60 sm:w-auto sm:py-1.5"
             disabled={!pret || enCours !== null}
             onClick={() => {
               if (!window.confirm(

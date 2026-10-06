@@ -36,7 +36,12 @@ import { useRafraichir } from "@/components/shared/use-rafraichir";
  * Ce module n'importe que `sfe-setup` (pur) et les actions serveur : la frontière client tient.
  */
 
-const inputCls = "h-9 rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+// `max-w-full` : un menu dont une option est longue ne pousse jamais la carte hors de l'écran.
+const inputCls = "h-10 max-w-full rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none sm:h-9";
+// Bouton secondaire « Rattacher / Désigner / Ajouter » : 40 px au doigt, compact au bureau.
+const btnLigneCls = "inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-sm hover:bg-secondary disabled:opacity-60 sm:py-1.5";
+const iconBtnCls = "rounded-md p-2.5 sm:p-1.5";
+const caseCls = "flex min-h-10 items-center gap-1 text-xs text-muted-foreground sm:min-h-0";
 const btnCls = "inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60";
 
 export interface Opt { id: string; name: string }
@@ -146,24 +151,24 @@ export function BusinessUnitsManager({
             produits. On la crée ici, puis on la déplie pour lui rattacher ses KAM et ses produits.
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <input name="name" required placeholder="Nom de la BU (ex. Neurologie)" className={`${inputCls} sm:col-span-2`} />
-            <input name="code" placeholder="Code (facultatif)" className={inputCls} />
-            <select name="supervisorId" className={inputCls} defaultValue="">
+            <input name="name" required placeholder="Nom de la BU (ex. Neurologie)" className={`${inputCls} w-full sm:col-span-2`} />
+            <input name="code" placeholder="Code (facultatif)" className={`${inputCls} w-full`} />
+            <select name="supervisorId" className={`${inputCls} w-full`} defaultValue="">
               <option value="">— Superviseur —</option>
               {supervisors.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
-            <select name="channel" className={inputCls} defaultValue="BOTH">
+            <select name="channel" className={`${inputCls} w-full`} defaultValue="BOTH">
               {CHANNELS.map((c) => <option key={c} value={c}>Terrain : {CHANNEL_LABELS[c]}</option>)}
             </select>
-            <select name="companyId" className={inputCls} defaultValue="">
+            <select name="companyId" className={`${inputCls} w-full`} defaultValue="">
               <option value="">— Société —</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <select name="headId" className={inputCls} defaultValue="">
+            <select name="headId" className={`${inputCls} w-full`} defaultValue="">
               <option value="">— Chef de BU (facultatif) —</option>
               {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
-            <input name="color" type="color" defaultValue="#2563eb" className="h-9 w-16 rounded-lg border border-input bg-background" title="Couleur" />
+            <input name="color" type="color" defaultValue="#2563eb" className="h-10 w-16 rounded-lg border border-input bg-background sm:h-9" title="Couleur" aria-label="Couleur" />
           </div>
           {/* LES SPÉCIALITÉS VISÉES, dès la création (§118.183) — « BU ≠ spécialité » : plusieurs, dont une
               principale facultative. Elles se règlent aussi plus tard, dans la carte de la BU. */}
@@ -173,8 +178,8 @@ export function BusinessUnitsManager({
             {choixCreation.ids.map((id) => <input key={id} type="hidden" name="specialtyIds" value={id} />)}
             {choixCreation.principaleId && <input type="hidden" name="principaleId" value={choixCreation.principaleId} />}
           </fieldset>
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setCreating(false)} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary">Annuler</button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={() => setCreating(false)} className="rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-secondary sm:py-2">Annuler</button>
             <button type="submit" disabled={busy} className={btnCls}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Créer la BU
             </button>
@@ -343,8 +348,8 @@ function BuCard({
                 <option value="">— Chef de BU —</option>
                 {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
-              <input type="color" className="h-9 w-12 rounded-lg border border-input bg-background" defaultValue={bu.color ?? "#2563eb"} onBlur={(e) => saveBu({ color: e.target.value })} title="Couleur" />
-              <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              <input type="color" className="h-10 w-12 rounded-lg border border-input bg-background sm:h-9" defaultValue={bu.color ?? "#2563eb"} onBlur={(e) => saveBu({ color: e.target.value })} title="Couleur" aria-label="Couleur" />
+              <label className={caseCls}>
                 <input type="checkbox" defaultChecked={bu.isActive} onChange={(e) => saveBu({ isActive: e.target.checked })} /> Active
               </label>
               {/* OUVRIR LE BUDGET DE LA GAMME — un geste explicite, pas un effet de bord de la
@@ -359,7 +364,7 @@ function BuCard({
                 <button
                   type="button"
                   title="Ouvrir le budget de cette gamme : elle devient un sous-département de la Direction commerciale, avec son enveloppe Ad&Pro et sa masse salariale."
-                  className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-secondary"
+                  className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-2 text-xs font-medium hover:bg-secondary sm:py-1"
                   onClick={() => {
                     const fd = new FormData(); fd.set("id", bu.id);
                     void run(openBusinessUnitBudget, fd);
@@ -371,7 +376,8 @@ function BuCard({
               <button
                 type="button"
                 title="Supprimer la BU"
-                className="rounded-md p-1.5 text-destructive hover:bg-destructive/10"
+                aria-label="Supprimer la BU"
+                className={`${iconBtnCls} text-destructive hover:bg-destructive/10`}
                 onClick={() => {
                   if (!window.confirm(`Supprimer la BU « ${bu.name} » ?`)) return;
                   const fd = new FormData(); fd.set("id", bu.id);
@@ -441,7 +447,7 @@ function BuCard({
                   <option value="" disabled>— Rattacher un KAM —</option>
                   {kamsFree.map((k) => <option key={k.repId} value={k.repId}>{k.name}</option>)}
                 </select>
-                <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60">
+                <button type="submit" disabled={busy} className={btnLigneCls}>
                   <Plus className="h-4 w-4" /> Rattacher
                 </button>
               </form>
@@ -472,7 +478,7 @@ function BuCard({
                   <button
                     type="button" disabled={busy}
                     onClick={() => { const fd = new FormData(); fd.set("id", r.id); void run(removeBuMarketingReferent, fd); }}
-                    className="rounded-lg border border-input px-2 py-1 text-xs hover:bg-secondary disabled:opacity-60"
+                    className="rounded-lg border border-input px-2.5 py-2 text-xs hover:bg-secondary disabled:opacity-60 sm:px-2 sm:py-1"
                   >
                     Retirer
                   </button>
@@ -490,7 +496,7 @@ function BuCard({
                     .filter((u) => !referentsInside.some((r) => r.userId === u.id))
                     .map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
-                <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60">
+                <button type="submit" disabled={busy} className={btnLigneCls}>
                   <Plus className="h-4 w-4" /> Désigner
                 </button>
               </form>
@@ -522,11 +528,11 @@ function BuCard({
               className="flex flex-wrap items-center gap-2"
               action={(fd) => { fd.set("businessUnitId", bu.id); void run(createPromoProduct, fd); }}
             >
-              <select name="regulatoryProductId" required className={`${inputCls} min-w-64 flex-1`} defaultValue="">
+              <select name="regulatoryProductId" required className={`${inputCls} w-full flex-1 sm:w-auto sm:min-w-64`} defaultValue="">
                 <option value="" disabled>— Choisir un dossier Regulatory —</option>
                 {dossiers.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
               </select>
-              <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60">
+              <button type="submit" disabled={busy} className={btnLigneCls}>
                 <Plus className="h-4 w-4" /> Ajouter le produit
               </button>
             </form>
@@ -540,7 +546,7 @@ function BuCard({
                   <option value="" disabled>— Rattacher un produit existant —</option>
                   {productsFree.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
-                <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60">
+                <button type="submit" disabled={busy} className={btnLigneCls}>
                   <Plus className="h-4 w-4" /> Rattacher
                 </button>
               </form>
@@ -586,23 +592,24 @@ function KamLine({ kam, buId, config, busy, run, hospitaliere, territoire, etabl
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border p-1.5 text-sm">
       <UserCog className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-      <span className="min-w-28 flex-1 font-medium">{kam.name}</span>
+      <span className="min-w-28 flex-1 font-medium [overflow-wrap:anywhere]">{kam.name}</span>
       {!hospitaliere && (
         <input className={`${inputCls} w-32`} defaultValue={kam.region ?? ""} placeholder="Secteur" aria-label={`Secteur de ${kam.name}`} onBlur={(e) => save({ region: e.target.value || null })} />
       )}
       {/* La capacité vide = la valeur globale du paramétrage : le placeholder le DIT. */}
-      <input className={`${inputCls} w-20`} type="number" defaultValue={kam.capDaysPerMonth ?? ""} placeholder={`${config.daysPerMonth} j`} title="Jours terrain / mois" onBlur={(e) => save({ capDaysPerMonth: num(e.target.value) })} />
-      <input className={`${inputCls} w-20`} type="number" defaultValue={kam.capVisitsPerDay ?? ""} placeholder={`${config.visitsPerDay} v/j`} title="Visites / jour" onBlur={(e) => save({ capVisitsPerDay: num(e.target.value) })} />
-      <input className={`${inputCls} w-20`} type="number" defaultValue={kam.capFieldPct ?? ""} placeholder={`${config.fieldPct} %`} title="% de temps terrain" onBlur={(e) => save({ capFieldPct: num(e.target.value) })} />
-      <input className={`${inputCls} w-20`} type="number" step="0.1" defaultValue={kam.fteBudget} title="ETP contractuel" onBlur={(e) => save({ fteBudget: Number(e.target.value) || 1 })} />
-      <label className="flex items-center gap-1 text-xs text-muted-foreground">
+      <input className={`${inputCls} w-20`} type="number" inputMode="numeric" defaultValue={kam.capDaysPerMonth ?? ""} placeholder={`${config.daysPerMonth} j`} title="Jours terrain / mois" aria-label="Jours terrain / mois" onBlur={(e) => save({ capDaysPerMonth: num(e.target.value) })} />
+      <input className={`${inputCls} w-20`} type="number" inputMode="decimal" defaultValue={kam.capVisitsPerDay ?? ""} placeholder={`${config.visitsPerDay} v/j`} title="Visites / jour" aria-label="Visites / jour" onBlur={(e) => save({ capVisitsPerDay: num(e.target.value) })} />
+      <input className={`${inputCls} w-20`} type="number" inputMode="decimal" defaultValue={kam.capFieldPct ?? ""} placeholder={`${config.fieldPct} %`} title="% de temps terrain" aria-label="% de temps terrain" onBlur={(e) => save({ capFieldPct: num(e.target.value) })} />
+      <input className={`${inputCls} w-20`} type="number" inputMode="decimal" step="0.1" defaultValue={kam.fteBudget} title="ETP contractuel" aria-label="ETP contractuel" onBlur={(e) => save({ fteBudget: Number(e.target.value) || 1 })} />
+      <label className={caseCls}>
         <input type="checkbox" defaultChecked={kam.isActive} onChange={(e) => save({ isActive: e.target.checked }, true)} /> Actif
       </label>
       <button
         type="button"
         title="Retirer de la BU"
+        aria-label="Retirer de la BU"
         disabled={busy}
-        className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-destructive"
+        className={`${iconBtnCls} text-muted-foreground hover:bg-secondary hover:text-destructive`}
         onClick={() => { if (kam.businessUnitId === buId) save({ businessUnitId: null }, true); }}
       >
         <Trash2 className="h-4 w-4" />
@@ -644,14 +651,15 @@ function ProductLine({ prod, buChannel, users, busy, run }: {
           <option value="">— Référent Direction Marketing —</option>
           {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </select>
-        <label className="flex items-center gap-1 text-xs text-muted-foreground">
+        <label className={caseCls}>
           <input type="checkbox" defaultChecked={prod.isActive} onChange={(e) => save({ isActive: e.target.checked }, true)} /> Actif
         </label>
         <button
           type="button"
           title="Supprimer le produit"
+          aria-label="Supprimer le produit"
           disabled={busy}
-          className="rounded-md p-1.5 text-destructive hover:bg-destructive/10"
+          className={`${iconBtnCls} text-destructive hover:bg-destructive/10`}
           onClick={() => {
             if (!window.confirm(`Supprimer « ${prod.name} » du catalogue promotionnel ?`)) return;
             const fd = new FormData(); fd.set("id", prod.id);
@@ -661,7 +669,7 @@ function ProductLine({ prod, buChannel, users, busy, run }: {
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
-      <p className="pl-6 text-xs text-muted-foreground">
+      <p className="pl-6 text-xs text-muted-foreground [overflow-wrap:anywhere]">
         {prod.dossier ? `Dossier : ${prod.dossier}` : "Aucun dossier Regulatory rattaché."}
         {horsTerrain && (
           <span className="ml-2 text-amber-700 dark:text-amber-500">
@@ -722,8 +730,8 @@ function SpecialitesDeLaBu({ bu, referentiel, busy, run, why }: {
       {edite ? (
         <div className="space-y-2 rounded-lg border border-border p-2.5">
           <ChoixSpecialites referentiel={referentiel} valeur={valeur} onChange={setValeur} disabled={busy} />
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setEdite(false)} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-secondary">Annuler</button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={() => setEdite(false)} disabled={busy} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary sm:py-1.5">Annuler</button>
             <button type="button" onClick={enregistrer} disabled={busy} className={btnCls}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer les spécialités
             </button>
@@ -732,7 +740,7 @@ function SpecialitesDeLaBu({ bu, referentiel, busy, run, why }: {
       ) : (
         <button
           type="button" onClick={() => setEdite(true)} disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60"
+          className={btnLigneCls}
         >
           <Stethoscope className="h-4 w-4" aria-hidden /> {bu.specialites.length > 0 ? "Modifier les spécialités" : "Choisir les spécialités"}
         </button>

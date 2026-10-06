@@ -115,7 +115,7 @@ export default async function RhLeavePage() {
       {/* 3. Les échéances qu'on oublie : fin de période d'essai et fin de contrat. */}
       {pulse.deadlines.length > 0 && (
         <section className="surface space-y-3 p-4">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <AlarmClock className="h-4 w-4 text-warning" />
             <h2 className="text-sm font-semibold">Échéances à ne pas manquer</h2>
             <span className="text-xs text-muted-foreground">période d&apos;essai et fin de contrat, sous 60 jours</span>
@@ -189,7 +189,7 @@ export default async function RhLeavePage() {
                 {/* DEUX PERSONNES, VRAIMENT : ni l'absent ni l'intérimaire ne valident l'intérim qui les lie —
                     l'action le refuse, le bouton ne s'offre donc pas (§118.196). */}
                 {l.employee.userId === user.id || l.standInId === user.id ? (
-                  <p className="max-w-xs text-right text-xs text-muted-foreground">
+                  <p className="max-w-xs text-xs text-muted-foreground sm:text-right">
                     Vous êtes partie à cet intérim : un autre membre des RH le valide.
                   </p>
                 ) : (
@@ -229,7 +229,7 @@ export default async function RhLeavePage() {
                     <TableCell label="Statut"><StatusBadge map={LEAVE_STATUS} value={l.status} /></TableCell>
                     {canManage && (
                       <TableCell label="Modifier" className="text-right">
-                        <div className="flex items-center justify-end gap-0.5">
+                        <div className="flex items-center justify-end gap-1 sm:gap-0.5">
                           <LeaveEditButton leave={{ id: l.id, employee: l.employee.fullName, type: l.type, startDate: l.startDate.toISOString(), endDate: l.endDate.toISOString(), days: Number(l.days), reason: l.reason, status: l.status, decisionNote: l.decisionNote }} />
                           <SuperAdminDeleteButton
                             compact

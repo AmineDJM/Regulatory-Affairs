@@ -32,7 +32,7 @@ export function SessionsList({ userId, sessions }: { userId: string; sessions: S
     <ul className="divide-y divide-border">
       {sessions.map((s) => (
         <li key={s.id} className="flex items-center gap-3 py-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
             {deviceIcon(s.device)}
           </span>
           <div className="min-w-0 flex-1">
@@ -40,14 +40,14 @@ export function SessionsList({ userId, sessions }: { userId: string; sessions: S
               {s.browser} · {s.os}
               {s.current && <Badge tone="success" dot={false} className="ml-2">Session actuelle</Badge>}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
               {s.location || "Localisation inconnue"} · {s.ip || "IP inconnue"} · vue {formatDateTime(s.lastSeenAt)}
             </p>
           </div>
           <form action={async (fd) => { await revokeSession(fd); }}>
             <input type="hidden" name="sessionId" value={s.id} />
             <input type="hidden" name="userId" value={userId} />
-            <button type="submit" className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Révoquer">
+            <button type="submit" className="rounded-lg p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-2" title="Révoquer" aria-label="Révoquer cette session">
               <X className="h-4 w-4" />
             </button>
           </form>

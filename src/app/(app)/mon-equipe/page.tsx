@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency, formatDate, formatDateTime, daysUntil } from "@/lib/utils";
-import { TeamTree } from "./team-tree";
+import { TeamTree } from "./team-tree";
 import { DecisionConge } from "./decision-conge";
 
 export const dynamic = "force-dynamic";
@@ -126,7 +126,7 @@ export default async function MonEquipePage() {
         {canRecruit && (
           <Link
             href="/recrutement"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-secondary"
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-secondary sm:min-h-0"
           >
             <UserPlus className="h-4 w-4" /> Demander un recrutement
           </Link>
@@ -200,8 +200,10 @@ function PendingRow({ p }: { p: TeamPending }) {
     <Card className={imminent ? "border-warning/50" : undefined}>
       <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3 text-sm">
         <Badge tone="neutral" dot={false}>{KIND_LABEL[p.kind]}</Badge>
-        <span className="font-medium">{p.who}</span>
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+        <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{p.who}</span>
+        {/* Au téléphone, l'objet prend sa propre ligne (deux lignes au plus) au lieu d'être
+            écrasé en une colonne de trois lettres à côté du nom. */}
+        <span className="line-clamp-2 min-w-0 basis-full text-muted-foreground sm:line-clamp-1 sm:grow sm:basis-0">
           {p.title}
           {p.detail ? ` · ${p.detail}` : ""}
         </span>
@@ -219,7 +221,7 @@ function PendingRow({ p }: { p: TeamPending }) {
         ) : p.href ? (
           <Link
             href={p.href}
-            className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+            className="inline-flex min-h-10 w-full items-center justify-center gap-1 rounded-lg border border-border px-3 py-1 text-sm font-medium hover:bg-secondary sm:min-h-0 sm:w-auto sm:px-2.5 sm:text-xs"
           >
             Traiter <ExternalLink className="h-3.5 w-3.5" />
           </Link>
@@ -255,7 +257,7 @@ function Chevauchements({ periodes, nonMontres }: { periodes: ChevauchementDEqui
             <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3 text-sm">
               <Badge tone="warning" dot={false}>{c.equipe}</Badge>
               <span className="font-medium">{periode(c.debut, c.fin)}</span>
-              <span className="min-w-0 flex-1 text-muted-foreground">
+              <span className="min-w-0 basis-full text-muted-foreground sm:grow sm:basis-0">
                 {c.personnes.map((pers) => `${pers.nom}${pers.enAttente ? " (en attente)" : ""}`).join(", ")}
               </span>
             </CardContent>

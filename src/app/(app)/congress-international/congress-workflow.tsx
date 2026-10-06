@@ -45,7 +45,7 @@ export function ProductAnalysis({ type, id }: { type: string; id: string }) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-muted-foreground">Analyse de la Direction Marketing : approuvez (en proposant éventuellement un budget) ou refusez la demande.</p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Approuver</Button>
           <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> Refuser</Button>
         </div>
@@ -57,14 +57,14 @@ export function ProductAnalysis({ type, id }: { type: string; id: string }) {
       {mode === "approve" ? (
         <>
           <Label>Budget proposé (DZD) <span className="text-xs font-normal text-muted-foreground">— facultatif</span></Label>
-          <Input type="number" step="any" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Budget après analyse (optionnel)" />
+          <Input type="number" step="any" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Budget après analyse (optionnel)" />
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Analyse / justification…" className="min-h-[64px]" />
         </>
       ) : (
         <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Motif du refus (obligatoire)…" className="min-h-[64px]" />
       )}
       {err && <p className="text-xs text-destructive">{err}</p>}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <BoutonDecisif size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !notes.trim())}
           onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", productManagerBudget: budget, productManagerNotes: notes }), submitProductAnalysis, () => setMode(null))}>
           {pending && <Loader2 className="h-4 w-4 animate-spin" />} {mode === "reject" ? "Refuser" : "Soumettre"}
@@ -86,10 +86,10 @@ export function EditGrantedBudget({ type, id, current }: { type: string; id: str
   return (
     <div className="space-y-2">
       <Label>Nouveau montant accordé (DZD)</Label>
-      <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      <Input type="number" step="any" inputMode="decimal" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
       <p className="text-xs text-muted-foreground">Répercuté sur la déclaration d'information médicale et l'ordre de dépense (s'ils ne sont pas déjà réglés).</p>
       {err && <p className="text-xs text-destructive">{err}</p>}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <BoutonDecisif size="sm" disabled={pending || !(Number(amount) > 0)} onClick={() => run(base(type, id, { finalAmount: amount }), updateGrantedBudget, () => setOpen(false))}>
           {pending && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
         </BoutonDecisif>
@@ -114,7 +114,7 @@ export function FinalDecision({ type, id, suggestedAmount, categories = [] }: { 
     return (
       <div className="space-y-2">
         <p className="text-sm text-muted-foreground">Validation définitive après analyse de la Direction Marketing. La validation émet un ordre de dépense vers l'espace comptable.</p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Valider définitivement</Button>
           <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> Refuser</Button>
         </div>
@@ -129,7 +129,7 @@ export function FinalDecision({ type, id, suggestedAmount, categories = [] }: { 
       {mode === "approve" && (
         <>
           <Label>Montant accordé (DZD) <span className="text-destructive">*</span></Label>
-          <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Montant validé par la Direction" />
+          <Input type="number" step="any" inputMode="decimal" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Montant validé par la Direction" />
           <p className="text-xs text-muted-foreground">Ce montant fait foi pour la déclaration d'information médicale puis l'ordre de dépense.</p>
           {categoryRequired && (
             <>
@@ -145,7 +145,7 @@ export function FinalDecision({ type, id, suggestedAmount, categories = [] }: { 
       )}
       <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === "reject" ? "Motif du refus (obligatoire)…" : "Note (optionnel)…"} className="min-h-[56px]" />
       {err && <p className="text-xs text-destructive">{err}</p>}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <BoutonDecisif size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !note.trim()) || (mode === "approve" && (!amountValid || !categoryValid))}
           onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", note, finalAmount: amount, budgetCategoryId: category }), finalDecision, () => setMode(null))}>
           {pending && <Loader2 className="h-4 w-4 animate-spin" />} Confirmer

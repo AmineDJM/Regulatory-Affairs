@@ -34,8 +34,8 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId 
     <ul className="divide-y divide-border">
       {p.lignes.map((l) => (
         <li key={l.id} className="py-2">
-          <div className="flex items-start justify-between gap-2">
-            <span className="min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <span className="min-w-0 flex-1 basis-48">
               {l.fiche ? (
                 <Link href={`/legal/${l.id}`} className="inline-flex min-w-0 items-center gap-1 font-medium hover:underline">
                   <span className="truncate">{l.titre}</span> <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -43,11 +43,11 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId 
               ) : (
                 <span className="block truncate font-medium">{l.titre}</span>
               )}
-              <span className="block truncate text-[0.6875rem] text-muted-foreground">
+              <span className="block text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere] sm:truncate">
                 {[l.nature, l.reference, l.montant !== null ? formatCurrency(l.montant) : null].filter(Boolean).join(" · ")}
               </span>
             </span>
-            <span className="flex shrink-0 items-center gap-1">
+            <span className="ml-auto flex shrink-0 items-center gap-1">
               {l.statut && <Badge tone={l.statut.tone} dot={false}>{l.statut.label}</Badge>}
               <SupprimerPieceLegal id={l.id} nom={l.reference ? `${l.reference} — ${l.titre}` : l.titre} offert={l.suppression.piece.offert} />
             </span>
@@ -58,8 +58,8 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId 
           {(l.plateforme.pdf || l.plateforme.docx) && (
             <p className="mt-1 flex flex-wrap items-center gap-2 pl-3 text-[0.6875rem] text-muted-foreground">
               Version plateforme :
-              {l.plateforme.pdf && <a className="font-medium text-foreground hover:underline" href={lienFichierEmis(l.id, "pdf")} target="_blank" rel="noreferrer">PDF</a>}
-              {l.plateforme.docx && <a className="font-medium text-foreground hover:underline" href={lienFichierEmis(l.id, "docx")} target="_blank" rel="noreferrer">Word</a>}
+              {l.plateforme.pdf && <a className="inline-flex min-h-9 items-center px-1 font-medium text-foreground hover:underline sm:min-h-0 sm:px-0" href={lienFichierEmis(l.id, "pdf")} target="_blank" rel="noreferrer">PDF</a>}
+              {l.plateforme.docx && <a className="inline-flex min-h-9 items-center px-1 font-medium text-foreground hover:underline sm:min-h-0 sm:px-0" href={lienFichierEmis(l.id, "docx")} target="_blank" rel="noreferrer">Word</a>}
             </p>
           )}
           {l.documents.length > 0 && (
@@ -90,7 +90,7 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId 
         </p>
         {p.lignes.length > REPLIE_AU_DELA ? (
           <details>
-            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+            <summary className="cursor-pointer py-2 text-xs font-medium text-muted-foreground sm:py-0">
               Afficher les {p.lignes.length} pièces
             </summary>
             {liste}

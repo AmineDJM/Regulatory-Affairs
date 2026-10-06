@@ -19,7 +19,7 @@ const dzd = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
 function Section({ titre, children, lien }: { titre: string; children: React.ReactNode; lien?: { href: string; label: string } }) {
   return (
     <section className="surface space-y-2 p-4">
-      <div className="flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">{titre}</h2>{lien && <Link href={lien.href} className="text-xs text-primary underline">{lien.label}</Link>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">{titre}</h2>{lien && <Link href={lien.href} className="text-xs text-primary underline">{lien.label}</Link>}</div>
       {children}
     </section>
   );
@@ -130,7 +130,7 @@ export default async function Produit360Page({ params, searchParams }: { params:
 
       {voit.finances && attribution && (
         <Section titre={`Coûts attribués — ${annee}`}>
-          <div className="flex flex-wrap gap-1 text-xs">{[annee - 1, annee, annee + 1].map((a) => <Link key={a} href={`/produits/${p.produit.id}?annee=${a}`} className={`rounded-md border px-2 py-1 ${a === annee ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{a}</Link>)}</div>
+          <div className="flex flex-wrap gap-1 text-xs">{[annee - 1, annee, annee + 1].map((a) => <Link key={a} href={`/produits/${p.produit.id}?annee=${a}`} className={`rounded-md border px-3 py-2 sm:px-2 sm:py-1 ${a === annee ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{a}</Link>)}</div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <KpiCard label="Coûts directs" value={dzd(attribution.direct)} icon="Target" />
             <KpiCard label="Coûts alloués" value={dzd(attribution.alloue)} icon="Split" tone="info" />

@@ -39,7 +39,7 @@ export default async function MarketRadarPage({ searchParams }: { searchParams: 
 
       <div className="flex flex-wrap items-center gap-2">
         {TABS.map((t) => (
-          <Link key={t.key} href={`?tab=${t.key}`} className={`rounded-full px-3 py-1 text-xs font-medium ${tab === t.key ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>{t.label}</Link>
+          <Link key={t.key} href={`?tab=${t.key}`} className={`inline-flex min-h-9 items-center rounded-full px-3 py-1 text-xs font-medium sm:min-h-0 ${tab === t.key ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>{t.label}</Link>
         ))}
       </div>
 
@@ -53,16 +53,16 @@ export default async function MarketRadarPage({ searchParams }: { searchParams: 
           </div>
           <Card>
             <CardContent className="overflow-x-auto p-0 sm:p-2">
-              <Table>
+              <Table mobileCards>
                 <TableHeader><TableRow><TableHead>DCI</TableHead><TableHead className="text-right">Marché (USD)</TableHead><TableHead className="text-right">Croissance</TableHead><TableHead className="text-right">Importateurs</TableHead><TableHead>Labos importateurs</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {white.rows.map((r) => (
                     <TableRow key={r.key}>
-                      <TableCell className="font-medium">{r.dci}</TableCell>
+                      <TableCell data-sans-etiquette className="font-medium">{r.dci}</TableCell>
                       <TableCell className="text-right">{fmtUsd(r.valueUsd)}</TableCell>
                       <TableCell className="text-right">{fmtPct(r.growth)}</TableCell>
                       <TableCell className="text-right text-muted-foreground">{r.importers}</TableCell>
-                      <TableCell className="max-w-md truncate text-xs text-muted-foreground">{r.impLabs || "—"}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground [overflow-wrap:anywhere] sm:max-w-md sm:truncate" title={r.impLabs || undefined}>{r.impLabs || "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -83,12 +83,12 @@ export default async function MarketRadarPage({ searchParams }: { searchParams: 
           <p className="text-xs text-muted-foreground">AMM initiales des 6 derniers mois, marché ≥ $500k, ≤ 2 concurrents (fabricants + importateurs).</p>
           <Card>
             <CardContent className="overflow-x-auto p-0 sm:p-2">
-              <Table>
+              <Table mobileCards>
                 <TableHeader><TableRow><TableHead>DCI</TableHead><TableHead>Dernière AMM</TableHead><TableHead className="text-right">Marché (USD)</TableHead><TableHead className="text-right">Croissance</TableHead><TableHead className="text-right">Concurrents</TableHead><TableHead>Sources</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {neu.rows.length === 0 ? <TableRow><TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">Aucune nouvelle AMM correspondant aux critères.</TableCell></TableRow> : neu.rows.map((r) => (
+                  {neu.rows.length === 0 ? <TableRow><TableCell colSpan={6} data-sans-etiquette className="py-8 text-center text-sm text-muted-foreground">Aucune nouvelle AMM correspondant aux critères.</TableCell></TableRow> : neu.rows.map((r) => (
                     <TableRow key={r.key}>
-                      <TableCell className="font-medium">{r.dci}</TableCell>
+                      <TableCell data-sans-etiquette className="font-medium">{r.dci}</TableCell>
                       <TableCell className="text-muted-foreground">{r.lastRegistration ? formatDate(r.lastRegistration) : "—"}</TableCell>
                       <TableCell className="text-right">{fmtUsd(r.valueUsd)}</TableCell>
                       <TableCell className="text-right">{fmtPct(r.growth)}</TableCell>
@@ -114,7 +114,7 @@ export default async function MarketRadarPage({ searchParams }: { searchParams: 
           <p className="text-xs text-muted-foreground">Échéance estimée = dernière décision + 5 ans de validité, dans une fenêtre de −6 à +24 mois.</p>
           <Card>
             <CardContent className="overflow-x-auto p-0 sm:p-2">
-              <Table>
+              <Table mobileCards>
                 <TableHeader><TableRow><TableHead>Échéance</TableHead><TableHead>Produit</TableHead><TableHead>DCI</TableHead><TableHead>Laboratoire</TableHead><TableHead>Origine</TableHead><TableHead>Forme / Dosage</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {exp.rows.slice(0, 300).map((r, i) => (

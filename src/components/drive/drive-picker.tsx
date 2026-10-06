@@ -51,7 +51,7 @@ export function DrivePickerField({
           <span className="min-w-0 flex-1 truncate text-sm">{picked.name}</span>
           <button
             type="button" onClick={() => setPicked(null)} aria-label="Retirer l'association"
-            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-destructive"
+            className="shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary hover:text-destructive sm:p-1"
           >
             <X className="h-4 w-4" />
           </button>
@@ -125,7 +125,7 @@ export function DriveExplorerSheet({ onClose, onPick }: { onClose: () => void; o
           <button
             type="button" onClick={() => switchSpace(null)}
             className={cn(
-              "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              "rounded-full border px-2.5 py-2 text-xs font-medium transition-colors sm:py-1",
               spaceId === null ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-secondary",
             )}
           >
@@ -135,7 +135,7 @@ export function DriveExplorerSheet({ onClose, onPick }: { onClose: () => void; o
             <button
               key={s.id} type="button" onClick={() => switchSpace(s.id)}
               className={cn(
-                "max-w-[12rem] truncate rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                "max-w-[12rem] truncate rounded-full border px-2.5 py-2 text-xs sm:py-1 font-medium transition-colors",
                 spaceId === s.id ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-secondary",
               )}
             >
@@ -146,7 +146,7 @@ export function DriveExplorerSheet({ onClose, onPick }: { onClose: () => void; o
 
         {/* Fil d'Ariane — il défile SEUL sur un écran étroit, sans pousser la page. */}
         <div className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 pb-1 text-xs text-muted-foreground">
-          <button type="button" onClick={() => goto(null)} className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-secondary">
+          <button type="button" onClick={() => goto(null)} className="flex shrink-0 items-center gap-1 rounded px-1.5 py-2 hover:bg-secondary sm:py-1">
             <House className="h-3.5 w-3.5" /> Racine
           </button>
           {crumbs.map((c) => (
@@ -154,7 +154,7 @@ export function DriveExplorerSheet({ onClose, onPick }: { onClose: () => void; o
               <ChevronRight className="h-3.5 w-3.5 shrink-0" />
               <button
                 type="button" onClick={() => goto(c.id)}
-                className="max-w-[10rem] shrink-0 truncate rounded px-1.5 py-1 hover:bg-secondary"
+                className="max-w-[10rem] shrink-0 truncate rounded px-1.5 py-2 hover:bg-secondary sm:py-1"
               >
                 {c.name}
               </button>
@@ -172,7 +172,7 @@ export function DriveExplorerSheet({ onClose, onPick }: { onClose: () => void; o
           ) : nodes.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">Ce dossier est vide.</p>
           ) : (
-            <ul className="max-h-[45vh] divide-y divide-border overflow-y-auto">
+            <ul className="max-h-[45dvh] divide-y divide-border overflow-y-auto">
               {nodes.map((n) => {
                 const chosen = sel?.id === n.id;
                 return (

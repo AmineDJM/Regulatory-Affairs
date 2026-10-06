@@ -17,7 +17,7 @@ const fmtPct = (g: number | null) => (g == null ? "—" : `${g >= 0 ? "+" : ""}$
 
 function StatBlock({ stats }: { stats: PriceStats }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 lg:grid-cols-4">
       <KpiCard label="Prix moyen" value={dzd(stats.avgDzd)} icon="Tag" tone="info" />
       <KpiCard label="Médiane" value={dzd(stats.median)} icon="Gauge" />
       <KpiCard label="Minimum" value={dzd(stats.min)} icon="ArrowDownNarrowWide" tone="success" />
@@ -57,13 +57,13 @@ export default async function MarketPricingPage({ searchParams }: { searchParams
               <CardContent className="space-y-3">
                 <StatBlock stats={res.ville} />
                 <div className="overflow-x-auto">
-                  <Table>
+                  <Table mobileCards>
                     <TableHeader><TableRow><TableHead>Produit</TableHead><TableHead>Présentation</TableHead><TableHead>Laboratoire</TableHead><TableHead className="text-right">Volume</TableHead><TableHead className="text-right">Prix / boîte</TableHead><TableHead className="text-right">Croissance</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {res.villeRows.slice(0, 60).map((r, i) => (
                         <TableRow key={`${r.brand}-${i}`}>
-                          <TableCell className="font-medium">{r.brand}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{r.presentation}</TableCell>
+                          <TableCell data-sans-etiquette className="font-medium">{r.brand}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{r.presentation}</TableCell>
                           <TableCell className="text-muted-foreground">{r.lab}</TableCell>
                           <TableCell className="text-right text-muted-foreground">{formatNumber(Math.round(r.volume))}</TableCell>
                           <TableCell className="text-right font-medium">{dzd(r.priceBoxDzd)}</TableCell>
@@ -87,12 +87,12 @@ export default async function MarketPricingPage({ searchParams }: { searchParams
               <CardContent className="space-y-3">
                 <StatBlock stats={res.hospital} />
                 <div className="overflow-x-auto">
-                  <Table>
+                  <Table mobileCards>
                     <TableHeader><TableRow><TableHead>Produit</TableHead><TableHead>Fournisseur</TableHead><TableHead className="text-right">Quantité</TableHead><TableHead className="text-right">Prix unitaire</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead>Réception</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {res.hospitalRows.slice(0, 60).map((r, i) => (
                         <TableRow key={`${r.product}-${i}`}>
-                          <TableCell className="font-medium">{r.product}</TableCell>
+                          <TableCell data-sans-etiquette className="font-medium [overflow-wrap:anywhere]">{r.product}</TableCell>
                           <TableCell className="text-muted-foreground">{r.lab}</TableCell>
                           <TableCell className="text-right text-muted-foreground">{formatNumber(Math.round(r.qte))}</TableCell>
                           <TableCell className="text-right font-medium">{dzd(r.unitPriceDzd)}</TableCell>

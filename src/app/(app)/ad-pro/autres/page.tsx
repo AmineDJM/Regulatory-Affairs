@@ -74,8 +74,8 @@ export default async function AdProOtherPage() {
           description={canCreate ? "Utilisez cette nature pour ce qui n'entre dans aucune autre — plutôt que de le déclarer sous une étiquette fausse." : "Les demandes apparaîtront ici."}
         />
       ) : (
-        <div className="surface overflow-x-auto p-0">
-          <Table>
+        <div className="surface p-1.5 sm:p-0">
+          <Table mobileCards>
             <TableHeader>
               <TableRow>
                 <TableHead>Référence</TableHead>
@@ -93,14 +93,14 @@ export default async function AdProOtherPage() {
                     <Link href={`/ad-pro/autres/${r.id}`} className="hover:underline">{r.reference}</Link>
                   </TableCell>
                   <TableCell className="font-medium">
-                    <Link href={`/ad-pro/autres/${r.id}`} className="hover:underline">{r.title}</Link>
+                    <Link href={`/ad-pro/autres/${r.id}`} className="hover:underline [overflow-wrap:anywhere]">{r.title}</Link>
                     {r.company && <div className="mt-0.5 text-xs text-muted-foreground">{r.company.name}</div>}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{r.beneficiary || "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.amount != null ? formatCurrency(toNumber(r.amount)) : "—"}</TableCell>
                   <TableCell><StatusBadge map={AD_PRO_OTHER_STATUS} value={r.status} dot={false} /></TableCell>
                   <TableCell className="text-muted-foreground">
-                    <span className="flex items-center gap-2">
+                    <span className="flex items-center justify-end gap-2 whitespace-nowrap sm:justify-start">
                       {formatDate(r.createdAt.toISOString())}
                       <PartagerButton
                         iconOnly variant="ghost"

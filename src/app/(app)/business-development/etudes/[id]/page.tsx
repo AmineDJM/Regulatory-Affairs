@@ -47,7 +47,7 @@ export default async function MarketResearchDetailPage({ params }: { params: { i
       </Card>
 
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-3 sm:p-4">
           <PresentationPanel researchId={research.id} presentations={presentations} canEdit={canEdit} aiConfigured={aiConfigured()} cleIa={cleModeleRequise()} rowCount={research.rows.length} />
         </CardContent>
       </Card>

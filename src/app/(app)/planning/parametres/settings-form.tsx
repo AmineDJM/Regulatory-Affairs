@@ -26,7 +26,7 @@ const TIERS: { key: string; label: string; hint: string }[] = [
   { key: "VERY_LOW", label: "Très faible potentiel", hint: "Hors cible" },
 ];
 
-const inputCls = "h-9 w-full rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+const inputCls = "h-10 w-full rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none sm:h-9";
 const num = (v: string, fallback: number) => { const n = Number(String(v).replace(",", ".")); return Number.isFinite(n) ? n : fallback; };
 
 /**
@@ -93,7 +93,7 @@ export function SettingsForm({ config, canEdit }: { config: Config; canEdit: boo
         <Card>
           <CardHeader><CardTitle>Capacité terrain (par délégué / mois)</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {field("Jours terrain / mois", <input disabled={!canEdit} inputMode="decimal" className={inputCls} value={cap.daysPerMonth} onChange={(e) => setCap({ ...cap, daysPerMonth: num(e.target.value, cap.daysPerMonth) })} />)}
               {field("Visites / jour", <input disabled={!canEdit} inputMode="decimal" className={inputCls} value={cap.visitsPerDay} onChange={(e) => setCap({ ...cap, visitsPerDay: num(e.target.value, cap.visitsPerDay) })} />)}
               {field("% temps terrain", <input disabled={!canEdit} inputMode="decimal" className={inputCls} value={cap.fieldPct} onChange={(e) => setCap({ ...cap, fieldPct: num(e.target.value, cap.fieldPct) })} />)}
@@ -110,7 +110,7 @@ export function SettingsForm({ config, canEdit }: { config: Config; canEdit: boo
           <CardHeader><CardTitle>Poids des positions de détail</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs text-muted-foreground">Une visite compte selon le rang du produit dans le détail. P1 = produit prioritaire.</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {field("Position 1 (P1)", <input disabled={!canEdit} inputMode="decimal" className={inputCls} value={pw.p1} onChange={(e) => setPw({ ...pw, p1: num(e.target.value, pw.p1) })} />)}
               {field("Position 2 (P2)", <input disabled={!canEdit} inputMode="decimal" className={inputCls} value={pw.p2} onChange={(e) => setPw({ ...pw, p2: num(e.target.value, pw.p2) })} />)}
               {field("Position 3 (P3)", <input disabled={!canEdit} inputMode="decimal" className={inputCls} value={pw.p3} onChange={(e) => setPw({ ...pw, p3: num(e.target.value, pw.p3) })} />)}
@@ -134,12 +134,12 @@ export function SettingsForm({ config, canEdit }: { config: Config; canEdit: boo
       </Card>
 
       {canEdit && (
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={save} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button type="button" onClick={save} disabled={busy} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 sm:py-2">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
             {done ? "Enregistré" : "Enregistrer les paramètres"}
           </button>
-          <button type="button" onClick={resetDefaults} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-4 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60">
+          <button type="button" onClick={resetDefaults} disabled={busy} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-input px-4 py-2.5 text-sm font-medium hover:bg-secondary disabled:opacity-60 sm:py-2">
             <RotateCcw className="h-4 w-4" /> Valeurs par défaut
           </button>
         </div>

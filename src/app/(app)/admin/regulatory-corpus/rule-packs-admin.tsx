@@ -67,20 +67,20 @@ export function RulePacksAdmin({ packs, hasPacks }: { packs: Pack[]; hasPacks: b
           return (
             <div key={p.id} className="rounded-xl border border-border p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={() => setOpen(isOpen ? null : p.id)} className="flex items-center gap-1.5 text-sm font-medium">
+                <button type="button" onClick={() => setOpen(isOpen ? null : p.id)} aria-expanded={isOpen} className="flex min-h-9 min-w-0 items-center gap-1.5 text-left text-sm font-medium sm:min-h-0">
                   <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? "rotate-0" : "-rotate-90"}`} /> {p.name}
                 </button>
                 <span className={`rounded px-1.5 py-0.5 text-xs ${p.status === "ACTIVE" ? "bg-success/10 text-success" : p.status === "RETIRED" ? "bg-muted text-muted-foreground" : "bg-amber-500/10 text-amber-600"}`}>{p.status}</span>
                 <span className="text-xs text-muted-foreground">{p._count.rules} règle·s · {p.jurisdiction} · v{p.version}</span>
-                <div className="ml-auto flex items-center gap-1.5">
-                  <button type="button" disabled={busy !== null} onClick={() => test(p.id)} className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground">
+                <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                  <button type="button" disabled={busy !== null} onClick={() => test(p.id)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-xs text-muted-foreground hover:text-foreground">
                     {busy === `test-${p.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <FlaskConical className="h-3 w-3" />} Tester
                   </button>
                   {p.status !== "ACTIVE" && (
-                    <button type="button" disabled={busy !== null} onClick={() => run(`act-${p.id}`, () => { const fd = new FormData(); fd.set("packId", p.id); fd.set("status", "ACTIVE"); return setRulePackStatus(fd); })} className="inline-flex items-center gap-1 rounded border border-success/40 px-1.5 py-0.5 text-xs text-success"><CheckCircle2 className="h-3 w-3" /> Activer</button>
+                    <button type="button" disabled={busy !== null} onClick={() => run(`act-${p.id}`, () => { const fd = new FormData(); fd.set("packId", p.id); fd.set("status", "ACTIVE"); return setRulePackStatus(fd); })} className="inline-flex items-center gap-1 rounded border border-success/40 px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-xs text-success"><CheckCircle2 className="h-3 w-3" /> Activer</button>
                   )}
                   {p.status !== "RETIRED" && (
-                    <button type="button" disabled={busy !== null} onClick={() => run(`ret-${p.id}`, () => { const fd = new FormData(); fd.set("packId", p.id); fd.set("status", "RETIRED"); return setRulePackStatus(fd); })} className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground"><Archive className="h-3 w-3" /> Retirer</button>
+                    <button type="button" disabled={busy !== null} onClick={() => run(`ret-${p.id}`, () => { const fd = new FormData(); fd.set("packId", p.id); fd.set("status", "RETIRED"); return setRulePackStatus(fd); })} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-xs text-muted-foreground"><Archive className="h-3 w-3" /> Retirer</button>
                   )}
                 </div>
               </div>
@@ -99,7 +99,7 @@ export function RulePacksAdmin({ packs, hasPacks }: { packs: Pack[]; hasPacks: b
                       <span className={`rounded px-1 py-0.5 ${r.blocker ? "bg-destructive/10 text-destructive" : "bg-secondary text-muted-foreground"}`}>{r.severity}</span>
                       <span className="font-medium">{r.title}</span>
                       <span className="text-muted-foreground">· {KIND_LABEL[r.kind] ?? r.kind}{r.sectionCode ? ` ${r.sectionCode}` : r.factKey ? ` ${r.factKey}` : ""}</span>
-                      <button type="button" disabled={busy !== null} onClick={() => run(`rule-${r.id}`, () => { const fd = new FormData(); fd.set("ruleId", r.id); fd.set("active", String(!r.active)); return toggleRuleActive(fd); })} className={`ml-auto rounded border px-1.5 py-0.5 ${r.active ? "border-success/40 text-success" : "border-border text-muted-foreground"}`}>
+                      <button type="button" disabled={busy !== null} onClick={() => run(`rule-${r.id}`, () => { const fd = new FormData(); fd.set("ruleId", r.id); fd.set("active", String(!r.active)); return toggleRuleActive(fd); })} className={`ml-auto rounded border px-2 py-1.5 sm:px-1.5 sm:py-0.5 ${r.active ? "border-success/40 text-success" : "border-border text-muted-foreground"}`}>
                         {r.active ? "Active" : "Inactive"}
                       </button>
                     </div>

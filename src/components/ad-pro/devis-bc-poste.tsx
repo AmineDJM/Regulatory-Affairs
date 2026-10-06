@@ -38,7 +38,7 @@ const dzd = (n: number): string => formatCurrency(n);
 /** Les liens d'un BC généré : son Word et son PDF, sous la porte de la pièce — téléchargeables l'un et l'autre. */
 function LiensBC({ bc }: { bc: BcDePoste }) {
   if (!bc.emis.docx && !bc.emis.pdf) return null;
-  const lien = "inline-flex items-center gap-0.5 text-primary hover:underline";
+  const lien = "inline-flex min-h-9 items-center gap-0.5 text-primary hover:underline sm:min-h-0";
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2">
       {bc.emis.docx && <a className={lien} href={lienFichierEmis(bc.id, "docx", true)} aria-label={`Télécharger le Word de ${bc.reference ?? bc.titre}`}><FileDown className="h-3 w-3" /> Word</a>}
@@ -64,7 +64,7 @@ function phraseEtat(d: DevisDePosteVue): { texte: string; ton: "ok" | "attente" 
  * BC » — une nouvelle version à chaque fois, sans limite.
  */
 function PieceDuBC({ bc, itemId, peutModifier }: { bc: BcDePoste; itemId: string; peutModifier: boolean }) {
-  const lien = "inline-flex items-center gap-0.5 text-primary hover:underline";
+  const lien = "inline-flex min-h-9 items-center gap-0.5 text-primary hover:underline sm:min-h-0";
   if (bc.copieSignee) {
     return (
       <>
@@ -140,7 +140,7 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
               <FileText className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <span className="block truncate font-medium" title={bc.titre}>{bc.reference ?? bc.titre}</span>
-                <p className="text-muted-foreground">
+                <p className="text-muted-foreground [overflow-wrap:anywhere]">
                   {bc.montant != null ? <span className="tabular-nums">{dzd(bc.montant)}</span> : "montant non saisi"}
                   {source && <> · devis {source.reference ?? source.titre}</>}
                 </p>
@@ -159,12 +159,12 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
             const actionnable = ouverte && (d.etat === "A_GENERER" || d.etat === "A_REGENERER");
             return (
               <li key={d.pieceId} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <span className="min-w-0 flex-1 truncate" title={d.titre}>
+                <span className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere] sm:truncate" title={d.titre}>
                   {d.reference ?? d.titre} — {d.nbValidees} ligne{d.nbValidees > 1 ? "s" : ""} validée{d.nbValidees > 1 ? "s" : ""} · <span className="tabular-nums">{d.entete.tvaRate === null ? `${dzd(d.totalValideHt)} · sans TVA (aucune sur le devis)` : `${dzd(d.totalValideTtc)} TTC`}</span>
                 </span>
                 {e && !(actionnable && aFaire.length === 1) && <span className={e.ton === "ok" ? "text-success" : e.ton === "alerte" ? "text-destructive" : "text-warning"}>{e.texte}</span>}
                 {actionnable && aFaire.length > 1 && (
-                  <button type="button" onClick={() => generer(d.pieceId)} disabled={enCours} className="text-primary hover:underline disabled:opacity-50">
+                  <button type="button" onClick={() => generer(d.pieceId)} disabled={enCours} className="min-h-9 text-primary hover:underline disabled:opacity-50 sm:min-h-0">
                     {d.etat === "A_REGENERER" ? "Régénérer" : "Générer"}
                   </button>
                 )}
@@ -193,7 +193,7 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
             </Button>
           )}
           {peutJoindre && (
-            <button type="button" onClick={onJoindre} className="inline-flex items-center gap-1 text-primary hover:underline">
+            <button type="button" onClick={onJoindre} className="inline-flex min-h-9 items-center gap-1 text-primary hover:underline sm:min-h-0">
               <Paperclip className="h-3 w-3" /> Joindre un BC existant
             </button>
           )}
@@ -211,7 +211,7 @@ const saisieDe = (l: DevisDePosteVue["lignes"][number]): LigneSaisie => ({
   id: l.id, reference: l.reference, unit: l.unit ?? "", quantity: l.quantity != null ? String(l.quantity) : "", unitPrice: l.unitPrice != null ? String(l.unitPrice) : "",
 });
 
-const champ = "w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-none focus:border-primary/60";
+const champ = "w-full rounded border border-border bg-background px-1.5 py-2 text-xs outline-none focus:border-primary/60 sm:py-1";
 
 export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClose }: {
   itemId: string;
@@ -283,8 +283,8 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
   return (
     <div className="space-y-2 rounded-lg border border-border bg-background p-2.5 text-xs" aria-label={`Lignes du devis ${devis.reference ?? devis.titre}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <p className="min-w-0 flex-1 font-medium text-foreground">Lignes du devis {devis.reference ?? devis.titre}{devis.fournisseur ? ` — ${devis.fournisseur}` : ""}</p>
-        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">Fermer</button>
+        <p className="min-w-0 flex-1 font-medium text-foreground [overflow-wrap:anywhere]">Lignes du devis {devis.reference ?? devis.titre}{devis.fournisseur ? ` — ${devis.fournisseur}` : ""}</p>
+        <button type="button" onClick={onClose} className="min-h-9 px-2 text-muted-foreground hover:text-foreground sm:min-h-0 sm:px-0">Fermer</button>
       </div>
       {devis.entete.lectureNote && (
         <p className="text-muted-foreground">
@@ -298,8 +298,10 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
       )}
 
       {devis.structure && !edition && (
+        // Au téléphone, chaque ligne du devis devient une carte (classe `mobile-cards` de globals.css) :
+        // six colonnes ne tiennent pas en 360 px, et la case « Valider » doit rester sous le pouce.
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[34rem] text-left">
+          <table className="mobile-cards w-full text-left sm:min-w-[34rem]">
             <thead className="text-[0.6875rem] text-muted-foreground">
               <tr><th className="w-8 py-1">Valider</th><th>Référence / désignation</th><th>Unité</th><th className="text-right">Qté</th><th className="text-right">PU HT</th><th className="text-right">Total HT</th></tr>
             </thead>
@@ -308,25 +310,28 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
                 const empeche = Boolean(l.refusValidation || l.valideeAilleurs || gele);
                 return (
                   <tr key={l.id} className="border-t border-border/50 align-top">
-                    <td className="py-1">
+                    <td className="py-1" data-label="Valider">
                       <input
                         type="checkbox" checked={coches.has(l.id)} disabled={empeche && !coches.has(l.id) ? true : gele}
                         title={l.valideeAilleurs ? `Déjà validée pour « ${l.valideeAilleurs} »` : l.refusValidation ?? undefined}
                         aria-label={`Valider la ligne ${l.reference}`}
+                        className="max-sm:h-5 max-sm:w-5"
                         onChange={(e) => setCoches((cur) => { const n = new Set(cur); if (e.target.checked) n.add(l.id); else n.delete(l.id); return n; })}
                       />
                     </td>
-                    <td className="py-1 pr-2">
-                      <span className="font-medium text-foreground">{l.reference}</span>
-                      {l.aVerifier && <span className="block text-warning">{l.aVerifier}</span>}
-                      {l.valideeAilleurs && <span className="block text-muted-foreground">Validée pour « {l.valideeAilleurs} »</span>}
-                      {l.refusValidation && !l.valideeAilleurs && <span className="block text-warning">{l.refusValidation}</span>}
-                      {l.bcReference && <span className="block text-muted-foreground">Sur le BC {l.bcReference}</span>}
+                    <td className="py-1 pr-2" data-sans-etiquette>
+                      <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                        <span className="font-medium text-foreground">{l.reference}</span>
+                        {l.aVerifier && <span className="block text-warning">{l.aVerifier}</span>}
+                        {l.valideeAilleurs && <span className="block text-muted-foreground">Validée pour « {l.valideeAilleurs} »</span>}
+                        {l.refusValidation && !l.valideeAilleurs && <span className="block text-warning">{l.refusValidation}</span>}
+                        {l.bcReference && <span className="block text-muted-foreground">Sur le BC {l.bcReference}</span>}
+                      </div>
                     </td>
-                    <td className="py-1">{l.unit ?? "—"}</td>
-                    <td className="py-1 text-right tabular-nums">{l.quantity ?? "?"}</td>
-                    <td className="py-1 text-right tabular-nums">{l.unitPrice != null ? dzd(l.unitPrice) : "?"}</td>
-                    <td className="py-1 text-right tabular-nums">{l.totalHt != null ? dzd(l.totalHt) : "?"}</td>
+                    <td className="py-1" data-label="Unité"><span>{l.unit ?? "—"}</span></td>
+                    <td className="py-1 text-right tabular-nums" data-label="Qté"><span>{l.quantity ?? "?"}</span></td>
+                    <td className="py-1 text-right tabular-nums" data-label="PU HT"><span>{l.unitPrice != null ? dzd(l.unitPrice) : "?"}</span></td>
+                    <td className="py-1 text-right tabular-nums" data-label="Total HT"><span>{l.totalHt != null ? dzd(l.totalHt) : "?"}</span></td>
                   </tr>
                 );
               })}
@@ -338,21 +343,22 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
       {edition && (
         <div className="space-y-1.5">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[34rem] text-left">
+            {/* Au téléphone : une carte par ligne, l'intitulé AU-DESSUS de son champ (pleine largeur). */}
+            <table className="mobile-cards w-full text-left sm:min-w-[34rem]">
               <thead className="text-[0.6875rem] text-muted-foreground"><tr><th>Référence / désignation</th><th className="w-20">Unité</th><th className="w-20">Qté</th><th className="w-24">PU HT</th></tr></thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={`${r.id}-${i}`} className="align-top">
-                    <td className="pr-1"><input className={champ} value={r.reference} onChange={(e) => modifier(i, "reference", e.target.value)} aria-label={`Référence de la ligne ${i + 1}`} /></td>
-                    <td className="pr-1"><input className={champ} value={r.unit} onChange={(e) => modifier(i, "unit", e.target.value)} aria-label={`Unité de la ligne ${i + 1}`} /></td>
-                    <td className="pr-1"><input className={champ} inputMode="decimal" value={r.quantity} onChange={(e) => modifier(i, "quantity", e.target.value)} aria-label={`Quantité de la ligne ${i + 1}`} /></td>
-                    <td><input className={champ} inputMode="decimal" value={r.unitPrice} onChange={(e) => modifier(i, "unitPrice", e.target.value)} aria-label={`Prix unitaire HT de la ligne ${i + 1}`} /></td>
+                    <td className="pr-1 max-sm:flex-col max-sm:items-stretch max-sm:gap-1" data-label="Référence / désignation"><input className={champ} value={r.reference} onChange={(e) => modifier(i, "reference", e.target.value)} aria-label={`Référence de la ligne ${i + 1}`} /></td>
+                    <td className="pr-1 max-sm:flex-col max-sm:items-stretch max-sm:gap-1" data-label="Unité"><input className={champ} value={r.unit} onChange={(e) => modifier(i, "unit", e.target.value)} aria-label={`Unité de la ligne ${i + 1}`} /></td>
+                    <td className="pr-1 max-sm:flex-col max-sm:items-stretch max-sm:gap-1" data-label="Qté"><input className={champ} inputMode="decimal" value={r.quantity} onChange={(e) => modifier(i, "quantity", e.target.value)} aria-label={`Quantité de la ligne ${i + 1}`} /></td>
+                    <td className="max-sm:flex-col max-sm:items-stretch max-sm:gap-1" data-label="PU HT"><input className={champ} inputMode="decimal" value={r.unitPrice} onChange={(e) => modifier(i, "unitPrice", e.target.value)} aria-label={`Prix unitaire HT de la ligne ${i + 1}`} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <button type="button" onClick={ajouter} className="text-primary hover:underline">+ Ajouter une ligne</button>
+          <button type="button" onClick={ajouter} className="inline-flex min-h-10 w-full items-center justify-center rounded-md border border-dashed border-primary/40 px-3 font-medium text-primary hover:underline sm:min-h-0 sm:w-auto sm:justify-start sm:border-0 sm:px-0 sm:font-normal">+ Ajouter une ligne</button>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <label className="space-y-0.5">TVA imprimée (%)<input className={champ} inputMode="decimal" value={tva} onChange={(e) => setTva(e.target.value)} placeholder="non indiquée" /></label>
             <label className="space-y-0.5">Taxe supplémentaire<input className={champ} value={taxeLibelle} onChange={(e) => setTaxeLibelle(e.target.value)} placeholder="Taxe Pub" /></label>
@@ -382,8 +388,8 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
           )}
           {gele && devis.refus && <p className="text-destructive">{devis.refus}</p>}
           {nouvellesLues && (
-            <label className="flex items-start gap-1.5">
-              <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} className="mt-0.5" />
+            <label className="flex items-start gap-1.5 py-1 sm:py-0">
+              <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} className="mt-0.5 shrink-0 max-sm:h-5 max-sm:w-5" />
               <span>J&apos;ai comparé ces lignes au devis (elles viennent de la lecture du fichier).</span>
             </label>
           )}
@@ -407,11 +413,11 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
             </>
           ) : (
             <>
-              <button type="button" disabled={porteUnBc} title={porteUnBc ? "Un bon de commande porte déjà ce devis : annulez-le d'abord." : undefined} onClick={() => setEdition(true)} className="inline-flex items-center gap-1 text-primary hover:underline disabled:text-muted-foreground disabled:no-underline">
+              <button type="button" disabled={porteUnBc} title={porteUnBc ? "Un bon de commande porte déjà ce devis : annulez-le d'abord." : undefined} onClick={() => setEdition(true)} className="inline-flex min-h-9 items-center gap-1 text-primary sm:min-h-0 hover:underline disabled:text-muted-foreground disabled:no-underline">
                 <Pencil className="h-3 w-3" /> {devis.structure ? "Corriger les lignes" : "Saisir les lignes"}
               </button>
               {!porteUnBc && !devis.lignes.some((l) => l.validee || l.valideeAilleurs) && (
-                <button type="button" onClick={relire} disabled={occupe} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50">
+                <button type="button" onClick={relire} disabled={occupe} className="inline-flex min-h-9 items-center gap-1 text-primary sm:min-h-0 hover:underline disabled:opacity-50">
                   {busy === `lire:${devis.pieceId}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <ScanText className="h-3 w-3" />} {devis.structure ? "Relire le devis" : "Lire le devis"}
                 </button>
               )}

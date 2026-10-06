@@ -45,7 +45,7 @@ export function ThirdPartyInvolveButton({ type, id, people }: { type: string; id
             <Textarea name="note" rows={3} placeholder="Ce que vous attendez de cette personne…" />
           </div>
           {err && <p className="text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer</Button></div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer</Button></div>
         </form>
       </Sheet>
     </>

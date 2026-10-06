@@ -350,8 +350,10 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
   const canSend = (text.trim().length > 0 || driveRefs.length > 0 || lotPret) && !sending && !lotEnCours;
 
   return (
+    // Marge basse : la zone de sécurité de l'écran n'est ajoutée que si aucune barre d'onglets ne
+    // l'absorbe déjà en dessous (sur téléphone, `--app-chrome-bottom` la contient).
     <div
-      className="relative border-t border-border bg-card px-3 py-2.5"
+      className="relative shrink-0 border-t border-border bg-card px-2 pb-[calc(0.625rem_+_max(0px,_env(safe-area-inset-bottom)_-_var(--app-chrome-bottom)))] pt-2.5 sm:px-3"
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={(e) => void onDrop(e)}
@@ -363,10 +365,10 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
       )}
       {replyTo && (
         <div className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-secondary/60 px-3 py-1.5 text-xs">
-          <Reply className="h-3.5 w-3.5 text-primary" />
-          <span className="font-medium text-foreground">{replyTo.senderName}</span>
+          <Reply className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="max-w-[40%] shrink-0 truncate font-medium text-foreground">{replyTo.senderName}</span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">{replyTo.body || "Pièce jointe"}</span>
-          <button onClick={onCancelReply} className="rounded p-0.5 text-muted-foreground hover:bg-secondary"><X className="h-3.5 w-3.5" /></button>
+          <button onClick={onCancelReply} aria-label="Annuler la réponse" className="-my-1 shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary sm:my-0 sm:p-0.5"><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
 
@@ -376,11 +378,11 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
               mention explicite. Confondre les deux, c'est ne pas savoir qu'on est sur le point
               d'OUVRIR UN ACCÈS — et un accès ne se reprend pas d'un clic. */}
           {driveRefs.map((r, i) => (
-            <div key={r.id + i} className="flex items-center gap-2 rounded-lg border border-primary/50 bg-primary/5 px-2.5 py-1.5 text-xs">
-              {r.isFolder ? <Folder className="h-4 w-4 text-primary" /> : <FileText className="h-4 w-4 text-primary" />}
-              <span className="max-w-[160px] truncate font-medium">{r.name}</span>
+            <div key={r.id + i} className="flex max-w-full items-center gap-2 rounded-lg border border-primary/50 bg-primary/5 py-1.5 pl-2.5 pr-1 text-xs sm:pr-2.5">
+              {r.isFolder ? <Folder className="h-4 w-4 shrink-0 text-primary" /> : <FileText className="h-4 w-4 shrink-0 text-primary" />}
+              <span className="min-w-0 max-w-[160px] truncate font-medium">{r.name}</span>
               <span className="text-muted-foreground">Drive</span>
-              <button onClick={() => setDriveRefs((list) => list.filter((_, j) => j !== i))} className="rounded p-0.5 text-muted-foreground hover:bg-secondary">
+              <button onClick={() => setDriveRefs((list) => list.filter((_, j) => j !== i))} aria-label="Retirer" className="-my-1 shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary sm:my-0 sm:p-0.5">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -390,24 +392,25 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
           {lot && etatLot && libelle && (
             <div
               className={cn(
-                "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs",
+                "flex max-w-full items-center gap-2 rounded-lg border py-1.5 pl-2.5 pr-1 text-xs sm:pr-2.5",
                 etatLot.enCours ? "border-dashed border-border bg-background text-muted-foreground"
                   : libelle.pret ? "border-primary/50 bg-primary/5" : "border-destructive/50 bg-destructive/5 text-destructive",
               )}
               title={lot.noms.join(", ")}
             >
-              {etatLot.enCours ? <Loader2 className="h-4 w-4 animate-spin" />
-                : libelle.pret ? <CheckCircle2 className="h-4 w-4 text-primary" />
-                : <AlertCircle className="h-4 w-4" />}
-              <span className="max-w-[180px] truncate font-medium">
+              {etatLot.enCours ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                : libelle.pret ? <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                : <AlertCircle className="h-4 w-4 shrink-0" />}
+              <span className="min-w-0 max-w-[180px] truncate font-medium">
                 {lot.noms[0]}{lot.noms.length > 1 ? ` + ${lot.noms.length - 1}` : ""}
               </span>
-              <span className="text-muted-foreground">{libelle.texte}</span>
+              <span className="min-w-0 text-muted-foreground">{libelle.texte}</span>
               <button
                 onClick={retirerLot}
                 disabled={lotEnCours}
                 title={lotEnCours ? "Envoi en cours — annulez-le depuis la pastille des envois." : "Retirer (les fichiers vont à la corbeille du Drive)"}
-                className="rounded p-0.5 text-muted-foreground hover:bg-secondary disabled:opacity-40"
+                aria-label="Retirer"
+                className="-my-1 shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary disabled:opacity-40 sm:my-0 sm:p-0.5"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -434,13 +437,13 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
       {error && <p className="mb-2 px-1 text-xs text-destructive">{error}</p>}
 
       {mention.open && mentionMatches.length > 0 && (
-        <div className="absolute bottom-full left-3 z-30 mb-1 w-72 overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+        <div className="absolute bottom-full left-2 right-2 z-30 mb-1 overflow-hidden rounded-xl border border-border bg-popover shadow-xl sm:left-3 sm:right-auto sm:w-72">
           {mentionMatches.map((m, i) => (
             <button
               key={m.userId}
               onMouseDown={(e) => { e.preventDefault(); pickMention(m); }}
               onMouseEnter={() => setMentionIndex(i)}
-              className={cn("flex w-full items-center gap-2 px-3 py-2 text-left text-sm", i === mentionIndex ? "bg-secondary" : "hover:bg-secondary/60")}
+              className={cn("flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm sm:py-2", i === mentionIndex ? "bg-secondary" : "hover:bg-secondary/60")}
             >
               <Avatar name={m.name} color={m.avatarColor} size="sm" />
               <div className="min-w-0">
@@ -452,7 +455,7 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
         </div>
       )}
 
-      <div className="flex items-end gap-1.5">
+      <div className="flex items-end gap-1 sm:gap-1.5">
         {/* TROIS FAÇONS DE JOINDRE, sous un seul trombone. Trois boutons alignés auraient tous
             le même poids visuel alors qu'on en utilise un neuf fois sur dix ; et surtout, la
             troisième — « depuis le Drive » — a besoin d'être NOMMÉE pour qu'on comprenne qu'elle
@@ -470,7 +473,7 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
           {attachMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setAttachMenu(false)} />
-              <div className="absolute bottom-full left-0 z-20 mb-1 w-72 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-xl">
+              <div className="absolute bottom-full left-0 z-20 mb-1 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-xl">
                 <button
                   onClick={() => { setAttachMenu(false); fileRef.current?.click(); }}
                   className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
@@ -539,15 +542,16 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
           />
         )}
 
-        <div className="relative flex-1">
+        <div className="relative min-w-0 flex-1">
           <textarea
             ref={taRef}
             value={text}
             onChange={onChange}
             onKeyDown={onKeyDown}
             rows={1}
+            enterKeyHint="send"
             placeholder="Écrire un message…   (@ pour mentionner, Entrée pour envoyer)"
-            className="max-h-40 w-full resize-none rounded-2xl border border-input bg-background px-4 py-2.5 text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="max-h-40 w-full resize-none rounded-2xl border border-input bg-background px-4 py-2.5 text-base leading-relaxed lg:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
 
@@ -555,6 +559,7 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
           <button
             onClick={() => setShowEmoji((v) => !v)}
             title="Émoji"
+            aria-label="Émoji"
             className="mb-1 rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
           >
             <Smile className="h-5 w-5" />
@@ -562,10 +567,10 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
           {showEmoji && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowEmoji(false)} />
-              <div className="absolute bottom-full right-0 z-20 mb-1 w-64 rounded-xl border border-border bg-popover p-2 shadow-xl">
+              <div className="absolute bottom-full right-0 z-20 mb-1 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-border bg-popover p-2 shadow-xl sm:w-64">
                 <div className="grid max-h-48 grid-cols-8 gap-0.5 overflow-y-auto">
                   {EMOJI_PALETTE.map((e) => (
-                    <button key={e} onClick={() => insertEmoji(e)} className="rounded-md p-1 text-base hover:bg-secondary">{e}</button>
+                    <button key={e} onClick={() => insertEmoji(e)} className="rounded-md p-1.5 text-lg hover:bg-secondary sm:p-1 sm:text-base">{e}</button>
                   ))}
                 </div>
               </div>
@@ -577,8 +582,9 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
           onClick={() => void submit()}
           disabled={!canSend}
           title="Envoyer"
+          aria-label="Envoyer"
           className={cn(
-            "mb-0.5 flex h-10 w-10 items-center justify-center rounded-full shadow-sm transition-colors",
+            "mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-sm transition-colors",
             canSend ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-secondary text-muted-foreground",
           )}
         >

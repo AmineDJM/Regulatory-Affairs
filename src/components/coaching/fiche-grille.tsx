@@ -158,7 +158,7 @@ export function TotalFiche({ grille, notes, className }: { grille: GrilleCoachin
   const pct = b.max ? Math.round((b.total / b.max) * 100) : 0;
   const moyenne = b.notes.length ? b.total / b.notes.length : 0;
   return (
-    <div className={cn("rounded-xl border border-border bg-card p-4", className)}>
+    <div className={cn("rounded-xl border border-border bg-card p-3 sm:p-4", className)}>
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total des points</p>
@@ -190,10 +190,10 @@ export function BilanLecture({ grille, strengths, improvements }: { grille: Gril
       <h2 className="text-sm font-semibold text-foreground">{grille.bilan.titre}</h2>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {([[grille.bilan.pointsForts, strengths], [grille.bilan.pointsAAmeliorer, improvements]] as const).map(([titre, texte]) => (
-          <div key={titre} className="rounded-xl border border-border bg-card p-4 print:break-inside-avoid">
+          <div key={titre} className="min-w-0 rounded-xl border border-border bg-card p-3 sm:p-4 print:break-inside-avoid">
             <p className="text-sm font-semibold text-foreground">{titre}</p>
             {texte ? (
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{texte}</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90 [overflow-wrap:anywhere]">{texte}</p>
             ) : (
               <p className="mt-2 text-sm italic text-muted-foreground">Non renseigné.</p>
             )}

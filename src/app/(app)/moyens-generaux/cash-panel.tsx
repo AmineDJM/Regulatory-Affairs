@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PETTY_CASH_STATUS_LABEL, periodLabel, MAX_RECHARGE_DAY } from "@/lib/petty-cash";
@@ -143,7 +144,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
                 <strong>{formatCurrency(r.amount)}</strong> ont été versés pour votre caisse (remise du {formatDate(r.remittedAt)}) —
                 cette somme n&apos;est pas dépensable tant que vous n&apos;avez pas confirmé l&apos;avoir reçue.
               </span>
-              <BoutonDecisif size="sm" disabled={busy === `recv:${r.id}`} onClick={() => {
+              <BoutonDecisif size="sm" className="h-10 w-full sm:h-8 sm:w-auto" disabled={busy === `recv:${r.id}`} onClick={() => {
                 const fd = new FormData(); fd.set("id", r.id);
                 void run(`recv:${r.id}`, () => confirmPettyCashReceipt(fd), "Réception confirmée.");
               }}>
@@ -217,7 +218,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             </label>
             <label className="text-xs">
               Remis à
-              <select name="holderId" defaultValue={cash?.holderId ?? ""} className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
+              <select name="holderId" defaultValue={cash?.holderId ?? ""} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-base sm:h-9 sm:text-sm">
                 <option value="">— Personne actuelle —</option>
                 {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
@@ -227,7 +228,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
               <Input name="note" placeholder="Facultatif" className="mt-1 h-9" />
             </label>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" type="submit" disabled={busy === "allot"}>
               {busy === "allot" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Envoyer au centre de paiement
             </Button>
@@ -257,7 +258,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
               <Input name="reason" placeholder="Ex. achats de fin de mois, fournitures épuisées…" className="mt-1 h-9" />
             </label>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" type="submit" disabled={busy === "topup"}>
               {busy === "topup" ? <Loader2 className="h-4 w-4 animate-spin" /> : <HandCoins className="h-4 w-4" />} Envoyer la demande
             </Button>
@@ -287,12 +288,12 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             </label>
             <label className="text-xs">
               Jour du rechargement
-              <Input name="rechargeDay" type="number" min={1} max={MAX_RECHARGE_DAY} defaultValue={view.plan?.rechargeDay ?? 1} className="mt-1 h-9 text-right tabular-nums" />
+              <Input name="rechargeDay" type="number" inputMode="numeric" min={1} max={MAX_RECHARGE_DAY} defaultValue={view.plan?.rechargeDay ?? 1} className="mt-1 h-9 text-right tabular-nums" />
               <span className="text-[0.6875rem] text-muted-foreground">1 à {MAX_RECHARGE_DAY} — le 31 n&apos;existe pas tous les mois.</span>
             </label>
             <label className="text-xs">
               Remis à
-              <select name="holderId" defaultValue={view.plan?.holderId ?? cash?.holderId ?? ""} className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
+              <select name="holderId" defaultValue={view.plan?.holderId ?? cash?.holderId ?? ""} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-base sm:h-9 sm:text-sm">
                 <option value="">— Choisir la personne —</option>
                 {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
@@ -304,7 +305,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             <input type="checkbox" name="isActive" value="1" defaultChecked={view.plan?.isActive ?? true} className="h-4 w-4 rounded border-input" />
             Rechargement actif (les RH sont prévenues 48 h avant chaque échéance)
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" type="submit" disabled={busy === "plan"}>
               {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />} Enregistrer
             </Button>
@@ -323,8 +324,8 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             {view.topUps.map((t) => (
               <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
                 <span className="min-w-0 flex-1">
-                  <span className="font-medium">+{formatCurrency(t.amountRequested)} demandés</span>
-                  {t.reason && <span className="block text-xs text-muted-foreground">{t.reason}</span>}
+                  <span className="font-medium tabular-nums">+{formatCurrency(t.amountRequested)} demandés</span>
+                  {t.reason && <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{t.reason}</span>}
                   <span className="block text-[0.6875rem] text-muted-foreground">
                     {t.requester || "—"} · {formatDate(t.createdAt)}
                     {t.decisionNote ? ` · ${t.decisionNote}` : ""}
@@ -337,21 +338,21 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
                         value={grant[t.id] ?? String(t.amountRequested)}
                         onChange={(e) => setGrant((p) => ({ ...p, [t.id]: e.target.value }))}
                         inputMode="decimal" aria-label="Montant accordé"
-                        className="h-8 w-28 text-right tabular-nums"
+                        className="h-10 w-28 text-right tabular-nums sm:h-8"
                       />
                       <BoutonDecisif brut type="button" disabled={busy === `top:${t.id}`} onClick={() => {
                         const fd = new FormData();
                         fd.set("id", t.id); fd.set("decision", "APPROVED");
                         fd.set("amountGranted", grant[t.id] ?? String(t.amountRequested));
                         void run(`top:${t.id}`, () => decidePettyCashTopUp(fd), "Rallonge accordée.");
-                      }} className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50">
+                      }} className="inline-flex min-h-10 items-center gap-1 rounded-md border border-success/30 px-3 py-1 text-sm font-medium text-success hover:bg-success/10 disabled:opacity-50 sm:min-h-0 sm:px-2 sm:text-xs">
                         {busy === `top:${t.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ThumbsUp className="h-3.5 w-3.5" />} Accorder
                       </BoutonDecisif>
                       <BoutonDecisif brut type="button" disabled={busy === `top:${t.id}`} onClick={() => {
                         const fd = new FormData();
                         fd.set("id", t.id); fd.set("decision", "REJECTED");
                         void run(`top:${t.id}`, () => decidePettyCashTopUp(fd), "Rallonge refusée.");
-                      }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                      }} className="inline-flex min-h-10 items-center gap-1 rounded-md border border-border px-3 py-1 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:min-h-0 sm:px-2 sm:text-xs">
                         <ThumbsDown className="h-3.5 w-3.5" /> Refuser
                       </BoutonDecisif>
                     </span>
@@ -363,7 +364,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
                         <BoutonDecisif brut type="button" disabled={busy === `top:${t.id}`} onClick={() => {
                           const fd = new FormData(); fd.set("id", t.id);
                           void run(`top:${t.id}`, () => annulerRallongeCaisse(fd), "Demande de rallonge retirée.");
-                        }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                        }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:min-h-0">
                           Retirer
                         </BoutonDecisif>
                       )}
@@ -402,29 +403,32 @@ function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMe
   return (
     <div className="space-y-1.5">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-      <div className="overflow-x-auto rounded-xl border border-border">
-        <table className="w-full min-w-[34rem] text-sm">
-          <thead className="bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th scope="col" className="px-3 py-1.5 font-medium">Remise</th>
-              <th scope="col" className="px-3 py-1.5 font-medium">Période</th>
-              <th scope="col" className="px-3 py-1.5 text-right font-medium">Remis</th>
-              <th scope="col" className="px-3 py-1.5 text-right font-medium">Dépensé</th>
-              <th scope="col" className="px-3 py-1.5 font-medium">État</th>
-            </tr>
-          </thead>
-          <tbody className={`divide-y divide-border ${muted ? "text-muted-foreground" : ""}`}>
+      {/* Une remise par ligne : au téléphone, une carte par remise plutôt qu'un tableau à tirer. */}
+      <div className="sm:rounded-xl sm:border sm:border-border">
+        <Table mobileCards className="sm:min-w-[34rem]">
+          <TableHeader className="bg-secondary/40">
+            <TableRow>
+              <TableHead scope="col" className="h-8">Remise</TableHead>
+              <TableHead scope="col" className="h-8">Période</TableHead>
+              <TableHead scope="col" className="h-8 text-right">Remis</TableHead>
+              <TableHead scope="col" className="h-8 text-right">Dépensé</TableHead>
+              <TableHead scope="col" className="h-8">État</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className={muted ? "text-muted-foreground" : ""}>
             {rows.map((r) => (
-              <tr key={r.id}>
-                <td className="px-3 py-1.5">
-                  {formatDate(r.remittedAt)}
-                  {r.holder && <span className="block text-[0.6875rem] text-muted-foreground">{r.holder}</span>}
-                  {r.note && <span className="block text-[0.6875rem] text-muted-foreground">{r.note}</span>}
-                </td>
-                <td className="px-3 py-1.5 text-xs text-muted-foreground">{periodLabel(r.period)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{formatCurrency(r.amount)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{r.spent > 0 ? formatCurrency(r.spent) : "—"}</td>
-                <td className="px-3 py-1.5">
+              <TableRow key={r.id}>
+                <TableCell className="sm:py-1.5" data-sans-etiquette>
+                  <div className="min-w-0">
+                    <span className="font-medium sm:font-normal">{formatDate(r.remittedAt)}</span>
+                    {r.holder && <span className="block text-[0.6875rem] text-muted-foreground">{r.holder}</span>}
+                    {r.note && <span className="block text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere]">{r.note}</span>}
+                  </div>
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground sm:py-1.5">{periodLabel(r.period)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right tabular-nums sm:py-1.5">{formatCurrency(r.amount)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right tabular-nums sm:py-1.5">{r.spent > 0 ? formatCurrency(r.spent) : "—"}</TableCell>
+                <TableCell className="sm:py-1.5">
                   {/* L'ARGENT D'ABORD (§118.176) : une remise pas encore versée — ou refusée — dit ce
                       qu'elle attend ; « soldée » sur une remise refusée ferait croire qu'elle a eu lieu. */}
                   {r.centre !== "VERSEE" ? (
@@ -434,11 +438,11 @@ function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMe
                   ) : (
                     <Badge tone={PETTY_CASH_STATUS_LABEL[r.status].tone} dot={false}>{PETTY_CASH_STATUS_LABEL[r.status].label}</Badge>
                   )}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );
@@ -447,9 +451,9 @@ function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMe
 function Figure({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "danger" | "warning" | "success" }) {
   const cls = tone === "danger" ? "text-destructive" : tone === "warning" ? "text-warning" : tone === "success" ? "text-success" : "";
   return (
-    <div className="rounded-lg border border-border px-3 py-2">
+    <div className="min-w-0 rounded-lg border border-border px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-lg font-semibold tabular-nums ${cls}`}>{value}</p>
+      <p className={`text-base font-semibold tabular-nums [overflow-wrap:anywhere] sm:text-lg ${cls}`}>{value}</p>
       {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );

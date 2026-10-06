@@ -11,7 +11,8 @@ import type { ResearchRowDTO } from "@/lib/queries/market-research";
 
 const STATUS_LABEL: Record<string, string> = { IMPORT: "Importation", MANUFACTURING: "Fabrication" };
 const STATUS_COLOR: Record<string, string> = { IMPORT: "#f59e0b", MANUFACTURING: "#0ea5e9" };
-const inp = "h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+// 16 px au téléphone : en dessous, iOS zoome sur le champ à chaque saisie.
+const inp = "h-9 w-full rounded-md border border-input bg-background px-2 text-base focus:border-primary focus:outline-none sm:h-8 sm:text-sm";
 const nOrNull = (s: string) => { const t = s.trim(); if (!t) return ""; return t; };
 
 export function ResearchTable({ researchId, rows, canEdit, dciOptions = [] }: { researchId: string; rows: ResearchRowDTO[]; canEdit: boolean; dciOptions?: string[] }) {
@@ -50,7 +51,7 @@ export function ResearchTable({ researchId, rows, canEdit, dciOptions = [] }: { 
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={10} className="px-3 py-4 text-center text-muted-foreground">Aucune molécule. {canEdit && "Ajoutez une ligne ci-dessous."}</td></tr>
+              <tr><td colSpan={10} className="px-3 py-4 text-muted-foreground sm:text-center"><span className="sticky left-3 inline-block">Aucune molécule. {canEdit && "Ajoutez une ligne ci-dessous."}</span></td></tr>
             )}
             {rows.map((row, i) => (
               <RowEditor key={row.id} researchId={researchId} row={row} index={i + 1} canEdit={canEdit} onStruct={() => router.refresh()} busy={busy} run={run} />
@@ -118,22 +119,22 @@ function RowEditor({
           {row.players.map((p) => <PlayerEditor key={p.id} researchId={researchId} player={p} canEdit={canEdit} run={run} />)}
           {canEdit && (
             <button type="button" disabled={busy} onClick={() => { const fd = new FormData(); fd.set("rowId", row.id); fd.set("researchId", researchId); run(addResearchPlayer, fd); }}
-              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-primary hover:bg-primary/10"><Plus className="h-3 w-3" /> Acteur</button>
+              className="inline-flex items-center gap-1 rounded px-1.5 py-2 text-xs text-primary hover:bg-primary/10 sm:py-0.5"><Plus className="h-3 w-3" /> Acteur</button>
           )}
         </div>
       </td>
       <td className={cell}>{canEdit ? <input className={inp} value={s.comment} onChange={(e) => setS({ ...s, comment: e.target.value })} onBlur={saveRow} /> : ro(s.comment)}</td>
       <td className={`${cell} text-center`}>
         <div className="flex flex-col items-center gap-0.5">
-          <button type="button" onClick={() => setOpen((o) => !o)} title="Voir plus de détails" className="rounded p-1 text-muted-foreground hover:bg-secondary">
+          <button type="button" onClick={() => setOpen((o) => !o)} title="Voir plus de détails" aria-label="Voir plus de détails" className="rounded p-2 text-muted-foreground hover:bg-secondary sm:p-1">
             {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           </button>
           {canEdit && (
-            <button type="button" title="Pré-remplir depuis l'intelligence marché (Pharmatool)" onClick={() => { const fd = new FormData(); fd.set("id", row.id); fd.set("researchId", researchId); run(prefillResearchRow, fd); }} className="rounded p-1 text-primary hover:bg-primary/10"><Sparkles className="h-3.5 w-3.5" /></button>
+            <button type="button" title="Pré-remplir depuis l'intelligence marché (Pharmatool)" onClick={() => { const fd = new FormData(); fd.set("id", row.id); fd.set("researchId", researchId); run(prefillResearchRow, fd); }} aria-label="Pré-remplir depuis l'intelligence marché" className="rounded p-2 text-primary hover:bg-primary/10 sm:p-1"><Sparkles className="h-3.5 w-3.5" /></button>
           )}
           {canEdit && (
             <button type="button" onClick={() => { if (window.confirm(`Supprimer « ${s.product} » ?`)) { const fd = new FormData(); fd.set("id", row.id); fd.set("researchId", researchId); run(deleteResearchRow, fd); } }}
-              className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
+              aria-label={`Supprimer ${s.product}`} className="rounded p-2 text-destructive hover:bg-destructive/10 sm:p-1"><Trash2 className="h-3.5 w-3.5" /></button>
           )}
         </div>
       </td>
@@ -155,7 +156,7 @@ function RowEditor({
                       <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: sh.status ? STATUS_COLOR[sh.status] : "#94a3b8" }} />
                     </div>
                     <span className="w-12 shrink-0 text-right tabular-nums text-muted-foreground">{pct}%</span>
-                    {sh.status && <span className="w-20 shrink-0 text-[0.625rem] text-muted-foreground">{STATUS_LABEL[sh.status]}</span>}
+                    {sh.status && <span className="w-20 shrink-0 text-[0.6875rem] text-muted-foreground">{STATUS_LABEL[sh.status]}</span>}
                   </div>
                 );
               })}
@@ -182,9 +183,9 @@ function PlayerEditor({
     run(updateResearchPlayer, fd, false);
   }
   if (!canEdit) {
-    return <div className="flex flex-wrap items-center gap-1.5 text-xs"><span className="font-medium">{p.name}</span>{p.marketShareValue && <span className="text-muted-foreground">· {p.marketShareValue}</span>}{p.status && <span className="rounded bg-secondary px-1 text-[0.625rem]">{STATUS_LABEL[p.status]}</span>}</div>;
+    return <div className="flex flex-wrap items-center gap-1.5 text-xs"><span className="font-medium">{p.name}</span>{p.marketShareValue && <span className="text-muted-foreground">· {p.marketShareValue}</span>}{p.status && <span className="rounded bg-secondary px-1 text-[0.6875rem]">{STATUS_LABEL[p.status]}</span>}</div>;
   }
-  const mini = "h-7 rounded-md border border-input bg-background px-1.5 text-xs focus:border-primary focus:outline-none";
+  const mini = "h-9 rounded-md border border-input bg-background px-1.5 text-base focus:border-primary focus:outline-none sm:h-7 sm:text-xs";
   return (
     <div className="flex items-center gap-1">
       <input className={`${mini} min-w-0 flex-1`} value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} onBlur={save} placeholder="Acteur" />
@@ -194,7 +195,7 @@ function PlayerEditor({
         <option value="IMPORT">Importation</option>
         <option value="MANUFACTURING">Fabrication</option>
       </select>
-      <button type="button" onClick={() => { const fd = new FormData(); fd.set("id", player.id); fd.set("researchId", researchId); run(deleteResearchPlayer, fd); }} className="rounded p-0.5 text-destructive hover:bg-destructive/10"><Trash2 className="h-3 w-3" /></button>
+      <button type="button" onClick={() => { const fd = new FormData(); fd.set("id", player.id); fd.set("researchId", researchId); run(deleteResearchPlayer, fd); }} aria-label="Supprimer l'acteur" className="shrink-0 rounded p-2 text-destructive hover:bg-destructive/10 sm:p-0.5"><Trash2 className="h-3.5 w-3.5 sm:h-3 sm:w-3" /></button>
     </div>
   );
 }

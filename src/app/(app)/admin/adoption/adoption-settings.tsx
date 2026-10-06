@@ -48,8 +48,8 @@ export function AdoptionSettingsForm({ settings }: { settings: AdoptionSettings 
       className="space-y-4"
     >
       <div>
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-sm font-medium">Poids des dimensions <span className="text-muted-foreground">(relatifs — le score est normalisé sur le total = {total})</span></p>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="min-w-0 text-sm font-medium">Poids des dimensions <span className="text-muted-foreground">(relatifs — le score est normalisé sur le total = {total})</span></p>
           <Button type="button" variant="ghost" size="sm" onClick={reset}><RotateCcw className="h-3.5 w-3.5" /> Valeurs par défaut</Button>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -93,7 +93,7 @@ export function AdoptionSettingsForm({ settings }: { settings: AdoptionSettings 
 
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       <div className="flex justify-end">
-        <Button type="submit" disabled={saving}>
+        <Button type="submit" disabled={saving} className="w-full sm:w-auto">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : <SlidersHorizontal className="h-4 w-4" />}
           {saved ? "Enregistré" : "Enregistrer le réglage"}
         </Button>
@@ -118,7 +118,7 @@ export function ResetActivityTimeButton() {
 
   return (
     <div className="space-y-2">
-      <Button type="button" variant="outline" onClick={run} disabled={busy}>
+      <Button type="button" variant="outline" onClick={run} disabled={busy} className="h-auto min-h-10 w-full whitespace-normal sm:w-auto">
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <TimerReset className="h-4 w-4" />} Remettre les temps d'activité à zéro
       </Button>
       {msg && <p className="rounded-lg bg-success/10 px-3 py-2 text-sm text-success">{msg}</p>}

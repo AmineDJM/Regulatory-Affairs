@@ -59,22 +59,22 @@ export function LignesEditables({ lignes, onChange }: { lignes: LigneEcran[]; on
   const maj = (id: number, patch: Partial<LigneEcran>) => onChange(lignes.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-medium">Lignes</p>
         <Button type="button" size="sm" variant="outline" onClick={() => onChange([...lignes, ligneVide()])}>
           <Plus className="h-4 w-4" aria-hidden /> Ajouter une ligne
         </Button>
       </div>
       {lignes.map((l, i) => (
-        <div key={l.id} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_6rem_8rem_auto]">
-          <Input aria-label={`Désignation de la ligne ${i + 1}`} value={l.designation} onChange={(e) => maj(l.id, { designation: e.target.value })} placeholder={l.section ? "Titre de section" : "Désignation"} />
-          {l.section ? <span className="text-xs text-muted-foreground sm:col-span-2">Titre de section — sans quantité ni prix.</span> : (
+        <div key={l.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_6rem_8rem_auto]">
+          <Input aria-label={`Désignation de la ligne ${i + 1}`} value={l.designation} onChange={(e) => maj(l.id, { designation: e.target.value })} placeholder={l.section ? "Titre de section" : "Désignation"} className="col-span-3 sm:col-span-1" />
+          {l.section ? <span className="col-span-2 self-center text-xs text-muted-foreground">Titre de section — sans quantité ni prix.</span> : (
             <>
               <Input aria-label={`Quantité de la ligne ${i + 1}`} inputMode="decimal" value={l.quantite} onChange={(e) => maj(l.id, { quantite: e.target.value })} placeholder="Qté" />
               <Input aria-label={`Prix unitaire HT de la ligne ${i + 1}`} inputMode="decimal" value={l.prix} onChange={(e) => maj(l.id, { prix: e.target.value })} placeholder="PU HT" />
             </>
           )}
-          <button type="button" className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label={`Retirer la ligne ${i + 1}`} onClick={() => onChange(lignes.filter((x) => x.id !== l.id))}>
+          <button type="button" className="justify-self-end rounded p-2 text-muted-foreground hover:bg-secondary sm:p-1" aria-label={`Retirer la ligne ${i + 1}`} onClick={() => onChange(lignes.filter((x) => x.id !== l.id))}>
             <Trash2 className="h-4 w-4" aria-hidden />
           </button>
         </div>

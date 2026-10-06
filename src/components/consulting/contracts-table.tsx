@@ -32,8 +32,10 @@ export interface LigneContrat {
 
 export function ContractsTable({ contracts }: { contracts: LigneContrat[] }) {
   return (
-    <div className="surface overflow-x-auto p-0">
-      <Table>
+    <div className="surface overflow-hidden p-0">
+      {/* Au téléphone, chaque contrat devient une carte : chaque cellule n'a qu'UN enfant, pour que
+          l'intitulé reste à gauche et la valeur (avec ses compléments) à droite. */}
+      <Table mobileCards>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>
@@ -55,20 +57,26 @@ export function ContractsTable({ contracts }: { contracts: LigneContrat[] }) {
                   <Link href={`/consulting/${c.id}`} className="hover:underline">{c.reference}</Link>
                 </TableCell>
                 <TableCell className="font-medium">
-                  <Link href={`/consulting/${c.id}`} className="hover:underline">{c.title}</Link>
-                  {c.company && <div className="mt-0.5 text-xs text-muted-foreground">{c.company.name}</div>}
+                  <div className="min-w-0">
+                    <Link href={`/consulting/${c.id}`} className="break-words hover:underline">{c.title}</Link>
+                    {c.company && <div className="mt-0.5 text-xs text-muted-foreground">{c.company.name}</div>}
+                  </div>
                 </TableCell>
-                <TableCell>{c.counterparty}</TableCell>
+                <TableCell><span className="break-words">{c.counterparty}</span></TableCell>
                 <TableCell className="text-muted-foreground">
-                  {c.startDate ? formatDate(c.startDate.toISOString()) : "—"}
-                  {c.endDate ? ` → ${formatDate(c.endDate.toISOString())}` : ""}
-                  {isOverdue(c) && <Badge tone="danger" dot={false} className="ml-1.5">terme dépassé</Badge>}
+                  <div>
+                    {c.startDate ? formatDate(c.startDate.toISOString()) : "—"}
+                    {c.endDate ? ` → ${formatDate(c.endDate.toISOString())}` : ""}
+                    {isOverdue(c) && <Badge tone="danger" dot={false} className="ml-1.5">terme dépassé</Badge>}
+                  </div>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {amount != null ? `${formatCurrency(amount)}${billingSuffix(c.billing)}` : "—"}
-                  {amount != null && c.billing !== "ONE_OFF" && (
-                    <div className="text-[0.6875rem] text-muted-foreground">{CONSULTING_BILLING[c.billing]}</div>
-                  )}
+                  <div>
+                    {amount != null ? `${formatCurrency(amount)}${billingSuffix(c.billing)}` : "—"}
+                    {amount != null && c.billing !== "ONE_OFF" && (
+                      <div className="text-[0.6875rem] text-muted-foreground">{CONSULTING_BILLING[c.billing]}</div>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   {c.tasks.length > 0 ? `${done}/${c.tasks.length}` : "—"}

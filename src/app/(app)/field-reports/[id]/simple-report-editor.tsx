@@ -111,7 +111,7 @@ export function SimpleReportEditor({ detail, doctors, materiel, rattacheAUneVisi
         <div className="surface flex flex-wrap items-center gap-3 p-3">
           <StatusBadge map={FIELD_REPORT_STATUS} value={detail.status} />
           <span className="inline-flex items-center gap-1.5 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> Compte rendu envoyé.</span>
-          <Button variant="outline" size="sm" className="ml-auto" onClick={reopen}><RotateCcw className="h-4 w-4" /> Corriger / renvoyer</Button>
+          <Button variant="outline" size="sm" className="h-10 w-full sm:ml-auto sm:h-8 sm:w-auto" onClick={reopen}><RotateCcw className="h-4 w-4" /> Corriger / renvoyer</Button>
         </div>
         <div>
           <Label>Compte rendu (synthèse)</Label>
@@ -136,12 +136,13 @@ export function SimpleReportEditor({ detail, doctors, materiel, rattacheAUneVisi
     <div className="space-y-4">
       <div className="surface flex flex-wrap items-center gap-3 p-3">
         <StatusBadge map={FIELD_REPORT_STATUS} value={detail.status} />
+        {/* Au téléphone, « Parler » est un grand bouton : c'est le geste de quelqu'un qui sort d'un cabinet. */}
         {recording ? (
-          <Button variant="destructive" size="sm" onClick={stopRec}><Square className="h-4 w-4" /> Arrêter</Button>
+          <Button variant="destructive" size="sm" className="h-12 flex-1 text-sm sm:h-8 sm:flex-none sm:text-xs" onClick={stopRec}><Square className="h-4 w-4" /> Arrêter</Button>
         ) : (
-          <Button size="sm" onClick={startRec} disabled={transcribing}>{transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />} Parler</Button>
+          <Button size="sm" className="h-12 flex-1 text-sm sm:h-8 sm:flex-none sm:text-xs" onClick={startRec} disabled={transcribing}>{transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />} Parler</Button>
         )}
-        <Button size="sm" className="ml-auto" onClick={send} disabled={sending}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer mon compte rendu</Button>
+        <Button size="sm" className="ml-auto hidden sm:inline-flex" onClick={send} disabled={sending}>{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer mon compte rendu</Button>
       </div>
 
       {recording && <p className="flex items-center gap-2 text-sm text-destructive"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" /> Enregistrement… parlez naturellement.</p>}
@@ -177,12 +178,19 @@ export function SimpleReportEditor({ detail, doctors, materiel, rattacheAUneVisi
       ) : null}
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Label>Pièces jointes (tout type)</Label>
-          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Ajouter</Button>
+          <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Ajouter</Button>
           <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAttachment(f); e.target.value = ""; }} />
         </div>
         <Attachments detail={detail} onDeleted={() => router.refresh()} />
+      </div>
+
+      {/* TÉLÉPHONE : l'envoi colle au bas de l'écran, sous le pouce, pendant toute la saisie. */}
+      <div className="sticky bottom-2 z-10 rounded-xl border border-border bg-card/95 p-2 shadow-md backdrop-blur sm:hidden">
+        <Button className="h-12 w-full" onClick={send} disabled={sending}>
+          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer mon compte rendu
+        </Button>
       </div>
     </div>
   );
@@ -199,9 +207,9 @@ function Attachments({ detail, readOnly, onDeleted }: { detail: FieldReportDetai
             <a href={`/api/field-reports/attachment/${a.id}`} target="_blank" rel="noopener noreferrer"><img src={`/api/field-reports/attachment/${a.id}`} alt={a.name} className="h-10 w-10 rounded object-cover" /></a>
           ) : <FileText className="h-8 w-8 shrink-0 text-primary" />}
           <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{a.name}</p><p className="text-[0.6875rem] text-muted-foreground">{formatBytes(a.size)}</p></div>
-          <a href={`/api/field-reports/attachment/${a.id}?dl=1`} className="rounded p-1 text-muted-foreground hover:bg-secondary"><Download className="h-4 w-4" /></a>
+          <a href={`/api/field-reports/attachment/${a.id}?dl=1`} aria-label={`Télécharger ${a.name}`} className="shrink-0 rounded-lg p-2.5 text-muted-foreground hover:bg-secondary sm:rounded sm:p-1"><Download className="h-4 w-4" /></a>
           {!readOnly && (
-            <button onClick={() => { if (window.confirm("Supprimer ?")) { const f = new FormData(); f.set("id", a.id); deleteFieldReportAttachment(f).then(() => onDeleted?.()); } }} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+            <button onClick={() => { if (window.confirm("Supprimer ?")) { const f = new FormData(); f.set("id", a.id); deleteFieldReportAttachment(f).then(() => onDeleted?.()); } }} aria-label={`Supprimer ${a.name}`} className="shrink-0 rounded-lg p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:rounded sm:p-1"><Trash2 className="h-4 w-4" /></button>
           )}
         </div>
       ))}

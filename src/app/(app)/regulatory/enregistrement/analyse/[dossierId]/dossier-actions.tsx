@@ -37,7 +37,7 @@ export function DeleteDossierButton({ dossierId }: { dossierId: string }) {
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <span className="text-xs text-muted-foreground">Confirmer la suppression définitive ?</span>
         <Button type="button" variant="outline" size="sm" onClick={() => setConfirm(false)} disabled={busy}>Annuler</Button>
         <Button type="button" variant="destructive" size="sm" onClick={onDelete} disabled={busy}>

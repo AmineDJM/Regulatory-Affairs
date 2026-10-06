@@ -161,7 +161,7 @@ export default async function ComptabilitePage({
           écritures, et les voir après le livre reviendrait à les lire trop tard. */}
       <ComptaCockpit d={compta} resultat={resultat} periode={periode} />
 
-      <section className="surface space-y-3 p-4">
+      <section className="surface space-y-3 p-3 sm:p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold">Contrôle du livre</h2>
           <p className={`text-xs ${audit.clean ? "text-success" : "text-muted-foreground"}`}>{auditSummary(audit)}</p>
@@ -175,8 +175,8 @@ export default async function ComptabilitePage({
                   f.severity === "HIGH" ? "border-destructive/40 bg-destructive/5" : "border-warning/40 bg-warning/5"
                 }`}
               >
-                <p className="font-medium">{f.title}</p>
-                <p className="text-xs text-muted-foreground">{f.detail}</p>
+                <p className="font-medium [overflow-wrap:anywhere]">{f.title}</p>
+                <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{f.detail}</p>
               </li>
             ))}
             {audit.findings.length > 12 && (

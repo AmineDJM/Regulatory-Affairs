@@ -197,7 +197,7 @@ export function MobileTabBar({
                   onClick={(e) => { e.preventDefault(); toggle(item.href, !opened); }}
                   aria-expanded={opened}
                   aria-label={opened ? `Replier ${item.label}` : `Déplier ${item.label}`}
-                  className="absolute bottom-1 right-1 rounded-lg p-1 text-muted-foreground"
+                  className="absolute bottom-0.5 right-0.5 rounded-lg p-1.5 text-muted-foreground"
                 >
                   <Icon name="ChevronDown" className={cn("h-3.5 w-3.5 transition-transform", opened ? "" : "-rotate-90")} />
                 </button>
@@ -264,7 +264,7 @@ export function MobileTabBar({
                               {badge > 99 ? "99+" : badge}
                             </span>
                           )}
-                          <span className="shrink-0 text-[0.625rem] text-muted-foreground">{pole.children.length}</span>
+                          <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{pole.children.length}</span>
                           <Icon name="ChevronDown" className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", opened ? "" : "-rotate-90")} />
                         </button>
                         {opened && <div className="border-t border-border p-2">{renderTiles(pole.children)}</div>}
@@ -305,7 +305,7 @@ export function MobileTabBar({
                 )}
               >
                 <TabIcon className="h-[1.375rem] w-[1.375rem]" />
-                <span className="text-[0.625rem] font-medium">{tab.label}</span>
+                <span className="text-[0.6875rem] font-medium">{tab.label}</span>
                 {badge > 0 && (
                   <span className="absolute right-[22%] top-1 min-w-[1rem] rounded-full bg-destructive px-1 text-[0.5625rem] font-bold leading-4 text-destructive-foreground">
                     {badge > 99 ? "99+" : badge}
@@ -324,7 +324,7 @@ export function MobileTabBar({
             )}
           >
             <Grid3x3 className="h-[1.375rem] w-[1.375rem]" />
-            <span className="text-[0.625rem] font-medium">Tout</span>
+            <span className="text-[0.6875rem] font-medium">Tout</span>
             {drawer && <span className="absolute inset-x-5 top-0 h-0.5 rounded-full bg-primary" />}
           </button>
         </div>

@@ -51,7 +51,7 @@ export default async function MarketResearchListPage() {
                     <FlaskConical className="h-5 w-5 shrink-0 text-primary" />
                     <Badge tone={s.status === "FINAL" ? "success" : "neutral"} dot={false}>{s.status === "FINAL" ? "Finalisée" : "Brouillon"}</Badge>
                   </div>
-                  <p className="font-semibold leading-tight">{s.title}</p>
+                  <p className="font-semibold leading-tight [overflow-wrap:anywhere]">{s.title}</p>
                   <p className="text-xs text-muted-foreground">{s.rowCount} molécule{s.rowCount > 1 ? "s" : ""} · maj {formatDate(s.updatedAt)}</p>
                 </CardContent>
               </Card>

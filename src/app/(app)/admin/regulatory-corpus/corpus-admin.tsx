@@ -77,14 +77,14 @@ export function CorpusAdmin({ sources, hasAnpp }: { sources: Source[]; hasAnpp: 
       <div className="rounded-xl border border-border p-3">
         <div className="flex gap-2">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tester le RAG : rechercher dans le corpus actif…" onKeyDown={(e) => e.key === "Enter" && search()} />
-          <Button type="button" size="sm" onClick={search} disabled={busy === "search"}>{busy === "search" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}</Button>
+          <Button type="button" size="sm" onClick={search} disabled={busy === "search"} aria-label="Rechercher dans le corpus" className="h-10 shrink-0 sm:h-8">{busy === "search" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}</Button>
         </div>
         {citations && (
           <div className="mt-2 space-y-1.5">
             {citations.length === 0 ? <p className="text-xs text-muted-foreground">Aucune correspondance dans le corpus actif.</p> :
               citations.map((c) => (
                 <div key={c.sectionId} className="rounded-md border border-border/60 px-2.5 py-1.5 text-xs">
-                  <p className="font-medium">{c.authority} · {c.code} v{c.version} · {c.path}{c.heading ? ` — ${c.heading}` : ""}</p>
+                  <p className="font-medium [overflow-wrap:anywhere]">{c.authority} · {c.code} v{c.version} · {c.path}{c.heading ? ` — ${c.heading}` : ""}</p>
                   <p className="text-muted-foreground" dangerouslySetInnerHTML={{ __html: c.snippet }} />
                 </div>
               ))}
@@ -105,10 +105,10 @@ export function CorpusAdmin({ sources, hasAnpp }: { sources: Source[]; hasAnpp: 
                   <span className={`rounded px-1.5 py-0.5 ${v.status === "ACTIVE" ? "bg-success/10 text-success" : v.status === "RETIRED" ? "bg-muted text-muted-foreground" : "bg-amber-500/10 text-amber-600"}`}>{v.status}</span>
                   <span className="text-muted-foreground">{v._count.sections} sections</span>
                   {v.status !== "ACTIVE" && (
-                    <button type="button" disabled={busy !== null} onClick={() => run(`act-${v.id}`, () => { const fd = new FormData(); fd.set("sourceVersionId", v.id); fd.set("status", "ACTIVE"); return setCorpusVersionStatus(fd); })} className="inline-flex items-center gap-1 rounded border border-success/40 px-1.5 py-0.5 text-success"><CheckCircle2 className="h-3 w-3" /> Activer</button>
+                    <button type="button" disabled={busy !== null} onClick={() => run(`act-${v.id}`, () => { const fd = new FormData(); fd.set("sourceVersionId", v.id); fd.set("status", "ACTIVE"); return setCorpusVersionStatus(fd); })} className="inline-flex items-center gap-1 rounded border border-success/40 px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-success"><CheckCircle2 className="h-3 w-3" /> Activer</button>
                   )}
                   {v.status !== "RETIRED" && (
-                    <button type="button" disabled={busy !== null} onClick={() => run(`ret-${v.id}`, () => { const fd = new FormData(); fd.set("sourceVersionId", v.id); fd.set("status", "RETIRED"); return setCorpusVersionStatus(fd); })} className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-muted-foreground"><Archive className="h-3 w-3" /> Retirer</button>
+                    <button type="button" disabled={busy !== null} onClick={() => run(`ret-${v.id}`, () => { const fd = new FormData(); fd.set("sourceVersionId", v.id); fd.set("status", "RETIRED"); return setCorpusVersionStatus(fd); })} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 sm:px-1.5 sm:py-0.5 text-muted-foreground"><Archive className="h-3 w-3" /> Retirer</button>
                   )}
                 </div>
               ))}

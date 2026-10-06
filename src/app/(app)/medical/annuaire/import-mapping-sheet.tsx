@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertTriangle, ArrowRight, Check, Loader2, Upload } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { validateMapping, type HeaderProposal, type TargetColumn } from "@/lib/medical/directory-mapping";
 
@@ -69,39 +70,45 @@ export function ImportMappingSheet({
           <strong className="text-foreground"> « Ne pas importer » </strong> est ignoré — sans perte pour le fichier d&apos;origine.
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-input">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-xs text-muted-foreground">
-              <tr>
-                <th className="px-2.5 py-2 text-left font-medium">Colonne du fichier</th>
-                <th className="px-2.5 py-2 text-left font-medium">Exemples</th>
-                <th className="w-8" />
-                <th className="px-2.5 py-2 text-left font-medium">Colonne de l&apos;annuaire</th>
-              </tr>
-            </thead>
-            <tbody>
+        {/* Au téléphone, chaque colonne du fichier devient une carte : nom, exemples, puis le choix. */}
+        <div className="rounded-xl border border-input max-sm:border-0">
+          <Table mobileCards>
+            <TableHeader className="text-xs text-muted-foreground">
+              <TableRow>
+                <TableHead className="px-2.5 py-2 font-medium normal-case tracking-normal">Colonne du fichier</TableHead>
+                <TableHead className="px-2.5 py-2 font-medium normal-case tracking-normal">Exemples</TableHead>
+                <TableHead className="w-8" />
+                <TableHead className="px-2.5 py-2 font-medium normal-case tracking-normal">Colonne de l&apos;annuaire</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {proposals.map((p, i) => {
                 const o = ORIGINE[p.origin] ?? ORIGINE.aucune;
                 return (
-                  <tr key={p.index} className="border-t border-input/60 align-top">
-                    <td className="px-2.5 py-2">
-                      <div className="font-medium">{p.header || <span className="text-muted-foreground">(sans titre)</span>}</div>
-                      <span className={cn("mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium", o.classe)}>
-                        {o.texte}
-                      </span>
-                    </td>
-                    <td className="px-2.5 py-2 text-xs text-muted-foreground">
-                      {p.sample.length ? p.sample.map((s, k) => <div key={k}>{s}</div>) : <span>—</span>}
-                    </td>
-                    <td className="px-1 py-2 text-muted-foreground"><ArrowRight className="h-3.5 w-3.5" /></td>
-                    <td className="px-2.5 py-2">
+                  <TableRow key={p.index} className="align-top">
+                    <TableCell className="px-2.5 py-2 max-sm:!justify-start" data-sans-etiquette>
+                      <div className="min-w-0">
+                        <div className="font-medium [overflow-wrap:anywhere]">{p.header || <span className="text-muted-foreground">(sans titre)</span>}</div>
+                        <span className={cn("mt-0.5 inline-block rounded px-1.5 py-0.5 text-[0.6875rem] font-medium", o.classe)}>
+                          {o.texte}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-2.5 py-2 text-xs text-muted-foreground">
+                      <div className="min-w-0 [overflow-wrap:anywhere]">
+                        {p.sample.length ? p.sample.map((s, k) => <div key={k}>{s}</div>) : <span>—</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-1 py-2 text-muted-foreground max-sm:!hidden" data-sans-etiquette><ArrowRight className="h-3.5 w-3.5" /></TableCell>
+                    <TableCell className="px-2.5 py-2">
                       <select
                         value={choix[i] ?? ""}
                         onChange={(e) => {
                           const v = e.target.value || null;
                           setChoix((prev) => prev.map((c, k) => (k === i ? v : c)));
                         }}
-                        className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
+                        aria-label={`Colonne de l'annuaire pour « ${p.header || "sans titre"} »`}
+                        className="w-full min-w-0 rounded-lg border border-input bg-background px-2 py-2 text-base sm:py-1.5 sm:text-sm"
                       >
                         <option value="">Ne pas importer</option>
                         {targets.map((t) => (
@@ -110,12 +117,12 @@ export function ImportMappingSheet({
                           </option>
                         ))}
                       </select>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         {problemes.length > 0 && (
@@ -132,10 +139,11 @@ export function ImportMappingSheet({
           <span className="text-xs text-muted-foreground">
             {retenues} colonne(s) importée(s){ecartees > 0 ? ` · ${ecartees} écartée(s)` : ""}
           </span>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>Annuler</Button>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button variant="outline" size="sm" onClick={onCancel} disabled={busy} className="flex-1 sm:flex-none">Annuler</Button>
             <Button
               size="sm"
+              className="flex-1 sm:flex-none"
               disabled={busy || problemes.length > 0}
               onClick={() => onConfirm(choix)}
             >

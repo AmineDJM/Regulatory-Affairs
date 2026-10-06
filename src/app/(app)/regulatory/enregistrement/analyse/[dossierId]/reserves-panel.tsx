@@ -67,14 +67,14 @@ export function ReservesPanel({ dossierId, cycles, canManage }: { dossierId: str
       {cycles.map((c) => (
         <div key={c.id} className="rounded-xl border border-border p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">Cycle {c.cycle} — {c.letterFilename}</span>
+            <span className="min-w-0 text-sm font-medium [overflow-wrap:anywhere]">Cycle {c.cycle} — {c.letterFilename}</span>
             {c.reserveType && RESERVE_TYPES[c.reserveType] && (
               <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${RESERVE_TYPES[c.reserveType].cls}`}>{RESERVE_TYPES[c.reserveType].label}</span>
             )}
             {c.ocrConfidence != null && <span className="text-xs text-muted-foreground">OCR {c.ocrConfidence}%</span>}
             {c.ocrNeedsReview && <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-600">revue OCR requise</span>}
             <span className="text-xs text-muted-foreground">{c.points.length} point·s · {c.points.filter((p) => p.status === "APPROVED").length} approuvé·s</span>
-            {canManage && <button type="button" disabled={busy !== null} onClick={() => run(`del-${c.id}`, () => { const fd = new FormData(); fd.set("cycleId", c.id); return deleteReserveCycle(fd); })} className="ml-auto inline-flex items-center gap-1 text-xs text-destructive hover:underline"><Trash2 className="h-3 w-3" /> Supprimer</button>}
+            {canManage && <button type="button" disabled={busy !== null} onClick={() => run(`del-${c.id}`, () => { const fd = new FormData(); fd.set("cycleId", c.id); return deleteReserveCycle(fd); })} className="ml-auto inline-flex items-center gap-1 py-1.5 text-xs text-destructive hover:underline sm:py-0"><Trash2 className="h-3 w-3" /> Supprimer</button>}
           </div>
           {canManage && c.points.length > 0 && (
             <div className="mt-2">
@@ -96,9 +96,9 @@ export function ReservesPanel({ dossierId, cycles, canManage }: { dossierId: str
                   <form action={p.status === "APPROVED" ? undefined : (fd) => run(`save-${p.id}`, () => { fd.set("pointId", p.id); return updateReservePoint(fd); })} className="mt-1.5 space-y-1.5">
                     <Textarea name="proposedResponse" rows={2} defaultValue={p.finalResponse ?? p.proposedResponse ?? ""} placeholder="Réponse proposée…" disabled={p.status === "APPROVED"} className="text-sm" />
                     {p.status !== "APPROVED" && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button type="submit" size="sm" variant="outline" disabled={busy !== null}>Enregistrer</Button>
-                        <button type="button" disabled={busy !== null} onClick={() => run(`app-${p.id}`, () => { const fd = new FormData(); fd.set("pointId", p.id); return approveReservePoint(fd); })} className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2 py-1 text-xs text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Approuver la réponse</button>
+                        <button type="button" disabled={busy !== null} onClick={() => run(`app-${p.id}`, () => { const fd = new FormData(); fd.set("pointId", p.id); return approveReservePoint(fd); })} className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2.5 py-2 text-xs text-success sm:px-2 sm:py-1"><CheckCircle2 className="h-3.5 w-3.5" /> Approuver la réponse</button>
                       </div>
                     )}
                   </form>

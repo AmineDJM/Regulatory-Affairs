@@ -23,11 +23,11 @@ function MessageAttachments({ attachments, onDark }: { attachments: MsgAttachmen
           {/* Aperçu d'une pièce jointe servie par une route API AUTHENTIFIÉE : next/image est
               contre-indiqué (son optimiseur refetche l'URL côté serveur, sans la session). */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`/api/dossiers/message-attachment/${a.id}`} alt={a.name} className="max-h-40 rounded-lg border border-black/10 object-cover" />
+          <img src={`/api/dossiers/message-attachment/${a.id}`} alt={a.name} className="max-h-40 max-w-full rounded-lg border border-black/10 object-cover" />
         </a>
       ) : (
         <a key={a.id} href={`/api/dossiers/message-attachment/${a.id}?dl=1`}
-          className={`inline-flex max-w-[15rem] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs ${onDark ? "bg-white/15 hover:bg-white/25" : "border border-border bg-background hover:bg-secondary"}`}>
+          className={`inline-flex max-w-full items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs sm:max-w-[15rem] sm:py-1.5 ${onDark ? "bg-white/15 hover:bg-white/25" : "border border-border bg-background hover:bg-secondary"}`}>
           <FileText className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1 truncate">{a.name}</span>
           <span className="opacity-70">{formatBytes(a.size)}</span>
@@ -67,16 +67,16 @@ export function DossierMessageItem({
   }
 
   return (
-    <div className={`group max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
+    <div className={`group max-w-[88%] rounded-2xl px-3.5 py-2 text-sm sm:max-w-[80%] ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
       {editing ? (
         <div className="space-y-1.5">
           <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy}
             className="min-h-[56px] bg-background text-foreground" />
           <div className="flex justify-end gap-1.5">
             <button type="button" onClick={() => { setEditing(false); setDraft(body); }} disabled={busy}
-              className="rounded p-1 text-muted-foreground hover:bg-background/40" title="Annuler"><X className="h-3.5 w-3.5" /></button>
+              className="rounded p-2 text-muted-foreground hover:bg-background/40 sm:p-1" title="Annuler" aria-label="Annuler"><X className="h-3.5 w-3.5" /></button>
             <button type="button" onClick={save} disabled={busy || !draft.trim()}
-              className="rounded p-1 text-success hover:bg-background/40" title="Enregistrer">
+              className="rounded p-2 text-success hover:bg-background/40 sm:p-1" title="Enregistrer" aria-label="Enregistrer">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             </button>
           </div>
@@ -88,20 +88,21 @@ export function DossierMessageItem({
               {mentionNames.map((n) => <span key={n} className="inline-flex items-center gap-0.5"><AtSign className="h-3 w-3" />{n}</span>)}
             </p>
           )}
-          {body && <p className="whitespace-pre-wrap">{body}</p>}
+          {body && <p className="whitespace-pre-wrap break-words">{body}</p>}
           <MessageAttachments attachments={attachments} onDark={mine} />
         </>
       )}
-      <p className={`mt-1 flex items-center gap-1.5 text-[0.6875rem] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+      <p className={`mt-1 flex flex-wrap items-center gap-1.5 text-[0.6875rem] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
         <span>{author} · {createdAt}</span>
         {canManage && !editing && (
-          <span className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-            <button type="button" onClick={() => { setDraft(body); setEditing(true); }} title="Modifier"
-              className={`rounded p-0.5 ${mine ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+          // Au doigt, pas de survol : les actions restent visibles ; à la souris, elles apparaissent au survol.
+          <span className="flex items-center gap-1 transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
+            <button type="button" onClick={() => { setDraft(body); setEditing(true); }} title="Modifier" aria-label="Modifier"
+              className={`-my-1 rounded p-1.5 sm:my-0 sm:p-0.5 ${mine ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
               <Pencil className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={remove} disabled={busy} title="Supprimer"
-              className={`rounded p-0.5 ${mine ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-destructive"}`}>
+            <button type="button" onClick={remove} disabled={busy} title="Supprimer" aria-label="Supprimer"
+              className={`-my-1 rounded p-1.5 sm:my-0 sm:p-0.5 ${mine ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-destructive"}`}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
             </button>
           </span>
@@ -157,7 +158,7 @@ export function DossierAssign({
 
   return (
     <details className="rounded-lg border border-border">
-      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium"><Users className="h-4 w-4 text-primary" /> Responsable & participants</summary>
+      <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium sm:min-h-0"><Users className="h-4 w-4 text-primary" /> Responsable & participants</summary>
       <form
         action={(fd) => { fd.set("id", id); parts.forEach((p) => fd.append("participantIds", p)); run(() => assignDossier(fd)); }}
         className="space-y-3 border-t border-border p-3"
@@ -173,7 +174,7 @@ export function DossierAssign({
           <Label>Participants</Label>
           <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1">
             {users.map((u) => (
-              <label key={u.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-secondary/50">
+              <label key={u.id} className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-secondary/50 sm:py-1">
                 <input type="checkbox" checked={parts.has(u.id)} onChange={() => toggle(u.id)} className="h-4 w-4 rounded border-input" />
                 {u.name}
               </label>
@@ -181,7 +182,7 @@ export function DossierAssign({
           </div>
         </div>
         <Err msg={err} />
-        <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer</Button>
+        <Button type="submit" size="sm" disabled={saving} className="w-full sm:w-auto">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer</Button>
       </form>
     </details>
   );
@@ -223,9 +224,9 @@ export function DossierMessageForm({ id, members }: { id: string; members: UserL
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {files.map((f, i) => (
-            <span key={i} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-2.5 py-1 text-xs">
-              <FileText className="h-3.5 w-3.5" /> <span className="max-w-[10rem] truncate">{f.name}</span>
-              <button type="button" onClick={() => setFiles((arr) => arr.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
+            <span key={i} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-2.5 py-1 text-xs">
+              <FileText className="h-3.5 w-3.5 shrink-0" /> <span className="min-w-0 max-w-[10rem] truncate">{f.name}</span>
+              <button type="button" onClick={() => setFiles((arr) => arr.filter((_, j) => j !== i))} aria-label={`Retirer ${f.name}`} className="-my-1 -mr-1.5 shrink-0 rounded-full p-1.5 text-muted-foreground hover:text-destructive sm:m-0 sm:p-0"><X className="h-3.5 w-3.5" /></button>
             </span>
           ))}
         </div>
@@ -245,7 +246,7 @@ export function DossierMessageForm({ id, members }: { id: string; members: UserL
         ) : (
           <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1">
             {members.map((m) => (
-              <label key={m.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-secondary/50">
+              <label key={m.id} className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-secondary/50 sm:py-1">
                 <input type="checkbox" checked={mentions.has(m.id)} onChange={() => toggleMention(m.id)} className="h-4 w-4 rounded border-input" />
                 {m.name}
               </label>

@@ -263,7 +263,7 @@ export default async function MonEspacePage() {
           ligne — c'est de la relance, pas de l'action. */}
       {(piecesADeposer.length > 0 || piecesEnAttente > 0) && (
         <section className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Pièces demandées{piecesADeposer.length > 0 ? ` (${piecesADeposer.length} à déposer)` : ""}
             </h2>
@@ -280,16 +280,16 @@ export default async function MonEspacePage() {
                       <Link href={`/pieces/${r.id}`} className="flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-secondary/50 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0 space-y-0.5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium">{r.label}</span>
+                            <span className="min-w-0 break-words font-medium">{r.label}</span>
                             <StatusBadge map={PIECE_REQUEST_STATUS} value={r.status} dot={false} />
                             {isLate(r) && <Badge tone="danger" dot={false}>en retard</Badge>}
                           </div>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="break-words text-xs text-muted-foreground">
                             {r.reference} · demandée par {r.askedBy.name}
                             {r.dueDate ? ` · échéance ${formatDate(r.dueDate.toISOString())}` : ""}
                           </p>
                         </div>
-                        <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <ArrowRight className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
                       </Link>
                     </li>
                   ))}
@@ -405,7 +405,7 @@ export default async function MonEspacePage() {
 function ActionSection({ title, items, cta, ctaLabel, maintenant }: { title: string; items: ActionItem[]; cta?: string; ctaLabel?: string; maintenant: Date }) {
   return (
     <section className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
         {cta && <Link href={cta} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">{ctaLabel} <ArrowRight className="h-3.5 w-3.5" /></Link>}
       </div>
@@ -432,7 +432,7 @@ function ActionRow({ item, maintenant }: { item: ActionItem; maintenant: Date })
       <Link href={item.href} className="flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-secondary/50 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{item.title}</span>
+            <span className="min-w-0 break-words font-medium">{item.title}</span>
             {prio && (prio.tone === "warning" || prio.tone === "danger") && <Badge tone={prio.tone} dot={false}>{prio.label}</Badge>}
             {item.statusLabel && <Badge tone={item.statusTone ?? "neutral"} dot={false}>{item.statusLabel}</Badge>}
           </div>
@@ -451,7 +451,7 @@ function ActionRow({ item, maintenant }: { item: ActionItem; maintenant: Date })
               {formatDate(item.deadline)}{overdue ? " · en retard" : d === 0 ? " · aujourd'hui" : ""}
             </span>
           )}
-          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+          <ArrowRight className="hidden h-4 w-4 text-muted-foreground sm:block" />
         </div>
       </Link>
     </li>

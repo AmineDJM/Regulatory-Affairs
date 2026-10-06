@@ -67,7 +67,7 @@ function EventDot({ etat }: { etat: string }) {
 
 function EventLine({ event: e, compact }: { event: BusinessStory["events"][number]; compact?: boolean }) {
   return (
-    <div className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 ${compact ? "text-xs" : "text-sm"}`}>
+    <div className={`flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 [overflow-wrap:anywhere] ${compact ? "text-xs" : "text-sm"}`}>
       <span className={e.etat === "manque" ? "font-medium text-warning" : e.etat === "echec" ? "text-destructive" : "font-medium"}>
         {e.titre}
       </span>

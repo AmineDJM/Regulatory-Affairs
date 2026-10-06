@@ -13,7 +13,7 @@ const TABS = [
 export function PiTabs() {
   const pathname = usePathname();
   return (
-    <div className="flex gap-1.5 border-b border-border">
+    <div className="flex gap-1.5 overflow-x-auto border-b border-border no-scrollbar">
       {TABS.map((t) => {
         const active = pathname === t.href;
         return (
@@ -21,7 +21,7 @@ export function PiTabs() {
             key={t.href}
             href={t.href}
             className={cn(
-              "flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+              "flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:py-2",
               active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >

@@ -70,7 +70,7 @@ export function MenuItem({
   telechargement?: { nom: string; archive?: boolean };
 }) {
   const cls = [
-    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[0.8125rem] transition-colors",
+    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left text-[0.8125rem] transition-colors sm:py-2",
     danger ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-secondary",
     disabled ? "pointer-events-none opacity-50" : "",
   ].join(" ");
@@ -138,7 +138,7 @@ function Kebab({ label, children }: { label: string; children: (close: () => voi
       <button
         ref={btnRef} type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
-        className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground ${open ? "bg-secondary text-foreground" : ""}`}
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-md sm:h-7 sm:w-7 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground ${open ? "bg-secondary text-foreground" : ""}`}
       >
         <MoreVertical className="h-4 w-4" />
       </button>
@@ -147,7 +147,7 @@ function Kebab({ label, children }: { label: string; children: (close: () => voi
           data-kebab-menu
           role="menu"
           style={{ top: pos.top, left: pos.left }}
-          className="fixed z-50 w-56 overflow-hidden rounded-xl border border-border bg-card p-1 shadow-xl animate-fade-in"
+          className="fixed z-50 max-h-[calc(100dvh-1rem)] w-56 overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-xl animate-fade-in"
           onClick={(e) => e.stopPropagation()}
         >
           {children(close)}
@@ -287,7 +287,7 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
             <Label htmlFor="name">Nouveau nom</Label>
             <Input id="name" name="name" defaultValue={name} required />
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setRenaming(false)}>Annuler</Button>
             <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Renommer</Button>
           </div>
@@ -314,7 +314,7 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
             </Select>
           </div>
           {moveErr && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{moveErr}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setMoving(false)} disabled={saving}>Annuler</Button>
             <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />} Déplacer</Button>
           </div>

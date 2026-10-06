@@ -58,7 +58,7 @@ export function FeedbackAttachments({ items }: { items: FeedbackAttachmentRow[] 
         {items.map((a) => (
           <li
             key={a.id}
-            className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2 py-1 text-xs"
+            className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-secondary/40 px-2 py-1.5 text-xs sm:gap-1.5 sm:py-1"
           >
             <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />
             {/* Ouvre le fichier réel. `target=_blank` + `rel=noopener` : la page servie ne doit
@@ -75,7 +75,7 @@ export function FeedbackAttachments({ items }: { items: FeedbackAttachmentRow[] 
             <span className="shrink-0 text-muted-foreground">{humanSize(a.size)}</span>
             <a
               href={`/api/feedback/attachment/${a.id}?dl=1`}
-              className="shrink-0 text-muted-foreground hover:text-foreground"
+              className="-m-1.5 shrink-0 p-1.5 text-muted-foreground hover:text-foreground sm:m-0 sm:p-0"
               aria-label={`Télécharger ${a.name}`}
             >
               <Download className="h-3 w-3" />
@@ -85,7 +85,7 @@ export function FeedbackAttachments({ items }: { items: FeedbackAttachmentRow[] 
                 type="button"
                 onClick={() => void remove(a.id, a.name)}
                 disabled={busy === a.id}
-                className="shrink-0 text-muted-foreground hover:text-destructive disabled:opacity-50"
+                className="-m-1.5 shrink-0 p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-50 sm:m-0 sm:p-0"
                 aria-label={`Retirer ${a.name}`}
               >
                 {busy === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}

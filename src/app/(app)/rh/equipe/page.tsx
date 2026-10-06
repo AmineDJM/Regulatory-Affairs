@@ -79,8 +79,8 @@ export default async function RhTeamPage() {
     { type: "date", name: "contractStart", label: "Début de contrat" },
     { type: "date", name: "contractEnd", label: "Fin de contrat (échéance)" },
     { type: "date", name: "birthDate", label: "Date de naissance" },
-    { type: "text", name: "email", label: "Email" },
-    { type: "text", name: "phone", label: "Téléphone" },
+    { type: "text", name: "email", label: "Email", inputMode: "email", autoComplete: "off" },
+    { type: "text", name: "phone", label: "Téléphone", inputMode: "tel", autoComplete: "off" },
     { type: "text", name: "iban", label: "RIB / IBAN" },
     { type: "text", name: "nationalId", label: "NIN" },
     { type: "text", name: "cnasNumber", label: "N° CNAS" },
@@ -163,9 +163,9 @@ export default async function RhTeamPage() {
             {data.contractsExpiring.map((e) => {
               const d = daysUntil(e.contractEnd);
               return (
-                <div key={e.id} className="flex items-center justify-between gap-3 text-sm">
-                  <Link href={`/rh/${e.id}`} className="font-medium hover:underline">{e.fullName}</Link>
-                  <span className="text-muted-foreground">
+                <div key={e.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-sm">
+                  <Link href={`/rh/${e.id}`} className="min-w-0 font-medium [overflow-wrap:anywhere] hover:underline">{e.fullName}</Link>
+                  <span className="shrink-0 text-muted-foreground">
                     {formatDate(e.contractEnd)} {d !== null && <span className={d <= 15 ? "text-destructive" : "text-warning"}>· dans {d} j</span>}
                   </span>
                 </div>

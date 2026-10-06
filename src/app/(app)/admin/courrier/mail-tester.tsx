@@ -38,13 +38,13 @@ export function MailTester({ configured }: { configured: boolean }) {
 
   return (
     <Card>
-      <CardContent className="space-y-3 p-5">
+      <CardContent className="space-y-3 p-4 sm:p-5">
         <h2 className="text-sm font-semibold">Envoi de test</h2>
         <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
           <input
             type="email" value={to} onChange={(e) => setTo(e.target.value)}
-            placeholder="votre.adresse@exemple.dz" required
-            className="flex-1 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+            placeholder="votre.adresse@exemple.dz" required autoComplete="email"
+            className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3.5 py-2.5 text-base outline-none sm:text-sm focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
           />
           <Button type="submit" disabled={busy || !to.trim()}>
             {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}

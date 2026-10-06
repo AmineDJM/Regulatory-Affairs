@@ -25,7 +25,7 @@ export function FeedbackStatusSelect({ id, status }: { id: string; status: strin
             router.refresh();
           });
         }}
-        className="h-8 rounded-lg border border-input bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="h-10 rounded-lg border border-input bg-card px-2 text-base outline-none sm:h-8 sm:text-xs focus-visible:ring-2 focus-visible:ring-ring"
       >
         {Object.entries(FEEDBACK_STATUS).map(([v, d]) => (
           <option key={v} value={v}>{d.label}</option>

@@ -67,7 +67,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
     <div className="flex flex-wrap gap-1 text-xs">
       {bus.map((b) => (
         <Link key={b.id} href={strategieDe(b) ? `/segmentation?s=${strategieDe(b)}` : `/segmentation?bu=${b.id}`}
-          className={`rounded-md border px-2 py-1 ${b.id === buChoisie?.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>
+          className={`rounded-md border px-3 py-2 sm:px-2 sm:py-1 ${b.id === buChoisie?.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>
           {b.name}{strategieDe(b) ? "" : " · à activer"}
         </Link>
       ))}
@@ -155,9 +155,9 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
       {specialitesBu.length > 1 && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
           <span className="text-muted-foreground">Spécialité :</span>
-          <Link href={href(vue, null)} className={`rounded-md border px-2 py-1 ${!spe ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>Toutes</Link>
+          <Link href={href(vue, null)} className={`rounded-md border px-3 py-2 sm:px-2 sm:py-1 ${!spe ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>Toutes</Link>
           {specialitesBu.map((x) => (
-            <Link key={x.specialtyId} href={href(vue, x.specialtyId)} className={`rounded-md border px-2 py-1 ${spe === x.specialtyId ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{x.specialty.name}</Link>
+            <Link key={x.specialtyId} href={href(vue, x.specialtyId)} className={`rounded-md border px-3 py-2 sm:px-2 sm:py-1 ${spe === x.specialtyId ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{x.specialty.name}</Link>
           ))}
         </div>
       )}
@@ -182,7 +182,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
 
       <nav className="flex flex-wrap gap-1 border-b border-border">
         {VUES.filter((v) => (v.cle === "import" || v.cle === "historique" ? peutValider : true) && (v.cle !== "regles" || peutValider || !!regles)).map((v) => (
-          <Link key={v.cle} href={href(v.cle)} className={`-mb-px border-b-2 px-3 py-2 text-sm ${vue === v.cle ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+          <Link key={v.cle} href={href(v.cle)} className={`-mb-px border-b-2 px-3 py-2.5 text-sm sm:py-2 ${vue === v.cle ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
             {v.label}
           </Link>
         ))}
@@ -233,14 +233,14 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
             <h2 className="text-sm font-semibold">Versions des règles</h2>
             {versions.length === 0 && <p className="text-sm text-muted-foreground">Aucune version publiée.</p>}
             {versions.map((v) => (
-              <p key={v.version} className="text-sm"><span className="font-medium">v{v.version}</span> · {v.publieeLe.toLocaleDateString("fr-FR")} {v.note ? `· ${v.note}` : ""}</p>
+              <p key={v.version} className="text-sm [overflow-wrap:anywhere]"><span className="font-medium">v{v.version}</span> · {v.publieeLe.toLocaleDateString("fr-FR")} {v.note ? `· ${v.note}` : ""}</p>
             ))}
           </section>
           <section className="surface space-y-2 p-4">
             <h2 className="text-sm font-semibold">Imports</h2>
             {imports.length === 0 && <p className="text-sm text-muted-foreground">Aucun import.</p>}
             {imports.map((i) => (
-              <p key={i.id} className="text-sm">{i.nomFichier} · feuille {i.feuille ?? "—"} · {i.createdAt.toLocaleDateString("fr-FR")}</p>
+              <p key={i.id} className="text-sm [overflow-wrap:anywhere]">{i.nomFichier} · feuille {i.feuille ?? "—"} · {i.createdAt.toLocaleDateString("fr-FR")}</p>
             ))}
           </section>
         </div>

@@ -62,7 +62,7 @@ export function IdentityBoard({
             {c.label}
           </button>
         ))}
-        <span className="ml-auto flex items-center gap-2">
+        <span className="ml-auto flex flex-wrap items-center gap-2">
           <CopyButton
             value={identityBlock(company.values)} label="Copier la carte"
             title="Copier tous les champs renseignés, en bloc"
@@ -162,7 +162,7 @@ function CopyButton({ value, label, title }: { value: string; label?: string; ti
         }
       }}
       className={cn(
-        "flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors",
+        "flex min-h-9 min-w-9 shrink-0 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors sm:min-h-0 sm:min-w-0",
         done ? "border-success/50 text-success" : "border-border text-muted-foreground hover:bg-secondary",
         label ? "" : "px-1.5",
       )}
@@ -222,7 +222,7 @@ function IdentitySheet({
         ))}
 
         {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
           <Button type="submit" disabled={busy}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer

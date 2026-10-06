@@ -83,7 +83,7 @@ export function LetterheadManager({
               </span>
               <Badge tone="info">{KIND_LABEL[l.kind as OfficeKind] ?? l.kind}</Badge>
               {!l.isActive && <Badge tone="warning">Retiré</Badge>}
-              <span className="flex items-center gap-1">
+              <span className="ml-auto flex items-center gap-1">
                 <IconAction
                   title={l.isActive ? "Retirer de la liste proposée" : "Reproposer à la création"}
                   busy={busyId === l.id}
@@ -135,7 +135,7 @@ function IconAction({
     <button
       type="button" title={title} aria-label={title} onClick={onClick} disabled={busy}
       className={cn(
-        "rounded-lg p-1.5 transition-colors hover:bg-secondary",
+        "rounded-lg p-2.5 transition-colors hover:bg-secondary sm:p-1.5",
         danger ? "text-destructive" : "text-muted-foreground hover:text-foreground",
       )}
     >
@@ -196,7 +196,7 @@ function UploadSheet({ companies, onClose }: { companies: { id: string; label: s
         </div>
 
         {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Annuler</Button>
           <Button type="submit" disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Téléverser
@@ -246,7 +246,7 @@ function EditSheet({
           ne remplace pas des octets sous un nom déjà utilisé dans des courriers partis.
         </p>
         {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Annuler</Button>
           <Button type="submit" disabled={busy}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer

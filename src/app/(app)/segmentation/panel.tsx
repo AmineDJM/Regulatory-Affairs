@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select, Label } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { STATUTS, STATUT_LABELS, ETAT_LABELS, pct, type EtatProduit, type Statut } from "@/lib/segmentation/regles";
 import type { ResultatPraticien } from "@/lib/segmentation/moteur";
@@ -80,70 +81,77 @@ export function Panel({ strategieId, produits, lignes, zones, reglesPubliees, pe
   return (
     <div className="space-y-3">
       {!reglesPubliees && <p className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm">Aucune règle publiée : les segments ne se calculent pas encore (onglet Règles).</p>}
-      <div className="flex flex-wrap items-end gap-2">
-        <Input placeholder="Rechercher un praticien, un établissement…" value={q} onChange={(e) => setQ(e.target.value)} className="w-64" />
-        <Select value={zone} onChange={(e) => setZone(e.target.value)} className="w-36">
+      {/* Au téléphone : recherche pleine largeur, filtres deux par deux ; au-delà, une seule rangée. */}
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
+        <Input type="search" placeholder="Rechercher un praticien, un établissement…" value={q} onChange={(e) => setQ(e.target.value)} className="col-span-2 sm:w-64" />
+        <Select value={zone} onChange={(e) => setZone(e.target.value)} className="min-w-0 sm:w-36">
           <option value="">Toutes les zones</option>
           {zones.map((z) => <option key={z} value={z}>{z}</option>)}
         </Select>
-        <Select value={statut} onChange={(e) => setStatut(e.target.value)} className="w-40">
+        <Select value={statut} onChange={(e) => setStatut(e.target.value)} className="min-w-0 sm:w-40">
           <option value="">Tous les statuts</option>
           <option value="H">Décideurs (H)</option>
           {STATUTS.map((s) => <option key={s} value={s}>{STATUT_LABELS[s]}</option>)}
         </Select>
         {produits[0] && (
-          <Select value={etat} onChange={(e) => setEtat(e.target.value)} className="w-48">
+          <Select value={etat} onChange={(e) => setEtat(e.target.value)} className="min-w-0 sm:w-48">
             <option value="">{produits[0].nom} : tous</option>
             {(["A", "B", "C", "D", "EN_ATTENTE", "NON_CIBLE"] as const).map((k) => <option key={k} value={k}>{ETAT_LABELS[k]}</option>)}
           </Select>
         )}
-        <span className="text-xs text-muted-foreground">{visibles.length} / {lignes.length}</span>
+        <span className="col-span-2 text-xs text-muted-foreground">{visibles.length} / {lignes.length}</span>
       </div>
-      <div className="surface overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-b border-border text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2">Praticien</th>
-              <th className="px-3 py-2">Statut</th>
-              <th className="px-3 py-2">Zone</th>
-              {produits.map((p) => <th key={p.productId} className="px-3 py-2">#{p.rang} {p.nom}</th>)}
-              <th className="px-3 py-2">Priorité</th>
-              <th className="px-3 py-2">Visites</th>
-              <th className="px-3 py-2">Potentiel</th>
-            </tr>
-          </thead>
-          <tbody>
+      {/* Une ligne = un praticien : une carte au téléphone (toucher la carte ouvre sa fiche juste en dessous). */}
+      <div className="surface max-sm:border-0 max-sm:bg-transparent">
+        <Table mobileCards>
+          <TableHeader className="bg-transparent">
+            <TableRow>
+              <TableHead>Praticien</TableHead>
+              <TableHead>Statut</TableHead>
+              <TableHead>Zone</TableHead>
+              {produits.map((p) => <TableHead key={p.productId}>#{p.rang} {p.nom}</TableHead>)}
+              <TableHead>Priorité</TableHead>
+              <TableHead>Visites</TableHead>
+              <TableHead>Potentiel</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {visibles.map((l) => (
               <React.Fragment key={l.doctorId}>
-                <tr className="cursor-pointer border-b border-border/60 hover:bg-secondary/40" onClick={() => setOuverte(ouverte === l.doctorId ? null : l.doctorId)}>
-                  <td className="px-3 py-2">
-                    <Link href={`/praticiens/${l.doctorId}`} onClick={(e) => e.stopPropagation()} className="font-medium hover:underline">{l.nom}</Link>
-                    <div className="text-xs text-muted-foreground">{[l.etablissement, l.specialite].filter(Boolean).join(" · ")}</div>
-                  </td>
-                  <td className="px-3 py-2">
-                    {l.resultat?.h && <Badge tone="purple" className="mr-1">H</Badge>}
-                    {l.statut ? STATUT_LABELS[l.statut] : "—"}
-                  </td>
-                  <td className="px-3 py-2" title={l.inOut ? (l.inOut === "IN" ? "Dans la wilaya pivot d'un KAM qui le couvre" : "Hors de la wilaya pivot des KAM qui le couvrent") : undefined}>{l.zone ?? "—"}{l.inOut ? ` · ${l.inOut === "IN" ? "In" : "Out"}` : ""}</td>
+                <TableRow className="cursor-pointer border-border/60 hover:bg-secondary/40" aria-expanded={ouverte === l.doctorId} onClick={() => setOuverte(ouverte === l.doctorId ? null : l.doctorId)}>
+                  <TableCell data-sans-etiquette className="!justify-start sm:py-2">
+                    <div className="min-w-0 [overflow-wrap:anywhere]">
+                      <Link href={`/praticiens/${l.doctorId}`} onClick={(e) => e.stopPropagation()} className="font-medium hover:underline">{l.nom}</Link>
+                      <div className="text-xs text-muted-foreground">{[l.etablissement, l.specialite].filter(Boolean).join(" · ")}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="sm:py-2">
+                    <span>
+                      {l.resultat?.h && <Badge tone="purple" className="mr-1">H</Badge>}
+                      {l.statut ? STATUT_LABELS[l.statut] : "—"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="sm:py-2" title={l.inOut ? (l.inOut === "IN" ? "Dans la wilaya pivot d'un KAM qui le couvre" : "Hors de la wilaya pivot des KAM qui le couvrent") : undefined}>{l.zone ?? "—"}{l.inOut ? ` · ${l.inOut === "IN" ? "In" : "Out"}` : ""}</TableCell>
                   {produits.map((p) => {
                     const r = l.resultat?.produits.find((x) => x.productId === p.productId);
-                    return <td key={p.productId} className="px-3 py-2">{r ? <EtatBadge etat={r.etat} derogee={!!r.derogation} /> : "—"}</td>;
+                    return <TableCell key={p.productId} className="sm:py-2">{r ? <EtatBadge etat={r.etat} derogee={!!r.derogation} /> : "—"}</TableCell>;
                   })}
-                  <td className="px-3 py-2">{l.resultat ? (l.resultat.cible ? l.resultat.priorite ?? "—" : "Non ciblé") : "—"}</td>
-                  <td className="px-3 py-2">{l.resultat?.visites ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{fraicheur(l.derniereObservation)}</td>
-                </tr>
+                  <TableCell className="sm:py-2">{l.resultat ? (l.resultat.cible ? l.resultat.priorite ?? "—" : "Non ciblé") : "—"}</TableCell>
+                  <TableCell className="sm:py-2">{l.resultat?.visites ?? "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground sm:py-2">{fraicheur(l.derniereObservation)}</TableCell>
+                </TableRow>
                 {ouverte === l.doctorId && (
-                  <tr className="border-b border-border bg-secondary/20">
-                    <td colSpan={6 + produits.length} className="px-3 py-3">
+                  <TableRow className="bg-secondary/20 hover:bg-secondary/20">
+                    {/* La fiche occupe toute la carte : `block` au téléphone, cellule de tableau au-delà. */}
+                    <TableCell data-sans-etiquette colSpan={6 + produits.length} className="py-3 max-sm:!block">
                       <Fiche strategieId={strategieId} ligne={l} produits={produits} peutModifier={peutModifier} peutDeroger={peutDeroger} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 )}
               </React.Fragment>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );
@@ -193,8 +201,8 @@ function Fiche({ strategieId, ligne, produits, peutModifier, peutDeroger }: { st
           <div>
             <p className="text-xs font-semibold">Dérogations en vigueur</p>
             {ligne.derogations.map((d) => (
-              <div key={d.id} className="flex items-center gap-2 text-xs">
-                <span>{d.nature === "CIBLAGE" ? (d.valeur === "CIBLE" ? "Ciblé" : "Non ciblé") : `${produits.find((p) => p.productId === d.productId)?.nom ?? ""} ${d.valeur}`} (calculé : {d.valeurCalculee ?? "—"}) — {d.motif}{d.expireLe ? ` · jusqu'au ${new Date(d.expireLe).toLocaleDateString("fr-FR")}` : ""}</span>
+              <div key={d.id} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="min-w-0 [overflow-wrap:anywhere]">{d.nature === "CIBLAGE" ? (d.valeur === "CIBLE" ? "Ciblé" : "Non ciblé") : `${produits.find((p) => p.productId === d.productId)?.nom ?? ""} ${d.valeur}`} (calculé : {d.valeurCalculee ?? "—"}) — {d.motif}{d.expireLe ? ` · jusqu'au ${new Date(d.expireLe).toLocaleDateString("fr-FR")}` : ""}</span>
                 {peutDeroger && <Button size="sm" variant="ghost" disabled={occupe} onClick={() => agir(() => leverDerogation(d.id))}>Lever</Button>}
               </div>
             ))}
@@ -207,7 +215,7 @@ function Fiche({ strategieId, ligne, produits, peutModifier, peutDeroger }: { st
         {peutModifier && <FormStatut strategieId={strategieId} ligne={ligne} occupe={occupe} agir={agir} />}
         {peutDeroger && <FormDerogation strategieId={strategieId} doctorId={ligne.doctorId} produits={produits} occupe={occupe} agir={agir} />}
         {peutDeroger && (
-          <button type="button" className="text-xs text-muted-foreground underline" disabled={occupe} onClick={() => agir(() => retirerDuPanel(strategieId, ligne.doctorId))}>
+          <button type="button" className="py-2 text-xs text-muted-foreground underline sm:py-0" disabled={occupe} onClick={() => agir(() => retirerDuPanel(strategieId, ligne.doctorId))}>
             Retirer du panel
           </button>
         )}
@@ -278,7 +286,7 @@ function FormDerogation({ strategieId, doctorId, produits, occupe, agir }: { str
         <Select value={valeur} onChange={(e) => setValeur(e.target.value)} className="w-32">
           {ciblage ? (<><option value="NON_CIBLE">Non ciblé</option><option value="CIBLE">Ciblé</option></>) : ["A", "B", "C", "D"].map((s) => <option key={s} value={s}>{s}</option>)}
         </Select>
-        <Input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif" className="w-56" />
+        <Input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif" className="w-full sm:w-56" />
         <Input type="date" value={expire} onChange={(e) => setExpire(e.target.value)} className="w-40" title="Échéance (facultative)" />
         <Button size="sm" variant="outline" type="submit" disabled={occupe || motif.trim().length < 3}>Poser</Button>
       </div>
