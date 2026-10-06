@@ -48,7 +48,7 @@ function defaultSpine(): StepInput[] {
     },
     {
       slug: SLUG_DG,
-      title: "Validation du Directeur Général (grosses dépenses)",
+      title: "Validation du Directeur Général",
       description:
         // LE CHIFFRE NE S'ÉCRIT PAS ICI : il vit dans les réglages, et le recopier dans une
         // description figerait la valeur du jour du semis dans un texte que personne ne penserait
