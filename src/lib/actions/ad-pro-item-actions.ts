@@ -2868,10 +2868,35 @@ export async function ajouterVoyageur(_prev: ActionResult | undefined, formData:
     data: { itemId, ...donneesVoyageur(lu.voyageur), position: (last?.position ?? 0) + 1, createdById: user.id, updatedById: user.id },
     select: { id: true },
   });
-  const sujet = await signalerAuSujet(item, user.id, `voyageur ajouté :\n${ligneVoyageur({ ...lu.voyageur, passeport: false })}`);
-  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${nomComplet(lu.voyageur)} » ajouté au poste « ${item.label} ».`);
+  // LE PASSEPORT ET LES AUTRES DOCUMENTS, JOINTS DÈS LA CRÉATION (Direction, 06/10) — rangés comme ceux qu'on joint
+  // ensuite : des documents du poste, à l'étape du voyageur (`stepKey`), le passeport en pièce d'identité.
+  const pieces: { file: File; category: "ID_DOCUMENT" | "SUPPORTING_DOC" }[] = [
+    ...formData.getAll("passeport").filter((v): v is File => v instanceof File && v.size > 0).map((file) => ({ file, category: "ID_DOCUMENT" as const })),
+    ...formData.getAll("documents").filter((v): v is File => v instanceof File && v.size > 0).map((file) => ({ file, category: "SUPPORTING_DOC" as const })),
+  ];
+  const echecs: string[] = [];
+  let passeport = false;
+  if (pieces.length > 0) {
+    const refus = await validateAttachments(pieces.map((p) => p.file));
+    if (refus) echecs.push(refus);
+    else {
+      for (const p of pieces) {
+        const r = await persistUploadedDocument(user.id, {
+          entityType: "AD_PRO_ITEM", entityId: itemId, category: p.category, confidentiality: "INTERNAL", stepKey: cree.id, file: p.file,
+        }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "dépôt impossible", documentId: undefined }));
+        if (r.ok) passeport ||= p.category === "ID_DOCUMENT";
+        else echecs.push(`${p.file.name} : ${r.error ?? "dépôt impossible"}`);
+      }
+    }
+  }
+  const sujet = await signalerAuSujet(item, user.id, `voyageur ajouté :\n${ligneVoyageur({ ...lu.voyageur, passeport })}`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${nomComplet(lu.voyageur)} » ajouté au poste « ${item.label} »${pieces.length > 0 ? ` — ${pieces.length - echecs.length} document(s) joint(s)` : ""}.`);
   revalidate(owner.parent, owner.id);
-  return { ok: true, id: cree.id, message: `Voyageur ajouté.${sujet}` };
+  const joints = pieces.length - echecs.length;
+  return {
+    ok: true, id: cree.id,
+    message: `Voyageur ajouté${joints > 0 ? ` avec ${joints} document${joints > 1 ? "s" : ""}${passeport ? " (passeport compris)" : ""}` : ""}.${echecs.length > 0 ? ` Non joint : ${echecs.join(" ; ")} — joignez-le depuis la ligne du voyageur.` : ""}${sujet}`,
+  };
 }
 
 /**

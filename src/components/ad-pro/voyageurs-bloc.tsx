@@ -329,7 +329,8 @@ export function BlocVoyageurs({
               libelle="Ajouter le voyageur"
               onSubmit={(fd) => {
                 fd.set("itemId", itemId);
-                // Le voyageur créé, on ouvre tout de suite SES documents : le passeport se joint dans la foulée.
+                // Le voyageur créé SANS passeport : on ouvre tout de suite SES documents, le passeport se joint dans la foulée.
+                const avecPasseport = fd.getAll("passeport").some((v) => v instanceof File && v.size > 0);
                 let cree: string | undefined;
                 void run(`vadd:${itemId}`, async () => {
                   const r = await ajouterVoyageur(undefined, fd);
@@ -337,7 +338,7 @@ export function BlocVoyageurs({
                   return r;
                 }, "Voyageur ajouté.").then(() => {
                   setAjout(false);
-                  if (cree) setOuvert({ id: cree, quoi: "PASSEPORT" });
+                  if (cree && !avecPasseport) setOuvert({ id: cree, quoi: "PASSEPORT" });
                 });
               }}
               onCancel={() => setAjout(false)}
@@ -450,11 +451,20 @@ function FormulaireDevis({ nom, busy, onSubmit, onCancel }: { nom: string; busy:
   );
 }
 
+/** Le trajet, tel qu'on le choisit (Direction, 06/10) : « Aller », « Aller-Retour » ou « Multi-destinations ». */
+const TRAJETS_CHOIX: { t: AdProTrajet; libelle: string }[] = [
+  { t: "ALLER_SIMPLE", libelle: "Aller" }, { t: "ALLER_RETOUR", libelle: "Aller-Retour" }, { t: "MULTI_DESTINATIONS", libelle: "Multi-destinations" },
+];
+
+type Etape = { de: string; vers: string; date: string };
+
 /**
- * LE FORMULAIRE D'UN VOYAGEUR — court : nom et prénom (séparés), trajet, mode, villes, dates. La date de retour
- * n'apparaît qu'en aller-retour ; en aller simple elle n'est pas envoyée, et l'action la vide. En PLUSIEURS
- * DESTINATIONS, le trajet est une liste d'étapes (d'où, vers où, quand) qu'on allonge à volonté — « Alger → Paris,
- * Paris → Lyon, Lyon → Alger » —, envoyée en JSON. Seul le nom de famille est exigé : le reste peut venir plus tard.
+ * LE FORMULAIRE D'UN VOYAGEUR — nom et prénom (séparés), trajet, mode, étapes, et à la création ses documents.
+ *
+ * Plus dynamique (Direction, 06/10) : le trajet se choisit d'un geste (Aller / Aller-Retour / Multi-destinations) ;
+ * chaque étape A → B porte un « + » qui insère la destination suivante juste après elle — sur un aller, le « + » fait
+ * passer en multi-destinations sans rien retaper. Le passeport et les autres documents se joignent DÈS la création.
+ * Seul le nom de famille est exigé : le reste peut venir plus tard.
  */
 function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCancel }: {
   suggestions: string[];
@@ -469,19 +479,40 @@ function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCa
   const initial = defaut && !defaut.prenom ? separerNom(defaut.nom) : { prenom: defaut?.prenom ?? "", nom: defaut?.nom ?? "" };
   const [prenom, setPrenom] = React.useState(initial.prenom);
   const [nom, setNom] = React.useState(initial.nom);
-  const [etapes, setEtapes] = React.useState<{ de: string; vers: string; date: string }[]>(() =>
+  const [etapes, setEtapes] = React.useState<Etape[]>(() =>
     defaut && defaut.segments.length > 0
       ? defaut.segments.map((e) => ({ de: e.de ?? "", vers: e.vers ?? "", date: e.date ?? "" }))
       : [{ de: defaut?.villeDepart ?? "Alger", vers: defaut?.villeArrivee ?? "", date: defaut?.dateDepart ?? "" }],
   );
-  const majEtape = (i: number, cle: "de" | "vers" | "date", valeur: string) =>
-    setEtapes((l) => l.map((e, k) => (k === i ? { ...e, [cle]: valeur } : e)));
-  // La nouvelle étape part d'où la précédente arrive : on enchaîne les villes sans les retaper.
-  const ajouterEtape = () => setEtapes((l) => (l.length >= ETAPES_MAX ? l : [...l, { de: l[l.length - 1]?.vers ?? "", vers: "", date: "" }]));
-  const retirerEtape = (i: number) => setEtapes((l) => (l.length <= 1 ? l : l.filter((_, k) => k !== i)));
+  const [dateRetour, setDateRetour] = React.useState(defaut?.dateRetour ?? "");
+  const [passeport, setPasseport] = React.useState<File | null>(null);
+  const [documents, setDocuments] = React.useState<File[]>([]);
   const multi = trajet === "MULTI_DESTINATIONS";
+  const majEtape = (i: number, cle: keyof Etape, valeur: string) => setEtapes((l) => l.map((e, k) => (k === i ? { ...e, [cle]: valeur } : e)));
+  // LE « + » D'UNE ÉTAPE : la destination suivante s'insère juste après, et part d'où celle-ci arrive.
+  const insererApres = (i: number) => {
+    setEtapes((l) => (l.length >= ETAPES_MAX ? l : [...l.slice(0, i + 1), { de: l[i]?.vers ?? "", vers: "", date: "" }, ...l.slice(i + 1)]));
+    if (!multi) setTrajet("MULTI_DESTINATIONS");
+  };
+  const retirerEtape = (i: number) => setEtapes((l) => (l.length <= 1 ? l : l.filter((_, k) => k !== i)));
+  const choisirTrajet = (t: AdProTrajet) => {
+    // Revenir à un aller (simple ou retour) garde la PREMIÈRE étape : rien de ce qui a été tapé n'est perdu en route.
+    if (t !== "MULTI_DESTINATIONS" && etapes.length > 1) setEtapes((l) => [{ ...l[0], vers: l[l.length - 1]?.vers || l[0].vers }]);
+    setTrajet(t);
+  };
+  const premiere = etapes[0] ?? { de: "", vers: "", date: "" };
+
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }} className="space-y-2">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        if (passeport) fd.set("passeport", passeport);
+        for (const d of documents) fd.append("documents", d);
+        onSubmit(fd);
+      }}
+      className="space-y-3"
+    >
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {suggestions.length > 0 && (
           <label className="text-xs sm:col-span-2">
@@ -503,16 +534,6 @@ function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCa
           Nom
           <input name="nom" required value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Haddad" className={champ} />
         </label>
-        <fieldset className="text-xs sm:col-span-2">
-          <legend>Trajet</legend>
-          <div className="mt-1 flex flex-wrap gap-3">
-            {TRAJETS.map((t) => (
-              <label key={t} className="inline-flex items-center gap-1">
-                <input type="radio" name="trajet" value={t} checked={trajet === t} onChange={() => setTrajet(t)} /> {TRAJET_LIBELLE[t]}
-              </label>
-            ))}
-          </div>
-        </fieldset>
         <label className="text-xs sm:col-span-2">
           Mode de transport
           <select name="transport" defaultValue={defaut ? (defaut.transport ?? "") : "AVION"} className={champ}>
@@ -520,68 +541,98 @@ function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCa
             {TRANSPORTS.map((m) => <option key={m} value={m}>{TRANSPORT_LIBELLE[m]}</option>)}
           </select>
         </label>
-        {multi ? (
-          <div className="space-y-2 sm:col-span-2" data-etapes>
-            <input type="hidden" name="segments" value={JSON.stringify(etapes)} />
-            {etapes.map((e, i) => (
-              <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 sm:grid-cols-[auto_1fr_1fr_8.5rem_auto]">
-                <span className="hidden pb-2 text-xs font-medium text-muted-foreground sm:block">Étape {i + 1}</span>
+      </div>
+
+      {/* LE TRAJET, d'un geste. */}
+      <div className="space-y-2">
+        <input type="hidden" name="trajet" value={trajet} />
+        <div className="inline-flex flex-wrap rounded-lg bg-muted p-1 text-xs" role="radiogroup" aria-label="Trajet">
+          {TRAJETS_CHOIX.map(({ t, libelle: l }) => (
+            <button
+              key={t} type="button" role="radio" aria-checked={trajet === t} onClick={() => choisirTrajet(t)}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${trajet === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+
+        {multi && <input type="hidden" name="segments" value={JSON.stringify(etapes)} />}
+        {!multi && (
+          <>
+            <input type="hidden" name="villeDepart" value={premiere.de} />
+            <input type="hidden" name="villeArrivee" value={premiere.vers} />
+            <input type="hidden" name="dateDepart" value={premiere.date} />
+            {trajet === "ALLER_RETOUR" && <input type="hidden" name="dateRetour" value={dateRetour} />}
+          </>
+        )}
+        <ol className="space-y-1.5">
+          {(multi ? etapes : [premiere]).map((e, i) => (
+            <li key={i} className="rounded-lg border border-border bg-background p-2">
+              <div className="mb-1 flex items-center gap-2 text-[0.6875rem] font-medium text-muted-foreground">
+                <span className="flex-1">{multi ? `Étape ${i + 1}` : trajet === "ALLER_RETOUR" ? "Aller (le retour suit le même chemin)" : "Aller"}</span>
+                {multi && etapes.length > 1 && (
+                  <button type="button" onClick={() => retirerEtape(i)} aria-label={`Retirer l'étape ${i + 1}`} className="rounded p-1 hover:bg-secondary">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_auto_1fr_9rem]">
                 <label className="text-xs">
-                  De
+                  Point A — départ
                   <input value={e.de} onChange={(ev) => majEtape(i, "de", ev.target.value)} aria-label={`Étape ${i + 1} — départ`} placeholder="Alger" className={champ} />
                 </label>
+                <span className="hidden pb-2 text-muted-foreground sm:block">→</span>
                 <label className="text-xs">
-                  Vers
+                  Point B — arrivée
                   <input value={e.vers} onChange={(ev) => majEtape(i, "vers", ev.target.value)} aria-label={`Étape ${i + 1} — arrivée`} placeholder="Paris" className={champ} />
                 </label>
-                <label className="col-span-2 text-xs sm:col-span-1">
+                <label className="text-xs">
                   Date
                   <input type="date" value={e.date} onChange={(ev) => majEtape(i, "date", ev.target.value)} aria-label={`Étape ${i + 1} — date`} className={champ} />
                 </label>
-                <button
-                  type="button" onClick={() => retirerEtape(i)} disabled={etapes.length <= 1}
-                  aria-label={`Retirer l'étape ${i + 1}`}
-                  className="mb-1 inline-flex items-center rounded p-1.5 text-muted-foreground hover:bg-secondary disabled:opacity-40"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
               </div>
-            ))}
-            <Button type="button" size="sm" variant="outline" onClick={ajouterEtape} disabled={etapes.length >= ETAPES_MAX}>
-              <Plus className="h-4 w-4" /> Ajouter une étape
-            </Button>
-          </div>
-        ) : (
-          <>
-            <label className="text-xs">
-              Départ de
-              <input name="villeDepart" defaultValue={defaut?.villeDepart ?? ""} placeholder="Alger" className={champ} />
-            </label>
-            <label className="text-xs">
-              Vers
-              <input name="villeArrivee" defaultValue={defaut?.villeArrivee ?? ""} placeholder="Paris" className={champ} />
-            </label>
-            <label className="text-xs">
-              Date de départ
-              <input name="dateDepart" type="date" defaultValue={defaut?.dateDepart ?? ""} className={champ} />
-            </label>
-            {trajet === "ALLER_RETOUR" && (
-              <label className="text-xs">
-                Date de retour
-                <input name="dateRetour" type="date" defaultValue={defaut?.dateRetour ?? ""} className={champ} />
-              </label>
-            )}
-          </>
-        )}
-        {defaut && (
-          <label className="text-xs sm:col-span-2">
-            Précisions
-            <input name="notes" defaultValue={defaut.notes ?? ""} placeholder="Classe, horaires souhaités…" className={champ} />
-          </label>
-        )}
+              {!multi && trajet === "ALLER_RETOUR" && (
+                <label className="mt-2 block text-xs sm:w-56">
+                  Date de retour ({e.vers || "B"} → {e.de || "A"})
+                  <input type="date" value={dateRetour} onChange={(ev) => setDateRetour(ev.target.value)} className={champ} />
+                </label>
+              )}
+              <button
+                type="button" onClick={() => insererApres(i)} disabled={etapes.length >= ETAPES_MAX}
+                className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-40"
+                aria-label={`Ajouter une destination après ${e.vers || `l'étape ${i + 1}`}`}
+              >
+                <Plus className="h-3.5 w-3.5" /> Destination suivante{e.vers ? ` depuis ${e.vers}` : ""}
+              </button>
+            </li>
+          ))}
+        </ol>
       </div>
+
+      {defaut && (
+        <label className="block text-xs">
+          Précisions
+          <input name="notes" defaultValue={defaut.notes ?? ""} placeholder="Classe, horaires souhaités…" className={champ} />
+        </label>
+      )}
+
+      {/* LES DOCUMENTS DÈS LA CRÉATION (Direction, 06/10) : le passeport, et ce qu'il faut d'autre. */}
+      {!defaut && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="text-xs">
+            Passeport (scan ou photo)
+            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*" onChange={(e) => setPasseport(e.target.files?.[0] ?? null)} className={champ} aria-label="Passeport" />
+          </label>
+          <label className="text-xs">
+            Autres documents (visa, invitation…)
+            <input type="file" multiple onChange={(e) => setDocuments(Array.from(e.target.files ?? []))} className={champ} aria-label="Autres documents" />
+          </label>
+        </div>
+      )}
+
       <p className="text-[0.6875rem] text-muted-foreground">
-        Seul le nom est exigé : le prénom, les dates, le trajet et les documents (passeport…) peuvent venir plus tard.
+        Seul le nom est exigé : le prénom, les dates, le trajet et les documents peuvent venir plus tard.
         {defaut && !defaut.prenom ? " Le nom complet a été proposé coupé en prénom et nom : corrigez si besoin." : ""}
       </p>
       <div className="flex gap-2">
