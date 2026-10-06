@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { EtiquettesMobiles } from "./table-etiquettes";
 
 /**
  * Tableaux — lisibles au bureau ET au téléphone.
@@ -11,8 +12,9 @@ import { cn } from "@/lib/utils";
  *     mode à privilégier pour les tableaux larges (budgets, Regulatory, marchés…) : plus
  *     aucun défilement latéral, tout se lit au pouce.
  *
- * Le mode cartes est piloté en CSS pur (classes `mobile-cards`, voir globals.css) : aucun
- * JavaScript, aucun surcoût de rendu, et le tableau reste sémantiquement un `<table>`.
+ * Le mode cartes est piloté en CSS (classes `mobile-cards`, voir globals.css) et le tableau reste sémantiquement un
+ * `<table>`. Les intitulés des cartes sont REPRIS DE L'EN-TÊTE quand la cellule n'en porte pas (`EtiquettesMobiles`) :
+ * `label="…"` ne sert plus qu'à dire autre chose que l'en-tête, ou `data-sans-etiquette` à n'en mettre aucun.
  */
 
 export function Table({
@@ -21,6 +23,7 @@ export function Table({
   return (
     <div className={cn("relative w-full", mobileCards ? "sm:overflow-x-auto" : "overflow-x-auto [-webkit-overflow-scrolling:touch]")}>
       <table className={cn("w-full caption-bottom text-sm", mobileCards && "mobile-cards", className)} {...props} />
+      {mobileCards && <EtiquettesMobiles />}
     </div>
   );
 }

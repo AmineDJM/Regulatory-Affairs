@@ -364,6 +364,17 @@
     }
     table.mobile-cards td {
       @apply flex items-start justify-between gap-3 border-0 px-3 py-2 text-left;
+      /* Une référence ou une adresse sans espace se coupe dans SA carte, jamais hors de l'écran. */
+      overflow-wrap: anywhere;
+    }
+    /* La valeur se range à droite, face à son intitulé, et peut se replier sur plusieurs lignes. */
+    table.mobile-cards td[data-label] > * {
+      min-width: 0;
+      text-align: right;
+    }
+    /* Une carte vide de sens : une cellule sans contenu ne prend pas de ligne. */
+    table.mobile-cards td:empty {
+      display: none;
     }
     /* Intitulé de colonne, repris de data-label */
     table.mobile-cards td[data-label]::before {
