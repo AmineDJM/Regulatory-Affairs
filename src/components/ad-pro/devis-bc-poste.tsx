@@ -8,7 +8,7 @@ import type { DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
 import type { BcDePoste } from "@/lib/ad-pro/pieces-poste";
 import { LIBELLE_ETAPE_BC } from "@/lib/bons-de-commande/regle";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
-import { refusDepassement, refusTauxDuDevis } from "@/lib/ad-pro/devis-poste";
+import { refusDepassement } from "@/lib/ad-pro/devis-poste";
 import {
   validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste,
 } from "@/lib/actions/ad-pro-item-actions";
@@ -86,9 +86,7 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
     if (pieceId) fd.set("pieceId", pieceId);
     void run(`gen:${pieceId ?? "tous"}:${itemId}`, () => genererBonDeCommandePoste(fd), "Bon de commande généré.");
   };
-  // Un devis SANS TVA imprimée ne génère pas de BC : la TVA n'est jamais devinée, on la saisit depuis le papier.
-  const sansTva = aFaire.filter((d) => d.entete.tvaRate === null);
-  const ouverte = peutGenerer && refusGeneration === null && !depasse && sansTva.length === 0;
+  const ouverte = peutGenerer && refusGeneration === null && !depasse;
   const figes = vivants.filter((d) => (d.etat === "FIGE" || d.etat === "A_ANNULER") && d.refus);
 
   return (
@@ -122,7 +120,7 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
             return (
               <li key={d.pieceId} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span className="min-w-0 flex-1 truncate" title={d.titre}>
-                  {d.reference ?? d.titre} — {d.nbValidees} ligne{d.nbValidees > 1 ? "s" : ""} validée{d.nbValidees > 1 ? "s" : ""} · <span className="tabular-nums">{d.entete.tvaRate === null ? `${dzd(d.totalValideHt)} HT · TVA non indiquée` : `${dzd(d.totalValideTtc)} TTC`}</span>
+                  {d.reference ?? d.titre} — {d.nbValidees} ligne{d.nbValidees > 1 ? "s" : ""} validée{d.nbValidees > 1 ? "s" : ""} · <span className="tabular-nums">{d.entete.tvaRate === null ? `${dzd(d.totalValideHt)} · sans TVA (aucune sur le devis)` : `${dzd(d.totalValideTtc)} TTC`}</span>
                 </span>
                 {e && !(actionnable && aFaire.length === 1) && <span className={e.ton === "ok" ? "text-success" : e.ton === "alerte" ? "text-destructive" : "text-warning"}>{e.texte}</span>}
                 {actionnable && aFaire.length > 1 && (
@@ -138,9 +136,6 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
 
       {figes.map((d) => <p key={d.pieceId} className="flex gap-1 text-destructive"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {d.refus}</p>)}
       {depasse && aFaire.length > 0 && <p className="flex gap-1 text-warning"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {depasse}</p>}
-      {peutGenerer && sansTva.length > 0 && (
-        <p className="flex gap-1 text-warning"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {refusTauxDuDevis(null)}</p>
-      )}
       {peutGenerer && aFaire.length > 0 && refusGeneration && <p className="text-muted-foreground">{refusGeneration}</p>}
 
       {(ouverte && aFaire.length > 0) || peutJoindre ? (
@@ -336,8 +331,8 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
             {" · "}validé : {dzd(totalCoche)} HT
           </p>
           {devis.entete.tvaRate === null && (
-            <p className="flex gap-1 text-warning">
-              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> Ce devis n&apos;indique pas de TVA : les montants sont hors taxe. Saisissez le taux imprimé (« Corriger les lignes ») avant de générer le bon de commande.
+            <p className="text-muted-foreground">
+              Aucune TVA indiquée sur le devis : les montants sont ceux du papier, sans TVA ajoutée.
             </p>
           )}
           {devis.ecartTotal && (

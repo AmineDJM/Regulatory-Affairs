@@ -95,6 +95,11 @@ export const MODULES = [
   // Composer un bon de commande reste un geste de Legal ou des Finances : il écrit au registre et
   // engage une société, ce module ne l'ouvre pas.
   "PURCHASE_ORDERS",
+  // MARKETING_COCKPIT : le cockpit de la Direction Marketing (Sales & Marketing) — les MESSAGES que le KAM porte au
+  // médecin et le référentiel des SPÉCIALITÉS. Un module À PART de la Force de vente (Direction, 06/10 : « fais-en un
+  // module à part, avec ses accès gérables depuis la console d'admin ») : le Super Admin l'ouvre ou le ferme, et en
+  // règle les gestes, personne par personne dans Administration › Accès.
+  "MARKETING_COCKPIT",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -420,6 +425,19 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
   if (role === "SUPER_ADMIN") continue;
   const matrice = PERMISSIONS[role];
   if (matrice.REGULATORY?.includes("VIEW") && !matrice.BD_PROJECTS) matrice.BD_PROJECTS = ["VIEW"];
+}
+
+/**
+ * « MARKETING COCKPIT » PAR DÉFAUT — les mêmes personnes qu'hier (Direction, 06/10). Ses écrans vivaient dans la Force
+ * de vente : chaque rôle qui avait la Force de vente reçoit, par défaut, les mêmes gestes sur le cockpit — personne ne
+ * perd l'écran le jour où il devient un module. Ce n'est qu'un DÉFAUT : la console le règle ensuite personne par
+ * personne, indépendamment de la Force de vente. (Écrire un message et gérer les spécialités gardent leurs règles
+ * propres : `peutEcrireMessagesPromo`, `peutGererSpecialites`.)
+ */
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (role === "SUPER_ADMIN") continue;
+  const matrice = PERMISSIONS[role];
+  if (matrice.SALES_PLANNING && !matrice.MARKETING_COCKPIT) matrice.MARKETING_COCKPIT = [...matrice.SALES_PLANNING];
 }
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];

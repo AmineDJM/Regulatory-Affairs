@@ -17,14 +17,14 @@ export const metadata = { title: "Marketing cockpit — Messages — AMD Interna
  *
  * ── L'ÉCRAN SE VOIT MÊME QUAND ON NE PEUT PAS ÉCRIRE ────────────────────────────────────────
  *
- * La LECTURE suit le module (Force de vente) ; l'ÉCRITURE est une liste de rôles que le Super
+ * La LECTURE suit le module MARKETING_COCKPIT (réglé dans Administration › Accès) ; l'ÉCRITURE est une liste de rôles que le Super
  * Admin pose (`promoMessageAuthorRoles`), parce que Direction Marketing n'a que la lecture sur
  * la promotion médicale et que lui donner l'écriture du module lui ouvrirait aussi les
  * praticiens et les visites (§118.16). Quand la personne ne peut pas écrire, l'écran le DIT avec
  * le geste qui accorde le droit — un écran muet se lit comme une panne.
  */
 export default async function MessagesPage() {
-  const user = await requireModule("SALES_PLANNING");
+  const user = await requireModule("MARKETING_COCKPIT");
   const settings = await getAppSettings();
   const peutEcrire = peutEcrireMessagesPromo(user, settings.promoMessageAuthorRoles);
 

@@ -152,6 +152,17 @@ function ouvrir(texteScelle: string | null): string | null {
   return texteScelle ? openSecret(texteScelle) : "";
 }
 
+/**
+ * Le texte d'une lecture DÉJÀ FAITE, par son identifiant — `null` si elle n'existe plus ou ne se déchiffre plus.
+ * Serveur seulement : sert à recopier ce qu'une pièce lue avant une évolution du lecteur imprime (ex. l'identité de
+ * l'émetteur), sans relire le fichier ni défaire ce qu'une personne a validé.
+ */
+export async function texteDeLaLecture(lectureId: string): Promise<string | null> {
+  const l = await prisma.lecturePiece.findUnique({ where: { id: lectureId }, select: { texteScelle: true } });
+  if (!l) return null;
+  return ouvrir(l.texteScelle);
+}
+
 function versLecture(ligne: Ligne, texte: string, luParCetAppel: boolean, raisonOcr: string | null): LectureDePiece {
   return {
     id: ligne.id, empreinte: ligne.empreinte, versionLecteur: ligne.versionLecteur,

@@ -700,8 +700,10 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
         <p className="text-xs text-muted-foreground"><strong className="text-foreground">Direction des opérations :</strong> {item.opsDecisionNote}</p>
       )}
 
-      {/* 3. LE PROCHAIN GESTE — un bouton, ou une phrase qui dit qui on attend. */}
-      {(pas.geste || pas.attente) && (
+      {/* 3. LE PROCHAIN GESTE — un bouton, ou une phrase qui dit qui on attend.
+          JAMAIS DEUX FOIS LE MÊME CTA (Direction, 06/10) : « Générer le BC » vit dans la case « Bon de commande »,
+          en bas — le geste ne se répète pas en haut de la carte. */}
+      {(pas.geste || pas.attente) && pas.geste?.cle !== "GENERER_BC" && (
         pas.geste ? (
           <Button size="sm" onClick={() => agir(pas.geste!.cle)} disabled={enCours}>
             {enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <IconeGeste cle={pas.geste.cle} />}

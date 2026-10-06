@@ -13,8 +13,10 @@ export function ImpersonateButton({ userId }: { userId: string }) {
         start(async () => {
           const fd = new FormData();
           fd.set("userId", userId);
-          const r = await startImpersonation(fd); // redirige en cas de succès
-          if (r && !r.ok) window.alert(r.error ?? "Erreur.");
+          const r = await startImpersonation(fd);
+          if (!r.ok) { window.alert(r.error ?? "Erreur."); return; }
+          // RECHARGEMENT COMPLET : la coque (barre du haut, menu, bandeau) se rend pour la personne visualisée.
+          window.location.assign(r.message ?? "/mon-espace");
         })
       }
       className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-secondary disabled:opacity-50"

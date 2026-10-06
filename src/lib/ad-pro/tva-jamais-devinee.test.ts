@@ -27,15 +27,15 @@ describe("la TVA se retranscrit, elle ne se devine pas", () => {
     expect(t.ttc).toBe(476_000);
   });
 
-  it("le dépassement d'un devis sans TVA parle en HT et dit que la TVA n'est pas indiquée", () => {
+  it("le dépassement d'un devis sans TVA dit que le devis n'en indique aucune (et n'invente pas de TTC)", () => {
     const r = refusDepassement(500_000, 400_000, 500_000, false)!;
-    expect(r).toMatch(/500\s000,00 DZD HT \(le devis n'indique pas de TVA\)/);
+    expect(r).toMatch(/500\s000,00 DZD \(aucune TVA indiquée sur le devis\)/);
     expect(r).not.toMatch(/TTC/);
-    expect(refusDepassement(400_000, 400_000, 400_000, false), "400 000 HT pour 400 000 accordés : rien à refuser").toBeNull();
+    expect(refusDepassement(400_000, 400_000, 400_000, false), "400 000 pour 400 000 accordés : rien à refuser").toBeNull();
   });
 
-  it("générer le BC d'un devis sans TVA est refusé en disant de la saisir depuis le papier", () => {
-    expect(refusTauxDuDevis(null)).toMatch(/ne la devine pas/);
+  it("pas de TVA imprimée = pas de TVA : le BC se génère (aucun refus) ; un taux imprimé inexistant reste refusé", () => {
+    expect(refusTauxDuDevis(null)).toBeNull();
     expect(refusTauxDuDevis(19)).toBeNull();
     expect(refusTauxDuDevis(0)).toBeNull();
     expect(refusTauxDuDevis(7)).toMatch(/n'existe pas en Algérie/);

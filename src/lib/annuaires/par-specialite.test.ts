@@ -29,6 +29,11 @@ describe("un annuaire par spécialité", () => {
     expect(r.specialites.map((s) => s.id)).toEqual(["s1"]);
   });
 
+  it("pour qui gère le référentiel, les spécialités sans médecin apparaissent aussi (à renommer, supprimer…)", () => {
+    const r = annuairesParSpecialite([{ specialtyId: "s1", count: 2 }], referentiel, true);
+    expect(r.specialites.map((s) => [s.name, s.count])).toEqual([["Cardiologie", 0], ["Néphrologie", 2], ["Oncologie", 0]]);
+  });
+
   it("la clause : rien = tous, un identifiant = cette spécialité, « sans » = non rattachés", () => {
     expect(clauseSpecialite(null)).toEqual({});
     expect(clauseSpecialite("s1")).toEqual({ specialtyId: "s1" });

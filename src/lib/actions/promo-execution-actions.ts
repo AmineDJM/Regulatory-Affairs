@@ -407,11 +407,10 @@ export async function deposerFacturePromo(formData: FormData): Promise<ActionRes
   // 19 % se paie au montant facturé ; le plafond du BC tient de toute façon.
   const taxesDuDevis = await prisma.promoQuote.findUnique({ where: { id: lu.devis.id }, select: { tvaRate: true, extraTaxLabel: true, extraTaxRate: true } });
   const brutTva = fdStr(formData, "tvaRate");
-  // Jamais de 19 de repli : le taux est celui saisi, ou celui du devis s'il en porte un — sinon on le demande.
-  const tvaDuDevis = taxesDuDevis?.tvaRate != null ? Number(taxesDuDevis.tvaRate) : null;
-  const tvaRate = brutTva != null ? parseQuantity(brutTva) : tvaDuDevis;
-  if (tvaRate == null) return { ok: false, error: "Indiquez le taux de TVA tel qu'il est imprimé sur la facture (0 si elle n'en porte pas) : la plateforme ne le devine pas." };
-  if (!(tvaRate >= 0 && tvaRate <= 100)) return { ok: false, error: "Le taux de TVA s'exprime en pour cent, entre 0 et 100." };
+  // Jamais de 19 de repli : le taux est celui saisi, ou celui du devis — et sans TVA indiquée, il n'y a pas de TVA (0).
+  const tvaDuDevis = taxesDuDevis?.tvaRate != null ? Number(taxesDuDevis.tvaRate) : 0;
+  const tvaRate = brutTva != null && brutTva.trim() !== "" ? parseQuantity(brutTva) : tvaDuDevis;
+  if (tvaRate == null || !(tvaRate >= 0 && tvaRate <= 100)) return { ok: false, error: "Le taux de TVA s'exprime en pour cent, entre 0 et 100." };
   const taxeSaisie = formData.has("extraTaxRate");
   const brutTaxe = taxeSaisie ? fdStr(formData, "extraTaxRate") : null;
   const extraTaxRate = taxeSaisie

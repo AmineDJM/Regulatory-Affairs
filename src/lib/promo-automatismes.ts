@@ -243,15 +243,14 @@ export async function genererLesBonsDeCommande(user: CurrentUser, promoMaterialI
       const d = devisLu(brut);
       const f = brut.supplierId ? parId.get(brut.supplierId) : undefined;
       if (!f) { echecs.push(`${d.supplierName} : fournisseur absent de l'annuaire — faites corriger le devis`); continue; }
-      // LA TVA SE RETRANSCRIT, ELLE NE SE DEVINE PAS : un devis dont le taux n'a pas été indiqué ne fait pas de BC.
-      if (d.tvaRate == null) { echecs.push(`${d.supplierName} : la TVA n'est pas indiquée sur le devis — saisissez le taux imprimé (« Corriger ») avant de générer le bon de commande`); continue; }
       const adresse = [f.address, [f.city, f.wilaya].filter(Boolean).join(", ")].filter((x) => x && x.trim()).join("\n") || null;
       const r = await emettreDocumentDrive(user, {
         type: "BON_DE_COMMANDE",
         societe,
         tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email },
         lignes: lignesDuBonDeCommande(d),
-        tvaDefaut: d.tvaRate / 100,
+        // Pas de TVA indiquée sur le devis = pas de TVA (jamais devinée).
+        tvaDefaut: (d.tvaRate ?? 0) / 100,
         taxes: o.taxe !== undefined
           ? (o.taxe ? [o.taxe] : null)
           : d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,

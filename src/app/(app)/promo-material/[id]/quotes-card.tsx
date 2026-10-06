@@ -239,7 +239,7 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
         </div>
         <div><Label htmlFor={`dv-ref-${devis?.id ?? "n"}`}>N° du devis</Label><Input id={`dv-ref-${devis?.id ?? "n"}`} name="reference" value={entete.reference} onChange={(e) => majEntete("reference", e.target.value)} placeholder="26/0576" /></div>
         <div><Label htmlFor={`dv-date-${devis?.id ?? "n"}`}>Date du devis</Label><Input id={`dv-date-${devis?.id ?? "n"}`} name="quoteDate" type="date" value={entete.quoteDate} onChange={(e) => majEntete("quoteDate", e.target.value)} /></div>
-        <div><Label htmlFor={`dv-tva-${devis?.id ?? "n"}`}>TVA (%)</Label><Input id={`dv-tva-${devis?.id ?? "n"}`} name="tvaRate" inputMode="decimal" placeholder="Telle qu'imprimée (0 si exonéré)" value={entete.tvaRate} onChange={(e) => majEntete("tvaRate", e.target.value)} /></div>
+        <div><Label htmlFor={`dv-tva-${devis?.id ?? "n"}`}>TVA (%)</Label><Input id={`dv-tva-${devis?.id ?? "n"}`} name="tvaRate" inputMode="decimal" placeholder="Telle qu'imprimée (vide = pas de TVA)" value={entete.tvaRate} onChange={(e) => majEntete("tvaRate", e.target.value)} /></div>
         {/* EXIGÉ POUR TERMINER, pas pour enregistrer — comme le scan : on peut poser les lignes avant
             d'avoir le papier sous les yeux, mais « Retranscription terminée » refuse un devis sans son
             total imprimé, contre lequel les lignes se contrôlent à un dinar près. */}
