@@ -2,7 +2,7 @@
 
 import type { AdProOtherStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/session";
+import { requireUser, requireUserAuNomDeLaVue } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente, ajusterVisaAuMontant, phraseGesteVisa } from "@/lib/ad-pro/visa";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
@@ -14,7 +14,6 @@ import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
 import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
-import { refuseSousVueExacte } from "@/lib/vue-exacte";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/ad-pro/autres";
@@ -51,11 +50,9 @@ async function audit(user: SessionUser, id: string, action: "CREATE" | "UPDATE" 
 
 export async function createAdProOtherRequest(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   try {
-    const user = await requireUser();
+    const user = await requireUserAuNomDeLaVue();
     if (!userCan(user, "AD_PRO_OTHER", "CREATE")) return { ok: false, error: "Création réservée aux personnes habilitées." };
-    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
-    const sousVue = await refuseSousVueExacte(user);
-    if (sousVue) return sousVue;
+    // Sous « Vue exacte », la demande se crée AU NOM de la personne visualisée (test de son parcours) : voir `vue-exacte.ts`.
 
     const title = fdStr(formData, "title");
     if (!title) return { ok: false, error: "L'objet de la demande est obligatoire." };

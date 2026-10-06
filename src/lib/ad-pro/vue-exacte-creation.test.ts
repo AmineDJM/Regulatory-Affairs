@@ -212,27 +212,16 @@ suite("Vue exacte — créer une demande n'a de sens qu'en son propre nom", () =
     await prisma.sponsoringRequest.delete({ where: { id: spo.id } });
   }, 60_000);
 
-  it("SOUS LA VUE EXACTE, les six créations de demande sont REFUSÉES — avec la personne visualisée et le remède, et RIEN n'est créé", async () => {
+  // DEPUIS LE 06/10 (Direction) : sous la Vue exacte, la demande se crée AU NOM de la personne visualisée,
+  // pour tester son parcours de bout en bout — et sa fiche s'ouvre dans cette même vue.
+  it("SOUS LA VUE EXACTE, la demande se crée au nom du KAM visualisé — et sa fiche s'ouvre dans la vue", async () => {
     adminEnVue();
-    const avantSpo = await prisma.sponsoringRequest.count();
-    const creations: [string, () => Promise<{ ok: boolean; error?: string }>][] = [
-      ["sponsoring", () => createSponsoring(undefined, formSponsoring(`${TAG} sous vue`)) as never],
-      ["congrès", () => createCongressRequest(undefined, formCongres(`${TAG} sous vue`)) as never],
-      ["événement", () => createEvent(formEvenement(`${TAG} sous vue`)) as never],
-      ["consulting", () => createConsultingContract(undefined, new FormData()) as never],
-      ["autre demande", () => createAdProOtherRequest(undefined, new FormData()) as never],
-      ["matériel promotionnel", () => createPromoMaterial(undefined, new FormData()) as never],
-    ];
-    for (const [nom, creer] of creations) {
-      adminEnVue();
-      const r = await creer();
-      expect(r.ok, `${nom} : refusée sous la vue`).toBe(false);
-      expect(r.error, `${nom} : le refus nomme la personne visualisée`).toContain(`${TAG} kam`);
-      expect(r.error, `${nom} : le refus nomme le remède`).toMatch(/Quittez la Vue exacte/);
-    }
-    expect(await prisma.sponsoringRequest.count(), "aucune demande n'est née").toBe(avantSpo);
-    expect(await prisma.congressInternational.count({ where: { name: { contains: "sous vue" } } })).toBe(0);
-    expect(await prisma.event.count({ where: { name: { contains: "sous vue" } } })).toBe(0);
+    const r = await createSponsoring(undefined, formSponsoring(`${TAG} sous vue`));
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    const demande = await prisma.sponsoringRequest.findUniqueOrThrow({ where: { id: r.id! } });
+    expect(demande.requesterId, "déposée au nom du KAM visualisé, pas de l'administrateur").toBe(ids.kam);
+    lecture();
+    expect(await ouvre(SponsoringDetailPage as Page, r.id!), "la fiche s'ouvre dans la vue").toBe("OK");
   }, 60_000);
 
   // ── 3. LE REFUS NE TOMBE QUE SUR CE QU'IL DOIT ATTRAPER (le sens dangereux est de refuser à tort) ───────
@@ -273,7 +262,7 @@ suite("Vue exacte — créer une demande n'a de sens qu'en son propre nom", () =
 
   // ── 4. LE POINT D'APPEL (§118.49) ───────────────────────────────────────────────────────────────
 
-  it("CLIQUET — chacune des six actions de création appelle le refus, APRÈS le droit de créer et AVANT toute lecture du formulaire", () => {
+  it("CLIQUET — chacune des six actions de création agit au nom de la personne visualisée (`requireUserAuNomDeLaVue`), et le droit de créer est lu sur elle", () => {
     const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
     const fichiers: [string, string, RegExp][] = [
       ["sponsoring-actions.ts", "export async function createSponsoring", /userCan\(user, "SPONSORING", "CREATE"\)/],
@@ -289,12 +278,11 @@ suite("Vue exacte — créer une demande n'a de sens qu'en son propre nom", () =
       expect(i, `${fichier} : action trouvée`).toBeGreaterThan(-1);
       const corps = src.slice(i, i + 2500);
       const iDroit = corps.search(droit);
-      const iVue = corps.indexOf("refuseSousVueExacte(user)");
+      const iUser = corps.indexOf("requireUserAuNomDeLaVue()");
       expect(iDroit, `${fichier} : le droit de créer est lu`).toBeGreaterThan(-1);
-      expect(iVue, `${fichier} : l'appel du refus`).toBeGreaterThan(-1);
-      expect(iVue, `${fichier} : le refus vient APRÈS le droit`).toBeGreaterThan(iDroit);
-      // Rien n'est lu ni écrit en base avant le refus : une demande refusée ne laisse aucune trace.
-      expect(corps.slice(0, iVue), `${fichier} : aucun accès à la base avant le refus`).not.toMatch(/prisma\./);
+      expect(iUser, `${fichier} : l'utilisateur est celui de la vue`).toBeGreaterThan(-1);
+      expect(iUser, `${fichier} : l'utilisateur est résolu AVANT le droit`).toBeLessThan(iDroit);
+      expect(corps, `${fichier} : plus de refus sous la vue`).not.toContain("refuseSousVueExacte");
     }
   });
 

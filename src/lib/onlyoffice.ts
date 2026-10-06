@@ -66,9 +66,21 @@ export function verifyJwt<T = Record<string, unknown>>(token: string | null | un
 // ───────────────────────── Types de documents éditables ─────────────────────────
 
 const EXT_TYPE: Record<string, "word" | "cell" | "slide"> = {
-  doc: "word", docx: "word", odt: "word", rtf: "word", txt: "word",
-  xls: "cell", xlsx: "cell", ods: "cell", csv: "cell",
-  ppt: "slide", pptx: "slide", odp: "slide",
+  doc: "word", docx: "word", odt: "word", rtf: "word", txt: "word", dotx: "word", docm: "word", ott: "word",
+  xls: "cell", xlsx: "cell", ods: "cell", csv: "cell", xlsm: "cell", xltx: "cell", ots: "cell",
+  ppt: "slide", pptx: "slide", odp: "slide", pptm: "slide", potx: "slide", ppsx: "slide", otp: "slide",
+};
+
+/**
+ * LES FORMATS QUE L'ÉDITEUR SAIT OUVRIR EN LECTURE seulement (anciens ou exotiques) : on les AFFICHE tels quels dans
+ * l'éditeur, sans les convertir en autre chose, mais on ne les réenregistre pas (le format d'origine ne se réécrit pas
+ * fidèlement). Pour les modifier, on les télécharge ou on les enregistre sous un format éditable depuis l'éditeur.
+ */
+const LECTURE_SEULE: Record<string, "word" | "cell" | "slide"> = {
+  dot: "word", dotm: "word", fodt: "word", wps: "word", wpt: "word", pages: "word", sxw: "word", stw: "word", hwp: "word", hwpx: "word",
+  epub: "word", fb2: "word", djvu: "word", xps: "word", oxps: "word", mht: "word", mhtml: "word", wri: "word", html: "word", htm: "word",
+  xlsb: "cell", xlt: "cell", xltm: "cell", fods: "cell", numbers: "cell", et: "cell", sxc: "cell", stc: "cell",
+  pps: "slide", ppsm: "slide", pot: "slide", potm: "slide", fodp: "slide", key: "slide", dps: "slide", sxi: "slide", sti: "slide",
 };
 
 export function fileExt(name: string): string {
@@ -79,6 +91,12 @@ export function fileExt(name: string): string {
 /** Catégorie d'éditeur OnlyOffice pour un fichier, ou null s'il n'est pas éditable. */
 export function onlyofficeDocType(name: string): "word" | "cell" | "slide" | null {
   return EXT_TYPE[fileExt(name)] ?? null;
+}
+
+/** Catégorie d'éditeur pour OUVRIR un fichier (édition OU lecture seule), ou null si l'éditeur ne sait pas l'ouvrir. */
+export function onlyofficeTypeOuvrable(name: string): "word" | "cell" | "slide" | null {
+  const e = fileExt(name);
+  return EXT_TYPE[e] ?? LECTURE_SEULE[e] ?? null;
 }
 
 /** Un document Office est-il éditable par OnlyOffice ? */

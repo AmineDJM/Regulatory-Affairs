@@ -212,7 +212,7 @@ type DevisBrut = Prisma.PromoQuoteGetPayload<{ select: typeof SELECT_DEVIS }>;
 export function devisLu(d: DevisBrut): DevisLu {
   return {
     id: d.id, supplierId: d.supplierId, supplierName: d.supplierName, reference: d.reference,
-    tvaRate: Number(d.tvaRate), extraTaxLabel: d.extraTaxLabel, extraTaxRate: d.extraTaxRate != null ? Number(d.extraTaxRate) : null,
+    tvaRate: d.tvaRate != null ? Number(d.tvaRate) : null, extraTaxLabel: d.extraTaxLabel, extraTaxRate: d.extraTaxRate != null ? Number(d.extraTaxRate) : null,
     announcedTotal: d.announcedTotal != null ? Number(d.announcedTotal) : null, documentId: d.documentId,
     lines: d.lines.map((l) => ({
       id: l.id, position: l.position, reference: l.reference, unit: l.unit, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice), selected: l.selected,

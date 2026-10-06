@@ -66,7 +66,9 @@ export async function ingererDevisDuPoste(i: {
     const lignes = lignesDepuisLaLecture(p.lignes);
     const donnees = {
       supplierId: p.fournisseurId,
-      tvaRate: new Prisma.Decimal(p.tvaRate ?? 19),
+      // RETRANSCRIRE, JAMAIS DEVINER : la TVA n'est écrite que si le devis l'imprime. Sinon `null` — il n'y a plus
+      // de « 19 % par défaut » (c'est lui qui avait fait un TTC de 476 000 pour un devis de 400 000 HT sans TVA).
+      tvaRate: p.tvaRate != null ? new Prisma.Decimal(p.tvaRate) : null,
       extraTaxLabel: p.extraTaxRate != null ? p.extraTaxLabel : null,
       extraTaxRate: p.extraTaxRate != null ? new Prisma.Decimal(p.extraTaxRate) : null,
       announcedTotal: p.announcedTotal != null ? new Prisma.Decimal(p.announcedTotal) : null,

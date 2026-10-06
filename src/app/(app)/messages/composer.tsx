@@ -186,11 +186,11 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
    *
    * Un navigateur ne sait pas envoyer un dossier : `webkitdirectory` lui fait rendre les fichiers
    * À PLAT, avec leur chemin relatif. Les joindre un par un afficherait quarante pièces sans
-   * hiérarchie, et perdrait justement ce qui fait un dossier. On rassemble donc en une archive,
-   * côté navigateur — le serveur reçoit un fichier, comme d'habitude.
+   * hiérarchie, et perdrait justement ce qui fait un dossier.
    *
-   * JSZip est chargé À LA DEMANDE : la centaine de kilo-octets de la bibliothèque n'a pas à peser
-   * sur l'ouverture de la messagerie pour un geste qu'on fait une fois par mois.
+   * L'ARCHIVE SE FAIT SUR LE SERVEUR (Direction, 06/10 : les PC des utilisateurs sont limités) : le navigateur
+   * n'envoie que les fichiers et leur chemin, et ne compresse plus rien — avant, JSZip montait tout le dossier en
+   * mémoire dans l'onglet. Le serveur renvoie la pièce jointe prête (même signature qu'un fichier envoyé seul).
    */
   const uploadFolder = async (files: FileList) => {
     setError(null);
@@ -200,21 +200,22 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
     const zipName = folderZipName(rootFolderName(paths) ?? "Dossier");
     setZipping(zipName);
     try {
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
-      list.forEach((f, i) => { zip.file(paths[i] || f.name, f); });
-      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
-      const archive = new File([blob], zipName, { type: "application/zip" });
-      const dt = new DataTransfer();
-      dt.items.add(archive);
-      await uploadFiles(dt.files);
+      const fd = new FormData();
+      fd.set("conversationId", conversationId);
+      list.forEach((f, i) => { fd.append("file", f); fd.append("path", paths[i] || f.name); });
+      const res = await fetch("/api/messaging/upload-dossier", { method: "POST", body: fd });
+      const data = await res.json();
+      if (res.ok) {
+        setAttachments((a) => [...a, { blobId: data.blobId, sig: data.sig, name: data.name, mime: data.mime, size: data.size }]);
+      } else {
+        setError(data.error ?? "Impossible de préparer l'archive du dossier.");
+      }
     } catch {
-      setError("Impossible de préparer l'archive du dossier.");
+      setError("Impossible d'envoyer le dossier.");
     } finally {
       setZipping(null);
     }
   };
-
   const submit = async () => {
     const body = text.trim();
     if ((!body && attachments.length === 0 && driveRefs.length === 0) || sending || pending.length > 0) return;

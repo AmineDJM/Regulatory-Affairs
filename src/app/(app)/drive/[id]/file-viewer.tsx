@@ -1,55 +1,18 @@
 "use client";
 
-import { Download } from "lucide-react";
-import { DocxView, XlsxView, PptxView } from "@/components/documents/office-viewers";
 import { ZipViewer } from "@/components/documents/zip-viewer";
-import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+import { ApercuUniversel } from "@/components/documents/apercu-universel";
+import { extensionDe } from "@/lib/formats/apercu";
 
-export function FileViewer({ id, name, kind }: { id: string; name: string; kind: string }) {
+/**
+ * La visionneuse d'un fichier du Drive. Le choix de l'aperçu ne se fait plus ici : il vient de la table unique
+ * `formats/apercu.ts`, partagée avec la fenêtre des documents. Word, Excel, PowerPoint et leurs anciens formats
+ * (.doc, .rtf, .ppt, .xls, .odt…) s'ouvrent dans l'éditeur Office, modifiables sur place ; le texte se lit et se
+ * modifie ; un fichier sans aperçu possible dit pourquoi et propose le téléchargement (jamais une page blanche).
+ */
+export function FileViewer({ id, name }: { id: string; name: string; kind?: string }) {
   const src = `/api/drive/${id}/raw`;
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-
   // Archive ZIP → visionneuse dédiée (naviguer + visualiser l'intérieur sans décompresser).
-  if (ext === "zip") return <ZipViewer id={id} name={name} />;
-
-  if (kind === "image") {
-    return (
-      <div className="flex justify-center rounded-lg bg-muted/30 p-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={name} className="max-h-[72vh] rounded-lg object-contain" />
-      </div>
-    );
-  }
-  if (kind === "video") {
-    return <video src={src} controls className="max-h-[72vh] w-full rounded-lg bg-black" />;
-  }
-  if (kind === "audio") {
-    return <audio src={src} controls className="w-full" />;
-  }
-  if (kind === "pdf" || kind === "text") {
-    return <iframe src={src} title={name} className="h-[78vh] w-full rounded-lg border border-border bg-white" />;
-  }
-  if (kind === "office") {
-    if (ext === "docx") return <DocxView src={src} name={name} />;
-    if (ext === "xlsx" || ext === "xls" || ext === "csv") return <XlsxView src={src} name={name} />;
-    if (ext === "pptx") return <PptxView src={src} name={name} />;
-    // Anciens formats binaires (.doc/.ppt) : pas d'aperçu fidèle → téléchargement.
-    return <Unsupported src={src} name={name} legacy />;
-  }
-  return <Unsupported src={src} name={name} />;
-}
-
-function Unsupported({ src, name, legacy }: { src: string; name: string; legacy?: boolean }) {
-  return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-10 text-center">
-      <p className="text-sm text-muted-foreground">
-        {legacy
-          ? "Aperçu non disponible pour cet ancien format Office. Téléchargez le fichier pour l'ouvrir."
-          : "Aperçu non disponible pour ce type de fichier."}
-      </p>
-      <BoutonTelecharger href={`${src}?dl=1`} nom={name} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
-        <Download className="h-4 w-4" /> Télécharger
-      </BoutonTelecharger>
-    </div>
-  );
+  if (extensionDe(name) === "zip") return <ZipViewer id={id} name={name} />;
+  return <ApercuUniversel src={src} name={name} telechargement={`${src}?dl=1`} cible={{ type: "drive", id }} />;
 }

@@ -140,7 +140,8 @@ export async function devisDesPostes(itemIds: readonly string[]): Promise<Map<st
     const d = lien.legalDocument;
     const entreeBase = d.devisPoste;
     const entete: EnteteDevisPoste = {
-      tvaRate: entreeBase ? toNumber(entreeBase.tvaRate as never) : 19,
+      // Jamais de 19 inventé : un devis sans TVA imprimée reste sans TVA (`null`) tant qu'on ne la saisit pas.
+      tvaRate: entreeBase?.tvaRate != null ? toNumber(entreeBase.tvaRate as never) : null,
       extraTaxLabel: entreeBase?.extraTaxLabel ?? null,
       extraTaxRate: entreeBase?.extraTaxRate != null ? toNumber(entreeBase.extraTaxRate as never) : null,
       announcedTotal: entreeBase?.announcedTotal != null ? toNumber(entreeBase.announcedTotal as never) : null,

@@ -36,6 +36,8 @@ export interface NombreLu {
 const ESPACES = /[\u00a0\u202f\u2009\u2007\u2002\u2003\t ]+/g;
 /** Le suffixe de devise accepté — le dinar, et lui seul : un « 1 200 EUR » n'est pas un montant en dinars. */
 const DEVISE = /\s*(?:dzd|d\.\s?a\.?|da|dinars?(?:\s+alg[eé]riens?)?)\s*$/i;
+/** …et en PRÉFIXE : « DZD 300,000.00 » (devis imprimés à l'anglo-saxonne) se lit comme « 300,000.00 DZD ». */
+const DEVISE_PREFIXE = /^\s*(?:dzd|d\.\s?a\.?|da)\s*/i;
 /** Au-delà, ce n'est plus un montant de pièce commerciale : 999 999 999 999,99 DZD. */
 const MAX_CHIFFRES_ENTIERS = 12;
 /** Un prix unitaire peut porter trois ou quatre décimales ; au-delà, c'est une lecture abîmée. */
@@ -61,7 +63,7 @@ export function analyserNombre(texte: unknown, opts: { devise?: boolean } = {}):
   }
   const cite = texte.replace(ESPACES, " ").trim();
   let s = cite;
-  if (opts.devise !== false) s = s.replace(DEVISE, "").trim();
+  if (opts.devise !== false) s = s.replace(DEVISE, "").replace(DEVISE_PREFIXE, "").trim();
   if (s === "") return ABSENT;
   if (/[^0-9 .,]/.test(s)) {
     return /^[-\u2212–+(]/.test(s) || /\)$/.test(s)

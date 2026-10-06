@@ -1079,6 +1079,12 @@ export async function ajouterDevisPoste(_prev: ActionResult | undefined, formDat
   if (premier && joints.failed.length < fichiers.length) {
     const ing = await ingererDevisDuPoste({ userId: user.id, legalDocumentId: doc.id, octets: Buffer.from(await premier.arrayBuffer()), nomFichier: premier.name });
     lecture = ing.ok ? ` ${phraseDeLecture(ing)}` : ` Lecture du devis impossible (${ing.raison}) — saisissez ses lignes depuis la carte du poste.`;
+    // UN SEUL POSTE : les lignes bien lues sont validées d'office (voir la fonction). Un devis commun à
+    // plusieurs postes se répartit à la main — on ne devine pas à quel poste va chaque ligne.
+    if (ing.ok && charges.length === 1) {
+      const nb = await validerAutomatiquementLesLignesLues(user.id, charges[0].item.id, doc.id).catch(() => 0);
+      if (nb > 0) lecture = ` Devis lu : ${nb} ligne${nb > 1 ? "s" : ""} validée${nb > 1 ? "s" : ""} automatiquement.`;
+    }
   }
   await audit(user, owner.parent, owner.id, "UPDATE", `${nature} déposé sur ${libelles.map((l) => `« ${l} »`).join(", ")}${montant ? ` — ${montant.toLocaleString("fr-FR")} DZD` : ""}.`);
   revalidate(owner.parent, owner.id);
@@ -3083,7 +3089,7 @@ export async function validerLignesDuDevis(formData: FormData): Promise<ActionRe
       : apres?.etat === "A_GENERER" ? " Le bon de commande de ce devis est à générer." : "";
     return {
       ok: true, id,
-      message: `${apres?.nbValidees ?? 0} ligne${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} validée${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} pour ce poste (${(apres?.totalValideTtc ?? 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD TTC).${suite}`,
+      message: `${apres?.nbValidees ?? 0} ligne${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} validée${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} pour ce poste (${(apres?.entete.tvaRate === null ? (apres?.totalValideHt ?? 0) : (apres?.totalValideTtc ?? 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD ${apres?.entete.tvaRate === null ? "HT, TVA non indiquée" : "TTC"}).${suite}`,
     };
   });
 }
@@ -3166,7 +3172,8 @@ export async function enregistrerLignesDuDevis(formData: FormData): Promise<Acti
     const gardees = new Set(lignes.map((l) => l.ligneId).filter((x): x is string => Boolean(x)));
     const doc = await prisma.legalDocument.findUnique({ where: { id: pieceId }, select: { reference: true } });
     const donnees = {
-      ...(tvaSaisie !== null ? { tvaRate: new Prisma.Decimal(tvaSaisie) } : {}),
+      // Un champ TVA VIDE efface la TVA (« le devis n'en porte pas ») : on ne remet jamais un 19 de repli.
+      ...(formData.has("tvaRate") ? { tvaRate: tvaSaisie !== null ? new Prisma.Decimal(tvaSaisie) : null } : {}),
       ...(formData.has("extraTaxRate") ? { extraTaxRate: taxeSaisie !== null ? new Prisma.Decimal(taxeSaisie) : null, extraTaxLabel: taxeSaisie !== null ? (fdStr(formData, "extraTaxLabel") ?? "Taxe additionnelle") : null } : {}),
       ...(formData.has("announcedTotal") ? { announcedTotal: totalSaisi !== null ? new Prisma.Decimal(totalSaisi) : null } : {}),
       ...(supplierId ? { supplierId } : {}),
@@ -3223,6 +3230,30 @@ export async function enregistrerLignesDuDevis(formData: FormData): Promise<Acti
 }
 
 /**
+ * LA VALIDATION AUTOMATIQUE D'UN DEVIS BIEN LU (Direction, 06/10) : « lecture automatique des devis uploadés
+ * transformés en ligne » — sans cases à cocher ni attestation quand la lecture ne laisse AUCUN doute.
+ *
+ * TOUT OU RIEN, et c'est ce qui rend l'automatisme sûr : les lignes sont validées pour ce poste SEULEMENT si
+ * CHACUNE est complète (quantité et prix lus), sans réserve de lecture, sans refus de validation et libre
+ * (pas déjà validée pour un autre poste), et si le total des lignes colle au total imprimé quand le devis en
+ * porte un. Au moindre doute, rien n'est validé : la personne retrouve les lignes à relire, comme avant.
+ * Un devis qui porte déjà un bon de commande n'est jamais touché. Retourne le nombre de lignes validées.
+ */
+async function validerAutomatiquementLesLignesLues(userId: string, itemId: string, pieceId: string): Promise<number> {
+  const devis = await devisDuPoste(itemId, pieceId);
+  if (!devis || !devis.structure || devis.bc || devis.ecartTotal || devis.lignes.length === 0) return 0;
+  if (devis.lignes.some((l) => l.validee)) return 0; // une personne a déjà tranché : on ne repasse pas derrière elle
+  const sansDoute = devis.lignes.every((l) =>
+    !l.valideeAilleurs && !l.refusValidation && !l.aVerifier && l.quantity != null && l.unitPrice != null);
+  if (!sansDoute) return 0;
+  const { count } = await prisma.adProDevisLigne.updateMany({
+    where: { id: { in: devis.lignes.map((l) => l.id) }, devis: { legalDocumentId: pieceId }, validatedItemId: null },
+    data: { validatedItemId: itemId, validatedAt: new Date(), validatedById: userId },
+  });
+  return count;
+}
+
+/**
  * RELIRE UN DEVIS DÉJÀ DÉPOSÉ — pour un devis d'avant la lecture, ou dont la première lecture a échoué. Le fichier est
  * relu en base, jamais renvoyé par le formulaire. Les lignes proposées REMPLACENT les précédentes : refusé dès qu'une
  * ligne est validée ou qu'un BC en porte une (on ne remplace pas ce qu'une personne a attesté sans le lui dire).
@@ -3252,8 +3283,9 @@ export async function lireLesLignesDuDevis(formData: FormData): Promise<ActionRe
     });
     if (!ing.ok) return { ok: false, error: ing.raison };
     await audit(user, owner.parent, owner.id, "UPDATE", `Devis « ${devis.reference ?? devis.titre} » du poste « ${item.label} » relu : ${ing.nbLignes} ligne${ing.nbLignes > 1 ? "s" : ""} proposée${ing.nbLignes > 1 ? "s" : ""}.`);
+    const nb = await validerAutomatiquementLesLignesLues(user.id, id, pieceId).catch(() => 0);
     revalidate(owner.parent, owner.id);
-    return { ok: true, id, message: phraseDeLecture(ing) };
+    return { ok: true, id, message: nb > 0 ? `Devis relu : ${nb} ligne${nb > 1 ? "s" : ""} validée${nb > 1 ? "s" : ""} automatiquement.` : phraseDeLecture(ing) };
   });
 }
 

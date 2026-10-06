@@ -2,7 +2,7 @@
 
 import type { ConsultingBilling, ConsultingStatus, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/session";
+import { requireUser, requireUserAuNomDeLaVue } from "@/lib/session";
 import { userCan, hasGlobalView, getAccess, type SessionUser, type Action } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -16,7 +16,6 @@ import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consultin
 import { ajusterVisaAuMontant, phraseGesteVisa, poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente } from "@/lib/ad-pro/visa";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
-import { refuseSousVueExacte } from "@/lib/vue-exacte";
 import { toNumber, formatDate } from "@/lib/utils";
 import { recordEvent } from "@/lib/events/ledger";
 import { reaiguillerLesBCDe, LOT_ORIGINE } from "@/lib/bons-de-commande/aiguillage";
@@ -115,16 +114,14 @@ const dateOf = (raw: string | null): Date | null => {
 
 export async function createConsultingContract(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   try {
-    const user = await requireUser();
+    const user = await requireUserAuNomDeLaVue();
     // LE PÔLE DE NAISSANCE : Ad & Pro par défaut ; les RH créent leurs contrats de consultant
     // depuis RH › Consultants (§118.150). Le droit est celui du module du pôle choisi — un champ
     // forgé ne fait pas créer un contrat RH à qui n'a pas les RH.
     const poleBrut = fdStr(formData, "pole");
     const pole: PoleConsulting = estPoleConsulting(poleBrut) ? poleBrut : "AD_PRO";
     if (!peutSurLeContrat(user, { pole }, "CREATE")) return { ok: false, error: "Création réservée aux personnes habilitées." };
-    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
-    const sousVue = await refuseSousVueExacte(user);
-    if (sousVue) return sousVue;
+    // Sous « Vue exacte », la demande se crée AU NOM de la personne visualisée (test de son parcours) : voir `vue-exacte.ts`.
 
     const title = fdStr(formData, "title");
     const counterparty = fdStr(formData, "counterparty");

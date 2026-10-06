@@ -8,7 +8,7 @@ import type { DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
 import type { BcDePoste } from "@/lib/ad-pro/pieces-poste";
 import { LIBELLE_ETAPE_BC } from "@/lib/bons-de-commande/regle";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
-import { refusDepassement } from "@/lib/ad-pro/devis-poste";
+import { refusDepassement, refusTauxDuDevis } from "@/lib/ad-pro/devis-poste";
 import {
   validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste,
 } from "@/lib/actions/ad-pro-item-actions";
@@ -74,7 +74,11 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
 }) {
   const vivants = devis.filter((d) => !d.annule);
   const aFaire = vivants.filter((d) => d.etat === "A_GENERER" || d.etat === "A_REGENERER");
-  const depasse = refusDepassement(vivants.reduce((s, d) => s + Math.round(d.totalValideTtc * 100), 0) / 100, accorde);
+  const depasse = refusDepassement(
+    vivants.reduce((s, d) => s + Math.round(d.totalValideTtc * 100), 0) / 100, accorde,
+    vivants.reduce((s, d) => s + Math.round(d.totalValideHt * 100), 0) / 100,
+    vivants.filter((d) => d.nbValidees > 0).every((d) => d.entete.tvaRate !== null),
+  );
   const enCours = busy !== null && busy.startsWith("gen:") && busy.endsWith(`:${itemId}`);
   const generer = (pieceId: string | null) => {
     const fd = new FormData();
@@ -82,7 +86,9 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
     if (pieceId) fd.set("pieceId", pieceId);
     void run(`gen:${pieceId ?? "tous"}:${itemId}`, () => genererBonDeCommandePoste(fd), "Bon de commande généré.");
   };
-  const ouverte = peutGenerer && refusGeneration === null && !depasse;
+  // Un devis SANS TVA imprimée ne génère pas de BC : la TVA n'est jamais devinée, on la saisit depuis le papier.
+  const sansTva = aFaire.filter((d) => d.entete.tvaRate === null);
+  const ouverte = peutGenerer && refusGeneration === null && !depasse && sansTva.length === 0;
   const figes = vivants.filter((d) => (d.etat === "FIGE" || d.etat === "A_ANNULER") && d.refus);
 
   return (
@@ -116,9 +122,9 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
             return (
               <li key={d.pieceId} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span className="min-w-0 flex-1 truncate" title={d.titre}>
-                  {d.reference ?? d.titre} — {d.nbValidees} ligne{d.nbValidees > 1 ? "s" : ""} validée{d.nbValidees > 1 ? "s" : ""} · <span className="tabular-nums">{dzd(d.totalValideTtc)} TTC</span>
+                  {d.reference ?? d.titre} — {d.nbValidees} ligne{d.nbValidees > 1 ? "s" : ""} validée{d.nbValidees > 1 ? "s" : ""} · <span className="tabular-nums">{d.entete.tvaRate === null ? `${dzd(d.totalValideHt)} HT · TVA non indiquée` : `${dzd(d.totalValideTtc)} TTC`}</span>
                 </span>
-                {e && <span className={e.ton === "ok" ? "text-success" : e.ton === "alerte" ? "text-destructive" : "text-warning"}>{e.texte}</span>}
+                {e && !(actionnable && aFaire.length === 1) && <span className={e.ton === "ok" ? "text-success" : e.ton === "alerte" ? "text-destructive" : "text-warning"}>{e.texte}</span>}
                 {actionnable && aFaire.length > 1 && (
                   <button type="button" onClick={() => generer(d.pieceId)} disabled={enCours} className="text-primary hover:underline disabled:opacity-50">
                     {d.etat === "A_REGENERER" ? "Régénérer" : "Générer"}
@@ -132,6 +138,9 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
 
       {figes.map((d) => <p key={d.pieceId} className="flex gap-1 text-destructive"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {d.refus}</p>)}
       {depasse && aFaire.length > 0 && <p className="flex gap-1 text-warning"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {depasse}</p>}
+      {peutGenerer && sansTva.length > 0 && (
+        <p className="flex gap-1 text-warning"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {refusTauxDuDevis(null)}</p>
+      )}
       {peutGenerer && aFaire.length > 0 && refusGeneration && <p className="text-muted-foreground">{refusGeneration}</p>}
 
       {(ouverte && aFaire.length > 0) || peutJoindre ? (
@@ -181,7 +190,7 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
   const [compare, setCompare] = React.useState(false);
   const [edition, setEdition] = React.useState(false);
   const [rows, setRows] = React.useState<LigneSaisie[]>(() => devis.lignes.map(saisieDe));
-  const [tva, setTva] = React.useState(String(devis.entete.tvaRate));
+  const [tva, setTva] = React.useState(devis.entete.tvaRate !== null ? String(devis.entete.tvaRate) : "");
   const [taxeLibelle, setTaxeLibelle] = React.useState(devis.entete.extraTaxLabel ?? "");
   const [taxeTaux, setTaxeTaux] = React.useState(devis.entete.extraTaxRate != null ? String(devis.entete.extraTaxRate) : "");
   const [totalImprime, setTotalImprime] = React.useState(devis.entete.announcedTotal != null ? String(devis.entete.announcedTotal) : "");
@@ -243,7 +252,10 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
         <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">Fermer</button>
       </div>
       {devis.entete.lectureNote && (
-        <p className="text-muted-foreground">Lignes lues par la plateforme — {devis.entete.lectureNote} Ce sont des propositions : comparez-les au devis avant de les valider.</p>
+        <p className="text-muted-foreground">
+          Lignes lues par la plateforme — {devis.entete.lectureNote}
+          {devis.lignes.every((l) => l.validee) ? " Toutes validées automatiquement." : " Certaines sont à vérifier : comparez-les au devis avant de les valider."}
+        </p>
       )}
 
       {!devis.structure && !edition && (
@@ -307,7 +319,7 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
           </div>
           <button type="button" onClick={ajouter} className="text-primary hover:underline">+ Ajouter une ligne</button>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <label className="space-y-0.5">TVA (%)<input className={champ} inputMode="decimal" value={tva} onChange={(e) => setTva(e.target.value)} /></label>
+            <label className="space-y-0.5">TVA imprimée (%)<input className={champ} inputMode="decimal" value={tva} onChange={(e) => setTva(e.target.value)} placeholder="non indiquée" /></label>
             <label className="space-y-0.5">Taxe supplémentaire<input className={champ} value={taxeLibelle} onChange={(e) => setTaxeLibelle(e.target.value)} placeholder="Taxe Pub" /></label>
             <label className="space-y-0.5">Taux de la taxe (%)<input className={champ} inputMode="decimal" value={taxeTaux} onChange={(e) => setTaxeTaux(e.target.value)} /></label>
             <label className="space-y-0.5">Total HT imprimé<input className={champ} inputMode="decimal" value={totalImprime} onChange={(e) => setTotalImprime(e.target.value)} /></label>
@@ -323,6 +335,11 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
             {devis.entete.announcedTotal != null && <> · imprimé : {dzd(devis.entete.announcedTotal)}</>}
             {" · "}validé : {dzd(totalCoche)} HT
           </p>
+          {devis.entete.tvaRate === null && (
+            <p className="flex gap-1 text-warning">
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> Ce devis n&apos;indique pas de TVA : les montants sont hors taxe. Saisissez le taux imprimé (« Corriger les lignes ») avant de générer le bon de commande.
+            </p>
+          )}
           {devis.ecartTotal && (
             <p className="flex gap-1 text-warning">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> Les lignes lues font {dzd(devis.ecartTotal.calcule)} HT, le devis imprime {dzd(devis.ecartTotal.annonce)} : une ligne manque peut-être, ou un chiffre est faux.
@@ -340,7 +357,10 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
 
       {peutEditer && (
         <div className="flex flex-wrap items-center gap-2">
-          {!edition && devis.structure && (
+          {/* UN SEUL BOUTON PRINCIPAL À LA FOIS (Direction, 06/10) : « Valider » n'existe que s'il reste quelque
+              chose à valider — un devis bien lu est déjà validé d'office, et la carte ne propose alors que
+              « Générer le BC ». */}
+          {!edition && devis.structure && changees && (
             <Button size="sm" onClick={valider} disabled={occupe || !changees || gele || (nouvellesLues && !compare)}>
               {busy === `val:${devis.pieceId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Valider les lignes cochées
             </Button>

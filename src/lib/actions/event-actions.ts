@@ -5,7 +5,7 @@ import {
   EventType, EventScope, EventFormat, EventStatus, ParticipantRole, RegistrationStatus,
 } from "@prisma/client";
 import type { CongressRequestStatus } from "@prisma/client";
-import { requireUser } from "@/lib/session";
+import { requireUser, requireUserAuNomDeLaVue } from "@/lib/session";
 import { userCan, anyRoleFilter, hasGlobalView } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { isAdProDecided } from "@/lib/ad-pro-edit";
@@ -20,7 +20,6 @@ import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { relancerCycle } from "@/lib/workflow/engine";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { gammeImposee, businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
-import { refuseSousVueExacte } from "@/lib/vue-exacte";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 
@@ -127,11 +126,9 @@ function champsManquants(formData: FormData): string[] {
 }
 
 export async function createEvent(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireUserAuNomDeLaVue();
   if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
-  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
-  const sousVue = await refuseSousVueExacte(user);
-  if (sousVue) return sousVue;
+  // Sous « Vue exacte », la demande se crée AU NOM de la personne visualisée (test de son parcours) : voir `vue-exacte.ts`.
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
   const manquants = champsManquants(formData);

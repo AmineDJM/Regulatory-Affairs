@@ -2489,8 +2489,9 @@ model AdProDevis {
   legalDocument   LegalDocument     @relation("AdProDevisPiece", fields: [legalDocumentId], references: [id], onDelete: Cascade)
   /// Le fournisseur choisi dans l'ANNUAIRE (`CompanyContact`, sans clé étrangère : un contact supprimé laisse le nom du devis).
   supplierId      String?
-  /// La TVA du devis, en pour cent.
-  tvaRate         Decimal           @default(19) @db.Decimal(5, 2)
+  /// La TVA IMPRIMÉE sur le devis, en pour cent. `null` : le devis n'en porte pas — elle n'est JAMAIS devinée
+  /// (pas de 19 par défaut) ; on la saisit depuis le papier, ou le bon de commande ne se génère pas.
+  tvaRate         Decimal?          @db.Decimal(5, 2)
   /// Une taxe ADDITIONNELLE au HT, hors base de TVA (« Taxe Pub 2 % », §118.135).
   extraTaxLabel   String?
   extraTaxRate    Decimal?          @db.Decimal(5, 2)
@@ -6856,8 +6857,9 @@ model PromoQuote {
   /// Le numéro du devis du fournisseur (« 26/0576 »), repris sous « Devis N° » du bon de commande.
   reference             String?
   quoteDate             DateTime?
-  /// Le taux de TVA du devis, en pour cent. 19 par défaut ; 0 pour un devis exonéré.
-  tvaRate               Decimal          @default(19) @db.Decimal(5, 2)
+  /// Le taux de TVA du devis, en pour cent, TEL QU'IL EST IMPRIMÉ ; 0 pour un devis exonéré. `null` tant que la
+  /// personne ne l'a pas indiqué depuis le papier (un devis rangé « à retranscrire ») : rien n'est deviné.
+  tvaRate               Decimal?         @db.Decimal(5, 2)
   /// Une taxe ADDITIONNELLE au HT, hors base de TVA — la « Taxe Pub 2 % » d'un support
   /// publicitaire (§118.135). Nulle = aucune. Elle entre dans le montant engagé, donc dans le seuil.
   extraTaxLabel         String?

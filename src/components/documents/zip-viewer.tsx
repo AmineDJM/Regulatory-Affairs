@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Download, FileArchive, File as FileIcon, Folder, Loader2, AlertCircle, Search, Eye, ChevronRight, House } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { natureApercu } from "@/lib/formats/apercu";
 
 /**
  * VISIONNEUSE D'ARCHIVE ZIP — dans le Drive, on ouvre un .zip et on le PARCOURT comme un vrai
@@ -16,15 +17,12 @@ interface ZipEntry { path: string; size: number | null }
 interface ZipList { ok: boolean; name?: string; count?: number; truncated?: boolean; entries?: ZipEntry[]; error?: string }
 
 const humanSize = (n: number | null) => (n == null ? "" : n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : n >= 1024 ? `${Math.round(n / 1024)} Ko` : `${n} o`);
-const extOf = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
 
 function previewKind(name: string): "image" | "pdf" | "text" | "video" | "audio" | "none" {
-  const e = extOf(name);
-  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(e)) return "image";
-  if (e === "pdf") return "pdf";
-  if (["txt", "csv", "json", "xml", "md", "log", "html", "htm"].includes(e)) return "text";
-  if (["mp4", "webm", "mov"].includes(e)) return "video";
-  if (["mp3", "wav", "ogg"].includes(e)) return "audio";
+  // La table UNIQUE des aperçus (formats/apercu.ts) : plus de liste propre au visualiseur de ZIP.
+  const n = natureApercu(name);
+  if (n === "image" || n === "pdf" || n === "video" || n === "audio") return n;
+  if (n === "texte" || n === "html") return "text";
   return "none";
 }
 
@@ -150,11 +148,11 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
                       </li>
                     ))}
                     {files.map((e) => {
-                      const base = e.path.split("/").pop() ?? e.path;
+                      const nom = e.path.split("/").pop() ?? e.path;
                       return (
                         <li key={e.path} className={cn("flex items-center gap-2 px-3 py-1.5 text-sm", sel === e.path && "bg-accent/60")}>
                           <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate text-left hover:text-primary" title={base}>{base}</button>
+                          <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate text-left hover:text-primary" title={nom}>{nom}</button>
                           <span className="shrink-0 text-xs text-muted-foreground">{humanSize(e.size)}</span>
                           <a href={`${base}?path=${encodeURIComponent(e.path)}&dl=1`} className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary" title="Télécharger"><Download className="h-3.5 w-3.5" /></a>
                         </li>
@@ -184,7 +182,7 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
             <div className="flex h-full min-h-[40vh] items-center justify-center p-4"><audio src={selUrl!} controls className="w-full" /></div>
           ) : (
             <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
-              <p className="text-sm text-muted-foreground">Aperçu non disponible pour ce type. Téléchargez le fichier pour l'ouvrir.</p>
+              <p className="text-sm text-muted-foreground">Ce format s'affiche une fois sorti de l'archive : téléchargez-le, ou déposez l'archive décompressée dans le Drive pour le lire ici.</p>
               <a href={`${selUrl}&dl=1`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"><Download className="h-4 w-4" /> Télécharger « {sel.split("/").pop()} »</a>
             </div>
           )}

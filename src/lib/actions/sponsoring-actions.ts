@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { AdProItemKind, Priority, SponsoringNature, SponsoringStatus } from "@prisma/client";
-import { requireUser } from "@/lib/session";
+import { requireUser, requireUserAuNomDeLaVue } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { moneyEntityOf } from "@/lib/company";
@@ -23,7 +23,6 @@ import { toNumber } from "@/lib/utils";
 import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 import { bilanCloture, peutCloturer, quiCloture, refusCloture, type QuiCloture } from "@/lib/ad-pro/cloture-sponsoring";
 import { postesPourCloture } from "@/lib/queries/ad-pro-items";
-import { refuseSousVueExacte } from "@/lib/vue-exacte";
 
 const PATH = "/sponsoring";
 
@@ -72,11 +71,9 @@ export async function createSponsoring(
   _prev: ActionResult | undefined,
   formData: FormData,
 ): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireUserAuNomDeLaVue();
   if (!userCan(user, "SPONSORING", "CREATE")) return { ok: false, error: "Non autorisé." };
-  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
-  const sousVue = await refuseSousVueExacte(user);
-  if (sousVue) return sousVue;
+  // Sous « Vue exacte », la demande se crée AU NOM de la personne visualisée (test de son parcours) : voir `vue-exacte.ts`.
 
   const institution = fdStr(formData, "institution");
   if (!institution) return { ok: false, error: "L'institution est obligatoire." };

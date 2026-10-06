@@ -341,7 +341,7 @@ export function phraseEcart(e: EcartFacture): string {
 
 export interface TaxesFacture {
   /** TVA en POUR CENT. */
-  tvaRate: number;
+  tvaRate: number | null;
   extraTaxRate: number | null;
 }
 

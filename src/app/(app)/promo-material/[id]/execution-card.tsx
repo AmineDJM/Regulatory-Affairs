@@ -96,7 +96,7 @@ export interface ExecutionAffichee {
   /** Les lignes du BC et ce qui reste à facturer — ce que la facture pré-remplit. */
   lignesBC: LigneBCAffichee[];
   /** Les taxes du devis (donc du BC) — reprises par la facture, corrigeables. */
-  taxes: { tvaRate: number; extraTaxLabel: string | null; extraTaxRate: number | null };
+  taxes: { tvaRate: number | null; extraTaxLabel: string | null; extraTaxRate: number | null };
 }
 
 interface Props {
@@ -181,7 +181,7 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
         : { ...s, quantite: "0", lue: null, verifiee: false };
     }));
   };
-  const [tva, setTva] = React.useState(String(e.taxes.tvaRate));
+  const [tva, setTva] = React.useState(e.taxes.tvaRate !== null ? String(e.taxes.tvaRate) : "");
   const [taxe, setTaxe] = React.useState(e.taxes.extraTaxRate != null ? String(e.taxes.extraTaxRate) : "");
   const maj = (i: number, k: "quantite" | "prix" | "verifiee", v: string | boolean) => setSaisies((ss) => ss.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
   const totaux = totauxFacture(

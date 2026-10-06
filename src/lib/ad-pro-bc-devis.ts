@@ -103,7 +103,9 @@ export function totalValideDuPoste(devis: readonly DevisDePosteVue[]): number {
 
 /** Le refus de dépassement, lu par l'action ET par la carte. */
 export function refusMontantDuPoste(devis: readonly DevisDePosteVue[], accorde: number | null): string | null {
-  return refusDepassement(totalValideDuPoste(devis), accorde);
+  const ht = devis.filter((d) => !d.annule).reduce((s, d) => s + Math.round(d.totalValideHt * 100), 0) / 100;
+  const tvaIndiquee = devis.filter((d) => !d.annule && d.nbValidees > 0).every((d) => d.entete.tvaRate !== null);
+  return refusDepassement(totalValideDuPoste(devis), accorde, ht, tvaIndiquee);
 }
 
 /**
@@ -163,7 +165,8 @@ export async function genererLesBCsDuPoste(user: CurrentUser, poste: PosteAGener
         societe: poste.societe,
         tiers: t.tiers,
         lignes,
-        tvaDefaut: d.entete.tvaRate / 100,
+        // La TVA est celle du PAPIER : `genererBonDeCommandePoste` refuse un devis qui n'en indique pas, avant d'arriver ici.
+        tvaDefaut: (d.entete.tvaRate ?? 0) / 100,
         taxes,
         referenceAmont: d.reference,
         referenceAmontDate: d.entete.quoteDate,
