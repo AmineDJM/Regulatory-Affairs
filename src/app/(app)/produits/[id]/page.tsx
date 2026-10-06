@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { requireUser } from "@/lib/session";
+import { notFound } from "next/navigation";
+import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan, regulatoryLockWhere } from "@/lib/rbac";
 import { produit360ParId } from "@/lib/queries/product-360";
@@ -30,9 +30,8 @@ function Section({ titre, children, lien }: { titre: string; children: React.Rea
  * non alloué), activité terrain. Chaque section n'apparaît qu'à qui a le droit de son module.
  */
 export default async function Produit360Page({ params, searchParams }: { params: { id: string }; searchParams?: { annee?: string } }) {
-  const user = await requireUser();
+  const user = await requireModule("PRODUCTS");
   const voit = sections360(user);
-  if (!Object.values(voit).some(Boolean)) redirect("/dashboard?denied=PRODUITS");
   const p = await produit360ParId(params.id);
   if (!p) notFound();
   const annee = Number(searchParams?.annee) || new Date().getUTCFullYear();

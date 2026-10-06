@@ -39,6 +39,13 @@ async function exiger(action: "VIEW" | "UPDATE" | "CREATE" | "VALIDATE") {
 
 // ───────────────────────────── Stratégie & produits classés ─────────────────────────────
 
+/** Les produits classés doivent être au CATALOGUE de la BU (Force de vente) — la phrase du refus, ou `null`. */
+async function produitsHorsCatalogue(businessUnitId: string, productIds: string[]): Promise<string | null> {
+  const catalogue = new Set((await prisma.promoProduct.findMany({ where: { businessUnitId, isActive: true, productId: { in: productIds } }, select: { productId: true } })).map((p) => p.productId));
+  const hors = productIds.filter((id) => !catalogue.has(id));
+  return hors.length ? "Un produit classé doit être au catalogue de la BU : ajoutez-le dans Force de vente › Business Units, puis classez-le ici." : null;
+}
+
 export async function creerStrategie(input: { businessUnitId: string; nom: string; productIds: string[] }): Promise<R<{ id: string }>> {
   const { user, refus } = await exiger("VALIDATE");
   if (refus) return { ok: false, error: refus };
@@ -49,8 +56,11 @@ export async function creerStrategie(input: { businessUnitId: string; nom: strin
   if (ids.length > 3) return { ok: false, error: "Une stratégie classe au plus trois produits à la fois (le catalogue de la BU peut en compter davantage)." };
   const bu = await prisma.businessUnit.findUnique({ where: { id: input.businessUnitId }, select: { id: true, name: true } });
   if (!bu) return { ok: false, error: "Business Unit introuvable." };
-  const n = await prisma.product.count({ where: { id: { in: ids } } });
-  if (n !== ids.length) return { ok: false, error: "Un produit choisi n'existe pas dans le référentiel." };
+  // UNE PORTE DE VÉRITÉ (Direction, 06/10) : une seule stratégie active par BU, et des produits de SON catalogue.
+  const existante = await prisma.segmentationStrategie.findFirst({ where: { businessUnitId: bu.id, statut: "ACTIVE" }, select: { id: true } });
+  if (existante) return { ok: false, error: `La segmentation de la BU ${bu.name} est déjà active : changez son classement dans l'onglet Règles.` };
+  const horsCatalogue = await produitsHorsCatalogue(bu.id, ids);
+  if (horsCatalogue) return { ok: false, error: horsCatalogue };
   const s = await prisma.segmentationStrategie.create({
     data: { businessUnitId: bu.id, nom, createdById: user.id, produits: { create: ids.map((productId, i) => ({ productId, rang: i + 1, createdById: user.id })) } },
     select: { id: true },
@@ -69,6 +79,8 @@ export async function classerProduits(strategieId: string, productIds: string[])
   const s = await chargerStrategie(strategieId);
   if (!s) return { ok: false, error: "Stratégie introuvable." };
   if (s.produits.map((p) => p.productId).join() === ids.join()) return { ok: true };
+  const horsCatalogue = await produitsHorsCatalogue(s.businessUnit.id, ids);
+  if (horsCatalogue) return { ok: false, error: horsCatalogue };
   const maintenant = new Date();
   await prisma.$transaction([
     prisma.segmentationStrategieProduit.updateMany({ where: { strategieId, jusqua: null }, data: { jusqua: maintenant } }),

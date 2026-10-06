@@ -32,6 +32,30 @@ export default async function ConsommationPage() {
       <PageHeader title="Consumption Intelligence" description="Les fichiers de consommation des établissements, rendus fiables et traçables — et l'affinité qu'on en tire.">
         <Link href="/consommation/affinite" className="text-sm text-primary underline">Affinité par établissement</Link>
       </PageHeader>
+      {/* LE MODE D'EMPLOI (Direction, 06/10 : « qu'est-ce que tu attends de moi exactement, quel fichier uploader ? »). */}
+      <details className="surface p-4 text-sm" open={imports.length === 0}>
+        <summary className="cursor-pointer font-semibold">Ce qu&apos;il faut importer, et dans quel ordre</summary>
+        <div className="mt-3 space-y-2 text-muted-foreground">
+          <p><b className="text-foreground">Quoi :</b> les fichiers de consommation des établissements, tels que les pharmacies hospitalières, la PCH ou les DSP les envoient. Ce sont les sorties de médicaments par établissement, par produit (ou molécule) et par période.</p>
+          <p><b className="text-foreground">Format :</b> Excel (.xlsx, .xls, .xlsm) ou CSV, avec une ou plusieurs feuilles. Les colonnes n&apos;ont pas besoin d&apos;avoir nos noms :</p>
+          <ul className="list-disc pl-5">
+            <li><b className="text-foreground">Établissement</b> : une colonne, ou une feuille par hôpital (le nom de la feuille sert alors d&apos;établissement).</li>
+            <li><b className="text-foreground">Produit et/ou DCI</b> : la désignation, la molécule, ou les deux.</li>
+            <li><b className="text-foreground">Quantité</b> et <b className="text-foreground">période</b> : une colonne « Mois » ou « Date », ou bien une colonne par mois (janv-26, févr-26…). La période peut aussi être écrite dans le titre ou le nom de la feuille.</li>
+            <li>Conseillées : l&apos;<b className="text-foreground">unité</b> (boîte, comprimé…) et la <b className="text-foreground">présentation</b> (« B/30 », qui permet de convertir les boîtes en unités). La valeur en DA est facultative.</li>
+          </ul>
+          <p><b className="text-foreground">Important :</b> gardez dans le fichier les <b className="text-foreground">produits concurrents</b> (les autres molécules du même marché). Sans eux, l&apos;affinité n&apos;a pas de dénominateur.</p>
+          <p><b className="text-foreground">Ensuite :</b></p>
+          <ol className="list-decimal pl-5">
+            <li>Importez le fichier.</li>
+            <li>Tranchez ce qui n&apos;est pas sûr (établissement ou produit inconnu) : chaque choix est retenu pour les fichiers suivants.</li>
+            <li>Validez l&apos;import.</li>
+            <li>Dans « Affinité par établissement », choisissez pour chaque produit son marché (les molécules concurrentes) et la période.</li>
+            <li>Dans Segmentation › Règles, choisissez « proxy établissement » comme source d&apos;affinité si vous voulez l&apos;utiliser pour classer les médecins.</li>
+          </ol>
+          <p><a href="/api/consommation/modele" className="text-primary underline">Télécharger un fichier modèle</a> (un exemple seulement : vos fichiers n&apos;ont pas à le suivre).</p>
+        </div>
+      </details>
       {peutImporter && <TeleverserConsommation />}
       <div className="surface overflow-x-auto">
         <table className="w-full text-sm">

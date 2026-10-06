@@ -32,8 +32,8 @@ describe("sections 360° par rôle", () => {
   it("l'action de répartition exige « Valider » sur les Finances", () => {
     expect(readFileSync("src/lib/actions/repartition-couts-actions.ts", "utf8")).toContain('userCan(user, "FINANCES", "VALIDATE")');
   });
-  it("menu : Produits (garde 360), Consommation (module à part)", () => {
-    expect(NAVIGATION.find((n) => n.href === "/produits")?.gate).toBe("produits360");
+  it("menu : Produits et Consommation sont des modules à part (accès réglables dans la console)", () => {
+    expect(NAVIGATION.find((n) => n.href === "/produits")?.module).toBe("PRODUCTS");
     expect(NAVIGATION.find((n) => n.href === "/consommation")?.module).toBe("CONSUMPTION");
   });
 });

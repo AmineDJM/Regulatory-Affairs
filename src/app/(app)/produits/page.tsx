@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/session";
+import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { sections360 } from "@/lib/queries/vue-360";
 import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
 
@@ -11,12 +10,13 @@ export const metadata = { title: "Produits — AMD Internal OS" };
 
 /**
  * LES PRODUITS CANONIQUES — un produit, une identité, retrouvable par son nom, sa DCI, sa référence ou un alias, et
- * ouvert sur sa vue 360°. Ouvert à quiconque voit au moins une des facettes d'un produit.
+ * ouvert sur sa vue 360°. Module à part (PRODUCTS), réglé dans la console ; chaque section de la fiche suit son module.
  */
 export default async function ProduitsPage({ searchParams }: { searchParams?: { q?: string } }) {
-  const user = await requireUser();
-  if (!Object.values(sections360(user)).some(Boolean)) redirect("/dashboard?denied=PRODUITS");
+  const user = await requireModule("PRODUCTS");
   const q = (searchParams?.q ?? "").trim();
+  // LES DOSSIERS QUI NE SONT PAS (ENCORE) DES PRODUITS : identité incomplète, donc pas de produit canonique.
+  const dossiersSansProduit = userCan(user, "REGULATORY", "VIEW") ? await prisma.regulatoryProduct.count({ where: { productId: null } }) : null;
   const produits = await prisma.product.findMany({
     where: q ? { OR: [{ canonicalName: { contains: q, mode: "insensitive" } }, { dci: { contains: q, mode: "insensitive" } }, { code: { contains: q, mode: "insensitive" } }, { aliases: { some: { label: { contains: q, mode: "insensitive" } } } }] } : {},
     orderBy: [{ isActive: "desc" }, { canonicalName: "asc" }], take: 200,
@@ -25,6 +25,10 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
   return (
     <div className="space-y-5">
       <PageHeader title="Produits" description="Chaque produit une seule fois — réglementaire, marchés, ventes, segmentation, consommation et coûts réunis dans sa vue 360°." />
+      <div className="surface space-y-1 p-3 text-xs text-muted-foreground">
+        <p><b className="text-foreground">D'où viennent ces produits ?</b> Du référentiel canonique : un produit naît d'un dossier réglementaire dont l'identité est complète (DCI, dosage, unité, forme, conditionnement), à la création du dossier ou depuis Regulatory › Catalogue produits. La Force de vente, les appels d'offres, la segmentation et la consommation s'y rattachent — jamais une copie.</p>
+        {dossiersSansProduit !== null && dossiersSansProduit > 0 && <p>{dossiersSansProduit} dossier(s) réglementaire(s) ne sont pas encore des produits (identité incomplète ou non rattachée) : <Link href="/regulatory/catalogue" className="text-primary underline">les compléter dans le Catalogue produits</Link>.</p>}
+      </div>
       <form className="flex gap-2"><Input name="q" defaultValue={q} placeholder="Nom, DCI, référence ou alias…" className="w-80" /></form>
       <div className="surface overflow-x-auto">
         <table className="w-full text-sm">

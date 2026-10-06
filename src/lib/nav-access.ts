@@ -8,7 +8,6 @@ import { loadReportingLine } from "@/lib/departments";
 import { managesAnyone } from "@/lib/hr/reporting-line";
 import { prisma } from "@/lib/prisma";
 import { estDirecteurDesOperations } from "@/lib/suppression/delegation";
-import { sections360 } from "@/lib/vues-360-acces";
 
 /**
  * CE QU'UNE PERSONNE A LE DROIT D'OUVRIR — la réponse, une fois, pour tous les écrans.
@@ -108,8 +107,6 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     corbeilleOps: user.role !== "SUPER_ADMIN" && estDirecteurDesOperations(user),
     // ADAM (assistant + chief of staff) : le Super Admin seul (§118.153). La palette suit le menu.
     adam: peutVoirAdam(user),
-    // LES PRODUITS (vues 360°) : à qui voit au moins une facette d'un produit — la page applique la même règle.
-    produits360: Object.values(sections360(user)).some(Boolean),
   };
 
   // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde, et

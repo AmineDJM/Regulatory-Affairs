@@ -36,41 +36,69 @@ const VUES = [
  *
  * Portée : le KAM (portée « ses lignes ») ne voit que son panel ; les gestes suivent le module SEGMENTATION.
  */
-export default async function SegmentationPage({ searchParams }: { searchParams?: { s?: string; vue?: string; spe?: string; cycle?: string } }) {
+export default async function SegmentationPage({ searchParams }: { searchParams?: { s?: string; vue?: string; spe?: string; cycle?: string; bu?: string } }) {
   const user = await requireModule("SEGMENTATION");
   const peutValider = userCan(user, "SEGMENTATION", "VALIDATE");
   const peutModifier = userCan(user, "SEGMENTATION", "UPDATE");
   const peutDeroger = userCan(user, "SEGMENTATION", "CREATE");
   const portee = user.access.modules.get("SEGMENTATION")?.scope === "ALL" ? {} : clausePanelDuKam(user.id);
 
-  const strategies = await prisma.segmentationStrategie.findMany({
-    orderBy: [{ statut: "asc" }, { createdAt: "asc" }],
-    select: { id: true, nom: true, statut: true, businessUnit: { select: { name: true } } },
+  // UNE PORTE DE VÉRITÉ (Direction, 06/10) : les BU sont celles de la FORCE DE VENTE, et chacune a AU PLUS une stratégie
+  // active — on ne « crée » ni BU ni stratégie ici. Les produits classables sont ceux du CATALOGUE de la BU (Force de
+  // vente › Business Units), jamais une liste parallèle.
+  const bus = await prisma.businessUnit.findMany({
+    where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: {
+      id: true, name: true,
+      segmentationStrategies: { where: { statut: "ACTIVE" }, orderBy: { createdAt: "asc" }, take: 1, select: { id: true } },
+      products: { where: { isActive: true, productId: { not: null } }, select: { productId: true, canonicalProduct: { select: { canonicalName: true, dci: true } } } },
+    },
   });
-  const choisie = strategies.find((s) => s.id === searchParams?.s) ?? strategies.find((s) => s.statut === "ACTIVE") ?? strategies[0] ?? null;
+  const catalogue = (buId: string) => {
+    const b = bus.find((x) => x.id === buId);
+    const vus = new Set<string>();
+    return (b?.products ?? []).filter((p) => p.productId && !vus.has(p.productId) && vus.add(p.productId)).map((p) => ({ id: p.productId!, nom: p.canonicalProduct?.canonicalName ?? p.productId!, dci: p.canonicalProduct?.dci ?? "" }));
+  };
+  const strategieDe = (b: (typeof bus)[number]) => b.segmentationStrategies[0]?.id ?? null;
+  const parStrategie = searchParams?.s ? bus.find((b) => strategieDe(b) === searchParams.s) : undefined;
+  const buChoisie = parStrategie ?? bus.find((b) => b.id === searchParams?.bu) ?? bus.find((b) => strategieDe(b)) ?? bus[0] ?? null;
   const vue = VUES.some((v) => v.cle === searchParams?.vue) ? (searchParams!.vue as (typeof VUES)[number]["cle"]) : "panel";
+  const barreBu = (
+    <div className="flex flex-wrap gap-1 text-xs">
+      {bus.map((b) => (
+        <Link key={b.id} href={strategieDe(b) ? `/segmentation?s=${strategieDe(b)}` : `/segmentation?bu=${b.id}`}
+          className={`rounded-md border px-2 py-1 ${b.id === buChoisie?.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>
+          {b.name}{strategieDe(b) ? "" : " · à activer"}
+        </Link>
+      ))}
+    </div>
+  );
 
-  const [bus, produits] = peutValider
-    ? await Promise.all([
-        prisma.businessUnit.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-        prisma.product.findMany({ where: { isActive: true }, select: { id: true, canonicalName: true, dci: true }, orderBy: { canonicalName: "asc" } }),
-      ])
-    : [[], []];
-
-  if (!choisie) {
+  if (!buChoisie) {
     return (
       <div className="space-y-5">
         <PageHeader title="Segmentation Studio" description="La segmentation de la force de vente, reliée à la BU, aux produits et à l'annuaire." />
+        <p className="surface p-5 text-sm text-muted-foreground">Aucune Business Unit active : elles se créent dans <Link href="/planning/business-units" className="text-primary underline">Force de vente › Business Units</Link>.</p>
+      </div>
+    );
+  }
+  const choisieId = strategieDe(buChoisie);
+  if (!choisieId) {
+    return (
+      <div className="space-y-5">
+        <PageHeader title={`Segmentation — BU ${buChoisie.name}`} description="La segmentation de la force de vente, reliée à la BU, aux produits et à l'annuaire." />
+        {barreBu}
         {peutValider ? (
-          <CreerStrategie bus={bus} produits={produits.map((p) => ({ id: p.id, nom: p.canonicalName, dci: p.dci }))} />
+          <CreerStrategie bu={{ id: buChoisie.id, nom: buChoisie.name }} produits={catalogue(buChoisie.id)} />
         ) : (
-          <p className="surface p-5 text-sm text-muted-foreground">Aucune stratégie de segmentation n&apos;est encore créée. La Direction ou le directeur des opérations la crée ici.</p>
+          <p className="surface p-5 text-sm text-muted-foreground">La segmentation de cette BU n&apos;est pas encore activée. La Direction ou le directeur des opérations l&apos;active ici.</p>
         )}
       </div>
     );
   }
+  const produits = catalogue(buChoisie.id);
 
-  const strategie = (await chargerStrategie(choisie.id))!;
+  const strategie = (await chargerStrategie(choisieId))!;
   const panelComplet = await chargerPanel(strategie, portee);
   // COCKPIT MULTI-SPÉCIALITÉ (§57) : toutes, ou une spécialité de la BU — les mêmes indicateurs, filtrés.
   const specialitesBu = await prisma.businessUnitSpecialty.findMany({
@@ -113,20 +141,12 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
   return (
     <div className="space-y-5">
       <PageHeader
-        title={`Segmentation — ${strategie.nom}`}
-        description={`BU ${strategie.businessUnit.name} · ${strategie.produits.map((p) => `#${p.rang} ${p.nom}`).join(" · ") || "aucun produit classé"} · ${strategie.regle ? `règles v${strategie.regle.version}` : "règles à publier"}`}
+        title={`Segmentation — BU ${strategie.businessUnit.name}`}
+        description={`${strategie.produits.map((p) => `#${p.rang} ${p.nom}`).join(" · ") || "aucun produit classé"} · ${strategie.regle ? `règles v${strategie.regle.version}` : "règles à publier"}`}
       >
         <Link href={`/business-units/${strategie.businessUnit.id}`} className="text-sm text-primary underline">Cockpit de la BU</Link>
-        {strategies.length > 1 && (
-          <div className="flex flex-wrap gap-1">
-            {strategies.map((x) => (
-              <Link key={x.id} href={`/segmentation?s=${x.id}`} className={`rounded-md border px-2 py-1 text-xs ${x.id === strategie.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>
-                {x.nom}
-              </Link>
-            ))}
-          </div>
-        )}
       </PageHeader>
+      {barreBu}
 
       {strategie.regle && strategie.regle.erreurs.length > 0 && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Règles v{strategie.regle.version} illisibles : {strategie.regle.erreurs.join(" ")}</p>
@@ -193,7 +213,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
             />
           )}
           {peutValider && (
-            <ClassementProduits strategieId={strategie.id} actuels={strategie.produits.map((p) => p.productId)} produits={produits.map((p) => ({ id: p.id, nom: p.canonicalName, dci: p.dci }))} />
+            <ClassementProduits strategieId={strategie.id} actuels={strategie.produits.map((p) => p.productId)} produits={produits} />
           )}
           <EditeurRegles
             strategieId={strategie.id}
@@ -223,12 +243,6 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
               <p key={i.id} className="text-sm">{i.nomFichier} · feuille {i.feuille ?? "—"} · {i.createdAt.toLocaleDateString("fr-FR")}</p>
             ))}
           </section>
-          {peutValider && (
-            <section className="surface p-4 md:col-span-2">
-              <h2 className="mb-3 text-sm font-semibold">Nouvelle stratégie</h2>
-              <CreerStrategie bus={bus} produits={produits.map((p) => ({ id: p.id, nom: p.canonicalName, dci: p.dci }))} />
-            </section>
-          )}
         </div>
       )}
     </div>

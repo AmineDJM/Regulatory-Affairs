@@ -1462,7 +1462,7 @@ export interface NavItem {
    * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
    * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps" | "produits360";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1729,6 +1729,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   MARKETING_COCKPIT: "Marketing cockpit",
   SEGMENTATION: "Segmentation Studio",
   CONSUMPTION: "Consumption Intelligence",
+  PRODUCTS: "Produits",
 };
 
 /**
@@ -2021,8 +2022,8 @@ export const NAVIGATION: NavItem[] = [
   // SEGMENTATION STUDIO — la segmentation native : stratégie par BU, règles versionnées, panel calculé et expliqué.
   { module: "SEGMENTATION", label: "Segmentation", href: "/segmentation", icon: "Layers", group: "Pôles", pole: "SALES_MARKETING", match: ["/segmentation"] },
   // PRODUITS — chaque produit canonique et sa vue 360° (réglementaire, AO, ventes, segmentation, consommation, coûts).
-  // Le module WORKSPACE est à tout le monde : c'est la garde produits360 (voir au moins une facette) qui ouvre l'entrée.
-  { module: "WORKSPACE", label: "Produits", href: "/produits", icon: "Pill", group: "Pôles", pole: "SALES_MARKETING", gate: "produits360", match: ["/produits"] },
+  // Un MODULE À PART (Direction, 06/10) : ses accès se règlent dans la console, comme les autres.
+  { module: "PRODUCTS", label: "Produits", href: "/produits", icon: "Pill", group: "Pôles", pole: "SALES_MARKETING", match: ["/produits"] },
   // CONSUMPTION INTELLIGENCE — la consommation hospitalière importée, normalisée, et l'affinité qu'on en tire.
   { module: "CONSUMPTION", label: "Consommation", href: "/consommation", icon: "ChartColumn", group: "Pôles", pole: "SALES_MARKETING", match: ["/consommation"] },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },

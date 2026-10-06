@@ -36,8 +36,16 @@ export default async function AffinitePage({ searchParams }: { searchParams?: { 
       <PageHeader title="Affinité par établissement" description="Consommation du produit ÷ consommation du marché choisi, établissement par établissement.">
         <Link href="/consommation" className="text-sm text-primary underline">Imports</Link>
       </PageHeader>
+      {/* TOUS LES PRODUITS DU RÉFÉRENTIEL se choisissent ici ; les pastilles sont ceux dont l'affinité est déjà réglée. */}
+      <form className="flex flex-wrap items-center gap-2 text-sm">
+        <select name="p" defaultValue={choisi?.id ?? ""} className="h-9 min-w-[18rem] rounded-lg border border-border bg-background px-2 text-sm" aria-label="Produit">
+          {produits.map((p) => <option key={p.id} value={p.id}>{p.canonicalName}{configs.some((c) => c.productId === p.id) ? " ✓" : ""}</option>)}
+        </select>
+        <button type="submit" className="h-9 rounded-lg border border-border px-3 text-sm hover:bg-secondary">Ouvrir</button>
+        <span className="text-xs text-muted-foreground">{produits.length} produit(s) du référentiel · ✓ = affinité réglée</span>
+      </form>
       <div className="flex flex-wrap gap-1 text-xs">
-        {produits.filter((p) => configs.some((c) => c.productId === p.id) || p.id === choisi?.id).map((p) => (
+        {produits.filter((p) => configs.some((c) => c.productId === p.id)).map((p) => (
           <Link key={p.id} href={`/consommation/affinite?p=${p.id}`} className={`rounded-md border px-2 py-1 ${p.id === choisi?.id ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{p.canonicalName}</Link>
         ))}
       </div>
