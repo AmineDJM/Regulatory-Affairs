@@ -1,5 +1,5 @@
 import {
-  SEGMENTS, seuilsPourZone, pct, STATUT_LABELS,
+  SEGMENTS, seuilsPourZone, pct, STATUT_LABELS, frequenceEffective, type InOut,
   type EtatProduit, type Regles, type RegleProduit, type Segment, type Statut, type ReglePriorite,
 } from "./regles";
 
@@ -45,6 +45,8 @@ export interface FaitsPraticien {
   specialiteId?: string | null;
   /** Son établissement (annuaire) — pour l'affinité « établissement » quand la règle l'autorise. */
   institutionId?: string | null;
+  /** IN = dans la wilaya pivot d'un KAM qui le couvre, OUT = ailleurs, null = inconnu (aucune ville pivot). */
+  inOut?: InOut | null;
 }
 
 /**
@@ -222,9 +224,13 @@ export function segmenterPraticien(f: FaitsPraticien, regles: Regles, maintenant
   if (!cible) {
     pourquoiVisites = dc ? `Non ciblé par décision : ${dc.motif}` : "Non ciblé : aucune visite requise.";
   } else {
-    const fp = priorite ? regles.frequences[priorite] ?? 0 : 0;
-    if (h && regles.h.frequence >= fp) { visites = regles.h.frequence; pourquoiVisites = `Décideur (H) : ${visites} visite${visites > 1 ? "s" : ""} par cycle${priorite ? ` (la priorité ${priorite} en demanderait ${fp})` : ""}.`; }
-    else if (priorite) { visites = fp; pourquoiVisites = `Priorité ${priorite} : ${fp} visite${fp > 1 ? "s" : ""} par cycle.`; }
+    // LA FRÉQUENCE SE LIT AVEC LA ZONE ET LE IN/OUT (wilaya pivot du KAM) : l'exception la plus précise l'emporte.
+    const p = priorite ? frequenceEffective(regles, priorite, f.zone, f.inOut ?? null) : { frequence: 0, exception: null };
+    const fh = frequenceEffective(regles, "H", f.zone, f.inOut ?? null);
+    const fp = p.frequence;
+    const ou = (x: string | null) => (x ? ` — ${x}` : "");
+    if (h && fh.frequence >= fp) { visites = fh.frequence; pourquoiVisites = `Décideur (H)${ou(fh.exception)} : ${visites} visite${visites > 1 ? "s" : ""} par cycle${priorite ? ` (la priorité ${priorite} en demanderait ${fp})` : ""}.`; }
+    else if (priorite) { visites = fp; pourquoiVisites = `Priorité ${priorite}${ou(p.exception)} : ${fp} visite${fp > 1 ? "s" : ""} par cycle.`; }
     else pourquoiVisites = "Ciblé, mais sans priorité calculable (données en attente) : 0 visite requise tant que le potentiel manque.";
   }
   return {

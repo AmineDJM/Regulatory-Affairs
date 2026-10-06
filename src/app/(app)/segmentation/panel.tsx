@@ -26,6 +26,8 @@ export interface LigneVue {
   specialite: string | null;
   statut: Statut | null;
   zone: string | null;
+  /** IN = wilaya pivot d'un KAM qui le couvre ; OUT = ailleurs. */
+  inOut?: "IN" | "OUT" | null;
   derniereObservation: string | null;
   resultat: ResultatPraticien | null;
   derogations: DerogationVue[];
@@ -122,7 +124,7 @@ export function Panel({ strategieId, produits, lignes, zones, reglesPubliees, pe
                     {l.resultat?.h && <Badge tone="purple" className="mr-1">H</Badge>}
                     {l.statut ? STATUT_LABELS[l.statut] : "—"}
                   </td>
-                  <td className="px-3 py-2">{l.zone ?? "—"}</td>
+                  <td className="px-3 py-2" title={l.inOut ? (l.inOut === "IN" ? "Dans la wilaya pivot d'un KAM qui le couvre" : "Hors de la wilaya pivot des KAM qui le couvrent") : undefined}>{l.zone ?? "—"}{l.inOut ? ` · ${l.inOut === "IN" ? "In" : "Out"}` : ""}</td>
                   {produits.map((p) => {
                     const r = l.resultat?.produits.find((x) => x.productId === p.productId);
                     return <td key={p.productId} className="px-3 py-2">{r ? <EtatBadge etat={r.etat} derogee={!!r.derogation} /> : "—"}</td>;

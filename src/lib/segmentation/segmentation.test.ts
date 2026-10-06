@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import { lireRegles, type Regles } from "./regles";
 import { segmenterPraticien, prioriteDe, impactDesRegles, synthese, type FaitsPraticien } from "./moteur";
-import { lireClasseur, reglesDuTexte, methodeDuFichier, frequencesDesFeuilles, proposerRegles, champDeLEntete, type Feuilles } from "./lecture-classeur";
+import { lireClasseur, reglesDuTexte, methodeDuFichier, frequencesDesFeuilles, exceptionsDeFrequence, proposerRegles, champDeLEntete, type Feuilles } from "./lecture-classeur";
+import { inOutDe, wilayaPivot } from "./in-out";
 import { rapprocher, clePersonne } from "./rapprochement";
 import { PERMISSIONS, defaultScope } from "@/lib/rbac";
 import { NAVIGATION, MODULE_LABELS } from "@/lib/labels";
@@ -324,5 +325,39 @@ describe("§34-35 — affinité d'hôpital : un PROXY explicite, jamais par déf
     const mixte = regles({ produits: [{ ...r.produits[0], sourceAffinite: "DECLAREE_SINON_ETABLISSEMENT" }] });
     expect(segmenterPraticien({ ...faits({ obs: [[RAL, 30, 0]] }), institutionId: "oran" }, mixte, T0, ctx).produits[0].etat).toBe("B");
     expect(segmenterPraticien(f, mixte, T0, ctx).produits[0].etat).toBe("A");
+  });
+});
+describe("In / Out (Direction, 06/10) — In = la wilaya pivot du KAM, Out = les autres wilayas", () => {
+  it("règle pure : In si la wilaya est la wilaya pivot d'un KAM qui le couvre ; inconnu sans ville pivot", () => {
+    expect(inOutDe("Oran", ["Oran"])).toBe("IN");
+    expect(inOutDe("Tlemcen", ["Oran"])).toBe("OUT");
+    expect(inOutDe("Tlemcen", ["Oran", "Tlemcen"])).toBe("IN");
+    expect(inOutDe("Oran", [null])).toBeNull();
+    expect(inOutDe(null, ["Oran"])).toBeNull();
+    expect(wilayaPivot("oran")).toBe("Oran");
+  });
+  it("moteur : Ouest In → 3 visites pour P1 et H ; Ouest Out et inconnu → la fréquence générale, et le pourquoi le dit", () => {
+    const r = regles({ exceptionsFrequence: [{ zone: "Ouest", inOut: "IN", priorite: "P1", frequence: 3 }, { zone: "Ouest", inOut: "IN", priorite: "H", frequence: 3 }] });
+    const p1 = (inOut: "IN" | "OUT" | null, zone = "Ouest") => segmenterPraticien({ ...faits({ zone, obs: [[RAL, 30, 3]] }), inOut }, r, T0);
+    expect(p1("IN").visites).toBe(3);
+    expect(p1("IN").pourquoiVisites).toMatch(/Ouest, In \(wilaya pivot du KAM\)/);
+    expect(p1("OUT").visites).toBe(2);
+    expect(p1(null).visites).toBe(2);
+    expect(p1("IN", "Centre").visites).toBe(2);
+    const h = segmenterPraticien({ ...faits({ zone: "Ouest", statut: "DECIDEUR" }), inOut: "IN" }, r, T0);
+    expect(h.visites).toBe(3);
+  });
+  it("import : les blocs de zone de la feuille des KAM deviennent des exceptions explicites (Ouest In = 3)", () => {
+    const KAM: Feuilles = { V2: [
+      [null, null, "Centre ", null, null, null, 127], [null, null, " H, A & B", "In", 39, 2, 78], [null, null, null, "Out", 18, 2, 36], [null, null, "C & D", "In", 3, 1, 3], [null, null, null, "Out", 10, 1, 10],
+      [null, null, "Ouest", null, null, null, 88], [null, null, " H, A & B", "In", 15, 3, 45], [null, null, null, "Out", 17, 2, 34], [null, null, "C & D", "In", null, 1, 0], [null, null, null, "Out", 9, 1, 9],
+      [null, null, "Est", null, null, null, 108], [null, null, " H, A & B", "In", 4, 2, 8], [null, null, null, "Out", 10, 2, 20], [null, null, "C & D", "In", 22, 1, 22], [null, null, null, "Out", 58, 1, 58],
+    ] };
+    const f = frequencesDesFeuilles(KAM, ["Centre", "Ouest", "Est"]);
+    expect(f.h).toBe(2);
+    expect(exceptionsDeFrequence(f)).toEqual([
+      { zone: "Ouest", inOut: "IN", priorite: "P1", frequence: 3 },
+      { zone: "Ouest", inOut: "IN", priorite: "H", frequence: 3 },
+    ]);
   });
 });

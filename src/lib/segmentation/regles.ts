@@ -103,7 +103,16 @@ export interface Regles {
   priorites: { regles: ReglePriorite[]; repli: ReplisPriorite | null };
   /** Visites par cycle et par priorité (0,5 = une visite tous les deux cycles). */
   frequences: Record<string, number>;
+  /**
+   * LES FRÉQUENCES PARTICULIÈRES (Direction, 06/10) — par zone et/ou In/Out : « In » = le praticien est dans la wilaya
+   * PIVOT du KAM qui le couvre, « Out » = dans une autre. `priorite` vaut une priorité (« P1 ») ou « H ». La plus
+   * précise l'emporte (zone ET In/Out, puis l'une des deux) ; sans exception, la fréquence générale s'applique.
+   */
+  exceptionsFrequence?: ExceptionFrequence[];
 }
+
+export type InOut = "IN" | "OUT";
+export interface ExceptionFrequence { zone: string | null; inOut: InOut | null; priorite: string; frequence: number }
 
 export type LectureRegles = { ok: true; regles: Regles } | { ok: false; erreurs: string[] };
 
@@ -192,7 +201,17 @@ export function lireRegles(brut: unknown): LectureRegles {
   for (const r of reglesPrio) if (frequences[r.priorite] === undefined) e.push(`Fréquence de la priorité « ${r.priorite} » manquante.`);
   if (repli) for (const p of repli.paliers) if (frequences[p.priorite] === undefined) e.push(`Fréquence de la priorité « ${p.priorite} » manquante.`);
   if (e.length) return { ok: false, erreurs: [...new Set(e)] };
-  return { ok: true, regles: { produits, ciblage, h, priorites: { regles: reglesPrio, repli }, frequences } };
+  const exceptionsFrequence: ExceptionFrequence[] = (Array.isArray(o.exceptionsFrequence) ? o.exceptionsFrequence : []).flatMap((x) => {
+    const z = (x ?? {}) as Record<string, unknown>;
+    const priorite = typeof z.priorite === "string" ? z.priorite.trim() : "";
+    const frequence = num(z.frequence);
+    const zone = typeof z.zone === "string" && z.zone.trim() ? z.zone.trim() : null;
+    const inOut = z.inOut === "IN" || z.inOut === "OUT" ? z.inOut : null;
+    if (!priorite || frequence === null || frequence < 0 || (!zone && !inOut)) { e.push("Fréquence particulière incomplète (priorité ou H, zone et/ou In/Out, nombre)."); return []; }
+    return [{ zone, inOut, priorite, frequence }];
+  });
+  if (e.length) return { ok: false, erreurs: [...new Set(e)] };
+  return { ok: true, regles: { produits, ciblage, h, priorites: { regles: reglesPrio, repli }, frequences, ...(exceptionsFrequence.length ? { exceptionsFrequence } : {}) } };
 }
 
 /** Les seuils effectifs d'un produit pour une ZONE (l'exception de la zone l'emporte, champ par champ). */
@@ -211,4 +230,23 @@ export function seuilsPourZone(r: RegleProduit, zone: string | null | undefined)
 export function pct(v: number): string {
   const n = Math.round(v * 1000) / 10;
   return `${String(n).replace(".", ",")} %`;
+}
+
+/**
+ * LA FRÉQUENCE QUI S'APPLIQUE à une priorité (ou à « H ») pour un praticien : l'exception la plus précise (zone ET
+ * In/Out, puis In/Out, puis zone), sinon la fréquence générale. Rend aussi la raison, pour le « pourquoi ».
+ */
+export function frequenceEffective(
+  regles: Pick<Regles, "frequences" | "h" | "exceptionsFrequence">, cle: string, zone: string | null | undefined, inOut: InOut | null | undefined,
+): { frequence: number; exception: string | null } {
+  const base = cle === "H" ? regles.h.frequence : regles.frequences[cle] ?? 0;
+  const z = (zone ?? "").trim().toLowerCase();
+  const candidats = (regles.exceptionsFrequence ?? []).filter((x) => x.priorite === cle
+    && (x.zone === null || x.zone.trim().toLowerCase() === z)
+    && (x.inOut === null || x.inOut === inOut));
+  const score = (x: ExceptionFrequence) => (x.zone ? 1 : 0) + (x.inOut ? 2 : 0);
+  const best = candidats.sort((a, b) => score(b) - score(a))[0];
+  if (!best) return { frequence: base, exception: null };
+  const lieu = [best.zone, best.inOut === "IN" ? "In (wilaya pivot du KAM)" : best.inOut === "OUT" ? "Out (hors wilaya pivot)" : null].filter(Boolean).join(", ");
+  return { frequence: best.frequence, exception: lieu };
 }

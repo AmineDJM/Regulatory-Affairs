@@ -74,6 +74,7 @@ La segmentation de la force de vente, native et reliée (Direction, 06/10/2026).
   - jours ouvrés (vendredi et samedi chômés) × part terrain × visites par jour ;
   - la surcharge du KAM l'emporte, sinon le réglage SFE s'applique ;
   - les congés approuvés (RH) sont déduits, et le calcul est expliqué.
+- **In / Out** : « In » = le praticien est dans la wilaya pivot d'un KAM qui le couvre (la ville pivot de son territoire propre), « Out » = dans une autre wilaya. Les fréquences particulières par zone et In/Out (exceptionsFrequence) sont lues dans la feuille des KAM à l'import (ex. Ouest In → 3 visites pour P1 et H) et se règlent dans l'onglet Règles.
 - **Avancement par KAM** : requis, réalisé, restant, capacité, utilisation, H sous-visités, P1. Le KAM ne voit que son panel.
 
 ### Consumption Intelligence (module `CONSUMPTION`, `/consommation`, migration `20270114110000_consumption_intelligence`)

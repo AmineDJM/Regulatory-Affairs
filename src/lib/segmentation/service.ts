@@ -9,7 +9,9 @@ import { titleFrom } from "@/lib/medical/directory-sheet";
 import { ADVENTUM_COMPANY_ID } from "@/lib/company-defaut";
 import { lireClasseur, proposerRegles, type Feuilles, type LectureClasseur, type PropositionRegles } from "./lecture-classeur";
 import { rapprocher, typeDEtablissement, type Rapprochement } from "./rapprochement";
-import { lireRegles, STATUTS, type Regles, type Statut } from "./regles";
+import { lireRegles, STATUTS, type InOut, type Regles, type Statut } from "./regles";
+import { inOutDe, wilayaPivot } from "./in-out";
+import { clausePanelDuKam } from "@/lib/rbac";
 import { segmenterPraticien, type ContexteSegmentation, type FaitsPraticien, type ResultatPraticien } from "./moteur";
 import { affinitesEtablissements } from "@/lib/consommation/affinite-service";
 
@@ -88,6 +90,8 @@ export interface LignePanel {
   etablissement: string | null;
   specialite: string | null;
   specialiteId: string | null;
+  /** IN = dans la wilaya pivot d'un KAM qui le couvre ; OUT = ailleurs ; null = inconnu. */
+  inOut: InOut | null;
   statut: Statut | null;
   zone: string | null;
   derniereObservation: Date | null;
@@ -105,7 +109,7 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
       id: true, statut: true, zone: true,
       doctor: {
         select: {
-          id: true, name: true, title: true, specialtyId: true, institutionId: true,
+          id: true, name: true, title: true, specialtyId: true, institutionId: true, wilaya: true,
           institutionRef: { select: { name: true } }, institution: true,
           specialtyRef: { select: { name: true } }, specialty: true,
           segmentationObservations: {
@@ -122,13 +126,14 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
     },
     orderBy: { doctor: { name: "asc" } },
   });
+  const inOut = await inOutDesPraticiens(strategieId, fiches.map((f) => ({ id: f.doctor.id, wilaya: f.doctor.wilaya })));
   const faits: FaitsPraticien[] = [];
   const lignes: Omit<LignePanel, "resultat">[] = [];
   for (const f of fiches) {
     const d = f.doctor;
     faits.push({
       doctorId: d.id, statut: estStatut(f.statut) ? f.statut : null, zone: f.zone,
-      specialiteId: d.specialtyId, institutionId: d.institutionId,
+      specialiteId: d.specialtyId, institutionId: d.institutionId, inOut: inOut.get(d.id) ?? null,
       observations: d.segmentationObservations.map((o) => ({ productId: o.productId, potentiel: num(o.potentiel), prescriptionsSur10: num(o.prescriptionsSur10), observeLe: o.observeLe })),
       derogations: d.segmentationDerogations.filter((x) => x.nature === "CIBLAGE" || x.nature === "SEGMENT").map((x) => ({ nature: x.nature as "CIBLAGE" | "SEGMENT", productId: x.productId, valeur: x.valeur, motif: x.motif, expireLe: x.expireLe })),
     });
@@ -137,11 +142,35 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
       etablissement: d.institutionRef?.name ?? d.institution ?? null,
       specialite: d.specialtyRef?.name ?? d.specialty ?? null,
       specialiteId: d.specialtyId,
-      statut: estStatut(f.statut) ? f.statut : null, zone: f.zone,
+      statut: estStatut(f.statut) ? f.statut : null, zone: f.zone, inOut: inOut.get(d.id) ?? null,
       derniereObservation: d.segmentationObservations[0]?.observeLe ?? null,
     });
   }
   return { faits, lignes };
+}
+
+/**
+ * IN / OUT de chaque praticien : la wilaya PIVOT de chaque KAM de la BU (ville pivot de son territoire propre), et les
+ * praticiens que chacun couvre (secteur ∪ rattachement — `clausePanelDuKam`, la règle unique du panel).
+ */
+async function inOutDesPraticiens(strategieId: string, praticiens: { id: string; wilaya: string | null }[]): Promise<Map<string, InOut | null>> {
+  const out = new Map<string, InOut | null>();
+  if (praticiens.length === 0) return out;
+  const s = await prisma.segmentationStrategie.findUnique({ where: { id: strategieId }, select: { businessUnitId: true } });
+  if (!s) return out;
+  const reps = await prisma.salesRepProfile.findMany({ where: { businessUnitId: s.businessUnitId, isActive: true }, select: { repId: true } });
+  const secteurs = await prisma.salesSector.findMany({ where: { businessUnitId: s.businessUnitId, isActive: true, repId: { in: reps.map((r) => r.repId) } }, select: { repId: true, city: true } });
+  const pivots = new Map<string, string | null>();
+  for (const x of secteurs) if (x.repId) pivots.set(x.repId, wilayaPivot(x.city));
+  const ids = praticiens.map((p) => p.id);
+  const pivotsParPraticien = new Map<string, (string | null)[]>();
+  for (const r of reps) {
+    const pivot = pivots.get(r.repId) ?? null;
+    const couverts = await prisma.medicalDoctor.findMany({ where: { AND: [clausePanelDuKam(r.repId), { id: { in: ids } }] }, select: { id: true } });
+    for (const c of couverts) pivotsParPraticien.set(c.id, [...(pivotsParPraticien.get(c.id) ?? []), pivot]);
+  }
+  for (const p of praticiens) out.set(p.id, inOutDe(p.wilaya, pivotsParPraticien.get(p.id) ?? []));
+  return out;
 }
 
 /** Le panel calculé : chaque ligne avec son résultat (null si la stratégie n'a pas encore de règles valides). */
