@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select, Label } from "@/components/ui/input";
@@ -114,7 +115,7 @@ export function Panel({ strategieId, produits, lignes, zones, reglesPubliees, pe
               <React.Fragment key={l.doctorId}>
                 <tr className="cursor-pointer border-b border-border/60 hover:bg-secondary/40" onClick={() => setOuverte(ouverte === l.doctorId ? null : l.doctorId)}>
                   <td className="px-3 py-2">
-                    <div className="font-medium">{l.nom}</div>
+                    <Link href={`/praticiens/${l.doctorId}`} onClick={(e) => e.stopPropagation()} className="font-medium hover:underline">{l.nom}</Link>
                     <div className="text-xs text-muted-foreground">{[l.etablissement, l.specialite].filter(Boolean).join(" · ")}</div>
                   </td>
                   <td className="px-3 py-2">

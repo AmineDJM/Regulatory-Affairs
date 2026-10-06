@@ -1091,6 +1091,11 @@ X("CONSUMPTION INTELLIGENCE : importer un fichier de consommation, trancher ce q
   "consommation-actions:ignorerLigneConso", "consommation-actions:validerImportConso", "consommation-actions:annulerImportConso",
   "consommation-actions:enregistrerAffiniteConfig",
 ]);
+X("RÉPARTITION DES COÛTS PARTAGÉS D'UNE BU (cahier des charges §15, §85) : un geste des Finances qui décide quelle part "
+  + "des dépenses de la BU revient à chaque produit pour l'année. Il se décide en regardant la vue 360° du produit "
+  + "(direct, alloué, non alloué). Adam est en pause de développement (Super Admin seul).", [
+  "repartition-couts-actions:enregistrerRepartitionBu",
+]);
 X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
   + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "
   + "validateur demandait — la fiche est l'endroit où elle le fait ; retirer clôt un circuit, motif à l'appui. "

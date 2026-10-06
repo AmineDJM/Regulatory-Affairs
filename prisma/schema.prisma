@@ -10334,6 +10334,8 @@ model BusinessUnit {
   marketingReferents     BusinessUnitMarketingReferent[] @relation("AdProMarketingReferents")
   /// SES STRATÉGIES DE SEGMENTATION (Segmentation Studio) — une active à la fois en pratique, l'historique gardé.
   segmentationStrategies SegmentationStrategie[]
+  /// LA RÉPARTITION DE SES COÛTS PARTAGÉS entre ses produits, année par année.
+  repartitionsCouts      CoutRepartitionBu[]
   /// LES SPÉCIALITÉS QU'ELLE VISE (§118.183) — plusieurs, dont une principale facultative.
   specialites            BusinessUnitSpecialty[]
 
@@ -13658,6 +13660,8 @@ model Product {
   /// SA CONSOMMATION HOSPITALIÈRE (Consumption Intelligence) et la façon d'en tirer son affinité.
   consommations        ConsommationLigne[]
   affiniteConfig       AffiniteConfig?
+  /// SA PART des coûts partagés de ses BU (règle d'allocation, année par année).
+  repartitionsCouts    CoutRepartitionBu[]
 
   @@index([dci])
   @@index([companyId])
@@ -14755,4 +14759,23 @@ model SegmentationCycle {
   closParId    String?
 
   @@index([strategieId, debut])
+}
+
+/// LA RÈGLE D'ALLOCATION DES COÛTS PARTAGÉS D'UNE BU (cahier des charges §15, §85) : pour une année, la part de chaque
+/// produit dans les dépenses de la BU qui ne sont imputées à AUCUN produit (un stand, un congrès de spécialité). La
+/// vue produit distingue toujours : coûts DIRECTS (imputés au seul produit), ALLOUÉS (part d'une dépense partagée),
+/// et le NON ALLOUÉ de la BU — jamais mélangés. La somme des parts d'une BU et d'une année ne dépasse pas 100 %.
+model CoutRepartitionBu {
+  id             String       @id @default(cuid())
+  businessUnitId String
+  businessUnit   BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  annee          Int
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  pct            Decimal      @db.Decimal(5, 2)
+  updatedById    String?
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([businessUnitId, annee, productId])
+  @@index([productId])
 }

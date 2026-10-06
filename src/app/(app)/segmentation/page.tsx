@@ -116,6 +116,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
         title={`Segmentation — ${strategie.nom}`}
         description={`BU ${strategie.businessUnit.name} · ${strategie.produits.map((p) => `#${p.rang} ${p.nom}`).join(" · ") || "aucun produit classé"} · ${strategie.regle ? `règles v${strategie.regle.version}` : "règles à publier"}`}
       >
+        <Link href={`/business-units/${strategie.businessUnit.id}`} className="text-sm text-primary underline">Cockpit de la BU</Link>
         {strategies.length > 1 && (
           <div className="flex flex-wrap gap-1">
             {strategies.map((x) => (
@@ -153,7 +154,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
         if (!m) return null;
         return (
           <p key={p.productId} className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">#{p.rang} {p.nom}</span>{" "}
+            <Link href={`/produits/${p.productId}`} className="font-medium text-foreground hover:underline">#{p.rang} {p.nom}</Link>{" "}
             {(["A", "B", "C", "D", "EN_ATTENTE", "NON_CIBLE"] as const).map((k) => `${ETAT_LABELS[k]} ${m[k]}`).join(" · ")}
           </p>
         );
