@@ -6,6 +6,7 @@ import { canonicalWilaya } from "@/lib/medical/wilaya";
 import { cleCellule } from "@/lib/grille/couleurs";
 import { ligneAnnuaire, type AnnuaireRow, type CustomColumnVue } from "@/lib/medical/directory-grid";
 import { annuairesParSpecialite, clauseSpecialite, type AnnuaireSpecialite } from "@/lib/annuaires/par-specialite";
+import { deduireEtablissement } from "@/lib/medical/etablissement-deduit";
 import type { DirectoryRow, EtablissementRow, ContactRow, DirectoryPerson, EtablissementOption } from "@/lib/annuaires/types";
 
 export type { EtablissementOption };
@@ -92,7 +93,7 @@ export type FiltreGrade = "medecins" | "pharmaciens" | null;
  */
 export async function chargerOptionsEtablissements(): Promise<EtablissementOption[]> {
   const etabs = await prisma.medicalInstitution.findMany({
-    select: { id: true, name: true, wilaya: true, isActive: true, services: { select: { id: true, name: true } } },
+    select: { id: true, name: true, wilaya: true, isActive: true, type: true, services: { select: { id: true, name: true } } },
     orderBy: { name: "asc" },
   });
   return etabs.map((e) => ({
@@ -256,6 +257,14 @@ export async function chargerFeuillePraticiens(
 
   // UNE seule traduction de la fiche en ligne, partagée avec l'export (`ligneAnnuaire`).
   const rows: AnnuaireRow[] = doctors.map(ligneAnnuaire);
+  // L'ÉTABLISSEMENT DÉDUIT (Direction, 06/10) — la même règle que le rattachement automatique : la feuille dit, pour
+  // chaque fiche sans établissement, s'il est sûr (le geste le posera) ou à trancher (candidats proposés en tête).
+  for (const r of rows) {
+    if (r.institutionId || r.institution?.trim()) continue; // un texte sans lien se rattache par son nom
+    const d = deduireEtablissement({ wilaya: r.wilaya, specialite: r.specialty }, etablissements);
+    if (d.statut === "unique") r.deduction = { statut: "unique", candidats: [d.institutionId], raison: d.raison };
+    else if (d.statut === "a_trancher") r.deduction = { statut: "a_trancher", candidats: d.candidats, raison: d.raison };
+  }
 
   // Saisie assistée de la spécialité : le référentiel structuré ET les libellés déjà employés.
   const specialties = [...new Set([

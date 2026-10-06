@@ -41,6 +41,8 @@ export interface EtablissementOption {
   name: string;
   wilaya: string | null;
   isActive: boolean;
+  /** CHU, EPH, EHS… — le rattachement automatique ne déduit qu'un établissement hospitalier. */
+  type: string;
   services: { id: string; name: string }[];
 }
 

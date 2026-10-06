@@ -1091,6 +1091,11 @@ X("CONSUMPTION INTELLIGENCE : importer un fichier de consommation, trancher ce q
   "consommation-actions:ignorerLigneConso", "consommation-actions:validerImportConso", "consommation-actions:annulerImportConso",
   "consommation-actions:enregistrerAffiniteConfig",
 ]);
+X("RATTACHEMENT AUTOMATIQUE DES PRATICIENS À LEUR ÉTABLISSEMENT (Direction, 06/10) : un geste en lot de la feuille de "
+  + "l'annuaire, sur les fiches de la vue, après confirmation — la même règle s'applique d'elle-même à chaque écriture "
+  + "(cellule, ajout, import). Adam est en pause de développement (Super Admin seul).", [
+  "medical-directory-actions:rattacherAutomatiquement",
+]);
 X("RÉPARTITION DES COÛTS PARTAGÉS D'UNE BU (cahier des charges §15, §85) : un geste des Finances qui décide quelle part "
   + "des dépenses de la BU revient à chaque produit pour l'année. Il se décide en regardant la vue 360° du produit "
   + "(direct, alloué, non alloué). Adam est en pause de développement (Super Admin seul).", [

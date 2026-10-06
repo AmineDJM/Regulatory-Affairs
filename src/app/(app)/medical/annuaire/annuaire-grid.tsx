@@ -16,8 +16,10 @@ import {
 import {
   importDirectorySheet, previewDirectorySheet, saveDirectoryCell, saveDirectoryCustomCell,
   addDirectoryDoctor, deleteDirectoryDoctors, restaurerDirectoryDoctors, rattacherEtablissementsParNom, rattacherSpecialitesParNom,
+  rattacherAutomatiquement,
 } from "@/lib/actions/medical-directory-actions";
 import { cleDEtablissement } from "@/lib/annuaires/rattachement";
+import { serviceDeLaSpecialite } from "@/lib/medical/etablissement-deduit";
 import type { EtablissementOption } from "@/lib/annuaires/types";
 import { createDirectoryColumn, deleteDirectoryColumn } from "@/lib/actions/medical-directory-crud-actions";
 import { colorerCellulesAnnuaire } from "@/lib/actions/annuaire-couleurs-actions";
@@ -82,8 +84,8 @@ interface GroupeOptions {
   options: { value: string; label: string }[];
 }
 
-function colonnesDeLaFeuille(custom: CustomColumnVue[]): ColonneVue[] {
-  const std: ColonneVue[] = ANNUAIRE_COLUMNS.map((c) => ({
+function colonnesDeLaFeuille(custom: CustomColumnVue[], masquees: readonly AnnuaireField[] = []): ColonneVue[] {
+  const std: ColonneVue[] = ANNUAIRE_COLUMNS.filter((c) => !masquees.includes(c.field)).map((c) => ({
     cle: c.field, header: c.header, editor: c.editor, options: c.options, suggest: c.suggest,
     width: c.width ?? 12, custom: false, field: c.field, reference: c.reference,
   }));
@@ -133,6 +135,11 @@ function groupesDeLaCellule(col: ColonneVue, row: AnnuaireRow, etablissements: r
   }
   const actifs = etablissements.filter((e) => e.isActive || e.id === row.institutionId);
   const groupes: GroupeOptions[] = [{ label: null, options: [{ value: "", label: "— Aucun établissement —" }] }];
+  // À TRANCHER (Direction, 06/10) : les hôpitaux que la wilaya (et la spécialité) désignent, en tête.
+  if (!row.institutionId && row.deduction?.statut === "a_trancher") {
+    const candidats = actifs.filter((e) => row.deduction!.candidats.includes(e.id));
+    if (candidats.length > 0) groupes.push({ label: `À trancher — ${row.deduction.raison}`, options: candidats.map((e) => ({ value: e.id, label: libelleEtab(e) })) });
+  }
   if (estARattacher(row)) {
     const cle = cleDEtablissement(row.institution ?? "");
     const mots = cle.split(" ").filter((m) => m.length >= 3);
@@ -364,6 +371,13 @@ function GridTable({
                               à rattacher
                             </span>
                           )}
+                          {/* À TRANCHER : plusieurs hôpitaux possibles dans la wilaya — la cellule les propose en tête. */}
+                          {col.reference === "etablissement" && !row.institutionId && row.deduction?.statut === "a_trancher" && !overrides.has(cleCellule(row.id, col.cle)) && (
+                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-warning"
+                              title={`${row.deduction.raison} Choisissez l'établissement : les possibles sont en tête de la liste.`}>
+                              à trancher ({row.deduction.candidats.length})
+                            </span>
+                          )}
                           {/* LA MÊME RÈGLE POUR LA SPÉCIALITÉ (§118.180) : « Cardio » écrit sans lien
                               n'est rattaché à aucune spécialité du référentiel — rien de ce qui lit le
                               référentiel ne le voit. */}
@@ -389,8 +403,12 @@ function GridTable({
 
 export function AnnuaireGrid({
   rows, etablissements, couleurs, customColumns, canEdit, canImport, canImportFile, canDelete, canManageColumns, specialties, directoryId, directoryName,
-  titreParDefaut, exportHref = "/api/medical/annuaire/export", archives = false,
+  titreParDefaut, exportHref = "/api/medical/annuaire/export", archives = false, colonnesMasquees = [], specialiteImposee = null,
 }: {
+  /** Les colonnes que cette vue ne montre pas (la spécialité dans l'annuaire D'UNE spécialité). */
+  colonnesMasquees?: AnnuaireField[];
+  /** L'annuaire d'une spécialité : une fiche ajoutée ici porte cette spécialité, sans qu'on la retape. */
+  specialiteImposee?: string | null;
   /** Vue des fiches ARCHIVÉES : « Supprimer » devient « Restaurer » (archivage réversible). */
   archives?: boolean;
   rows: AnnuaireRow[];
@@ -455,7 +473,9 @@ export function AnnuaireGrid({
     { file: File; proposals: HeaderProposal[]; targets: TargetColumn[]; rowCount: number } | null
   >(null);
 
-  const colonnes = React.useMemo(() => colonnesDeLaFeuille(customColumns), [customColumns]);
+  const masqueesCle = colonnesMasquees.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- la liste se compare par sa clé, pas par son identité
+  const colonnes = React.useMemo(() => colonnesDeLaFeuille(customColumns, colonnesMasquees), [customColumns, masqueesCle]);
 
   // Chaque ligne, mise à plat une fois, pour une recherche qui porte sur ce qu'on VOIT
   // (« Professeur », « Alger », « Très haut »), pas sur les codes internes.
@@ -661,6 +681,31 @@ export function AnnuaireGrid({
     });
   };
 
+  // LE RATTACHEMENT AUTOMATIQUE (Direction, 06/10) : les fiches dont l'établissement est SÛR (un seul hôpital de la
+  // wilaya, ou un seul avec le service de la spécialité), et celles dont le service = la spécialité se déduit.
+  const rattachables = React.useMemo(() => filtered.filter((r) => {
+    if (!r.institutionId) return r.deduction?.statut === "unique";
+    if (r.serviceId) return false;
+    const etab = etablissements.find((e) => e.id === r.institutionId);
+    return !!etab && serviceDeLaSpecialite(etab, r.specialty) !== null;
+  }), [filtered, etablissements]);
+  const [rattachementAuto, setRattachementAuto] = React.useState(false);
+  const rattacherAuto = () => {
+    if (rattachables.length === 0) return;
+    if (!window.confirm(
+      `Rattacher automatiquement ${rattachables.length} fiche(s) de cette vue ?\n\n`
+      + "• l'établissement, quand la wilaya n'a qu'un établissement hospitalier, ou qu'un seul a le service de la spécialité ;\n"
+      + "• le service, quand l'établissement a un service qui porte le nom de la spécialité.\n\n"
+      + "Les fiches « à trancher » ne sont pas touchées.",
+    )) return;
+    setRattachementAuto(true); setMsg(null);
+    void rattacherAutomatiquement({ ids: rattachables.map((r) => r.id) }).then((r) => {
+      setRattachementAuto(false);
+      setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Rattachement terminé.") : (r.error ?? "Rattachement impossible.") });
+      if (r.ok) rafraichir();
+    });
+  };
+
   const appliquerCouleur = React.useCallback((couleur: CouleurCellule | null) => {
     const cibles = grille.cellules
       .map(({ r, c }) => ({ id: ordonnees[r]?.id ?? "", field: colonnes[c]?.cle ?? "" }))
@@ -775,6 +820,13 @@ export function AnnuaireGrid({
               Rattacher les établissements ({aRattacher.length})
             </Button>
           )}
+          {canEdit && rattachables.length > 0 && (
+            <Button size="sm" variant="outline" disabled={rattachementAuto} onClick={rattacherAuto}
+              title="Établissement déduit de la wilaya et de la spécialité ; service = spécialité">
+              {rattachementAuto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Building2 className="h-3.5 w-3.5" />}
+              Rattacher automatiquement ({rattachables.length})
+            </Button>
+          )}
           {canEdit && specialitesARattacher.length > 0 && (
             <Button size="sm" variant="outline" disabled={rattachementSpecialites} onClick={rattacherSpecialites}
               title="Rattacher au référentiel des spécialités les fiches dont la spécialité est écrite sans lien">
@@ -816,7 +868,7 @@ export function AnnuaireGrid({
         />
       )}
 
-      {canImport && <AddDoctorRow specialtyListId={SPECIALTY_LIST_ID} titreParDefaut={titreParDefaut} directoryId={directoryId} etablissements={etablissements} />}
+      {canImport && <AddDoctorRow specialtyListId={SPECIALTY_LIST_ID} titreParDefaut={titreParDefaut} directoryId={directoryId} etablissements={etablissements} specialiteImposee={specialiteImposee} />}
 
       {canEdit && (
         <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-2.5 text-xs text-muted-foreground">
@@ -916,8 +968,8 @@ export function AnnuaireGrid({
 
 /** La ligne d'ajout — un nom (ou prénom) suffit, le reste se remplit ensuite dans la feuille. */
 function AddDoctorRow({
-  specialtyListId, titreParDefaut, directoryId, etablissements,
-}: { specialtyListId: string; titreParDefaut?: string; directoryId: string | null; etablissements: readonly EtablissementOption[] }) {
+  specialtyListId, titreParDefaut, directoryId, etablissements, specialiteImposee = null,
+}: { specialtyListId: string; titreParDefaut?: string; directoryId: string | null; etablissements: readonly EtablissementOption[]; specialiteImposee?: string | null }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [lastName, setLastName] = React.useState("");
@@ -937,7 +989,7 @@ function AddDoctorRow({
   const submit = () => {
     setBusy(true); setErr(null);
     void addDirectoryDoctor({
-      lastName, firstName, specialty, wilaya, title: titreParDefaut, directoryId,
+      lastName, firstName, specialty: specialiteImposee ?? specialty, wilaya, title: titreParDefaut, directoryId,
       institutionId: institutionId || null, serviceId: serviceId || null,
     }).then((r) => {
       setBusy(false);
@@ -959,14 +1011,15 @@ function AddDoctorRow({
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <Input placeholder="Nom" aria-label="Nom" value={lastName} onChange={(e) => setLastName(e.target.value)} autoFocus />
         <Input placeholder="Prénom" aria-label="Prénom" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-        <Input placeholder="Spécialité 1" aria-label="Spécialité" list={specialtyListId} value={specialty} onChange={(e) => setSpecialty(e.target.value)} />
+        {/* L'annuaire D'UNE spécialité la pose lui-même : on ne la retape pas. */}
+        {!specialiteImposee && <Input placeholder="Spécialité 1" aria-label="Spécialité" list={specialtyListId} value={specialty} onChange={(e) => setSpecialty(e.target.value)} />}
         <Select value={wilaya} aria-label="Wilaya" onChange={(e) => setWilaya(e.target.value)}>
           <option value="">Wilaya…</option>
           {wilayaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Select>
         {/* L'ÉTABLISSEMENT DÈS LA CRÉATION (§118.172) — choisi dans l'annuaire, jamais tapé. */}
         <Select value={institutionId} aria-label="Établissement" onChange={(e) => { setInstitutionId(e.target.value); setServiceId(""); }}>
-          <option value="">Établissement…</option>
+          <option value="">Établissement… (déduit de la wilaya s&apos;il est seul)</option>
           {actifs.map((e) => <option key={e.id} value={e.id}>{libelleEtab(e)}</option>)}
         </Select>
         <Select value={serviceId} aria-label="Service" disabled={!institutionId || services.length === 0} onChange={(e) => setServiceId(e.target.value)}>

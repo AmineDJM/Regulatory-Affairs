@@ -5,6 +5,7 @@ import { AnnuaireGrid } from "@/app/(app)/medical/annuaire/annuaire-grid";
 import { DirectoryBar } from "@/app/(app)/medical/annuaire/directory-bar";
 import { EnTeteAnnuaires } from "./en-tete";
 import { BarreSpecialites } from "./barre-specialites";
+import { SANS_SPECIALITE } from "@/lib/annuaires/par-specialite";
 
 /**
  * LA FEUILLE DES PRATICIENS, VUE DU MODULE « ANNUAIRES » — médecins ou pharmaciens.
@@ -56,6 +57,11 @@ export async function FeuillePraticiensHub({
   if (!feuille) notFound();
 
   const basePath = grade === "pharmaciens" ? "/annuaires/pharmaciens" : "/annuaires/medecins";
+  // L'ANNUAIRE D'UNE SPÉCIALITÉ (Direction, 06/10) : la spécialité est celle de l'annuaire — la colonne disparaît, et
+  // une fiche ajoutée ici la reçoit. Elle reste affichée dans la vue de TOUTES les spécialités (et « Sans spécialité »).
+  const specialiteDeLAnnuaire = medecins && feuille.specialiteOuverte && feuille.specialiteOuverte !== SANS_SPECIALITE
+    ? feuille.annuairesSpecialite.find((s) => s.id === feuille.specialiteOuverte)?.name ?? null
+    : null;
   const description = grade === "pharmaciens"
     ? "Les pharmaciens de l'annuaire — officines et pharmacies hospitalières — en feuille modifiable, avec les mêmes annuaires nommés que la Promotion médicale."
     : "Les médecins de l'annuaire — hospitaliers et libéraux — en feuille modifiable, exportable, avec vue par spécialité.";
@@ -88,6 +94,8 @@ export async function FeuillePraticiensHub({
         directoryId={feuille.openDirectoryId}
         directoryName={feuille.directoryName}
         titreParDefaut={grade === "pharmaciens" ? "PHARMACIEN" : undefined}
+        colonnesMasquees={specialiteDeLAnnuaire ? ["specialty"] : []}
+        specialiteImposee={specialiteDeLAnnuaire}
         exportHref={`/api/medical/annuaire/export?grade=${grade}`}
       />
     </div>

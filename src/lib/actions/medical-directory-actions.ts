@@ -12,6 +12,7 @@ import { companyIdForNew } from "@/lib/company";
 import { readDirectoryWorkbook } from "@/lib/medical/directory-workbook";
 import { parseDirectorySheet, champsAEcrire, type DirectoryImportRow, type DirectoryField } from "@/lib/medical/directory-sheet";
 import { cleDEtablissement, indexerEtablissements, serviceParNom } from "@/lib/annuaires/rattachement";
+import { completerRattachement } from "@/lib/medical/rattachement-auto";
 import { cleDeService } from "@/lib/annuaires/services";
 import { ecritureDeSpecialite, indexerSpecialites, lienDeSpecialiteValide } from "@/lib/annuaires/specialites";
 import { unresolvedHint } from "@/lib/medical/wilaya";
@@ -350,6 +351,10 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     }
   }
 
+  // LE RATTACHEMENT AUTOMATIQUE (Direction, 06/10) : une fiche importée sans établissement reçoit celui que sa
+  // wilaya et sa spécialité désignent à coup sûr, et son service = sa spécialité ; « à trancher » n'écrit rien.
+  const auto = await completerRattachement([...modifiables], user.id);
+
   // Avec une correspondance explicite, il n'y a plus de « colonne non reconnue » : ce qui n'est
   // pas rattaché l'a été SCIEMMENT. Ne le rapporter que sur le chemin automatique évite un
   // avertissement qui inquiète pour une décision qu'on vient de prendre soi-même.
@@ -373,6 +378,8 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   if (horsPortee > 0) parts.push(`${horsPortee} praticien(s) déjà présent(s) hors de votre portée, laissé(s) tel(s) quel(s)`);
   if (ambiguesNom > 0) parts.push(`${ambiguesNom} ligne(s) écartée(s) : plusieurs fiches portent ce nom — ajoutez la colonne « Établissement » pour les distinguer`);
   if (rattachees > 0) parts.push(`${rattachees} rattachée(s) à l'annuaire des établissements`);
+  if (auto.etablissements > 0) parts.push(`${auto.etablissements} rattachée(s) automatiquement par leur wilaya et leur spécialité`);
+  if (auto.services > 0) parts.push(`${auto.services} service(s) posé(s) d'après la spécialité`);
   if (etabsARattacher.size > 0) {
     const liste = [...etabsARattacher.entries()];
     const raison = (r: "inconnu" | "ambigu" | "inactif") => (r === "ambigu" ? "plusieurs établissements de ce nom" : r === "inactif" ? "établissement désactivé" : "absent de l'annuaire");
@@ -549,6 +556,9 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
   }
 
   await prisma.medicalDoctor.update({ where: { id }, data });
+  // LE RATTACHEMENT AUTOMATIQUE suit chaque geste qui le nourrit : une wilaya ou une spécialité posée sur une fiche
+  // sans établissement, un établissement choisi sans service (service = spécialité).
+  if (field === "wilaya" || field === "specialty" || field === "institution") await completerRattachement([id], user.id);
   revalidatePath("/medical/annuaire");
   revalidatePath("/annuaires");
   revalidatePath("/medical");
@@ -616,6 +626,30 @@ export async function rattacherEtablissementsParNom(input: { ids: string[] }): P
     parts.push(`à rattacher à la main : ${liste.slice(0, 6).map(([n, r]) => `« ${n} » (${raison(r)})`).join(", ")}${liste.length > 6 ? ` et ${liste.length - 6} autre(s)` : ""}`);
   }
   return { ok: true, rattachees, message: parts.join(" · ") };
+}
+
+/**
+ * RATTACHER AUTOMATIQUEMENT les fiches de la vue (Direction, 06/10) : l'établissement que la wilaya et la spécialité
+ * désignent à coup sûr (un seul hôpital de la wilaya, ou un seul qui a le service de la spécialité), et le service =
+ * la spécialité. Les fiches « à trancher » ne sont pas touchées : la feuille les montre avec leurs candidats.
+ */
+export async function rattacherAutomatiquement(input: { ids: string[] }): Promise<ActionResult & { rattachees?: number }> {
+  const user = await requireUser();
+  const ids = [...new Set((input.ids ?? []).map((i) => String(i).trim()).filter(Boolean))];
+  if (ids.length === 0) return { ok: false, error: "Aucune fiche à rattacher dans cette vue." };
+  if (ids.length > RATTACHEMENT_MAX) return { ok: false, error: `${ids.length} fiches d'un coup : c'est plus que les ${RATTACHEMENT_MAX} qu'un rattachement traite — filtrez la feuille et recommencez.` };
+  const modifiables: string[] = [];
+  for (const id of ids) if (await canAccessEntity(user, "DOCTOR", id, "UPDATE")) modifiables.push(id);
+  const r = await completerRattachement(modifiables, user.id);
+  if (r.etablissements + r.services > 0) {
+    await recordAudit({ actorId: user.id, action: "UPDATE", module: "Annuaires", summary: `Rattachement automatique — ${r.etablissements} établissement(s) déduit(s) de la wilaya et de la spécialité, ${r.services} service(s) posé(s) d'après la spécialité` });
+    revalidatePath("/medical/annuaire");
+    revalidatePath("/annuaires");
+  }
+  const horsPortee = ids.length - modifiables.length;
+  const parts = [`${r.etablissements} fiche(s) rattachée(s) à leur établissement`, `${r.services} service(s) posé(s) d'après la spécialité`];
+  if (horsPortee > 0) parts.push(`${horsPortee} hors de votre portée, laissée(s) telle(s) quelle(s)`);
+  return { ok: true, rattachees: r.etablissements, message: parts.join(" · ") };
 }
 
 /**
@@ -833,6 +867,8 @@ export async function addDirectoryDoctor(input: {
     },
     select: { id: true },
   });
+  // Établissement déduit de la wilaya et de la spécialité, service = spécialité (Direction, 06/10).
+  await completerRattachement([created.id], user.id);
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Promotion médicale",
     entityType: "DOCTOR", entityId: created.id, summary: `Annuaire — fiche « ${name} »`,
