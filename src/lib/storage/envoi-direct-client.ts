@@ -36,7 +36,8 @@ export class AdresseExpiree extends Error {
   constructor(public numero: number) { super(`Adresse de la partie ${numero} expirée.`); }
 }
 
-type PutPartie = (url: string, corps: Blob, onCharge: (octets: number) => void, signal: AbortSignal) => Promise<void>;
+/** Rend l'EMPREINTE (ETag) que le stockage a renvoyée pour la partie, quand le navigateur peut la lire. */
+type PutPartie = (url: string, corps: Blob, onCharge: (octets: number) => void, signal: AbortSignal) => Promise<string | null | void>;
 
 /**
  * Mesure du débit sur une FENÊTRE GLISSANTE (8 s). Une moyenne depuis le début promettrait
@@ -84,7 +85,8 @@ const putParXhr: PutPartie = (url, corps, onCharge, signal) =>
     xhr.timeout = 30 * 60_000;
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) onCharge(e.loaded); };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      // L'ETag de la partie, gardé par le navigateur : la finalisation s'en sert si le stockage ne liste pas ses parties.
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(xhr.getResponseHeader("ETag") ?? xhr.getResponseHeader("etag"));
       if (xhr.status === 403) return reject(new AdresseExpiree(0));
       reject(new Error(`le stockage a répondu ${xhr.status}`));
     };
@@ -116,7 +118,10 @@ export async function envoyerParties(opts: {
   renouveler?: () => Promise<PlanClient>;
   putPartie?: PutPartie;
   maintenant?: () => number;
-}): Promise<void> {
+  /** Les empreintes déjà reçues (envoi précédent) : complétées, puis rendues. */
+  etags?: Record<number, string>;
+}): Promise<Record<number, string>> {
+  const etags: Record<number, string> = { ...(opts.etags ?? {}) };
   const { fichier, signal, onProgres } = opts;
   const put = opts.putPartie ?? putParXhr;
   const now = opts.maintenant ?? (() => Date.now());
@@ -149,7 +154,8 @@ export async function envoyerParties(opts: {
     for (let essai = 0; essai < 5; essai++) {
       if (signal.aborted) throw new EnvoiAnnule();
       try {
-        await put(plan.urls[n], corps, (o) => { charge.set(n, o); signaler(); }, signal);
+        const etag = await put(plan.urls[n], corps, (o) => { charge.set(n, o); signaler(); }, signal);
+        if (typeof etag === "string" && etag.trim()) etags[n] = etag.trim();
         charge.set(n, corps.size);
         signaler();
         return;
@@ -181,4 +187,5 @@ export async function envoyerParties(opts: {
   const nb = Math.max(1, Math.min(plan.enParallele, file.length));
   await Promise.all(Array.from({ length: nb }, () => travailleur()));
   if (echec) throw echec;
+  return etags;
 }

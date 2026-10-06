@@ -4,6 +4,16 @@ import { replanifierDepotDirectDocument, finaliserDepotDirectDocument, abandonne
 
 export const dynamic = "force-dynamic";
 
+/** Les empreintes reçues par le navigateur pour chaque partie (`{ etags: { "1": "…" } }`) — corps facultatif. */
+async function etagsDuCorps(req: NextRequest): Promise<Record<number, string>> {
+  try {
+    const b = (await req.json()) as { etags?: Record<string, unknown> };
+    const out: Record<number, string> = {};
+    for (const [k, v] of Object.entries(b?.etags ?? {})) if (/^\d+$/.test(k) && typeof v === "string") out[Number(k)] = v;
+    return out;
+  } catch { return {}; }
+}
+
 /** Adresses fraîches pour les parties manquantes (expiration, reprise). */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUserPourEcrire();
@@ -18,10 +28,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 /** Finalise : le document est inscrit si le bucket l'a reçu en entier, à la bonne taille. */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
-  const r = await finaliserDepotDirectDocument(user, params.id);
+  const r = await finaliserDepotDirectDocument(user, params.id, undefined, await etagsDuCorps(req));
   if (!r.ok) return NextResponse.json({ error: r.error, reprendre: r.reprendre ?? false, manquantes: r.manquantes ?? [] }, { status: r.status });
   return NextResponse.json({ ok: true, id: r.id, ids: [r.id] });
 }

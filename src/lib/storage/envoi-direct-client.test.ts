@@ -29,6 +29,15 @@ describe("envoyerParties", () => {
     expect(envoyees.sort((a, b) => a.url.localeCompare(b.url))).toEqual([{ url: "u1", taille: 10 }, { url: "u3", taille: 5 }]);
   });
 
+  it("rend les EMPREINTES reçues pour chaque partie, cumulées avec celles d'un envoi précédent", async () => {
+    const etags = await envoyerParties({
+      fichier: fichier(25), plan: plan(3, 10, [2]), signal: new AbortController().signal, onProgres: () => {},
+      etags: { 2: '"deja"' },
+      putPartie: async (url, corps, onCharge) => { onCharge(corps.size); return `"${url}"`; },
+    });
+    expect(etags).toEqual({ 1: '"u1"', 2: '"deja"', 3: '"u3"' });
+  });
+
   it("retente une partie en échec, et la barre ne recule JAMAIS", async () => {
     let echecs = 0;
     const vus: Progres[] = [];

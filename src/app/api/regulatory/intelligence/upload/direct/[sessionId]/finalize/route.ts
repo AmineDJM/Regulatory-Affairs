@@ -21,10 +21,16 @@ export async function POST(req: NextRequest, { params }: { params: { sessionId: 
 
     // MULTIPART : le navigateur renvoie l'empreinte (ETag) de chaque partie, dans l'ordre. Sans
     // elles, S3 refuse de recoller le fichier. Corps absent = envoi en un seul PUT, rien à lire.
-    let etags: string[] | undefined;
+    // Secours quand le stockage ne liste pas ses parties : un tableau (ancien protocole) ou `{ "1": "…" }`.
+    let etags: string[] | Record<number, string> | undefined;
     try {
       const body = (await req.json()) as { etags?: unknown };
       if (Array.isArray(body?.etags)) etags = body.etags.map((e) => String(e));
+      else if (body?.etags && typeof body.etags === "object") {
+        const parPartie: Record<number, string> = {};
+        for (const [k, v] of Object.entries(body.etags as Record<string, unknown>)) if (/^\d+$/.test(k) && typeof v === "string") parPartie[Number(k)] = v;
+        etags = parPartie;
+      }
     } catch { /* pas de corps : envoi simple */ }
 
     const r = await finalizeDirectUploadSession(params.sessionId, companyId, user.id, etags);

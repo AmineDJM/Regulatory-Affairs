@@ -49,3 +49,4 @@ Contenu intégral de `README.md`, découpé par titres sans aucune perte : conca
 | 43 | [30-journal-des-evolutions-recentes-p09.md](30-journal-des-evolutions-recentes-p09.md) | ## 🧾 Journal des évolutions récentes (partie 9/9) | 15392–15429 | 3 Ko |
 | 44 | [31-feuille-de-route.md](31-feuille-de-route.md) | ## 🧭 Feuille de route | 15430–15444 | 1 Ko |
 | 45 | [32-conventions-contribution.md](32-conventions-contribution.md) | ## 🤝 Conventions & contribution | 15445–15464 | 1 Ko |
+| 46 | [33-segmentation-studio.md](33-segmentation-studio.md) | ## Segmentation Studio | — | 3 Ko |

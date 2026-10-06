@@ -1916,10 +1916,10 @@ model RecruitmentRequest {
   skills        String?
   justification String?
 
-  stage       RecruitmentStage @default(CHAIN)
+  stage        RecruitmentStage  @default(CHAIN)
   /// Décision finale des RH / de la direction, en clair, quand la demande se clôt.
-  closingNote String?
-  closedAt    DateTime?
+  closingNote  String?
+  closedAt     DateTime?
   /// LE RENVOI POUR CORRECTION (audit 360°, lot C4d1, R14 — §118.192). Qui a renvoyé, quand, pourquoi, et
   /// D'OÙ (`CHAIN` ou `HR_REVIEW`) : une correction qui ne touche rien de ce que les validateurs ont pesé
   /// revient là ; une correction matérielle fait repartir la chaîne. L'histoire va au fil de la demande.
@@ -2360,9 +2360,9 @@ model AdProItem {
   /// Direction Marketing, qui sélectionne le budget ». Le premier temps se lit ICI, sur le poste
   /// encore `PENDING` ; le second est la décision (`status`, `decidedAt`). Nul = la Direction des
   /// opérations n'a pas encore validé.
-  opsDecidedAt       DateTime?
-  opsDecidedById     String?
-  opsDecisionNote    String?
+  opsDecidedAt    DateTime?
+  opsDecidedById  String?
+  opsDecisionNote String?
 
   decisions  AdProItemDecision[]
   /// LES PIÈCES DU POSTE au registre Legal — devis / pro forma, bon de commande, facture (§118.204).
@@ -2413,9 +2413,9 @@ model AdProItem {
 /// d'identité ») dont `stepKey` est l'identifiant du voyageur — le téléversement, l'aperçu, les
 /// droits et la corbeille sont ceux de toute pièce jointe d'un poste, jamais un second chemin.
 model AdProVoyageur {
-  id           String    @id @default(cuid())
+  id           String               @id @default(cuid())
   itemId       String
-  item         AdProItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item         AdProItem            @relation(fields: [itemId], references: [id], onDelete: Cascade)
   /// Le NOM de famille. Un voyageur d'avant la séparation porte ici son nom COMPLET (`prenom` vide) :
   /// l'écran propose de le couper à la prochaine modification, rien n'est deviné en base.
   nom          String
@@ -2429,14 +2429,14 @@ model AdProVoyageur {
   /// l'ordre du voyage. Les champs ci-dessus en gardent la première étape et la dernière (lecteurs d'avant).
   segments     Json?
   /// Aller simple, aller-retour ou plusieurs destinations (§118.205). En aller simple, `dateRetour` est vidée.
-  trajet       AdProTrajet    @default(ALLER_RETOUR)
+  trajet       AdProTrajet          @default(ALLER_RETOUR)
   /// Le mode de transport — `null` : pas encore dit.
   transport    AdProTransport?
-  position     Int       @default(0)
+  position     Int                  @default(0)
   createdById  String?
   updatedById  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
   devis        AdProVoyageurDevis[]
 
   @@index([itemId])
@@ -2461,15 +2461,15 @@ enum AdProTransport {
 /// validée par le demandeur — au plus une par voyageur (index partiel de la migration) ; les autres
 /// sont écartées par construction.
 model AdProVoyageurDevis {
-  id          String             @id @default(cuid())
+  id          String         @id @default(cuid())
   voyageurId  String
-  voyageur    AdProVoyageur      @relation(fields: [voyageurId], references: [id], onDelete: Cascade)
-  pieceId     String             @unique
-  piece       AdProItemPiece     @relation(fields: [pieceId], references: [id], onDelete: Cascade)
+  voyageur    AdProVoyageur  @relation(fields: [voyageurId], references: [id], onDelete: Cascade)
+  pieceId     String         @unique
+  piece       AdProItemPiece @relation(fields: [pieceId], references: [id], onDelete: Cascade)
   retenuLe    DateTime?
   retenuParId String?
   createdById String?
-  createdAt   DateTime           @default(now())
+  createdAt   DateTime       @default(now())
 
   @@index([voyageurId])
 }
@@ -2555,14 +2555,14 @@ enum AdProPieceNature {
 /// trois, quatre natures pour un seul et même devis ») : une ligne par poste couvert. Un bon de
 /// commande et une facture appartiennent à UN poste.
 model AdProItemPiece {
-  id              String           @id @default(cuid())
+  id              String              @id @default(cuid())
   itemId          String
-  item            AdProItem        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item            AdProItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
   legalDocumentId String
-  legalDocument   LegalDocument    @relation(fields: [legalDocumentId], references: [id], onDelete: Cascade)
+  legalDocument   LegalDocument       @relation(fields: [legalDocumentId], references: [id], onDelete: Cascade)
   nature          AdProPieceNature
   createdById     String?
-  createdAt       DateTime         @default(now())
+  createdAt       DateTime            @default(now())
   /// Le voyageur pour qui ce devis a été déposé (billetterie, §118.205) — `null` pour tout autre devis.
   voyageur        AdProVoyageurDevis?
 
@@ -3995,16 +3995,16 @@ model LogisticsOrder {
 // le manager Promotion médicale. Chaque médecin est rattaché à une spécialité et
 // exerce dans un secteur (hôpital / libéral / les deux).
 model MedicalSpecialty {
-  id          String          @id @default(cuid())
-  name        String          @unique
-  color       String? // accent visuel
-  notes       String?
-  doctors     MedicalDoctor[]
+  id            String                  @id @default(cuid())
+  name          String                  @unique
+  color         String? // accent visuel
+  notes         String?
+  doctors       MedicalDoctor[]
   /// LES BUSINESS UNITS QUI LA VISENT (§118.183) — une spécialité visée ne se retire pas du référentiel.
   businessUnits BusinessUnitSpecialty[]
-  createdById String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdById   String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
 
   @@index([name])
 }
@@ -4062,12 +4062,18 @@ model MedicalDoctor {
   delegateId String?
   delegate   User?   @relation(fields: [delegateId], references: [id])
 
-  visits       MedicalVisit[]
+  visits                   MedicalVisit[]
   /// LE MATÉRIEL PROMOTIONNEL qu'il a reçu en visite (§118.166) — l'historique de sa fiche.
-  promoRemises PromoStockMovement[] @relation("PromoRemiseMedecin")
-  fieldReports FieldReport[]
+  promoRemises             PromoStockMovement[]     @relation("PromoRemiseMedecin")
+  fieldReports             FieldReport[]
   /// Les couleurs posées sur ses cellules dans la feuille de l'annuaire (§118.133).
-  cellStyles   DirectoryCellStyle[]
+  cellStyles               DirectoryCellStyle[]
+  /// SA PLACE DANS LES STRATÉGIES DE SEGMENTATION (statut stratégique par stratégie, jamais un A/B/C/D global).
+  segmentationFiches       SegmentationFiche[]
+  /// SON POTENTIEL TERRAIN, HISTORISÉ — une observation par relevé, jamais écrasée.
+  segmentationObservations HcpObservation[]
+  /// LES DÉROGATIONS POSÉES À LA MAIN sur son ciblage ou ses segments (valeur, auteur, motif, échéance).
+  segmentationDerogations  SegmentationDerogation[]
 
   /// ARCHIVAGE RÉVERSIBLE (Direction, 06/10) : « supprimer » une ligne de l'annuaire l'archive — elle
   /// sort de la feuille, des comptes, de l'export et de la recherche, mais reste en base et se
@@ -6255,11 +6261,11 @@ model PchTender {
   /// Les VERSIONS de préparation de la soumission — la déposée est verrouillée.
   submissions PchSubmission[]
   /// Les CONTRATS nés de ce marché — le lien FORT qui remplace la recherche par texte.
-  contracts   LegalDocument[] @relation("TenderContracts")
+  contracts   LegalDocument[]       @relation("TenderContracts")
   createdById String?
   updatedById String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 
   @@index([status])
   @@index([submissionDeadline])
@@ -7209,51 +7215,51 @@ model PromoStockLot {
 /// UN MOUVEMENT DE STOCK — la seule chose qu'on écrit vraiment. Jamais supprimé : une erreur se
 /// corrige par un mouvement INVERSE (`annuleId`), et l'histoire reste entière.
 model PromoStockMovement {
-  id          String              @id @default(cuid())
-  itemId      String
-  item        PromoStockItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  id            String              @id @default(cuid())
+  itemId        String
+  item          PromoStockItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
   /// Le lot touché. NoAction : vérifié en fin d'instruction, donc la suppression d'un article
   /// (qui emporte lots et mouvements) passe, et la suppression d'un lot seul ne passe pas.
-  lotId       String
-  lot         PromoStockLot       @relation(fields: [lotId], references: [id], onDelete: NoAction)
+  lotId         String
+  lot           PromoStockLot       @relation(fields: [lotId], references: [id], onDelete: NoAction)
   /// QUI détient : null = le magasin central de la société de l'article.
-  holderId    String?
-  kind        PromoMovementKind
+  holderId      String?
+  kind          PromoMovementKind
   /// Variation SIGNÉE : + entrée, − sortie. Le sens vient de la nature, pas de la saisie.
-  delta       Decimal             @db.Decimal(12, 3)
+  delta         Decimal             @db.Decimal(12, 3)
   /// Le transfert dont ce mouvement est une jambe (départ, arrivée, retour).
-  transferId  String?
-  transfer    PromoStockTransfer? @relation(fields: [transferId], references: [id], onDelete: NoAction)
+  transferId    String?
+  transfer      PromoStockTransfer? @relation(fields: [transferId], references: [id], onDelete: NoAction)
   /// Le mouvement que celui-ci ANNULE — unique : un mouvement ne s'annule qu'une fois.
-  annuleId    String?             @unique
-  annule      PromoStockMovement? @relation("PromoMouvementAnnule", fields: [annuleId], references: [id], onDelete: NoAction)
-  annulation  PromoStockMovement? @relation("PromoMouvementAnnule")
+  annuleId      String?             @unique
+  annule        PromoStockMovement? @relation("PromoMouvementAnnule", fields: [annuleId], references: [id], onDelete: NoAction)
+  annulation    PromoStockMovement? @relation("PromoMouvementAnnule")
   /// À qui / pour quoi : un événement, un congrès (texte des mouvements d'avant le registre).
-  recipient   String?
-  reason      String?
+  recipient     String?
+  reason        String?
   /// LA VISITE où ce matériel a été remis (§118.166) — SetNull : le stock dit la vérité du
   /// mouvement ; la visite en est le contexte, et sa suppression ne recrée pas les fiches.
-  visitId     String?
-  visit       MedicalVisit?       @relation("PromoRemiseVisite", fields: [visitId], references: [id], onDelete: SetNull)
+  visitId       String?
+  visit         MedicalVisit?       @relation("PromoRemiseVisite", fields: [visitId], references: [id], onDelete: SetNull)
   /// LE COMPTE RENDU DE VISITE (rapport terrain) où ce matériel a été déclaré remis, quand aucune
   /// visite ne le porte (§118.204). SetNull, comme la visite : le stock dit la vérité du mouvement.
   /// L'action refuse de supprimer un rapport qui porte des remises.
   fieldReportId String?
-  fieldReport   FieldReport?      @relation("PromoRemiseRapport", fields: [fieldReportId], references: [id], onDelete: SetNull)
+  fieldReport   FieldReport?        @relation("PromoRemiseRapport", fields: [fieldReportId], references: [id], onDelete: SetNull)
   /// LE MÉDECIN qui l'a reçu — l'historique de sa fiche.
-  doctorId    String?
-  doctor      MedicalDoctor?      @relation("PromoRemiseMedecin", fields: [doctorId], references: [id], onDelete: SetNull)
+  doctorId      String?
+  doctor        MedicalDoctor?      @relation("PromoRemiseMedecin", fields: [doctorId], references: [id], onDelete: SetNull)
   /// LA LIGNE DU POSTE AD & PRO pour laquelle ce matériel a été réservé, ou est revenu (§118.167).
   /// SetNull : le registre garde la vérité du mouvement ; la ligne en est le contexte.
-  adProLineId String?
-  adProLine   AdProStockLine?     @relation(fields: [adProLineId], references: [id], onDelete: SetNull)
+  adProLineId   String?
+  adProLine     AdProStockLine?     @relation(fields: [adProLineId], references: [id], onDelete: SetNull)
   /// LE COMPTAGE dont ce mouvement corrige l'écart (§118.168). SetNull : le registre garde la vérité
   /// du mouvement ; le comptage en est le contexte (« pourquoi −15 ? — le comptage du 12/10 »).
-  comptageId  String?
-  comptage    PromoStockComptage? @relation(fields: [comptageId], references: [id], onDelete: SetNull)
-  occurredAt  DateTime            @default(now())
-  createdById String?
-  createdAt   DateTime            @default(now())
+  comptageId    String?
+  comptage      PromoStockComptage? @relation(fields: [comptageId], references: [id], onDelete: SetNull)
+  occurredAt    DateTime            @default(now())
+  createdById   String?
+  createdAt     DateTime            @default(now())
 
   @@index([itemId, occurredAt])
   @@index([itemId, holderId])
@@ -7798,7 +7804,7 @@ model FieldReport {
   /// rapport reste un objet À PART (transcription, audio, analyse, sa propre validation) : on
   /// ajoute le lien, on ne fond pas les deux (§118.5).
   visitId String?
-  visit   MedicalVisit? @relation("FieldReportVisit", fields: [visitId], references: [id], onDelete: SetNull)
+  visit   MedicalVisit?        @relation("FieldReportVisit", fields: [visitId], references: [id], onDelete: SetNull)
   /// Le matériel promotionnel déclaré remis dans ce compte rendu (§118.204).
   remises PromoStockMovement[] @relation("PromoRemiseRapport")
 
@@ -10322,6 +10328,8 @@ model BusinessUnit {
   consultings            ConsultingContract[]            @relation("AdProConsulting")
   autresDemandes         AdProOtherRequest[]             @relation("AdProOther")
   marketingReferents     BusinessUnitMarketingReferent[] @relation("AdProMarketingReferents")
+  /// SES STRATÉGIES DE SEGMENTATION (Segmentation Studio) — une active à la fois en pratique, l'historique gardé.
+  segmentationStrategies SegmentationStrategie[]
   /// LES SPÉCIALITÉS QU'ELLE VISE (§118.183) — plusieurs, dont une principale facultative.
   specialites            BusinessUnitSpecialty[]
 
@@ -11844,14 +11852,14 @@ enum LegalDocStatus {
 /// Drive ne sait pas dire : le titre exact, les dates, l'échéance, qui est en face, et ce qu'il
 /// advient du document (renouvelé, annulé).
 model LegalDocument {
-  custom            Json?
-  id                String                @id @default(cuid())
-  companyId         String?
-  company           Company?              @relation(fields: [companyId], references: [id])
-  reference         String? // référence interne / n° de BC
-  title             String // le titre EXACT, tel qu'il figure sur la pièce
-  kind              LegalDocKind          @default(CONTRACT)
-  counterparty      String? // l'autre partie, telle qu'elle s'AFFICHE (nom ou institution)
+  custom                 Json?
+  id                     String                @id @default(cuid())
+  companyId              String?
+  company                Company?              @relation(fields: [companyId], references: [id])
+  reference              String? // référence interne / n° de BC
+  title                  String // le titre EXACT, tel qu'il figure sur la pièce
+  kind                   LegalDocKind          @default(CONTRACT)
+  counterparty           String? // l'autre partie, telle qu'elle s'AFFICHE (nom ou institution)
   /// LES PARTIES, CHOISIES DANS L'ANNUAIRE DE L'ENTREPRISE — une ou plusieurs.
   ///
   /// Identifiants bruts de `CompanyContact` (même patron léger que `Task.participantIds`) :
@@ -11859,99 +11867,99 @@ model LegalDocument {
   /// lieu d'une chaîne saisie à la main qu'aucun écran ne peut rattacher à personne.
   /// `counterparty` reste le TEXTE affiché — recherche, exports et briefs le lisent tel quel —
   /// et le serveur le tient à jour à partir de cette liste.
-  counterpartyIds   String[]              @default([])
+  counterpartyIds        String[]              @default([])
   /// Dates FACULTATIVES : beaucoup d'engagements n'ont pas de terme (statuts, police tacite).
   /// `endDate` nul = sans échéance — jamais « expiré », jamais rappelé.
-  startDate         DateTime?
-  endDate           DateTime?
-  status            LegalDocStatus        @default(ACTIVE)
-  amount            Decimal?              @db.Decimal(14, 2)
-  notes             String?
-  cancelledAt       DateTime?
-  cancelReason      String?
+  startDate              DateTime?
+  endDate                DateTime?
+  status                 LegalDocStatus        @default(ACTIVE)
+  amount                 Decimal?              @db.Decimal(14, 2)
+  notes                  String?
+  cancelledAt            DateTime?
+  cancelReason           String?
   /// Chaîne de RENOUVELLEMENT : le nouveau document pointe vers celui qu'il remplace, et
   /// l'ancien passe en RENEWED. On garde les deux — un renouvellement n'efface pas le passé.
-  renewedFromId     String?
-  renewedFrom       LegalDocument?        @relation("LegalRenewal", fields: [renewedFromId], references: [id])
-  renewals          LegalDocument[]       @relation("LegalRenewal")
+  renewedFromId          String?
+  renewedFrom            LegalDocument?        @relation("LegalRenewal", fields: [renewedFromId], references: [id])
+  renewals               LegalDocument[]       @relation("LegalRenewal")
   /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas.
-  driveNodeId       String?
-  driveNode         DriveNode?            @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
+  driveNodeId            String?
+  driveNode              DriveNode?            @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
   /// Rattachement à ce qui l'a fait naître (demande Ad & Pro, demande au secrétariat…).
-  sourceType        EntityType?
-  sourceId          String?
+  sourceType             EntityType?
+  sourceId               String?
   /// LE MARCHÉ dont ce contrat est issu — le lien FORT qui remplace la recherche par texte
   /// de référence. Un marché peut porter plusieurs contrats ; un contrat vient d'au plus un
   /// marché. PCH est propriétaire du contexte marché, Legal de la couche juridique : MÊME
   /// objet, deux vues (jamais deux copies).
-  tenderId          String?
-  tender            PchTender?            @relation("TenderContracts", fields: [tenderId], references: [id], onDelete: SetNull)
+  tenderId               String?
+  tender                 PchTender?            @relation("TenderContracts", fields: [tenderId], references: [id], onDelete: SetNull)
   /// AVENANT (`kind = AMENDMENT`) : le contrat qu'il modifie. `SetNull` : supprimer un contrat
   /// ne détruit pas les pièces d'avenant — il casse le fil, il n'efface rien.
-  amendsId          String?
-  amends            LegalDocument?        @relation("ContractAmendments", fields: [amendsId], references: [id], onDelete: SetNull)
-  amendments        LegalDocument[]       @relation("ContractAmendments")
+  amendsId               String?
+  amends                 LegalDocument?        @relation("ContractAmendments", fields: [amendsId], references: [id], onDelete: SetNull)
+  amendments             LegalDocument[]       @relation("ContractAmendments")
   /// Impact FINANCIER d'un avenant (± DZD). Le montant initial du contrat n'est JAMAIS
   /// écrasé : la valeur courante = initial + somme des deltas des avenants effectifs.
-  amountDelta       Decimal?              @db.Decimal(14, 2)
+  amountDelta            Decimal?              @db.Decimal(14, 2)
   /// Signature et prise d'effet — un avenant signé mais non effectif ne compte pas encore.
   /// Pour un BON DE COMMANDE, c'est la signature des FINANCES (§118.149) : posée par
   /// `signerBonDeCommande`, jamais par un formulaire — une signature est une attestation.
-  signedAt          DateTime?
+  signedAt               DateTime?
   /// QUI a signé, quand la signature a été donnée dans l'ERP (un BC signé par les Finances).
   /// Nul pour une date de signature reprise d'un papier (contrats du PCH).
-  signedById        String?
-  signedBy          User?                 @relation("LegalDocSigner", fields: [signedById], references: [id], onDelete: SetNull)
+  signedById             String?
+  signedBy               User?                 @relation("LegalDocSigner", fields: [signedById], references: [id], onDelete: SetNull)
   /// LA SIGNATURE RENVOYÉE À L'ÉMETTEUR (audit 360°, R09) : un signataire qui ne peut pas signer le
   /// BC tel quel le renvoie avec ce qu'il faut corriger — il quitte la file des signataires. TOUTE
   /// modification de la pièce efface ces trois champs (`aiguillerBC`, `modifie`) : le BC revient à
   /// la signature, ou à son centre si son montant l'y renvoie. Les trois vont ensemble.
-  signatureReturnedAt DateTime?
-  signatureReturnedById String?
-  signatureReturnedBy User? @relation("LegalDocSignatureReturner", fields: [signatureReturnedById], references: [id], onDelete: SetNull)
-  signatureReturnNote String?
+  signatureReturnedAt    DateTime?
+  signatureReturnedById  String?
+  signatureReturnedBy    User?                 @relation("LegalDocSignatureReturner", fields: [signatureReturnedById], references: [id], onDelete: SetNull)
+  signatureReturnNote    String?
   /// ENTRÉE D'UN BC DANS LE CIRCUIT « centre → signature des Finances » (§118.149). Posée par
   /// l'aiguillage la première fois qu'il lit la pièce sous cette règle. Nulle = BC d'avant la
   /// règle, jamais touché depuis : il n'est présumé ni à valider ni à signer — sans ce marqueur,
   /// fixer un seuil ferait apparaître tout l'historique dans la file des Finances.
-  bcCircuitAt       DateTime?
-  effectiveAt       DateTime?
+  bcCircuitAt            DateTime?
+  effectiveAt            DateTime?
   /// Les LIGNES CONTRACTUELLES portées par cette pièce (contrat de base ou avenant).
-  contractLines     PchContractLine[]     @relation("DocContractLines")
+  contractLines          PchContractLine[]     @relation("DocContractLines")
   /// Toutes les lignes du GROUPE contractuel quand cette pièce est le contrat racine.
-  rootContractLines PchContractLine[]     @relation("RootContractLines")
+  rootContractLines      PchContractLine[]     @relation("RootContractLines")
   /// Les BONS DE COMMANDE exécutant ce contrat.
-  pchOrders         PchOrder[]            @relation("ContractOrders")
+  pchOrders              PchOrder[]            @relation("ContractOrders")
   /// DOSSIER DE CLASSEMENT. Nul = « non classé », et c'est un état normal, pas un oubli :
   /// un engagement se dépose vite, il se range ensuite.
-  folderId          String?
-  folder            LegalFolder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folderId               String?
+  folder                 LegalFolder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
   /// LA CHAÎNE DU DOSSIER D'ACHAT : chaque pièce pointe vers celle dont elle DÉCOULE — le bon
   /// de commande vers son devis, la facture vers son bon de commande. C'est ce lien qui permet
   /// de lire un achat d'un bout à l'autre (avec les validateurs et les délais de chaque maillon)
   /// au lieu de rapprocher trois lignes de tableau de tête. `SetNull` : supprimer un maillon ne
   /// détruit pas les suivants — il casse le fil, il n'efface pas les pièces.
-  chainFromId       String?
-  chainFrom         LegalDocument?        @relation("LegalChain", fields: [chainFromId], references: [id], onDelete: SetNull)
-  chainNext         LegalDocument[]       @relation("LegalChain")
+  chainFromId            String?
+  chainFrom              LegalDocument?        @relation("LegalChain", fields: [chainFromId], references: [id], onDelete: SetNull)
+  chainNext              LegalDocument[]       @relation("LegalChain")
   /// LE RÈGLEMENT d'une facture : l'ordre de dépense créé pour la payer — qui passe par le
   /// centre de paiement comme toute dépense. Nul = pas encore envoyée au règlement.
-  expenseOrderId    String?
+  expenseOrderId         String?
   /// SENS DE L'ARGENT d'une FACTURE (`kind = INVOICE`) — `OUT` : facture REÇUE, la société
   /// paie ; `IN` : facture ÉMISE, elle encaisse. Nul sur toute autre nature. On ne le devine
   /// jamais du nom de la partie : une écriture posée à l'envers est pire qu'une écriture
   /// absente, parce qu'elle se voit moins.
-  direction         String?
+  direction              String?
   /// DATE DE RÈGLEMENT EFFECTIF d'une facture. La renseigner, c'est déclarer la facture
   /// réglée ; l'effacer, c'est la remettre à régler. Le statut ne la contredit jamais :
   /// `LegalDocStatus` dit la vie du document (en vigueur, annulé), `paidDate` dit l'argent.
-  paidDate          DateTime?
+  paidDate               DateTime?
   /// L'ÉCRITURE FINANCIÈRE d'un règlement SAISI DIRECTEMENT (facture déjà payée qu'on
   /// enregistre après coup). Quand la facture est partie au CIRCUIT (`expenseOrderId`), c'est
   /// lui qui écrit au paiement : poser ici une seconde écriture compterait le même dinar deux
   /// fois. La règle vit dans `lib/finances/settlement.ts`, testée.
-  settlementTxId    String?               @unique
-  settlementTx      FinanceTransaction?   @relation("LegalSettlement", fields: [settlementTxId], references: [id], onDelete: SetNull)
+  settlementTxId         String?               @unique
+  settlementTx           FinanceTransaction?   @relation("LegalSettlement", fields: [settlementTxId], references: [id], onDelete: SetNull)
   /// LES LECTEURS AUTORISÉS — qui, en plus du déposant, a le droit d'ouvrir ce document.
   ///
   /// Un engagement de la société n'est pas une pièce d'équipe : un bail, un contrat de travail
@@ -11962,22 +11970,22 @@ model LegalDocument {
   /// Liste VIDE = document ouvert à tout le module, comme avant. C'est le seul défaut sûr pour
   /// l'historique : le remplir de listes devinées aurait fermé des documents à ceux qui les
   /// utilisent, sans que personne sache lesquels.
-  readers           LegalDocumentReader[]
+  readers                LegalDocumentReader[]
   /// Les postes Ad & Pro que cette pièce sert (§118.204).
-  postesAdPro       AdProItemPiece[]
+  postesAdPro            AdProItemPiece[]
   /// Le devis d'un poste Ad & Pro, tel que LU et structuré (§118.206) — au plus un par pièce.
-  devisPoste        AdProDevis?           @relation("AdProDevisPiece")
+  devisPoste             AdProDevis?           @relation("AdProDevisPiece")
   /// Les lignes de devis de poste que CE bon de commande couvre (§118.206).
-  lignesDeDevisCouvertes AdProDevisLigne[] @relation("AdProDevisLigneBc")
+  lignesDeDevisCouvertes AdProDevisLigne[]     @relation("AdProDevisLigneBc")
   /// Dernier rappel d'échéance envoyé — évite de renotifier tous les jours.
-  lastRemindedAt    DateTime?
-  createdById       String?
-  createdBy         User?                 @relation("LegalDocCreator", fields: [createdById], references: [id])
-  updatedById       String?
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  lastRemindedAt         DateTime?
+  createdById            String?
+  createdBy              User?                 @relation("LegalDocCreator", fields: [createdById], references: [id])
+  updatedById            String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
   /// LE DÉTAIL d'une facture de matériel promotionnel (§118.165) : lignes, taxes, réception.
-  promoFacture      PromoFacture?
+  promoFacture           PromoFacture?
 
   @@index([companyId, status])
   @@index([kind])
@@ -13624,21 +13632,23 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  aliases            ProductAlias[]
-  regulatoryProfiles RegulatoryProduct[]       @relation("ProductRegulatoryProfile")
-  promoProfiles      PromoProduct[]            @relation("ProductPromoProfile")
-  bdProfiles         BdProduct[]               @relation("ProductBdProfile")
-  tenderLines        PchTenderLine[]           @relation("TenderLineProduct")
-  contractLines      PchContractLine[]         @relation("ContractLineProduct")
-  sales              Sale[]                    @relation("SaleProduct")
-  visitLinks         MedicalVisitProduct[]
+  aliases              ProductAlias[]
+  regulatoryProfiles   RegulatoryProduct[]            @relation("ProductRegulatoryProfile")
+  promoProfiles        PromoProduct[]                 @relation("ProductPromoProfile")
+  bdProfiles           BdProduct[]                    @relation("ProductBdProfile")
+  tenderLines          PchTenderLine[]                @relation("TenderLineProduct")
+  contractLines        PchContractLine[]              @relation("ContractLineProduct")
+  sales                Sale[]                         @relation("SaleProduct")
+  visitLinks           MedicalVisitProduct[]
   /// LES MESSAGES PRÉ-DÉFINIS qui portent sur ce produit.
-  promoMessages      PromoMessage[]            @relation("PromoMessageProduct")
-  adProAllocations   AdProProductAllocation[]
-  assignments        ProductAssignment[]
+  promoMessages        PromoMessage[]                 @relation("PromoMessageProduct")
+  adProAllocations     AdProProductAllocation[]
+  assignments          ProductAssignment[]
   /// Le matériel promotionnel en stock pour ce produit (§118.164).
-  promoStockItems    PromoStockItemProduct[]   @relation("PromoStockProduit")
-  promoRequestItems  PromoRequestItemProduct[] @relation("PromoDemandeProduit")
+  promoStockItems      PromoStockItemProduct[]        @relation("PromoStockProduit")
+  promoRequestItems    PromoRequestItemProduct[]      @relation("PromoDemandeProduit")
+  /// LES STRATÉGIES DE SEGMENTATION où il est l'un des (au plus) trois produits classés.
+  segmentationProduits SegmentationStrategieProduit[]
 
   @@index([dci])
   @@index([companyId])
@@ -14419,4 +14429,172 @@ model DirectUpload {
 
   @@index([userId, status])
   @@index([status, updatedAt])
+}
+
+/// ═════════════════════════════════════════════════════════════════════════════════════════════
+/// SEGMENTATION STUDIO — la segmentation de la force de vente, NATIVE et reliée (Direction, 06/10).
+///
+/// Le classeur « Segmentation Finale » devient des objets : une STRATÉGIE par Business Unit, ses
+/// (au plus) trois produits CANONIQUES classés, des RÈGLES versionnées, la place de chaque praticien
+/// de l'annuaire (statut stratégique), son potentiel terrain HISTORISÉ et les dérogations posées à la
+/// main. Le segment A/B/C/D n'est JAMAIS stocké comme une vérité : il se CALCULE (moteur déterministe,
+/// `src/lib/segmentation/moteur.ts`) depuis ces faits et la version de règle — il s'explique donc
+/// toujours, et changer un seuil ne réécrit pas le passé (une version publiée ne se modifie pas).
+/// ═════════════════════════════════════════════════════════════════════════════════════════════
+model SegmentationStrategie {
+  id             String       @id @default(cuid())
+  businessUnitId String
+  /// RESTRICT : une BU qui porte une stratégie (et son historique) ne disparaît pas en silence.
+  businessUnit   BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  nom            String
+  /// ACTIVE · ARCHIVEE — une chaîne, comme les autres statuts métier récents.
+  statut         String       @default("ACTIVE")
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  produits     SegmentationStrategieProduit[]
+  regles       SegmentationRegle[]
+  fiches       SegmentationFiche[]
+  derogations  SegmentationDerogation[]
+  imports      SegmentationImport[]
+  observations HcpObservation[]
+
+  @@index([businessUnitId])
+}
+
+/// UN PRODUIT CLASSÉ DANS LA STRATÉGIE — rang 1, 2 ou 3, sur une PÉRIODE. Le catalogue de la BU
+/// peut compter dix produits ; la stratégie terrain en classe trois au plus. Changer le classement
+/// ferme la ligne (`jusqua`) et en ouvre une autre : l'historique ne s'écrase pas.
+model SegmentationStrategieProduit {
+  id          String                @id @default(cuid())
+  strategieId String
+  strategie   SegmentationStrategie @relation(fields: [strategieId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  rang        Int
+  depuis      DateTime              @default(now())
+  /// Nul = classement en vigueur.
+  jusqua      DateTime?
+  createdById String?
+  createdAt   DateTime              @default(now())
+
+  @@index([strategieId, jusqua])
+  @@index([productId])
+}
+
+/// UNE VERSION DE RÈGLES — seuils par produit (potentiel, affinité, exceptions régionales), ciblage,
+/// statut H, priorités et fréquences de visite. IMMUABLE une fois publiée : changer un seuil publie la
+/// version suivante, après un aperçu de l'impact. Le contenu est validé par `lireRegles`.
+model SegmentationRegle {
+  id           String                @id @default(cuid())
+  strategieId  String
+  strategie    SegmentationStrategie @relation(fields: [strategieId], references: [id], onDelete: Cascade)
+  version      Int
+  contenu      Json
+  note         String?
+  publieeParId String?
+  publieeLe    DateTime              @default(now())
+
+  @@unique([strategieId, version])
+}
+
+/// LA PLACE D'UN PRATICIEN DANS UNE STRATÉGIE — le praticien est CELUI DE L'ANNUAIRE (jamais une
+/// copie) ; ceci porte ce qui ne vaut que pour la stratégie : son statut stratégique (Décideur,
+/// Influenceur, Référent, Prescripteur) et sa zone terrain (Centre, Est, Ouest…).
+model SegmentationFiche {
+  id          String                @id @default(cuid())
+  strategieId String
+  strategie   SegmentationStrategie @relation(fields: [strategieId], references: [id], onDelete: Cascade)
+  doctorId    String
+  doctor      MedicalDoctor         @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  /// DECIDEUR · INFLUENCEUR · REFERENT · PRESCRIPTEUR — nul = non renseigné.
+  statut      String?
+  zone        String?
+  /// D'où vient la fiche : IMPORT (avec le lot et la ligne) ou MANUEL.
+  source      String                @default("MANUEL")
+  importId    String?
+  ligneSource Int?
+  /// Retiré du panel de la stratégie — la fiche reste pour l'historique.
+  retireeLe   DateTime?
+  createdById String?
+  updatedById String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@unique([strategieId, doctorId])
+  @@index([doctorId])
+}
+
+/// LE POTENTIEL TERRAIN D'UN PRATICIEN, HISTORISÉ — « 27 patients VIH / semaine », « 3 sur 10 sous
+/// Raltégravir ». Une observation par relevé (import, visite, saisie) ; la plus récente fait foi, les
+/// autres restent. Une valeur ABSENTE reste absente : elle ne devient jamais un D.
+model HcpObservation {
+  id                 String                 @id @default(cuid())
+  doctorId           String
+  doctor             MedicalDoctor          @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  strategieId        String?
+  strategie          SegmentationStrategie? @relation(fields: [strategieId], references: [id], onDelete: SetNull)
+  /// Le produit visé par la question d'affinité (nul = potentiel de la pathologie, tous produits).
+  productId          String?
+  /// LE POTENTIEL (la métrique de la règle — ex. patients / semaine).
+  potentiel          Decimal?               @db.Decimal(12, 2)
+  /// L'AFFINITÉ DÉCLARÉE : sur 10 patients, combien sous le produit.
+  prescriptionsSur10 Decimal?               @db.Decimal(6, 2)
+  metrique           String?
+  /// IMPORT · TERRAIN · MANUEL
+  source             String                 @default("MANUEL")
+  importId           String?
+  ligneSource        Int?
+  auteurId           String?
+  observeLe          DateTime               @default(now())
+  commentaire        String?
+  createdAt          DateTime               @default(now())
+
+  @@index([doctorId, observeLe])
+  @@index([strategieId])
+}
+
+/// UNE DÉROGATION — le calcul propose, une personne tranche, et cela se voit : valeur calculée au
+/// moment de la décision, valeur posée, auteur, motif, échéance. CIBLAGE (CIBLE / NON_CIBLE) ou
+/// SEGMENT (A/B/C/D d'un produit). Levée = `leveeLe` ; jamais supprimée.
+model SegmentationDerogation {
+  id             String                @id @default(cuid())
+  strategieId    String
+  strategie      SegmentationStrategie @relation(fields: [strategieId], references: [id], onDelete: Cascade)
+  doctorId       String
+  doctor         MedicalDoctor         @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  productId      String?
+  nature         String
+  valeur         String
+  valeurCalculee String?
+  motif          String
+  source         String                @default("MANUEL")
+  importId       String?
+  auteurId       String?
+  creeLe         DateTime              @default(now())
+  expireLe       DateTime?
+  leveeLe        DateTime?
+  leveeParId     String?
+
+  @@index([strategieId, doctorId])
+  @@index([doctorId])
+}
+
+/// UN FICHIER DE SEGMENTATION IMPORTÉ — son empreinte (le même fichier ne s'importe pas deux fois
+/// dans la même stratégie), son nom, et le rapport complet de ce qui a été rapproché, créé, mis à jour
+/// ou laissé à trancher. Chaque fiche et chaque observation renvoient à leur lot et à leur ligne.
+model SegmentationImport {
+  id          String                @id @default(cuid())
+  strategieId String
+  strategie   SegmentationStrategie @relation(fields: [strategieId], references: [id], onDelete: Cascade)
+  nomFichier  String
+  empreinte   String
+  taille      Int
+  feuille     String?
+  rapport     Json
+  auteurId    String?
+  createdAt   DateTime              @default(now())
+
+  @@unique([strategieId, empreinte])
 }

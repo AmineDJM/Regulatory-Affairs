@@ -143,6 +143,7 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // La SIGNATURE n'a aucune capacité Adam, par décision : c'est une attestation (§118.15).
   PURCHASE_ORDERS: { domaines: ["LEGAL"], mots: ["bc a signer", "bons de commande a signer", "signature des bons de commande"] },
   MARKETING_COCKPIT: { domaines: ["DIRECTORY"], mots: ["marketing cockpit", "messages marketing", "message promotionnel", "specialites medicales"], outils: ["planning_operation"] },
+  SEGMENTATION: { domaines: ["DIRECTORY"], mots: ["segmentation", "segment a b c d", "potentiel patients", "affinite produit", "decideur h", "priorite p1"] },
   // Les demandes internes. `create_admin_request`, `support_operation`, `directive_operation`.
   ADMIN_REQUESTS: { domaines: ["ADMIN", "MISSION"], mots: ["secretariat", "demande administrative", "attestation", "ordre de mission"], outils: ["create_admin_request"] },
   SUPPORT: { domaines: ["ADMIN", "MISSION"], mots: ["support", "ticket", "tickets", "incident", "incidents", "panne"], outils: ["support_operation"] },

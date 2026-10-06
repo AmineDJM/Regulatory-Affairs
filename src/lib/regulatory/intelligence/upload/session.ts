@@ -596,8 +596,11 @@ export async function objetVersFichier(
  */
 export async function finalizeDirectUploadSession(
   sessionId: string, companyId: string, actorId: string,
-  /** Ancien protocole : ignoré — les empreintes se lisent désormais dans le bucket. */
-  _etags?: string[],
+  /**
+   * Les empreintes reçues par le navigateur, partie par partie (`{ 1: "…" }`) — SECOURS quand le stockage ne liste
+   * pas ses parties. L'ancien protocole (un tableau) est accepté, dans l'ordre des parties.
+   */
+  etagsClient?: string[] | Record<number, string>,
   client: ClientS3Direct = CLIENT_S3,
   lire: (cle: string) => Promise<ReadableStream<Uint8Array>> = getObjectStream,
 ): Promise<FinalizeResult & { manquantes?: number[] }> {
@@ -623,7 +626,10 @@ export async function finalizeDirectUploadSession(
   };
 
   if (session.storageUploadId) {
-    const issue = await finaliserEnvoi(session.storageKey, session.storageUploadId, totalBytes, session.partSize, client);
+    const parPartie: Record<number, string> = Array.isArray(etagsClient)
+      ? Object.fromEntries(etagsClient.map((e, i) => [i + 1, e]))
+      : (etagsClient ?? {});
+    const issue = await finaliserEnvoi(session.storageKey, session.storageUploadId, totalBytes, session.partSize, client, parPartie);
     if (!issue.ok) {
       if (issue.reprendre) { await reouvrir(issue.erreur); return { ok: false, error: issue.erreur, retryable: true, manquantes: issue.manquantes }; }
       return fail(issue.erreur);

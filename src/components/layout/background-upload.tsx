@@ -37,7 +37,7 @@ interface BgJob {
 export interface DirectSpec {
   ouvrir: () => Promise<{ sessionId: string; plan: PlanClient } | { error: string }>;
   replanifier: (sessionId: string) => Promise<PlanClient>;
-  finaliser: (sessionId: string) => Promise<{ ok: true } | { ok: false; error: string; reprendre?: boolean }>;
+  finaliser: (sessionId: string, etags?: Record<number, string>) => Promise<{ ok: true } | { ok: false; error: string; reprendre?: boolean }>;
   abandonner: (sessionId: string) => Promise<void>;
 }
 
@@ -184,19 +184,22 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       const ouv = await direct.ouvrir().catch((e: unknown) => ({ error: e instanceof Error ? e.message : "Ouverture impossible." }));
       if ("error" in ouv) { patchFile(jobId, idx, { status: "error", progress: 0, error: ouv.error }); return; }
       directSessions.current.get(jobId)?.set(ouv.sessionId, direct);
-      const envoyer = (plan: PlanClient) => envoyerParties({
-        fichier: file, plan, signal: ctrl.signal,
+      // Les empreintes des parties reçues par le navigateur — remises à la finalisation (secours d'un stockage qui ne
+      // liste pas ses parties), cumulées d'un envoi à la reprise.
+      let etags: Record<number, string> = {};
+      const envoyer = async (plan: PlanClient) => { etags = await envoyerParties({
+        fichier: file, plan, signal: ctrl.signal, etags,
         onProgres: (p) => {
           patchFile(jobId, idx, { progress: Math.min(99, Math.floor((p.envoyes / Math.max(1, p.total)) * 100)) });
           noterOctets(jobId, idx, p.envoyes);
         },
         renouveler: () => direct.replanifier(ouv.sessionId),
-      });
+      }); };
       try {
         await envoyer(ouv.plan);
         // La finalisation dit si une partie manque encore : on renvoie CELLES-LÀ, puis on refinalise.
         for (let essai = 0; essai < 3; essai++) {
-          const f = await direct.finaliser(ouv.sessionId);
+          const f = await direct.finaliser(ouv.sessionId, etags);
           if (f.ok) {
             directSessions.current.get(jobId)?.delete(ouv.sessionId);
             patchFile(jobId, idx, { status: "done", progress: 100 });

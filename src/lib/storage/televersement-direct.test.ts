@@ -121,6 +121,37 @@ describe("finalisation", () => {
     expect(etat.recolle).toBeNull();
   });
 
+  // ── STOCKAGES « COMPATIBLES S3 » ATYPIQUES (Direction, 06/10 : « 5 partie(s) sur 5 manquent ou sont tronquées ») ──
+
+  it("une partie listée SANS sa taille (taille non dite) est acceptée ; la taille de l'objet final tranche", async () => {
+    const { client, etat } = bucket({ recues: toutes().map((x) => ({ ...x, taille: 0 })), tailleFinale: total });
+    expect(await finaliserEnvoi("k", "UP-1", total, p, client)).toEqual({ ok: true, taille: total });
+    expect(etat.recolle).toEqual(['"a"', '"b"', '"c"']);
+  });
+
+  it("un stockage qui ne LISTE PAS ses parties : les empreintes reçues par le navigateur prennent le relais", async () => {
+    const { client, etat } = bucket({ recues: [], tailleFinale: total });
+    const r = await finaliserEnvoi("k", "UP-1", total, p, client, { 1: '"a"', 2: '"b"', 3: '"c"' });
+    expect(r).toEqual({ ok: true, taille: total });
+    expect(etat.recolle).toEqual(['"a"', '"b"', '"c"']);
+  });
+
+  it("sans liste ni empreinte, l'envoi reste incomplet et REPRENABLE (rien n'est recollé)", async () => {
+    const { client, etat } = bucket({ recues: [], tailleFinale: null });
+    const r = await finaliserEnvoi("k", "UP-1", total, p, client, { 1: '"a"' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) { expect(r.reprendre).toBe(true); expect(r.manquantes).toEqual([2, 3]); }
+    expect(etat.recolle).toBeNull();
+  });
+
+  it("une partie listée avec une taille DITE et FAUSSE repart, même si le navigateur a son empreinte", async () => {
+    const recues = toutes().map((x) => (x.numero === 2 ? { ...x, taille: p - 1 } : x));
+    const { client } = bucket({ recues, tailleFinale: total });
+    const r = await finaliserEnvoi("k", "UP-1", total, p, client, { 2: '"b"' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.manquantes).toEqual([2]);
+  });
+
   it("objet absent après recollage : refus net", async () => {
     const { client } = bucket({ recues: toutes(), tailleFinale: null });
     const r = await finaliserEnvoi("k", "UP-1", total, p, client);

@@ -1727,6 +1727,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   // console pour l'ouvrir à quelqu'un.
   PURCHASE_ORDERS: "Bons de commande",
   MARKETING_COCKPIT: "Marketing cockpit",
+  SEGMENTATION: "Segmentation Studio",
 };
 
 /**
@@ -2015,6 +2016,8 @@ export const NAVIGATION: NavItem[] = [
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   // MARKETING COCKPIT — Messages et Spécialités, déplacés depuis Force de vente (06/10).
   { module: "MARKETING_COCKPIT", label: "Marketing cockpit", href: "/marketing-cockpit/messages", icon: "Megaphone", group: "Pôles", pole: "SALES_MARKETING", tabs: MARKETING_COCKPIT_TABS, match: ["/marketing-cockpit"] },
+  // SEGMENTATION STUDIO — la segmentation native : stratégie par BU, règles versionnées, panel calculé et expliqué.
+  { module: "SEGMENTATION", label: "Segmentation", href: "/segmentation", icon: "Layers", group: "Pôles", pole: "SALES_MARKETING", match: ["/segmentation"] },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/consulting"] },
   // LE STOCK PROMOTIONNEL — son propre sous-module (§118.173), et plus un onglet d'Ad & Pro.

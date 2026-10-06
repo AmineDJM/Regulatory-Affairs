@@ -60,8 +60,9 @@ export function envoiDocument(
           } catch (e) { return { error: e instanceof Error ? e.message : "Ouverture impossible." }; }
         },
         replanifier: async (id) => (await json<{ plan: PlanClient }>(await fetch(`/api/documents/upload/direct/${id}`, { cache: "no-store" }))).plan,
-        finaliser: async (id) => {
-          const res = await fetch(`/api/documents/upload/direct/${id}`, { method: "POST" });
+        finaliser: async (id, etags) => {
+          // Les empreintes reçues par le navigateur : la finalisation s'en sert si le stockage ne liste pas ses parties.
+          const res = await fetch(`/api/documents/upload/direct/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ etags: etags ?? {} }) });
           const b = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; reprendre?: boolean };
           return res.ok && b.ok ? { ok: true as const } : { ok: false as const, error: b.error ?? `Finalisation refusée (${res.status}).`, reprendre: b.reprendre };
         },
