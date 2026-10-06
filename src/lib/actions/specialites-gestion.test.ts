@@ -14,7 +14,7 @@ import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { getAccess, hasGlobalView, peutGererSpecialites, userCan, type SessionUser } from "@/lib/rbac";
 import { visibleTabs } from "@/lib/nav-tabs";
-import { ANNUAIRES_TABS } from "@/lib/labels";
+import { ANNUAIRES_TABS, MARKETING_COCKPIT_TABS } from "@/lib/labels";
 import {
   createSpecialty, updateSpecialty, deleteSpecialty, fusionnerSpecialite, rattacherLibelleSpecialite,
 } from "@/lib/actions/medical-actions";
@@ -62,7 +62,9 @@ describe("le point d'appel — une règle, lue par l'onglet, la page et les cinq
   });
   it("la page lit la même règle pour s'ouvrir et pour chaque bouton", () => {
     // L'écran est PARTAGÉ avec Force de vente › Spécialités (§118.209) : la règle se lit dans le composant.
-    const page = code("src/app/(app)/annuaires/specialites/page.tsx");
+    // L'ancienne adresse des Annuaires MÈNE à la porte unique (Direction, 06/10).
+    expect(code("src/app/(app)/annuaires/specialites/page.tsx")).toContain('redirect("/marketing-cockpit/specialites")');
+    const page = code("src/app/(app)/marketing-cockpit/specialites/page.tsx");
     expect(page).toContain(`peutGererSpecialites(user, "VIEW")`);
     expect(page).toContain("<EcranSpecialites user={user} />");
     const src = code("src/components/directory/ecran-specialites.tsx");
@@ -155,18 +157,14 @@ suite("le référentiel des spécialités — les deux directeurs des opération
     expect(peutGererSpecialites(DEL, "DELETE")).toBe(false);
   });
 
-  it("l'onglet suit la règle : ouvert aux deux directeurs, fermé à qui n'a ni la Promotion médicale ni ces rôles", async () => {
-    const onglet = async (u: SessionUser) => (await visibleTabs(u, ANNUAIRES_TABS)).find((t) => t.href === "/annuaires/specialites")?.show;
+  it("UNE porte d'entrée (Direction, 06/10) : plus d'onglet dans les Annuaires ; Marketing cockpit › Spécialités suit la règle", async () => {
+    expect(ANNUAIRES_TABS.some((t) => t.href === "/annuaires/specialites")).toBe(false);
+    const onglet = async (u: SessionUser) => (await visibleTabs(u, MARKETING_COCKPIT_TABS)).find((t) => t.href === "/marketing-cockpit/specialites")?.show;
     expect(await onglet(OD)).toBe(true);
     expect(await onglet(DIR)).toBe(true);
-    // Un compte SANS la Promotion médicale (sa console la lui retire) mais Directeur des Opérations en
-    // rôle SECONDAIRE : la règle l'ouvre — l'onglet aussi, sinon on lui donnerait une page sans porte.
-    const sansModule = await acteur(viewer, "VIEWER", "OPERATIONS_DIRECTOR");
-    sansModule.access.modules.delete("MEDICAL");
-    expect(userCan(sansModule, "MEDICAL", "VIEW"), "prémisse : pas de Promotion médicale").toBe(false);
-    expect(await onglet(sansModule)).toBe(true);
     const nu = await acteur(viewer, "VIEWER");
     nu.access.modules.delete("MEDICAL");
     expect(await onglet(nu)).toBe(false);
+    expect(userCan(nu, "MEDICAL", "VIEW")).toBe(false);
   });
 });

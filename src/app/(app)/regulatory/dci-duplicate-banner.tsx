@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Check, KeyRound, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, Check, KeyRound, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { checkDciDuplicate, requestRegulatoryDossierAccess } from "@/lib/actions/regulatory-actions";
+import { checkDciDuplicate, requestRegulatoryDossierAccess, type ExistantDeLaMolecule } from "@/lib/actions/regulatory-actions";
 
 /**
  * « CETTE DCI EXISTE DÉJÀ » — dit PENDANT la saisie, pas après le clic.
@@ -31,6 +32,8 @@ import { checkDciDuplicate, requestRegulatoryDossierAccess } from "@/lib/actions
 export interface DciDuplicateCheck {
   notice: string | null;
   canRequestAccess: boolean;
+  /** Ce qui existe déjà pour cette molécule : dossiers visibles et produits du référentiel (Direction, 06/10). */
+  existants: ExistantDeLaMolecule[];
   acknowledged: boolean;
   acknowledge: () => void;
   /** Le formulaire doit-il retenir sa soumission ? (un avis non lu) */
@@ -42,6 +45,7 @@ export interface DciDuplicateCheck {
 export function useDciDuplicate(dci: string): DciDuplicateCheck {
   const [notice, setNotice] = React.useState<string | null>(null);
   const [canRequestAccess, setCanRequestAccess] = React.useState(false);
+  const [existants, setExistants] = React.useState<ExistantDeLaMolecule[]>([]);
   const [acknowledged, setAcknowledged] = React.useState(false);
   const [tick, setTick] = React.useState(0);
 
@@ -51,6 +55,7 @@ export function useDciDuplicate(dci: string): DciDuplicateCheck {
     if (propre.length < 3) {
       setNotice(null);
       setCanRequestAccess(false);
+      setExistants([]);
       setAcknowledged(false);
       return;
     }
@@ -62,6 +67,7 @@ export function useDciDuplicate(dci: string): DciDuplicateCheck {
       if (!vivant) return;
       setNotice(r?.notice ?? null);
       setCanRequestAccess(r?.canRequestAccess ?? false);
+      setExistants(r?.existants ?? []);
       // LA DCI A CHANGÉ : l'accord précédent portait sur une autre molécule, il ne vaut plus.
       setAcknowledged(false);
     }, 400);
@@ -71,6 +77,7 @@ export function useDciDuplicate(dci: string): DciDuplicateCheck {
   return {
     notice,
     canRequestAccess,
+    existants,
     acknowledged,
     acknowledge: () => setAcknowledged(true),
     blocking: notice !== null && !acknowledged,
@@ -78,7 +85,12 @@ export function useDciDuplicate(dci: string): DciDuplicateCheck {
   };
 }
 
-export function DciDuplicateBanner({ dci, check }: { dci: string; check: DciDuplicateCheck }) {
+export function DciDuplicateBanner({ dci, check, onPartirDuProduit }: {
+  dci: string;
+  check: DciDuplicateCheck;
+  /** Partir d'un produit existant : le formulaire reprend son identité (dosage, forme, conditionnement). */
+  onPartirDuProduit?: (identite: NonNullable<ExistantDeLaMolecule["identite"]>) => void;
+}) {
   const [envoi, setEnvoi] = React.useState(false);
   const [reponse, setReponse] = React.useState<string | null>(null);
 
@@ -112,10 +124,27 @@ export function DciDuplicateBanner({ dci, check }: { dci: string; check: DciDupl
           </span>
         ) : (
           <Button type="button" variant="outline" size="sm" onClick={check.acknowledge}>
-            J&apos;ai vérifié : c&apos;est un autre produit
+            Créer un nouveau produit
           </Button>
         )}
       </div>
+
+      {check.existants.length > 0 && (
+        <ul className="space-y-1 border-t border-amber-200 pt-2">
+          {check.existants.map((e) => (
+            <li key={`${e.nature}-${e.id}`} className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-medium">{e.nature === "DOSSIER" ? "Dossier" : "Produit"}</span>
+              <span className="font-medium">{e.libelle}</span>
+              <span className="text-amber-800">{e.detail}</span>
+              {e.nature === "DOSSIER" ? (
+                <Link href={`/regulatory/${e.id}`} className="inline-flex items-center gap-1 underline"><ExternalLink className="h-3 w-3" /> Ouvrir ce dossier</Link>
+              ) : e.identite && onPartirDuProduit ? (
+                <button type="button" className="underline" onClick={() => { onPartirDuProduit(e.identite!); check.acknowledge(); }}>Partir de ce produit</button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {reponse && <p className="text-xs">{reponse}</p>}
     </div>

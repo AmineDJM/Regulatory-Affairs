@@ -4,7 +4,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
-import { STATUTS, STATUT_LABELS, SEGMENTS, METHODE_LABELS, pct, type Regles, type RegleProduit, type ReglePriorite, type Segment, type Statut } from "@/lib/segmentation/regles";
+import { STATUTS, STATUT_LABELS, SEGMENTS, METHODE_LABELS, SOURCE_AFFINITE_LABELS, pct, type Regles, type RegleProduit, type ReglePriorite, type Segment, type Statut } from "@/lib/segmentation/regles";
 import { libelleRegle } from "@/lib/segmentation/moteur";
 import { apercuRegles, publierRegles, type ApercuRegles } from "@/lib/actions/segmentation-actions";
 
@@ -55,6 +55,7 @@ export function EditeurRegles({ strategieId, produits, version, contenu, peutPub
         ))}
         <p>H ({contenu.h.statuts.map((s) => STATUT_LABELS[s]).join(", ")}) : {contenu.h.frequence} visite(s) par cycle.</p>
         {contenu.priorites.regles.map((x, i) => <p key={i}>{libelleRegle(x)} — {contenu.frequences[x.priorite]} visite(s) par cycle.</p>)}
+        {(contenu.exceptionsFrequence ?? []).map((x, i) => <p key={`x${i}`}>{x.priorite === "H" ? "H" : `Priorité ${x.priorite}`} — {x.zone ?? "toutes zones"}{x.inOut ? `, ${x.inOut === "IN" ? "In (wilaya pivot du KAM)" : "Out"}` : ""} : {x.frequence} visite(s) par cycle.</p>)}
       </div>
     );
   }
@@ -80,11 +81,12 @@ export function EditeurRegles({ strategieId, produits, version, contenu, peutPub
       {r.produits.map((p, i) => (
         <section key={p.productId} className="surface space-y-3 p-4">
           <h3 className="text-sm font-semibold">#{i + 1} {nomDe(p.productId)}</h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <div><Label>Potentiel mesuré</Label><Input value={p.metrique} onChange={(e) => majProduit(i, (x) => { x.metrique = e.target.value; })} /></div>
             <div><Label>Haut potentiel à partir de</Label><Input inputMode="decimal" value={champ(p.seuilPotentiel)} onChange={(e) => majProduit(i, (x) => { x.seuilPotentiel = n(e.target.value); })} /></div>
             <div><Label>Seuil d&apos;affinité (%)</Label><Input inputMode="decimal" value={champPct(p.seuilAffinite)} onChange={(e) => majProduit(i, (x) => { x.seuilAffinite = n(e.target.value) / 100; })} /></div>
             <div><Label>Comparaison</Label><Select value={p.comparaisonAffinite} onChange={(e) => majProduit(i, (x) => { x.comparaisonAffinite = e.target.value === ">=" ? ">=" : ">"; })}><option value=">">au-delà (&gt;)</option><option value=">=">à partir de (≥)</option></Select></div>
+            <div><Label>Source de l&apos;affinité</Label><Select value={p.sourceAffinite ?? "DECLAREE"} onChange={(e) => majProduit(i, (x) => { const v = e.target.value; if (v === "ETABLISSEMENT" || v === "DECLAREE_SINON_ETABLISSEMENT") x.sourceAffinite = v; else delete x.sourceAffinite; })}>{(["DECLAREE", "ETABLISSEMENT", "DECLAREE_SINON_ETABLISSEMENT"] as const).map((m) => <option key={m} value={m}>{SOURCE_AFFINITE_LABELS[m]}</option>)}</Select></div>
             <div><Label>Affinité calculée par</Label><Select value={p.methodeAffinite} onChange={(e) => majProduit(i, (x) => { x.methodeAffinite = e.target.value === "RATIO_FICHIER" ? "RATIO_FICHIER" : "SUR_10"; })}>{(["SUR_10", "RATIO_FICHIER"] as const).map((m) => <option key={m} value={m}>{METHODE_LABELS[m]}</option>)}</Select></div>
           </div>
           <div className="space-y-2">
@@ -126,6 +128,24 @@ export function EditeurRegles({ strategieId, produits, version, contenu, peutPub
         ))}
         <button type="button" className="text-xs text-primary underline" onClick={() => maj((y) => { const p = `P${y.priorites.regles.length + 1}`; y.priorites.regles.push({ priorite: p, rang1: ["A"] }); y.frequences[p] = y.frequences[p] ?? 1; return y; })}>Ajouter une règle</button>
         <p className="text-xs text-muted-foreground">Les règles se lisent dans l&apos;ordre ; la première qui s&apos;applique donne la priorité. Une combinaison qu&apos;aucune règle ne couvre reste sans priorité (aucune valeur n&apos;est inventée).</p>
+      </section>
+
+      <section className="surface space-y-3 p-4">
+        <h3 className="text-sm font-semibold">Fréquences particulières (zone, In / Out)</h3>
+        <p className="text-xs text-muted-foreground">« In » : le praticien est dans la wilaya pivot du KAM qui le couvre (la ville pivot de son territoire) ; « Out » : dans une autre wilaya. L&apos;exception la plus précise l&apos;emporte.</p>
+        {(r.exceptionsFrequence ?? []).map((x, i) => (
+          <div key={i} className="flex flex-wrap items-end gap-2 text-sm">
+            <Input value={x.priorite} onChange={(e) => maj((y) => { y.exceptionsFrequence![i].priorite = e.target.value.trim(); return y; })} placeholder="P1 ou H" className="w-20" title="Priorité (P1, P2…) ou H" />
+            <Input value={x.zone ?? ""} onChange={(e) => maj((y) => { y.exceptionsFrequence![i].zone = e.target.value.trim() || null; return y; })} placeholder="Zone (toutes)" className="w-32" />
+            <Select value={x.inOut ?? ""} onChange={(e) => maj((y) => { const v = e.target.value; y.exceptionsFrequence![i].inOut = v === "IN" || v === "OUT" ? v : null; return y; })} className="w-28">
+              <option value="">In et Out</option><option value="IN">In</option><option value="OUT">Out</option>
+            </Select>
+            <Input inputMode="decimal" value={champ(x.frequence)} onChange={(e) => maj((y) => { y.exceptionsFrequence![i].frequence = n(e.target.value); return y; })} className="w-16" title="Visites par cycle" />
+            <span className="text-xs text-muted-foreground">visite(s) / cycle</span>
+            <button type="button" className="text-xs text-muted-foreground underline" onClick={() => maj((y) => { y.exceptionsFrequence!.splice(i, 1); if (y.exceptionsFrequence!.length === 0) delete y.exceptionsFrequence; return y; })}>Retirer</button>
+          </div>
+        ))}
+        <button type="button" className="text-xs text-primary underline" onClick={() => maj((y) => { y.exceptionsFrequence = [...(y.exceptionsFrequence ?? []), { zone: null, inOut: "IN", priorite: "P1", frequence: NaN }]; return y; })}>Ajouter une fréquence particulière</button>
       </section>
 
       <div className="flex flex-wrap items-end gap-2">

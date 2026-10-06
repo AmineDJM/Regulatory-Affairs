@@ -1462,7 +1462,7 @@ export interface NavItem {
    * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
    * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps" | "produits360";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1728,6 +1728,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   PURCHASE_ORDERS: "Bons de commande",
   MARKETING_COCKPIT: "Marketing cockpit",
   SEGMENTATION: "Segmentation Studio",
+  CONSUMPTION: "Consumption Intelligence",
 };
 
 /**
@@ -1791,12 +1792,13 @@ export const ANNUAIRES_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Médecins", href: "/annuaires/medecins", annuaire: "MEDECINS" },
   { module: "MEDICAL", label: "Pharmaciens", href: "/annuaires/pharmaciens", annuaire: "PHARMACIENS" },
   { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements", annuaire: "ETABLISSEMENTS" },
-  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — une STRUCTURE de l'annuaire : il s'ouvre par la
-  // Promotion médicale, pas par une case « Médecins » de la console (§118.147).
-  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites", regle: "specialites" },
+  // LES SPÉCIALITÉS ne sont plus un onglet des Annuaires (Direction, 06/10) : une porte d'entrée UNIQUE, Marketing
+  // cockpit › Spécialités. « Autres annuaires » disparaît : ses fournisseurs deviennent un annuaire à part entière ;
+  // les partenaires du courrier et les lieux de stock restent dans leurs modules.
   { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
+  { module: "WORKSPACE", label: "Partenaires publics", href: "/annuaires/partenaires-publics", annuaire: "PARTENAIRES_PUBLICS" },
+  { module: "DIRECTORIES", label: "Fournisseurs Regulatory", href: "/annuaires/fournisseurs", annuaire: "FOURNISSEURS" },
   { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes", annuaire: "PERSONNES" },
-  { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },
 ];
 
 /**
@@ -2018,6 +2020,11 @@ export const NAVIGATION: NavItem[] = [
   { module: "MARKETING_COCKPIT", label: "Marketing cockpit", href: "/marketing-cockpit/messages", icon: "Megaphone", group: "Pôles", pole: "SALES_MARKETING", tabs: MARKETING_COCKPIT_TABS, match: ["/marketing-cockpit"] },
   // SEGMENTATION STUDIO — la segmentation native : stratégie par BU, règles versionnées, panel calculé et expliqué.
   { module: "SEGMENTATION", label: "Segmentation", href: "/segmentation", icon: "Layers", group: "Pôles", pole: "SALES_MARKETING", match: ["/segmentation"] },
+  // PRODUITS — chaque produit canonique et sa vue 360° (réglementaire, AO, ventes, segmentation, consommation, coûts).
+  // Le module WORKSPACE est à tout le monde : c'est la garde produits360 (voir au moins une facette) qui ouvre l'entrée.
+  { module: "WORKSPACE", label: "Produits", href: "/produits", icon: "Pill", group: "Pôles", pole: "SALES_MARKETING", gate: "produits360", match: ["/produits"] },
+  // CONSUMPTION INTELLIGENCE — la consommation hospitalière importée, normalisée, et l'affinité qu'on en tire.
+  { module: "CONSUMPTION", label: "Consommation", href: "/consommation", icon: "ChartColumn", group: "Pôles", pole: "SALES_MARKETING", match: ["/consommation"] },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/consulting"] },
   // LE STOCK PROMOTIONNEL — son propre sous-module (§118.173), et plus un onglet d'Ad & Pro.

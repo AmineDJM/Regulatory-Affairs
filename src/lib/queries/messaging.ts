@@ -312,7 +312,10 @@ export async function getConversationSummaries(selfId: string): Promise<Conversa
         conversation: {
           include: {
             members: { where: { leftAt: null }, include: { user: { select: messagingUserSelect } } },
+            // LE DERNIER MESSAGE NON SUPPRIMÉ : un message supprimé ne s'aperçoit plus nulle part, pas même dans
+            // l'aperçu de la liste des conversations (Direction, 06/10 : « Vous : Hahahahaha » après suppression).
             messages: {
+              where: { deletedAt: null },
               take: 1,
               orderBy: { createdAt: "desc" },
               include: { sender: { select: { id: true, name: true } }, attachments: { select: { id: true }, take: 1 } },

@@ -204,18 +204,28 @@ export function methodeDuFichier(lignes: readonly LigneClasseur[]): { methode: M
 
 export interface FrequencesLues { h: number | null; groupes: { segments: Segment[]; frequence: number }[] }
 
+/** Une fréquence lue pour UNE zone et UN côté (In = wilaya pivot du KAM, Out = les autres wilayas). */
+export interface FrequenceZone { zone: string | null; inOut: "IN" | "OUT"; groupe: string; frequence: number }
+
 /**
- * Les fréquences de visite que la feuille des KAM écrit par groupe (« H, A & B » → 2 ; « C & D » → 1).
- * La valeur la plus fréquente d'un groupe l'emporte ; les écarts par zone sont rendus pour être vus.
+ * Les fréquences de visite que la feuille des KAM écrit par groupe (« H, A & B » → 2 ; « C & D » → 1), par ZONE (les
+ * blocs « Centre », « Ouest », « Est ») et par côté (« In » = la wilaya pivot du KAM, « Out » = les autres). La valeur
+ * la plus fréquente d'un groupe fait la règle générale ; chaque zone/côté qui s'en écarte devient une EXCEPTION.
  */
-export function frequencesDesFeuilles(feuilles: Feuilles): FrequencesLues & { ecarts: string[] } {
+export function frequencesDesFeuilles(feuilles: Feuilles, zones: readonly string[] = []): FrequencesLues & { ecarts: string[]; parZone: FrequenceZone[] } {
   const parGroupe = new Map<string, number[]>();
+  const parZone: FrequenceZone[] = [];
+  const zonesConnues = new Map(zones.map((z) => [z.trim().toLowerCase(), z.trim()]));
   for (const rows of Object.values(feuilles)) {
     let groupe: string | null = null;
+    let zone: string | null = null;
     for (const r of rows) {
       for (let i = 0; i < (r?.length ?? 0); i++) {
         const t = clean(r[i]);
         if (/^[HABCD](\s*[,&]\s*[HABCD])+$/i.test(t.replace(/\s+/g, " "))) { groupe = t.toUpperCase().replace(/\s+/g, ""); }
+        // Un bloc de zone commence par son nom seul dans une cellule (« Centre », « Ouest », « Est »).
+        const z = zonesConnues.get(t.toLowerCase());
+        if (z) { zone = z; groupe = null; }
       }
       if (!groupe) continue;
       // La première valeur numérique après « In/Out » est le nombre, la suivante la fréquence.
@@ -223,7 +233,10 @@ export function frequencesDesFeuilles(feuilles: Feuilles): FrequencesLues & { ec
       const io = (r ?? []).findIndex((c) => /^(in|out)$/i.test(clean(c)));
       if (io < 0) continue;
       const f = nums[io + 2];
-      if (f !== null && f !== undefined) (parGroupe.get(groupe) ?? parGroupe.set(groupe, []).get(groupe)!).push(f);
+      if (f !== null && f !== undefined) {
+        (parGroupe.get(groupe) ?? parGroupe.set(groupe, []).get(groupe)!).push(f);
+        parZone.push({ zone, inOut: /^in$/i.test(clean(r[io])) ? "IN" : "OUT", groupe, frequence: f });
+      }
     }
   }
   const mode = (xs: number[]) => { const m = new Map<number, number>(); xs.forEach((x) => m.set(x, (m.get(x) ?? 0) + 1)); return [...m].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? null; };
@@ -238,7 +251,27 @@ export function frequencesDesFeuilles(feuilles: Feuilles): FrequencesLues & { ec
     if (g.split(/[,&]/).includes("H")) h = f;
     if (segs.length) groupes.push({ segments: segs, frequence: f });
   }
-  return { h, groupes: groupes.sort((a, b) => b.frequence - a.frequence), ecarts };
+  return { h, groupes: groupes.sort((a, b) => b.frequence - a.frequence), ecarts, parZone };
+}
+
+/**
+ * LES EXCEPTIONS DE FRÉQUENCE d'une feuille des KAM : chaque (zone, In/Out) dont la fréquence d'un groupe s'écarte de
+ * la fréquence générale du groupe — pour les priorités qui portent ses segments, et pour H quand le groupe le nomme.
+ */
+export function exceptionsDeFrequence(freq: ReturnType<typeof frequencesDesFeuilles>): { zone: string | null; inOut: "IN" | "OUT"; priorite: string; frequence: number }[] {
+  const generale = new Map<string, number>();
+  for (const g of freq.groupes) generale.set(g.segments.join(","), g.frequence);
+  const out: { zone: string | null; inOut: "IN" | "OUT"; priorite: string; frequence: number }[] = [];
+  for (const x of freq.parZone) {
+    const morceaux = x.groupe.split(/[,&]/);
+    const segs = morceaux.filter((s) => ["A", "B", "C", "D"].includes(s)).join(",");
+    const rang = freq.groupes.findIndex((g) => g.segments.join(",") === segs);
+    const base = generale.get(segs);
+    if (rang >= 0 && base !== undefined && x.frequence !== base) out.push({ zone: x.zone, inOut: x.inOut, priorite: `P${rang + 1}`, frequence: x.frequence });
+    if (morceaux.includes("H") && freq.h !== null && x.frequence !== freq.h) out.push({ zone: x.zone, inOut: x.inOut, priorite: "H", frequence: x.frequence });
+  }
+  // Une même exception lue deux fois (In et Out identiques, deux tableaux) ne compte qu'une fois.
+  return out.filter((e, i) => out.findIndex((o) => o.zone === e.zone && o.inOut === e.inOut && o.priorite === e.priorite) === i);
 }
 
 /** Le segment calculé pour une ligne, avec des règles données (sans dérogation) — pour comparer au fichier. */
@@ -293,7 +326,9 @@ export interface PropositionRegles {
 export function proposerRegles(lecture: LectureClasseur, feuilles: Feuilles, productId: string): PropositionRegles {
   const txt = reglesDuTexte(lecture.texte);
   const meth = methodeDuFichier(lecture.lignes);
-  const freq = frequencesDesFeuilles(feuilles);
+  const zones = [...new Set(lecture.lignes.map((l) => l.zone).filter((z): z is string => !!z))];
+  const freq = frequencesDesFeuilles(feuilles, zones);
+  const exceptionsFrequence = exceptionsDeFrequence(freq);
   const provenance: string[] = [];
   if (txt.seuilPotentiel !== null) provenance.push(`Haut potentiel : à partir de ${txt.seuilPotentiel} (${lecture.metrique ?? "potentiel"}) — lu dans la feuille.`);
   if (txt.seuilAffinite !== null) provenance.push(`Affinité : ${txt.comparaisonAffinite === ">" ? "au-delà de" : "à partir de"} ${Math.round(txt.seuilAffinite * 1000) / 10} % — lu dans la feuille.`);
@@ -302,7 +337,9 @@ export function proposerRegles(lecture: LectureClasseur, feuilles: Feuilles, pro
   if (hStatuts.length) provenance.push(`H = ${hStatuts.join(", ")} — d'après les lignes classées H.`);
   if (freq.h !== null) provenance.push(`Fréquence H : ${freq.h} par cycle — lue dans la feuille des KAM.`);
   freq.groupes.forEach((g, i) => provenance.push(`Priorité P${i + 1} (${g.segments.join(", ")}) : ${g.frequence} visite(s) par cycle — lue dans la feuille des KAM.`));
-  provenance.push(...freq.ecarts);
+  // Les écarts deviennent des exceptions explicites (zone, In = wilaya pivot du KAM / Out) — pas une moyenne qui les efface.
+  for (const e of exceptionsFrequence) provenance.push(`${e.priorite === "H" ? "H" : `Priorité ${e.priorite}`} — ${e.zone ?? "toutes zones"}, ${e.inOut === "IN" ? "In (wilaya pivot du KAM)" : "Out"} : ${e.frequence} visite(s) par cycle — lue dans la feuille des KAM.`);
+  if (exceptionsFrequence.length === 0) provenance.push(...freq.ecarts);
   const produit: RegleProduit = {
     productId, metrique: lecture.metrique ?? "patients / semaine",
     seuilPotentiel: txt.seuilPotentiel ?? NaN, seuilAffinite: txt.seuilAffinite ?? NaN,
@@ -314,6 +351,7 @@ export function proposerRegles(lecture: LectureClasseur, feuilles: Feuilles, pro
     h: { statuts: hStatuts, frequence: freq.h },
     priorites: { regles: freq.groupes.map((g, i) => ({ priorite: `P${i + 1}`, rang1: g.segments })), repli: null },
     frequences: Object.fromEntries(freq.groupes.map((g, i) => [`P${i + 1}`, g.frequence])),
+    ...(exceptionsFrequence.length ? { exceptionsFrequence } : {}),
   };
   const lu = lireRegles(contenu);
   const erreurs = lu.ok ? [] : lu.erreurs;

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select, Label } from "@/components/ui/input";
@@ -25,6 +26,8 @@ export interface LigneVue {
   specialite: string | null;
   statut: Statut | null;
   zone: string | null;
+  /** IN = wilaya pivot d'un KAM qui le couvre ; OUT = ailleurs. */
+  inOut?: "IN" | "OUT" | null;
   derniereObservation: string | null;
   resultat: ResultatPraticien | null;
   derogations: DerogationVue[];
@@ -114,14 +117,14 @@ export function Panel({ strategieId, produits, lignes, zones, reglesPubliees, pe
               <React.Fragment key={l.doctorId}>
                 <tr className="cursor-pointer border-b border-border/60 hover:bg-secondary/40" onClick={() => setOuverte(ouverte === l.doctorId ? null : l.doctorId)}>
                   <td className="px-3 py-2">
-                    <div className="font-medium">{l.nom}</div>
+                    <Link href={`/praticiens/${l.doctorId}`} onClick={(e) => e.stopPropagation()} className="font-medium hover:underline">{l.nom}</Link>
                     <div className="text-xs text-muted-foreground">{[l.etablissement, l.specialite].filter(Boolean).join(" · ")}</div>
                   </td>
                   <td className="px-3 py-2">
                     {l.resultat?.h && <Badge tone="purple" className="mr-1">H</Badge>}
                     {l.statut ? STATUT_LABELS[l.statut] : "—"}
                   </td>
-                  <td className="px-3 py-2">{l.zone ?? "—"}</td>
+                  <td className="px-3 py-2" title={l.inOut ? (l.inOut === "IN" ? "Dans la wilaya pivot d'un KAM qui le couvre" : "Hors de la wilaya pivot des KAM qui le couvrent") : undefined}>{l.zone ?? "—"}{l.inOut ? ` · ${l.inOut === "IN" ? "In" : "Out"}` : ""}</td>
                   {produits.map((p) => {
                     const r = l.resultat?.produits.find((x) => x.productId === p.productId);
                     return <td key={p.productId} className="px-3 py-2">{r ? <EtatBadge etat={r.etat} derogee={!!r.derogation} /> : "—"}</td>;

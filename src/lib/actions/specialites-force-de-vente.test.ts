@@ -69,8 +69,9 @@ function liens(noeud: unknown, trouves: string[] = []): string[] {
 }
 
 describe("les points d'appel — une règle, un écran, une liste de chemins", () => {
-  it("les deux portes (Annuaires, Force de vente) montent LE MÊME composant, qui lit la règle", () => {
-    for (const rel of ["src/app/(app)/annuaires/specialites/page.tsx", "src/app/(app)/marketing-cockpit/specialites/page.tsx"]) {
+  it("UNE porte (Marketing cockpit) monte le composant, qui lit la règle ; l'ancienne adresse des Annuaires y mène", () => {
+    expect(code("src/app/(app)/annuaires/specialites/page.tsx")).toContain('redirect("/marketing-cockpit/specialites")');
+    for (const rel of ["src/app/(app)/marketing-cockpit/specialites/page.tsx"]) {
       const src = code(rel);
       expect(src, rel).toContain("<EcranSpecialites user={user} />");
       expect(src, rel).toContain(`peutGererSpecialites(user, "VIEW")`);

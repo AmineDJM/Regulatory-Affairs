@@ -26,6 +26,8 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
 
 function fd(values: Record<string, string>): FormData {
   const f = new FormData();
+  // Un dossier du suivi se crée avec sa CTD initiale (Direction, 06/10) : le formulaire dit combien de fichiers.
+  f.set("ctdFichiers", "1");
   for (const [k, v] of Object.entries(values)) f.set(k, v);
   return f;
 }

@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import { lireRegles, type Regles } from "./regles";
 import { segmenterPraticien, prioriteDe, impactDesRegles, synthese, type FaitsPraticien } from "./moteur";
-import { lireClasseur, reglesDuTexte, methodeDuFichier, frequencesDesFeuilles, proposerRegles, champDeLEntete, type Feuilles } from "./lecture-classeur";
+import { lireClasseur, reglesDuTexte, methodeDuFichier, frequencesDesFeuilles, exceptionsDeFrequence, proposerRegles, champDeLEntete, type Feuilles } from "./lecture-classeur";
+import { inOutDe, wilayaPivot } from "./in-out";
 import { rapprocher, clePersonne } from "./rapprochement";
 import { PERMISSIONS, defaultScope } from "@/lib/rbac";
 import { NAVIGATION, MODULE_LABELS } from "@/lib/labels";
@@ -280,5 +281,83 @@ describe.skipIf(!REEL || !existsSync(REEL))("classeur réel « Segmentation Fina
     console.log(lecture.feuille, lecture.lignes.length, p.provenance, p.concordance.identiques, "/", p.concordance.total, p.concordance.divergences);
     expect(p.erreurs).toEqual([]);
     expect(p.concordance.identiques / p.concordance.total).toBeGreaterThan(0.98);
+  });
+});
+
+describe("§73/§74 — BU multi-spécialités : un produit ne vise qu'une partie des spécialités", () => {
+  const NEURO = "neuro", DERMA = "derma", URO = "uro";
+  const A = "prod-a", B = "prod-b", C = "prod-c";
+  const ctx = { specialitesParProduit: { [A]: [NEURO], [B]: [DERMA], [C]: [NEURO, URO] }, nomsSpecialites: { neuro: "Neurologie", derma: "Dermatologie", uro: "Urologie" } };
+  const r3 = regles({}, [A, B, C]);
+  const dr = (specialiteId: string | null) => ({ ...faits({ obs: [[A, 30, 3], [B, 30, 3], [C, 30, 3]] }), specialiteId });
+  it("un neurologue est ciblé sur A et C, non ciblé sur B — et le pourquoi le dit", () => {
+    const r = segmenterPraticien(dr(NEURO), r3, T0, ctx);
+    expect(r.affichage).toBe("A / NC / A");
+    expect(r.produits[1].pourquoi.join(" ")).toMatch(/Neurologie non visée par ce produit \(Dermatologie\)/);
+  });
+  it("un urologue : C seulement ; un dermatologue : B seulement", () => {
+    expect(segmenterPraticien(dr(URO), r3, T0, ctx).affichage).toBe("NC / NC / A");
+    expect(segmenterPraticien(dr(DERMA), r3, T0, ctx).affichage).toBe("NC / A / NC");
+  });
+  it("spécialité non renseignée sur un produit restreint : en attente, jamais exclu ni classé", () => {
+    expect(segmenterPraticien(dr(null), r3, T0, ctx).produits[0].etat).toBe("EN_ATTENTE");
+  });
+  it("§74 — BU mono-spécialité : aucun réglage, rien ne change", () => {
+    expect(segmenterPraticien(dr(null), r3, T0, {}).affichage).toBe("A / A / A");
+  });
+});
+
+describe("§34-35 — affinité d'hôpital : un PROXY explicite, jamais par défaut", () => {
+  const ctx = { affiniteEtablissement: { oran: { [RAL]: { valeur: 0.14, periode: "12 mois jusqu'au 2026-09-30" } } }, nomsEtablissements: { oran: "CHU Oran" } };
+  const f = { ...faits({ obs: [[RAL, 30, null]] }), institutionId: "oran" };
+  it("règle « déclarée » : l'affinité d'hôpital n'est PAS attribuée au médecin", () => {
+    expect(segmenterPraticien(f, regles(), T0, ctx).produits[0].etat).toBe("EN_ATTENTE");
+  });
+  it("règle « proxy établissement » : appliquée, et le pourquoi le nomme", () => {
+    const r = regles();
+    const proxy = regles({ produits: [{ ...r.produits[0], sourceAffinite: "ETABLISSEMENT" }] });
+    const res = segmenterPraticien(f, proxy, T0, ctx).produits[0];
+    expect(res.etat).toBe("A");
+    expect(res.pourquoi.join(" ")).toMatch(/proxy établissement — CHU Oran, 14 %/);
+  });
+  it("« déclarée, sinon établissement » : la déclaration du praticien l'emporte quand elle existe", () => {
+    const r = regles();
+    const mixte = regles({ produits: [{ ...r.produits[0], sourceAffinite: "DECLAREE_SINON_ETABLISSEMENT" }] });
+    expect(segmenterPraticien({ ...faits({ obs: [[RAL, 30, 0]] }), institutionId: "oran" }, mixte, T0, ctx).produits[0].etat).toBe("B");
+    expect(segmenterPraticien(f, mixte, T0, ctx).produits[0].etat).toBe("A");
+  });
+});
+describe("In / Out (Direction, 06/10) — In = la wilaya pivot du KAM, Out = les autres wilayas", () => {
+  it("règle pure : In si la wilaya est la wilaya pivot d'un KAM qui le couvre ; inconnu sans ville pivot", () => {
+    expect(inOutDe("Oran", ["Oran"])).toBe("IN");
+    expect(inOutDe("Tlemcen", ["Oran"])).toBe("OUT");
+    expect(inOutDe("Tlemcen", ["Oran", "Tlemcen"])).toBe("IN");
+    expect(inOutDe("Oran", [null])).toBeNull();
+    expect(inOutDe(null, ["Oran"])).toBeNull();
+    expect(wilayaPivot("oran")).toBe("Oran");
+  });
+  it("moteur : Ouest In → 3 visites pour P1 et H ; Ouest Out et inconnu → la fréquence générale, et le pourquoi le dit", () => {
+    const r = regles({ exceptionsFrequence: [{ zone: "Ouest", inOut: "IN", priorite: "P1", frequence: 3 }, { zone: "Ouest", inOut: "IN", priorite: "H", frequence: 3 }] });
+    const p1 = (inOut: "IN" | "OUT" | null, zone = "Ouest") => segmenterPraticien({ ...faits({ zone, obs: [[RAL, 30, 3]] }), inOut }, r, T0);
+    expect(p1("IN").visites).toBe(3);
+    expect(p1("IN").pourquoiVisites).toMatch(/Ouest, In \(wilaya pivot du KAM\)/);
+    expect(p1("OUT").visites).toBe(2);
+    expect(p1(null).visites).toBe(2);
+    expect(p1("IN", "Centre").visites).toBe(2);
+    const h = segmenterPraticien({ ...faits({ zone: "Ouest", statut: "DECIDEUR" }), inOut: "IN" }, r, T0);
+    expect(h.visites).toBe(3);
+  });
+  it("import : les blocs de zone de la feuille des KAM deviennent des exceptions explicites (Ouest In = 3)", () => {
+    const KAM: Feuilles = { V2: [
+      [null, null, "Centre ", null, null, null, 127], [null, null, " H, A & B", "In", 39, 2, 78], [null, null, null, "Out", 18, 2, 36], [null, null, "C & D", "In", 3, 1, 3], [null, null, null, "Out", 10, 1, 10],
+      [null, null, "Ouest", null, null, null, 88], [null, null, " H, A & B", "In", 15, 3, 45], [null, null, null, "Out", 17, 2, 34], [null, null, "C & D", "In", null, 1, 0], [null, null, null, "Out", 9, 1, 9],
+      [null, null, "Est", null, null, null, 108], [null, null, " H, A & B", "In", 4, 2, 8], [null, null, null, "Out", 10, 2, 20], [null, null, "C & D", "In", 22, 1, 22], [null, null, null, "Out", 58, 1, 58],
+    ] };
+    const f = frequencesDesFeuilles(KAM, ["Centre", "Ouest", "Est"]);
+    expect(f.h).toBe(2);
+    expect(exceptionsDeFrequence(f)).toEqual([
+      { zone: "Ouest", inOut: "IN", priorite: "P1", frequence: 3 },
+      { zone: "Ouest", inOut: "IN", priorite: "H", frequence: 3 },
+    ]);
   });
 });

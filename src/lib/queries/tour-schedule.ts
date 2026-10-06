@@ -56,6 +56,16 @@ export interface LigneEmploiDuTemps {
   vocal: boolean;
   /** Pourquoi elle n'a pas eu lieu, quand elle est dite reportée ou annulée (§118.193). */
   motifNonTenue: string | null;
+  /** LE POTENTIEL À METTRE À JOUR (Segmentation Studio, §18) : présent quand le praticien est dans le panel d'une
+   *  stratégie de la BU du KAM — la métrique, le produit #1 et la dernière valeur connue, pour ne rien redemander. */
+  potentiel: PotentielAMettreAJour | null;
+}
+
+export interface PotentielAMettreAJour {
+  metrique: string;
+  productId: string | null;
+  produit: string | null;
+  dernier: { potentiel: number | null; sur10: number | null; le: string } | null;
 }
 
 export interface ProduitDeLaGamme {
@@ -150,6 +160,7 @@ export async function loadEmploiDuTemps(
 
   // CE QUE CHAQUE VISITE A REMIS — une lecture pour toutes (§118.102b : jamais une par ligne).
   const remises = await remisesDesVisites(visites.map((v) => v.id));
+  const potentiels = await potentielsDesPraticiens(visites.map((v) => v.doctorId).filter((x): x is string => !!x), profil?.businessUnitId ?? null);
   const RIEN: RemisesDeVisite = { materiel: [], numeriques: [] };
 
   const lignes: LigneEmploiDuTemps[] = visites.map((v) => {
@@ -180,6 +191,7 @@ export async function loadEmploiDuTemps(
       heuresRestantes: f.heuresRestantes,
       vocal: v.fieldReports.length > 0,
       motifNonTenue: v.notHeldReason,
+      potentiel: v.doctorId ? potentiels.get(v.doctorId) ?? null : null,
     };
   });
 
@@ -560,4 +572,39 @@ export async function loadTourneeDirection(
     sansPlan: lignes.filter((l) => l.statutPlan === null).length,
     enRetard: lignes.filter((l) => l.retard.enRetard).length,
   };
+}
+
+/**
+ * CE QUE LA SEGMENTATION SAIT DÉJÀ de chaque praticien de la tournée — une lecture pour toutes. Seuls les praticiens
+ * du panel d'une stratégie ACTIVE de la BU du KAM ont un potentiel à mettre à jour.
+ */
+async function potentielsDesPraticiens(doctorIds: string[], businessUnitId: string | null): Promise<Map<string, PotentielAMettreAJour>> {
+  const out = new Map<string, PotentielAMettreAJour>();
+  if (!businessUnitId || doctorIds.length === 0) return out;
+  const fiches = await prisma.segmentationFiche.findMany({
+    where: { doctorId: { in: doctorIds }, retireeLe: null, strategie: { statut: "ACTIVE", businessUnitId } },
+    select: {
+      doctorId: true,
+      strategie: { select: {
+        produits: { where: { jusqua: null, rang: 1 }, select: { productId: true, product: { select: { canonicalName: true } } } },
+        regles: { orderBy: { version: "desc" }, take: 1, select: { contenu: true } },
+      } },
+    },
+  });
+  const obs = await prisma.hcpObservation.findMany({
+    where: { doctorId: { in: [...new Set(fiches.map((f) => f.doctorId))] } },
+    orderBy: { observeLe: "desc" }, select: { doctorId: true, potentiel: true, prescriptionsSur10: true, observeLe: true },
+  });
+  for (const f of fiches) {
+    if (out.has(f.doctorId)) continue;
+    const p1 = f.strategie.produits[0];
+    const contenu = (f.strategie.regles[0]?.contenu ?? {}) as { produits?: { metrique?: unknown }[] };
+    const metrique = typeof contenu.produits?.[0]?.metrique === "string" ? contenu.produits[0].metrique as string : "patients / semaine";
+    const o = obs.find((x) => x.doctorId === f.doctorId);
+    out.set(f.doctorId, {
+      metrique, productId: p1?.productId ?? null, produit: p1?.product.canonicalName ?? null,
+      dernier: o ? { potentiel: o.potentiel === null ? null : Number(o.potentiel), sur10: o.prescriptionsSur10 === null ? null : Number(o.prescriptionsSur10), le: o.observeLe.toISOString() } : null,
+    });
+  }
+  return out;
 }

@@ -2,6 +2,7 @@ import type { SessionUser } from "@/lib/rbac";
 import { Prisma } from "@prisma/client";
 import { userCan, hasGlobalView, scopeBusinessDevelopment } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { sections360 } from "@/lib/vues-360-acces";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { accessibleDocumentWhere } from "@/lib/queries/documents";
@@ -154,7 +155,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
   for (const r of employees) out.push({ id: r.id, group: "RH", title: r.fullName, subtitle: r.position ?? "", href: `/rh/${r.id}`, icon: "UsersRound" });
   for (const r of sales) out.push({ id: r.id, group: "Ventes", title: r.product, subtitle: r.client, href: `/sales`, icon: "TrendingUp" });
   for (const r of logistics) out.push({ id: r.id, group: "Logistique PCH", title: r.product, subtitle: r.reference, href: `/logistics/${r.id}`, icon: "Truck" });
-  for (const r of doctors) out.push({ id: r.id, group: "Annuaire", title: r.name, subtitle: r.specialty ?? "", href: `/medical`, icon: "Stethoscope" });
+  for (const r of doctors) out.push({ id: r.id, group: "Annuaire", title: r.name, subtitle: r.specialty ?? "", href: `/praticiens/${r.id}`, icon: "Stethoscope" });
   for (const r of bd) out.push({ id: r.id, group: "Business Development", title: r.name, subtitle: r.dci ?? "", href: `/business-development`, icon: "Lightbulb" });
   for (const r of drive) out.push({ id: r.id, group: "Drive", title: r.name, subtitle: r.mimeType ?? "", href: `/drive/${r.id}`, icon: "HardDrive" });
   for (const r of documents) out.push({ id: r.id, group: "Documents", title: r.name, subtitle: "Télécharger", href: `/api/documents/${r.id}`, icon: "FolderOpen" });
@@ -170,5 +171,36 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
   for (const r of pchOrders) out.push({ id: r.id, group: "Marchés PCH", title: `BC ${r.reference ?? "s/n"}`, subtitle: [r.tender.reference, r.products].filter(Boolean).join(" · "), href: `/pch/${r.tenderId}`, icon: "ReceiptText" });
   for (const r of legalDocs) out.push({ id: r.id, group: "Legal", title: r.title, subtitle: r.reference ?? String(r.kind), href: `/legal/${r.id}`, icon: "Scale" });
   for (const r of mailEntries) out.push({ id: r.id, group: "Courriers", title: r.title, subtitle: r.reference ?? "", href: `/courriers/${r.id}`, icon: "Mails" });
+  out.push(...(await rechercheReliee(user, match, take)));
   return out;
+}
+
+/**
+ * LES OBJETS CENTRAUX (cahier des charges §58) — « Raltégravir » retrouve LE produit (une seule identité, ouverte
+ * sur sa vue 360°), les BU et les stratégies de segmentation. La porte est celle de leur écran : un produit à qui
+ * voit au moins une de ses facettes (`sections360`), une BU à qui a la Force de vente, une stratégie à qui a le
+ * Segmentation Studio.
+ */
+async function rechercheReliee(
+  user: SessionUser,
+  match: (fields: string[]) => { OR: Record<string, unknown>[] }[],
+  take: number,
+): Promise<SearchResult[]> {
+  const voitProduits = Object.values(sections360(user)).some(Boolean);
+  const [produits, bus, strategies] = await Promise.all([
+    voitProduits
+      ? prisma.product.findMany({ where: { AND: [{ isActive: true }, { OR: [{ AND: match(["canonicalName", "dci", "code"]) as Prisma.ProductWhereInput[] }, { aliases: { some: { AND: match(["label"]) as Prisma.ProductAliasWhereInput[] } } }] }] }, take, select: { id: true, canonicalName: true, code: true, dci: true } })
+      : [],
+    userCan(user, "SALES_PLANNING", "VIEW")
+      ? prisma.businessUnit.findMany({ where: { AND: [{ isActive: true }, ...(match(["name", "code"]) as Prisma.BusinessUnitWhereInput[])] }, take, select: { id: true, name: true, code: true } })
+      : [],
+    userCan(user, "SEGMENTATION", "VIEW")
+      ? prisma.segmentationStrategie.findMany({ where: { AND: [{ statut: "ACTIVE" }, { OR: [{ AND: match(["nom"]) as Prisma.SegmentationStrategieWhereInput[] }, { produits: { some: { jusqua: null, product: { AND: match(["canonicalName", "dci"]) as Prisma.ProductWhereInput[] } } } }] }] }, take, select: { id: true, nom: true, businessUnit: { select: { name: true } } } })
+      : [],
+  ]);
+  return [
+    ...produits.map((r) => ({ id: r.id, group: "Produits", title: r.canonicalName, subtitle: [r.code, r.dci].join(" · "), href: `/produits/${r.id}`, icon: "Pill" })),
+    ...bus.map((r) => ({ id: r.id, group: "Business Units", title: r.name, subtitle: r.code ?? "Cockpit de la BU", href: `/business-units/${r.id}`, icon: "Building2" })),
+    ...strategies.map((r) => ({ id: r.id, group: "Segmentation", title: r.nom, subtitle: `BU ${r.businessUnit.name}`, href: `/segmentation?s=${r.id}`, icon: "Layers" })),
+  ];
 }

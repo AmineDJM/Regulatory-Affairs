@@ -162,7 +162,7 @@ export const REGULATORY_OPS_IMPL: Record<string, OpImpl> = {
           ...(targetSubmissionDate ? [{ label: "Dépôt cible", value: targetSubmissionDate }] : []),
           { label: "Référence", value: "générée automatiquement (REG-AAAA-NNN)" },
         ],
-        warnings: ["Le dossier naît avec ses 17 étapes de chronologie, visibles selon l'entité choisie."],
+        warnings: ["Le dossier naît AU PIPELINE (verrouillé, à l'étude) avec ses 17 étapes : un dossier du suivi exige sa CTD initiale, que l'assistant ne peut pas joindre — elle se joint à l'ouverture du cadenas."],
         args: {
           dci, companyId: company.id, brandName, form, dosage, partnerLab,
           responsibleId: responsible?.id ?? null, targetSubmissionDate,
@@ -176,6 +176,8 @@ export const REGULATORY_OPS_IMPL: Record<string, OpImpl> = {
       const fd = new FormData();
       fd.set("dci", args.dci ?? "");
       fd.set("companyId", args.companyId ?? "");
+      // AU PIPELINE : la CTD initiale, obligatoire dans le suivi (Direction, 06/10), se joint ensuite.
+      fd.set("lock", "1");
       if (args.brandName) fd.set("brandName", args.brandName);
       if (args.form) fd.set("pharmaceuticalForm", args.form);
       if (args.dosage) fd.set("dosage", args.dosage);

@@ -9,13 +9,16 @@ import { titleFrom } from "@/lib/medical/directory-sheet";
 import { ADVENTUM_COMPANY_ID } from "@/lib/company-defaut";
 import { lireClasseur, proposerRegles, type Feuilles, type LectureClasseur, type PropositionRegles } from "./lecture-classeur";
 import { rapprocher, typeDEtablissement, type Rapprochement } from "./rapprochement";
-import { lireRegles, STATUTS, type Regles, type Statut } from "./regles";
-import { segmenterPraticien, type FaitsPraticien, type ResultatPraticien } from "./moteur";
+import { lireRegles, STATUTS, type InOut, type Regles, type Statut } from "./regles";
+import { inOutDe, wilayaPivot } from "./in-out";
+import { clausePanelDuKam } from "@/lib/rbac";
+import { segmenterPraticien, type ContexteSegmentation, type FaitsPraticien, type ResultatPraticien } from "./moteur";
+import { affinitesEtablissements } from "@/lib/consommation/affinite-service";
 
 /**
- * SEGMENTATION STUDIO â€” le cÃ´tÃ© BASE : charger une stratÃ©gie et ses faits, prÃ©parer puis appliquer
- * l'import d'un classeur. Les dÃ©cisions vivent dans les modules purs (`regles`, `moteur`,
- * `lecture-classeur`, `rapprochement`) ; ici, on lit et on Ã©crit, dans une transaction.
+ * SEGMENTATION STUDIO — le côté BASE : charger une stratégie et ses faits, préparer puis appliquer
+ * l'import d'un classeur. Les décisions vivent dans les modules purs (`regles`, `moteur`,
+ * `lecture-classeur`, `rapprochement`) ; ici, on lit et on écrit, dans une transaction.
  */
 
 export interface ProduitClasse { productId: string; rang: number; nom: string; dci: string }
@@ -27,6 +30,8 @@ export interface StrategieChargee {
   businessUnit: { id: string; name: string };
   produits: ProduitClasse[];
   regle: { id: string; version: number; contenu: unknown; regles: Regles | null; erreurs: string[]; publieeLe: Date; note: string | null } | null;
+  /** Ce que le moteur lit autour des règles : spécialités visées par produit, affinité par établissement. */
+  contexte: ContexteSegmentation;
 }
 
 export async function chargerStrategie(id: string): Promise<StrategieChargee | null> {
@@ -41,11 +46,37 @@ export async function chargerStrategie(id: string): Promise<StrategieChargee | n
   if (!s) return null;
   const r = s.regles[0];
   const lu = r ? lireRegles(r.contenu) : null;
+  const productIds = s.produits.map((p) => p.productId);
   return {
     id: s.id, nom: s.nom, statut: s.statut, businessUnit: s.businessUnit,
     produits: s.produits.map((p) => ({ productId: p.productId, rang: p.rang, nom: p.product.canonicalName, dci: p.product.dci })),
     regle: r ? { ...r, regles: lu?.ok ? lu.regles : null, erreurs: lu && !lu.ok ? lu.erreurs : [] } : null,
+    contexte: await chargerContexte(s.businessUnit.id, productIds),
   };
+}
+
+/**
+ * LE CONTEXTE RELIÉ d'une stratégie — lu à chaque calcul (un cycle le fige) :
+ *   • les spécialités que chaque produit vise dans la BU (`PromoProductSpecialite` sur le `PromoProduct` BU × produit) ;
+ *   • l'affinité de chaque établissement pour chaque produit, calculée sur la consommation importée.
+ */
+export async function chargerContexte(businessUnitId: string, productIds: string[]): Promise<ContexteSegmentation> {
+  const promos = await prisma.promoProduct.findMany({
+    where: { businessUnitId, productId: { in: productIds } },
+    select: { productId: true, specialitesCibles: { select: { specialtyId: true, specialty: { select: { name: true } } } } },
+  });
+  const specialitesParProduit: Record<string, string[]> = {};
+  const nomsSpecialites: Record<string, string> = {};
+  for (const p of promos) {
+    if (!p.productId) continue;
+    const ids = p.specialitesCibles.map((s) => s.specialtyId);
+    if (ids.length) specialitesParProduit[p.productId] = [...new Set([...(specialitesParProduit[p.productId] ?? []), ...ids])];
+    for (const s of p.specialitesCibles) nomsSpecialites[s.specialtyId] = s.specialty.name;
+  }
+  const docs = await prisma.medicalSpecialty.findMany({ select: { id: true, name: true } });
+  for (const d of docs) nomsSpecialites[d.id] ??= d.name;
+  const affinite = await affinitesEtablissements(productIds);
+  return { specialitesParProduit, nomsSpecialites, ...affinite };
 }
 
 const num = (d: Prisma.Decimal | null): number | null => (d === null ? null : Number(d));
@@ -58,6 +89,9 @@ export interface LignePanel {
   grade: string;
   etablissement: string | null;
   specialite: string | null;
+  specialiteId: string | null;
+  /** IN = dans la wilaya pivot d'un KAM qui le couvre ; OUT = ailleurs ; null = inconnu. */
+  inOut: InOut | null;
   statut: Statut | null;
   zone: string | null;
   derniereObservation: Date | null;
@@ -65,8 +99,8 @@ export interface LignePanel {
 }
 
 /**
- * Les FAITS de la stratÃ©gie, praticien par praticien, dans la portÃ©e donnÃ©e (`portee` : la clause
- * de l'annuaire qui borne ce que la personne voit â€” le KAM, son panel).
+ * Les FAITS de la stratégie, praticien par praticien, dans la portée donnée (`portee` : la clause
+ * de l'annuaire qui borne ce que la personne voit — le KAM, son panel).
  */
 export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDoctorWhereInput = {}): Promise<{ faits: FaitsPraticien[]; lignes: Omit<LignePanel, "resultat">[] }> {
   const fiches = await prisma.segmentationFiche.findMany({
@@ -75,7 +109,7 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
       id: true, statut: true, zone: true,
       doctor: {
         select: {
-          id: true, name: true, title: true,
+          id: true, name: true, title: true, specialtyId: true, institutionId: true, wilaya: true,
           institutionRef: { select: { name: true } }, institution: true,
           specialtyRef: { select: { name: true } }, specialty: true,
           segmentationObservations: {
@@ -92,12 +126,14 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
     },
     orderBy: { doctor: { name: "asc" } },
   });
+  const inOut = await inOutDesPraticiens(strategieId, fiches.map((f) => ({ id: f.doctor.id, wilaya: f.doctor.wilaya })));
   const faits: FaitsPraticien[] = [];
   const lignes: Omit<LignePanel, "resultat">[] = [];
   for (const f of fiches) {
     const d = f.doctor;
     faits.push({
       doctorId: d.id, statut: estStatut(f.statut) ? f.statut : null, zone: f.zone,
+      specialiteId: d.specialtyId, institutionId: d.institutionId, inOut: inOut.get(d.id) ?? null,
       observations: d.segmentationObservations.map((o) => ({ productId: o.productId, potentiel: num(o.potentiel), prescriptionsSur10: num(o.prescriptionsSur10), observeLe: o.observeLe })),
       derogations: d.segmentationDerogations.filter((x) => x.nature === "CIBLAGE" || x.nature === "SEGMENT").map((x) => ({ nature: x.nature as "CIBLAGE" | "SEGMENT", productId: x.productId, valeur: x.valeur, motif: x.motif, expireLe: x.expireLe })),
     });
@@ -105,22 +141,47 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
       ficheId: f.id, doctorId: d.id, nom: d.name, grade: d.title,
       etablissement: d.institutionRef?.name ?? d.institution ?? null,
       specialite: d.specialtyRef?.name ?? d.specialty ?? null,
-      statut: estStatut(f.statut) ? f.statut : null, zone: f.zone,
+      specialiteId: d.specialtyId,
+      statut: estStatut(f.statut) ? f.statut : null, zone: f.zone, inOut: inOut.get(d.id) ?? null,
       derniereObservation: d.segmentationObservations[0]?.observeLe ?? null,
     });
   }
   return { faits, lignes };
 }
 
-/** Le panel calculÃ© : chaque ligne avec son rÃ©sultat (null si la stratÃ©gie n'a pas encore de rÃ¨gles valides). */
+/**
+ * IN / OUT de chaque praticien : la wilaya PIVOT de chaque KAM de la BU (ville pivot de son territoire propre), et les
+ * praticiens que chacun couvre (secteur ∪ rattachement — `clausePanelDuKam`, la règle unique du panel).
+ */
+async function inOutDesPraticiens(strategieId: string, praticiens: { id: string; wilaya: string | null }[]): Promise<Map<string, InOut | null>> {
+  const out = new Map<string, InOut | null>();
+  if (praticiens.length === 0) return out;
+  const s = await prisma.segmentationStrategie.findUnique({ where: { id: strategieId }, select: { businessUnitId: true } });
+  if (!s) return out;
+  const reps = await prisma.salesRepProfile.findMany({ where: { businessUnitId: s.businessUnitId, isActive: true }, select: { repId: true } });
+  const secteurs = await prisma.salesSector.findMany({ where: { businessUnitId: s.businessUnitId, isActive: true, repId: { in: reps.map((r) => r.repId) } }, select: { repId: true, city: true } });
+  const pivots = new Map<string, string | null>();
+  for (const x of secteurs) if (x.repId) pivots.set(x.repId, wilayaPivot(x.city));
+  const ids = praticiens.map((p) => p.id);
+  const pivotsParPraticien = new Map<string, (string | null)[]>();
+  for (const r of reps) {
+    const pivot = pivots.get(r.repId) ?? null;
+    const couverts = await prisma.medicalDoctor.findMany({ where: { AND: [clausePanelDuKam(r.repId), { id: { in: ids } }] }, select: { id: true } });
+    for (const c of couverts) pivotsParPraticien.set(c.id, [...(pivotsParPraticien.get(c.id) ?? []), pivot]);
+  }
+  for (const p of praticiens) out.set(p.id, inOutDe(p.wilaya, pivotsParPraticien.get(p.id) ?? []));
+  return out;
+}
+
+/** Le panel calculé : chaque ligne avec son résultat (null si la stratégie n'a pas encore de règles valides). */
 export async function chargerPanel(strategie: StrategieChargee, portee: Prisma.MedicalDoctorWhereInput = {}): Promise<LignePanel[]> {
   const { faits, lignes } = await chargerFaits(strategie.id, portee);
   const regles = strategie.regle?.regles ?? null;
   const maintenant = new Date();
-  return lignes.map((l, i) => ({ ...l, resultat: regles ? segmenterPraticien(faits[i], regles, maintenant) : null }));
+  return lignes.map((l, i) => ({ ...l, resultat: regles ? segmenterPraticien(faits[i], regles, maintenant, strategie.contexte) : null }));
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ IMPORT D'UN CLASSEUR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────── IMPORT D'UN CLASSEUR ───────────────────────────────
 
 export function lireFeuilles(buffer: Buffer): Feuilles {
   const wb = XLSX.read(buffer, { type: "buffer" });
@@ -148,7 +209,7 @@ export interface ApercuImport {
   nonCiblesDuFichier: number;
   produitMentionne: string | null;
   produitConcorde: boolean;
-  /** La proposition de rÃ¨gles (si la stratÃ©gie n'a pas encore de version publiÃ©e). */
+  /** La proposition de règles (si la stratégie n'a pas encore de version publiée). */
   regles: PropositionRegles | null;
   anomalies: string[];
 }
@@ -165,8 +226,8 @@ interface Prepare {
 async function preparer(strategie: StrategieChargee, buffer: Buffer): Promise<Prepare | { ok: false; error: string }> {
   const feuilles = lireFeuilles(buffer);
   const lecture = lireClasseur(feuilles);
-  if (!lecture) return { ok: false, error: "Aucune feuille de ce classeur n'a la forme d'une segmentation (colonnes Nom, PrÃ©nom, Ã‰tablissement, Statutâ€¦)." };
-  if (lecture.lignes.length === 0) return { ok: false, error: `La feuille Â« ${lecture_nom(lecture)} Â» n'a aucune ligne de praticien.` };
+  if (!lecture) return { ok: false, error: "Aucune feuille de ce classeur n'a la forme d'une segmentation (colonnes Nom, Prénom, Établissement, Statut…)." };
+  if (lecture.lignes.length === 0) return { ok: false, error: `La feuille « ${lecture_nom(lecture)} » n'a aucune ligne de praticien.` };
   const empreinte = createHash("sha256").update(buffer).digest("hex");
   const deja = await prisma.segmentationImport.findUnique({ where: { strategieId_empreinte: { strategieId: strategie.id, empreinte } }, select: { id: true } });
 
@@ -215,17 +276,17 @@ async function preparer(strategie: StrategieChargee, buffer: Buffer): Promise<Pr
       existants++;
       const c = connus.get(r.doctorId)!;
       const e = etabDe(l.etablissement).id;
-      if (e && c.institutionId && c.institutionId !== e) conflits.push(`Ligne ${l.ligne} (${nom}) : l'annuaire le rattache Ã  un autre Ã©tablissement que Â« ${l.etablissement} Â» â€” l'annuaire est gardÃ©.`);
+      if (e && c.institutionId && c.institutionId !== e) conflits.push(`Ligne ${l.ligne} (${nom}) : l'annuaire le rattache à un autre établissement que « ${l.etablissement} » — l'annuaire est gardé.`);
       const s = specDe(l.specialite).id;
-      if (s && c.specialtyId && c.specialtyId !== s) conflits.push(`Ligne ${l.ligne} (${nom}) : spÃ©cialitÃ© diffÃ©rente de Â« ${l.specialite} Â» dans l'annuaire â€” l'annuaire est gardÃ©.`);
+      if (s && c.specialtyId && c.specialtyId !== s) conflits.push(`Ligne ${l.ligne} (${nom}) : spécialité différente de « ${l.specialite} » dans l'annuaire — l'annuaire est gardé.`);
     } else nouveaux++;
     if (l.potentiel !== null || l.sur10 !== null) observations++;
     if (l.segmentFichier === "NA") nonCibles++;
   }
-  // MÃªme nom dans deux Ã©tablissements du fichier : deux fiches, mais Ã  vÃ©rifier.
+  // Même nom dans deux établissements du fichier : deux fiches, mais à vérifier.
   const parNom = new Map<string, string[]>();
   for (const l of lecture.lignes) { const k = [l.nom, l.prenom].filter(Boolean).join(" ").toLowerCase(); parNom.set(k, [...(parNom.get(k) ?? []), `${l.etablissement ?? "?"} (ligne ${l.ligne})`]); }
-  for (const [k, v] of parNom) if (v.length > 1 && new Set(v.map((x) => x.replace(/ \(ligne \d+\)$/, ""))).size > 1) conflits.push(`Â« ${k} Â» apparaÃ®t dans plusieurs Ã©tablissements : ${v.join(", ")} â€” vÃ©rifiez qu'il s'agit bien de personnes distinctes.`);
+  for (const [k, v] of parNom) if (v.length > 1 && new Set(v.map((x) => x.replace(/ \(ligne \d+\)$/, ""))).size > 1) conflits.push(`« ${k} » apparaît dans plusieurs établissements : ${v.join(", ")} — vérifiez qu'il s'agit bien de personnes distinctes.`);
 
   const p1 = strategie.produits[0];
   const mention = lecture.produitMentionne;
@@ -249,8 +310,8 @@ const lecture_nom = (l: LectureClasseur) => l.feuille;
 
 export async function apercuImport(strategieId: string, buffer: Buffer): Promise<ApercuImport | { ok: false; error: string }> {
   const s = await chargerStrategie(strategieId);
-  if (!s) return { ok: false, error: "StratÃ©gie introuvable." };
-  if (s.produits.length === 0) return { ok: false, error: "Classez d'abord au moins un produit dans la stratÃ©gie." };
+  if (!s) return { ok: false, error: "Stratégie introuvable." };
+  if (s.produits.length === 0) return { ok: false, error: "Classez d'abord au moins un produit dans la stratégie." };
   const p = await preparer(s, buffer);
   return "apercu" in p ? p.apercu : p;
 }
@@ -258,9 +319,9 @@ export async function apercuImport(strategieId: string, buffer: Buffer): Promise
 export interface BilanImport { ok: true; importId: string; crees: number; misAJour: number; observations: number; etablissementsCrees: number; specialitesCreees: number; reglePubliee: number | null }
 
 /**
- * APPLIQUE l'import, en UNE transaction : rÃ©fÃ©rentiels manquants, praticiens (crÃ©ation, ou complÃ©ment des
- * champs VIDES d'une fiche existante â€” jamais d'Ã©crasement), fiches de la stratÃ©gie, observations
- * historisÃ©es, dÃ©cisions Â« non ciblÃ© Â» du fichier, et â€” si la stratÃ©gie n'a pas encore de rÃ¨gles â€” la
+ * APPLIQUE l'import, en UNE transaction : référentiels manquants, praticiens (création, ou complément des
+ * champs VIDES d'une fiche existante — jamais d'écrasement), fiches de la stratégie, observations
+ * historisées, décisions « non ciblé » du fichier, et — si la stratégie n'a pas encore de règles — la
  * version 1 telle que la personne l'a relue.
  */
 export async function appliquerImport(
@@ -268,17 +329,17 @@ export async function appliquerImport(
   opts: { reglesContenu?: unknown },
 ): Promise<BilanImport | { ok: false; error: string }> {
   const s = await chargerStrategie(strategieId);
-  if (!s) return { ok: false, error: "StratÃ©gie introuvable." };
+  if (!s) return { ok: false, error: "Stratégie introuvable." };
   const p1 = s.produits[0];
-  if (!p1) return { ok: false, error: "Classez d'abord au moins un produit dans la stratÃ©gie." };
+  if (!p1) return { ok: false, error: "Classez d'abord au moins un produit dans la stratégie." };
   const prep = await preparer(s, buffer);
   if (!("apercu" in prep)) return prep;
   const { apercu, lecture, rappro, connus } = prep;
-  if (apercu.dejaImporte) return { ok: false, error: "Ce fichier a dÃ©jÃ  Ã©tÃ© importÃ© dans cette stratÃ©gie â€” rien n'a Ã©tÃ© ajoutÃ© une seconde fois." };
+  if (apercu.dejaImporte) return { ok: false, error: "Ce fichier a déjà été importé dans cette stratégie — rien n'a été ajouté une seconde fois." };
   let reglesV1: Regles | null = null;
   if (!s.regle) {
     const lu = lireRegles(opts.reglesContenu ?? apercu.regles?.contenu);
-    if (!lu.ok) return { ok: false, error: `RÃ¨gles Ã  complÃ©ter avant l'import : ${lu.erreurs.join(" ")}` };
+    if (!lu.ok) return { ok: false, error: `Règles à compléter avant l'import : ${lu.erreurs.join(" ")}` };
     reglesV1 = lu.regles;
   }
 
@@ -287,11 +348,11 @@ export async function appliquerImport(
       data: { strategieId, nomFichier, empreinte: apercu.empreinte, taille: buffer.length, feuille: apercu.feuille, rapport: apercu as unknown as Prisma.InputJsonValue, auteurId },
       select: { id: true },
     });
-    // RÃ©fÃ©rentiels manquants.
+    // Référentiels manquants.
     const etabCree = new Map<string, string>();
     for (const nom of apercu.etablissementsACreer) {
       const zone = lecture.lignes.find((l) => l.etablissement === nom)?.zone ?? null;
-      const e = await tx.medicalInstitution.create({ data: { name: nom, type: typeDEtablissement(nom), region: zone, createdById: auteurId, notes: `CrÃ©Ã© par l'import de segmentation Â« ${nomFichier} Â».` }, select: { id: true } });
+      const e = await tx.medicalInstitution.create({ data: { name: nom, type: typeDEtablissement(nom), region: zone, createdById: auteurId, notes: `Créé par l'import de segmentation « ${nomFichier} ».` }, select: { id: true } });
       etabCree.set(cleDEtablissement(nom), e.id);
     }
     const specCree = new Map<string, string>();
@@ -343,23 +404,49 @@ export async function appliquerImport(
           data: {
             doctorId, strategieId, productId: p1.productId, potentiel: l.potentiel, prescriptionsSur10: l.sur10,
             metrique: lecture.metrique, source: "IMPORT", importId: imp.id, ligneSource: l.ligne, auteurId,
-            commentaire: `Import Â« ${nomFichier} Â», ligne ${l.ligne}.`,
+            commentaire: `Import « ${nomFichier} », ligne ${l.ligne}.`,
           },
         });
         observations++;
       }
-      // Â« NA Â» du fichier = non applicable : une DÃ‰CISION de ciblage, tracÃ©e comme telle (et levable).
+      // « NA » du fichier = non applicable : une DÉCISION de ciblage, tracée comme telle (et levable).
       if (l.segmentFichier === "NA") {
         await tx.segmentationDerogation.create({
-          data: { strategieId, doctorId, nature: "CIBLAGE", valeur: "NON_CIBLE", motif: "ClassÃ© NA (non applicable) dans le fichier importÃ©.", source: "IMPORT", importId: imp.id, auteurId },
+          data: { strategieId, doctorId, nature: "CIBLAGE", valeur: "NON_CIBLE", motif: "Classé NA (non applicable) dans le fichier importé.", source: "IMPORT", importId: imp.id, auteurId },
         });
       }
     }
     let reglePubliee: number | null = null;
     if (reglesV1) {
-      await tx.segmentationRegle.create({ data: { strategieId, version: 1, contenu: reglesV1 as unknown as Prisma.InputJsonValue, note: `Version proposÃ©e par l'import Â« ${nomFichier} Â» et relue avant publication.`, publieeParId: auteurId } });
+      await tx.segmentationRegle.create({ data: { strategieId, version: 1, contenu: reglesV1 as unknown as Prisma.InputJsonValue, note: `Version proposée par l'import « ${nomFichier} » et relue avant publication.`, publieeParId: auteurId } });
       reglePubliee = 1;
     }
     return { ok: true as const, importId: imp.id, crees, misAJour, observations, etablissementsCrees: etabCree.size, specialitesCreees: specCree.size, reglePubliee };
   }, { timeout: 120_000, maxWait: 20_000 });
+}
+
+/**
+ * L'IMPACT D'UN IMPORT DE CONSOMMATION SUR LA SEGMENTATION, avant de le valider (§25 « segmentation impact
+ * preview ») : pour chaque stratégie dont un produit tire son affinité de l'établissement, combien de segments
+ * changeraient si les lignes de cet import comptaient. Rien n'est écrit.
+ */
+export async function impactConsommation(importId: string): Promise<{ strategie: string; praticiens: number; changements: number }[]> {
+  const strategies = await prisma.segmentationStrategie.findMany({ where: { statut: "ACTIVE" }, select: { id: true } });
+  const out: { strategie: string; praticiens: number; changements: number }[] = [];
+  for (const { id } of strategies) {
+    const s = await chargerStrategie(id);
+    const regles = s?.regle?.regles;
+    if (!s || !regles || !regles.produits.some((p) => (p.sourceAffinite ?? "DECLAREE") !== "DECLAREE")) continue;
+    const apres: ContexteSegmentation = { ...s.contexte, ...(await affinitesEtablissements(s.produits.map((p) => p.productId), importId)) };
+    const { faits } = await chargerFaits(s.id);
+    const maintenant = new Date();
+    let praticiens = 0, changements = 0;
+    for (const f of faits) {
+      const a = segmenterPraticien(f, regles, maintenant, s.contexte), b = segmenterPraticien(f, regles, maintenant, apres);
+      const n = a.produits.filter((p, i) => p.etat !== b.produits[i]?.etat).length;
+      if (n) { praticiens++; changements += n; }
+    }
+    out.push({ strategie: s.nom, praticiens, changements });
+  }
+  return out;
 }

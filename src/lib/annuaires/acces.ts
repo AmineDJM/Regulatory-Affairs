@@ -40,7 +40,7 @@
  */
 
 /** Les annuaires qu'on peut ouvrir à quelqu'un depuis la console, dans l'ordre des onglets. */
-export const ANNUAIRES_ACCORDABLES = ["MEDECINS", "PHARMACIENS", "ETABLISSEMENTS", "PARTENAIRES", "PERSONNES"] as const;
+export const ANNUAIRES_ACCORDABLES = ["MEDECINS", "PHARMACIENS", "ETABLISSEMENTS", "PARTENAIRES", "PARTENAIRES_PUBLICS", "FOURNISSEURS", "PERSONNES"] as const;
 export type AnnuaireAccordable = (typeof ANNUAIRES_ACCORDABLES)[number];
 
 export const LIBELLE_ANNUAIRE: Record<AnnuaireAccordable, string> = {
@@ -48,6 +48,8 @@ export const LIBELLE_ANNUAIRE: Record<AnnuaireAccordable, string> = {
   PHARMACIENS: "Pharmaciens",
   ETABLISSEMENTS: "Établissements",
   PARTENAIRES: "Partenaires",
+  PARTENAIRES_PUBLICS: "Partenaires publics",
+  FOURNISSEURS: "Fournisseurs Regulatory",
   PERSONNES: "Personnes",
 };
 
@@ -57,7 +59,7 @@ export const LIBELLE_ANNUAIRE: Record<AnnuaireAccordable, string> = {
  * quiconque tient l'espace de travail : mesuré, les dix-neuf rôles le tiennent — seul un accès
  * BLOQUÉ l'en prive, et la règle suit ce fait plutôt que d'ouvrir plus large (§118.16).
  */
-export const LECTURE_POUR_TOUS: ReadonlySet<AnnuaireAccordable> = new Set(["PARTENAIRES", "PERSONNES"]);
+export const LECTURE_POUR_TOUS: ReadonlySet<AnnuaireAccordable> = new Set(["PARTENAIRES", "PARTENAIRES_PUBLICS", "PERSONNES"]);
 
 /** Les gestes qu'un annuaire connaît. VALIDATE, EXPORT, UPLOAD n'ont pas de sens ici. */
 export type GesteAnnuaire = "VIEW" | "CREATE" | "UPDATE" | "DELETE";
@@ -107,9 +109,14 @@ export function ouvertParModule(f: FaitsAnnuaire, cle: AnnuaireAccordable, geste
     case "ETABLISSEMENTS":
       return f.peut("MEDICAL", geste);
     case "PARTENAIRES":
+    case "PARTENAIRES_PUBLICS":
       // Un carnet d'adresses : quiconque tient l'espace de travail le LIT (c'était la porte de
       // l'onglet avant cette règle) ; les Moyens généraux l'écrivent.
       return geste === "VIEW" ? f.peut("WORKSPACE", "VIEW") : f.peut("GENERAL_MEANS", geste);
+    case "FOURNISSEURS":
+      // LES FABRICANTS DES DOSSIERS D'ENREGISTREMENT : le Regulatory les lit et les tient. Les comptes du portail
+      // externe, eux, restent au Super Admin (Administration › Fournisseurs).
+      return f.peut("REGULATORY", geste);
     case "PERSONNES":
       if (geste === "VIEW") return f.peut("WORKSPACE", "VIEW");
       if (geste !== "UPDATE") return false;

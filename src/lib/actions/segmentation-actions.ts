@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { lireRegles, STATUTS, SEGMENTS, type Statut } from "@/lib/segmentation/regles";
 import { impactDesRegles, segmenterPraticien } from "@/lib/segmentation/moteur";
 import { apercuImport, appliquerImport, chargerFaits, chargerStrategie, type ApercuImport, type BilanImport } from "@/lib/segmentation/service";
+import { ouvrirCycle, cloreCycle } from "@/lib/segmentation/cycle-service";
 
 /**
  * SEGMENTATION STUDIO — les gestes. Chaque écriture vérifie le DROIT (module SEGMENTATION) et la PORTÉE
@@ -94,7 +95,7 @@ export async function apercuRegles(strategieId: string, contenuJson: string): Pr
   if (!lu.ok) return { ok: false, error: lu.erreurs.join(" ") };
   const { faits, lignes } = await chargerFaits(strategieId);
   const avant = s.regle?.regles ?? lu.regles;
-  const { changements, praticiens } = impactDesRegles(faits, avant, lu.regles);
+  const { changements, praticiens } = impactDesRegles(faits, avant, lu.regles, new Date(), s.contexte);
   const nomDe = new Map(lignes.map((l) => [l.doctorId, l.nom]));
   const produitDe = new Map(s.produits.map((p) => [p.productId, p.nom]));
   return {
@@ -256,7 +257,7 @@ export async function poserDerogation(input: { strategieId: string; doctorId: st
     const { faits } = await chargerFaits(s.id, { id: input.doctorId });
     const f = faits[0];
     if (f) {
-      const r = segmenterPraticien({ ...f, derogations: [] }, s.regle.regles);
+      const r = segmenterPraticien({ ...f, derogations: [] }, s.regle.regles, new Date(), s.contexte);
       valeurCalculee = input.nature === "CIBLAGE" ? (r.cible ? "CIBLE" : "NON_CIBLE") : r.produits.find((p) => p.productId === input.productId)?.calcule ?? null;
     }
   }
@@ -280,4 +281,57 @@ export async function leverDerogation(id: string): Promise<R> {
   await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityType: "DOCTOR", entityId: d.doctorId, summary: `Dérogation levée (${d.valeur}) : le calcul s'applique de nouveau.` });
   revalidatePath(CHEMIN);
   return { ok: true };
+}
+
+// ───────────────────────────── Spécialités visées par produit ─────────────────────────────
+
+/**
+ * LES SPÉCIALITÉS QU'UN PRODUIT VISE DANS LA BU (cahier des charges §6) — une partie de celles de la BU, jamais
+ * au-delà. Porté par `PromoProduct` (le produit × BU qui existe déjà) ; créé s'il manque. Vide = toutes.
+ */
+export async function ciblerSpecialitesProduit(strategieId: string, productId: string, specialtyIds: string[]): Promise<R> {
+  const { user, refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const s = await chargerStrategie(strategieId);
+  if (!s) return { ok: false, error: "Stratégie introuvable." };
+  const produit = s.produits.find((p) => p.productId === productId);
+  if (!produit) return { ok: false, error: "Produit non classé dans la stratégie." };
+  const ids = [...new Set(specialtyIds.filter(Boolean))];
+  const deLaBu = new Set((await prisma.businessUnitSpecialty.findMany({ where: { businessUnitId: s.businessUnit.id }, select: { specialtyId: true } })).map((x) => x.specialtyId));
+  const hors = ids.filter((i) => !deLaBu.has(i));
+  if (hors.length) return { ok: false, error: "Un produit ne vise que des spécialités de sa BU : ajoutez-les d'abord à la BU (Force de vente › Business Units)." };
+  await prisma.$transaction(async (tx) => {
+    let promo = await tx.promoProduct.findFirst({ where: { businessUnitId: s.businessUnit.id, productId }, select: { id: true } });
+    promo ??= await tx.promoProduct.create({ data: { name: produit.nom, businessUnitId: s.businessUnit.id, productId }, select: { id: true } });
+    await tx.promoProductSpecialite.deleteMany({ where: { promoProductId: promo.id, specialtyId: { notIn: ids } } });
+    if (ids.length) await tx.promoProductSpecialite.createMany({ data: ids.map((specialtyId) => ({ promoProductId: promo!.id, specialtyId, createdById: user.id })), skipDuplicates: true });
+  });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, field: "specialites-produit", newValue: ids.join(","), summary: `Spécialités visées par ${produit.nom} dans la BU ${s.businessUnit.name} : ${ids.length ? `${ids.length} spécialité(s)` : "toutes celles de la BU"}.` });
+  revalidatePath(CHEMIN);
+  return { ok: true };
+}
+// ───────────────────────────── Cycles ─────────────────────────────
+
+/** OUVRIR un cycle : il fige règles, contexte, résultats, couverture KAM et capacité (§50). */
+export async function ouvrirCycleSegmentation(input: { strategieId: string; debut: string; duree: string; fin: string; libelle: string }): Promise<R<{ id: string }>> {
+  const { user, refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const r = await ouvrirCycle(user.id, input.strategieId, { debut: input.debut, duree: input.duree, fin: input.fin || null, libelle: input.libelle });
+  if (r.ok) {
+    await recordAudit({ actorId: user.id, action: "CREATE", module: MODULE, entityId: r.id, summary: `Cycle de segmentation ouvert (${input.duree}, à partir du ${input.debut}) : règles et résultats figés.` });
+    revalidatePath(CHEMIN);
+  }
+  return r;
+}
+
+/** CLORE un cycle : les visites réalisées sont figées ; rien ne le recalcule plus. */
+export async function cloreCycleSegmentation(cycleId: string): Promise<R> {
+  const { user, refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const r = await cloreCycle(user.id, cycleId);
+  if (r.ok) {
+    await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityId: cycleId, summary: "Cycle de segmentation clos : visites réalisées figées." });
+    revalidatePath(CHEMIN);
+  }
+  return r;
 }

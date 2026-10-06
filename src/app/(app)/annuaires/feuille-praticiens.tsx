@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { userCan, peutAnnuaire, annuaireOuvertParConsole, peutGererSpecialites, type SessionUser } from "@/lib/rbac";
 import { chargerFeuillePraticiens, type FiltreGrade } from "@/lib/queries/annuaires";
@@ -5,6 +6,7 @@ import { AnnuaireGrid } from "@/app/(app)/medical/annuaire/annuaire-grid";
 import { DirectoryBar } from "@/app/(app)/medical/annuaire/directory-bar";
 import { EnTeteAnnuaires } from "./en-tete";
 import { BarreSpecialites } from "./barre-specialites";
+import { SANS_SPECIALITE } from "@/lib/annuaires/par-specialite";
 
 /**
  * LA FEUILLE DES PRATICIENS, VUE DU MODULE « ANNUAIRES » — médecins ou pharmaciens.
@@ -47,7 +49,8 @@ export async function FeuillePraticiensHub({
   };
   const feuille = await chargerFeuillePraticiens(user, {
     annuaire: medecins ? null : annuaire, grade, canManage: canManageStructure,
-    specialitesVides: medecins && (gerer.creer || gerer.modifier || gerer.supprimer),
+    // La GESTION des spécialités a une porte unique, Marketing cockpit (Direction, 06/10) : la barre ne les liste que si elles ont des médecins.
+    specialitesVides: false,
     entier: annuaireOuvertParConsole(user, cle, "VIEW"),
     // L'annuaire par spécialité ne concerne que les médecins ; l'archivage, les deux grades.
     specialite: grade === "medecins" ? specialite : null,
@@ -56,6 +59,11 @@ export async function FeuillePraticiensHub({
   if (!feuille) notFound();
 
   const basePath = grade === "pharmaciens" ? "/annuaires/pharmaciens" : "/annuaires/medecins";
+  // L'ANNUAIRE D'UNE SPÉCIALITÉ (Direction, 06/10) : la spécialité est celle de l'annuaire — la colonne disparaît, et
+  // une fiche ajoutée ici la reçoit. Elle reste affichée dans la vue de TOUTES les spécialités (et « Sans spécialité »).
+  const specialiteDeLAnnuaire = medecins && feuille.specialiteOuverte && feuille.specialiteOuverte !== SANS_SPECIALITE
+    ? feuille.annuairesSpecialite.find((s) => s.id === feuille.specialiteOuverte)?.name ?? null
+    : null;
   const description = grade === "pharmaciens"
     ? "Les pharmaciens de l'annuaire — officines et pharmacies hospitalières — en feuille modifiable, avec les mêmes annuaires nommés que la Promotion médicale."
     : "Les médecins de l'annuaire — hospitaliers et libéraux — en feuille modifiable, exportable, avec vue par spécialité.";
@@ -75,11 +83,14 @@ export async function FeuillePraticiensHub({
         />
       )}
       <BarreSpecialites
-        basePath={basePath} annuaire={medecins ? null : annuaire} gerer={medecins ? gerer : undefined}
+        basePath={basePath} annuaire={medecins ? null : annuaire} gerer={undefined}
         specialites={feuille.annuairesSpecialite} sansSpecialite={feuille.sansSpecialiteCount}
         ouverte={feuille.specialiteOuverte} archives={feuille.archives} archivesCount={feuille.archivesCount}
         avecSpecialites={grade === "medecins"}
       />
+      {medecins && (gerer.creer || gerer.modifier || gerer.supprimer) && (
+        <p className="text-xs text-muted-foreground">Ajouter, renommer ou supprimer une spécialité se fait dans <Link href="/marketing-cockpit/specialites" className="text-primary underline">Marketing cockpit › Spécialités</Link>.</p>
+      )}
       <AnnuaireGrid
         archives={feuille.archives}
         rows={feuille.rows} etablissements={feuille.etablissements} couleurs={feuille.couleurs} customColumns={feuille.customColumns}
@@ -88,6 +99,8 @@ export async function FeuillePraticiensHub({
         directoryId={feuille.openDirectoryId}
         directoryName={feuille.directoryName}
         titreParDefaut={grade === "pharmaciens" ? "PHARMACIEN" : undefined}
+        colonnesMasquees={specialiteDeLAnnuaire ? ["specialty"] : []}
+        specialiteImposee={specialiteDeLAnnuaire}
         exportHref={`/api/medical/annuaire/export?grade=${grade}`}
       />
     </div>

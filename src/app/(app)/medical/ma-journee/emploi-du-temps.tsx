@@ -37,6 +37,16 @@ export interface LigneVue {
   vocal: boolean;
   /** Pourquoi elle n'a pas eu lieu, quand elle est dite reportée ou annulée (§118.193). */
   motifNonTenue: string | null;
+  /** Le potentiel à mettre à jour, quand le praticien est dans le panel d'une stratégie de segmentation. */
+  potentiel: PotentielVue | null;
+}
+
+/** Ce que la segmentation sait déjà du praticien — pour ne demander que la mise à jour du fait (§17, §18). */
+interface PotentielVue {
+  metrique: string;
+  productId: string | null;
+  produit: string | null;
+  dernier: { potentiel: number | null; sur10: number | null; le: string } | null;
 }
 
 /** Ce qui pré-remplit le formulaire quand on CORRIGE un rapport fait (§118.166). */
@@ -288,6 +298,7 @@ export function EmploiDuTemps({
               produitIds: ouverte.produitIds, messageIds: ouverte.messageIds, remises: ouverte.remises,
             } : undefined}
             libelleEnvoi={correction ? "Enregistrer la correction" : "Enregistrer le rapport"}
+            potentiel={ouverte.potentiel}
             busy={occupe}
             err={err}
             onCancel={() => setOuverte(null)}
@@ -392,9 +403,11 @@ export function EmploiDuTemps({
  */
 function FormulaireRapport({
   action, produits, produitsIncomplets, messages, sansBu, messageObligatoire, produitObligatoire, stock, initial,
-  libelleEnvoi = "Enregistrer le rapport", busy, err, onCancel, entete,
+  libelleEnvoi = "Enregistrer le rapport", busy, err, onCancel, entete, potentiel,
 }: {
   action: (fd: FormData) => void | Promise<void>;
+  /** Le potentiel que la segmentation attend de ce praticien — facultatif, la dernière valeur affichée. */
+  potentiel?: PotentielVue | null;
   produits: { productId: string; name: string }[];
   produitsIncomplets: string[];
   messages: { id: string; title: string; body: string | null; buName: string | null }[];
@@ -547,6 +560,23 @@ function FormulaireRapport({
 
       {/* ── LE MATÉRIEL REMIS (§118.166) ─────────────────────────────────────── */}
       <BlocMaterielRemis stock={stock} produitsCoches={coches} initial={initial?.remises} />
+
+      {/* ── LE POTENTIEL (Segmentation Studio) — facultatif : le fait, AMD calcule la conséquence ─── */}
+      {potentiel && (
+        <div className="space-y-1.5 rounded-lg border border-border p-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Potentiel (facultatif)</p>
+          <p className="text-xs text-muted-foreground">
+            {potentiel.dernier
+              ? `Dernière valeur : ${potentiel.dernier.potentiel ?? "—"} ${potentiel.metrique}${potentiel.dernier.sur10 !== null ? `, ${potentiel.dernier.sur10}/10 sous ${potentiel.produit ?? "le produit"}` : ""} — ${new Date(potentiel.dernier.le).toLocaleDateString("fr-FR")}.`
+              : "Jamais renseigné : le segment du praticien reste « en attente » tant que le potentiel manque."}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <div><Label htmlFor="pot-patients" className="text-xs">{potentiel.metrique}</Label><Input id="pot-patients" name="potentielPatients" inputMode="decimal" className="w-28" /></div>
+            {potentiel.productId && <div><Label htmlFor="pot-sur10" className="text-xs">Sur 10, sous {potentiel.produit}</Label><Input id="pot-sur10" name="potentielSur10" inputMode="decimal" className="w-28" /></div>}
+          </div>
+          {potentiel.productId && <input type="hidden" name="potentielProduitId" value={potentiel.productId} />}
+        </div>
+      )}
 
       <div>
         <Label htmlFor="rapport-suite">Ce qu&apos;il reste à faire</Label>

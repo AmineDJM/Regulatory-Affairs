@@ -182,6 +182,11 @@ export interface AnnuaireRow {
   sector: string;
   /** Les valeurs des colonnes PROPRES à l'annuaire (`MedicalDoctor.custom`), par clé de colonne. */
   custom?: Record<string, unknown>;
+  /**
+   * L'ÉTABLISSEMENT DÉDUIT (Direction, 06/10) pour une fiche sans établissement : « unique » = le rattachement
+   * automatique le pose ; « a_trancher » = plusieurs hôpitaux possibles, proposés en tête de la cellule.
+   */
+  deduction?: { statut: "unique" | "a_trancher"; candidats: string[]; raison: string };
 }
 
 /** Une fiche porte-t-elle une spécialité écrite, sans lien vers le référentiel ? (§118.180) */

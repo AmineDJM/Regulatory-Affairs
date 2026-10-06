@@ -1080,6 +1080,36 @@ X("SEGMENTATION STUDIO (Direction, 06/10) : stratégie, classement des produits,
   "segmentation-actions:publierRegles", "segmentation-actions:apercuImportSegmentation", "segmentation-actions:importerSegmentation",
   "segmentation-actions:enregistrerPotentiel", "segmentation-actions:changerStatut", "segmentation-actions:ajouterAuPanel",
   "segmentation-actions:retirerDuPanel", "segmentation-actions:poserDerogation", "segmentation-actions:leverDerogation",
+  "segmentation-actions:ciblerSpecialitesProduit", "segmentation-actions:ouvrirCycleSegmentation",
+  "segmentation-actions:cloreCycleSegmentation",
+]);
+X("CONSUMPTION INTELLIGENCE : importer un fichier de consommation, trancher ce qui n'est pas sûr (une correspondance "
+  + "confirmée s'apprend), écarter une ligne, VALIDER pour que les lignes comptent, annuler, régler l'affinité d'un "
+  + "produit. Chaque geste se décide en REGARDANT la revue (colonnes lues, confiance, impact sur la segmentation) : "
+  + "c'est l'écran `/consommation`. Adam est en pause de développement (Super Admin seul).", [
+  "consommation-actions:importerFichierConsommation", "consommation-actions:confirmerCorrespondanceConso",
+  "consommation-actions:ignorerLigneConso", "consommation-actions:validerImportConso", "consommation-actions:annulerImportConso",
+  "consommation-actions:enregistrerAffiniteConfig",
+]);
+X("RATTACHEMENT AUTOMATIQUE DES PRATICIENS À LEUR ÉTABLISSEMENT (Direction, 06/10) : un geste en lot de la feuille de "
+  + "l'annuaire, sur les fiches de la vue, après confirmation — la même règle s'applique d'elle-même à chaque écriture "
+  + "(cellule, ajout, import). Adam est en pause de développement (Super Admin seul).", [
+  "medical-directory-actions:rattacherAutomatiquement",
+]);
+X("ANNUAIRES (Direction, 06/10) : l'annuaire des FOURNISSEURS REGULATORY (ajouter, corriger, retirer — désactivé "
+  + "quand il porte des dossiers) et la MODIFICATION d'une coordonnée d'une personne. Des gestes d'écran, faits en "
+  + "regardant la fiche. Adam est en pause de développement (Super Admin seul).", [
+  "fournisseurs-annuaire-actions:creerFournisseurAnnuaire", "fournisseurs-annuaire-actions:modifierFournisseurAnnuaire",
+  "fournisseurs-annuaire-actions:retirerFournisseurAnnuaire", "directory-actions:updateDirectoryEndpoint",
+]);
+X("METTRE AU PIPELINE TOUS LES DOSSIERS NON ENTAMÉS (Direction, 06/10) : un geste du Super Admin, sur l'écran du "
+  + "suivi, qui compte puis confirme avant de verrouiller un portefeuille entier. Pas un travail d'assistant.", [
+  "regulatory-actions:mettreAuPipelineNonEntames", "regulatory-actions:compterDossiersNonEntames",
+]);
+X("RÉPARTITION DES COÛTS PARTAGÉS D'UNE BU (cahier des charges §15, §85) : un geste des Finances qui décide quelle part "
+  + "des dépenses de la BU revient à chaque produit pour l'année. Il se décide en regardant la vue 360° du produit "
+  + "(direct, alloué, non alloué). Adam est en pause de développement (Super Admin seul).", [
+  "repartition-couts-actions:enregistrerRepartitionBu",
 ]);
 X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
   + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "
