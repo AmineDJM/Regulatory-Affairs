@@ -1,11 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { natureApercu, apercuParServeur, aConvertirEnPdf, apercuPossible, EXTENSIONS_CONVERTIBLES, extensionDe } from "./apercu";
+import { natureApercu, ouvrableDansLEditeur, apercuPossible, EXTENSIONS_CONVERTIBLES, extensionDe } from "./apercu";
 
 describe("quel aperçu pour quel fichier — une table pour tous les écrans", () => {
-  it("les anciens formats Office ne sont plus « non disponibles » : ils sont rendus par l'éditeur", () => {
+  it("les anciens formats Office ne sont plus « non disponibles » : ils s'ouvrent dans l'éditeur", () => {
     for (const nom of ["rapport.doc", "note.RTF", "tableau.xls", "deck.ppt", "lettre.odt", "feuille.ods", "pres.odp", "livre.epub", "cv.pages", "bilan.numbers", "ancien.pps"]) {
       expect(natureApercu(nom), nom).toBe("converti");
-      expect(aConvertirEnPdf(nom), nom).toBe(true);
     }
   });
 
@@ -34,10 +33,10 @@ describe("quel aperçu pour quel fichier — une table pour tous les écrans", (
     expect(natureApercu("export", "application/json")).toBe("texte");
   });
 
-  it("Word, Excel, PowerPoint et les anciens formats sont préparés PAR LE SERVEUR (PC des utilisateurs limités)", () => {
-    for (const nom of ["a.docx", "a.xlsx", "a.csv", "a.pptx", "a.doc", "a.rtf", "a.xls", "a.ppt", "a.odt"]) expect(apercuParServeur(nom), nom).toBe(true);
+  it("Word, Excel, PowerPoint et les anciens formats s'ouvrent dans l'ÉDITEUR OFFICE, sur le serveur (PC des utilisateurs limités)", () => {
+    for (const nom of ["a.docx", "a.xlsx", "a.csv", "a.pptx", "a.doc", "a.rtf", "a.xls", "a.ppt", "a.odt"]) expect(ouvrableDansLEditeur(nom), nom).toBe(true);
     // Ce que le navigateur lit seul n'a aucune raison de passer par une conversion.
-    for (const nom of ["a.pdf", "a.png", "a.mp4", "a.txt", "a.zip", "a.exe"]) expect(apercuParServeur(nom), nom).toBe(false);
+    for (const nom of ["a.pdf", "a.png", "a.mp4", "a.txt", "a.zip", "a.exe"]) expect(ouvrableDansLEditeur(nom), nom).toBe(false);
   });
 
   it("un binaire inconnu n'a pas d'aperçu : on propose le téléchargement, jamais une page blanche", () => {

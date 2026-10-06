@@ -146,7 +146,7 @@ export function DocumentPreview({
                 kind === "zip" ? (
                   <ZipViewer id={id} name={name} zipUrl={`${src}/zip`} downloadUrl={`${src}?dl=1`} />
                 ) : (
-                  <ApercuUniversel src={src} apercuSrc={`${src}/apercu`} name={name} telechargement={`${src}?dl=1`} />
+                  <ApercuUniversel src={src} name={name} telechargement={`${src}?dl=1`} cible={srcOverride ? undefined : { type: "document", id }} />
                 )
               ) : (
                 <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 text-center">

@@ -11,12 +11,13 @@
  * chez les autres. Ici, UNE table : chaque extension a une NATURE, et la nature dit comment l'afficher.
  *
  *   image / video / audio / pdf  → le navigateur les lit tels quels
- *   texte                         → affiché en clair (code, journaux, JSON, YAML, SQL, Markdown…)
+ *   texte                         → lu ET modifiable (code, journaux, JSON, YAML, SQL, Markdown…)
  *   html                          → affiché dans un cadre isolé (jamais exécuté dans l'application)
- *   docx / xlsx / pptx            → rendu dans le navigateur (visionneuses Office)
- *   converti                      → rendu EN PDF par l'éditeur Office (.doc, .rtf, .odt, .ppt, .xls, .ods,
- *                                   .odp, .pages, .key, .numbers, .epub, .djvu, .xps…) : lisible, navigable,
- *                                   imprimable, sans rien changer au fichier d'origine
+ *   docx / xlsx / pptx            → ouverts dans l'ÉDITEUR OFFICE (modifiables sur place) ; la visionneuse du
+ *                                   navigateur n'est que le secours
+ *   converti                      → ouverts DANS L'ÉDITEUR OFFICE, dans leur format exact (.doc, .rtf, .odt, .ppt,
+ *                                   .xls, .ods, .odp, .pages, .key, .numbers, .epub, .djvu, .xps…) : lisibles,
+ *                                   navigables, imprimables — sans rien convertir ni changer au fichier d'origine
  *   zip                           → parcouru dans la fenêtre
  *   autre                         → aucun aperçu possible (binaire, exécutable…) : téléchargement
  *
@@ -38,7 +39,7 @@ const TEXTE = [
   "srt", "vtt", "diff", "patch", "gitignore", "editorconfig", "dockerfile", "makefile", "rst", "adoc", "org", "nfo", "eml-texte",
 ];
 const HTML = ["html", "htm", "xhtml"];
-/** Rendus PAR L'ÉDITEUR OFFICE en PDF — les formats « anciens » ou « pas configurés » du rapport. */
+/** Ouverts PAR L'ÉDITEUR OFFICE — les formats « anciens » ou « pas configurés » du rapport (lecture, ou édition si le format se réécrit). */
 const CONVERTI = [
   // Word et apparentés
   "doc", "dot", "dotx", "dotm", "docm", "rtf", "odt", "ott", "fodt", "wps", "wpt", "pages", "sxw", "stw", "hwp", "hwpx", "epub", "fb2", "djvu", "xps", "oxps", "mht", "mhtml", "wri",
@@ -82,21 +83,13 @@ export function natureApercu(nom: string, mime?: string | null): NatureApercu {
   return "autre";
 }
 
-/** Faut-il passer par l'éditeur Office pour AFFICHER ce fichier ? (formats que le navigateur ne sait pas lire seul) */
-export const aConvertirEnPdf = (nom: string, mime?: string | null): boolean => natureApercu(nom, mime) === "converti";
-
-/**
- * L'APERÇU SE PRÉPARE SUR LE SERVEUR — la capacité des PC des utilisateurs est limitée (Direction, 06/10) : ni
- * Word, ni Excel, ni PowerPoint ne sont décodés dans le navigateur quand le serveur peut en tirer un PDF. Le
- * serveur convertit (éditeur Office), garde la copie quelques minutes, et le PC n'affiche qu'un PDF. Si le
- * serveur ne peut pas (éditeur absent ou en panne), la visionneuse du navigateur reste le SECOURS.
- */
-export const apercuParServeur = (nom: string, mime?: string | null): boolean => {
+/** Ce fichier s'ouvre-t-il dans l'ÉDITEUR OFFICE (Word, Excel, PowerPoint et leurs anciens formats) ? */
+export const ouvrableDansLEditeur = (nom: string, mime?: string | null): boolean => {
   const n = natureApercu(nom, mime);
   return n === "converti" || n === "docx" || n === "xlsx" || n === "pptx";
 };
 
-/** Les extensions que l'éditeur Office sait rendre en PDF — pour dire ce qui est admis dans un refus. */
+/** Les extensions que l'éditeur Office ouvre (anciens formats compris) — pour dire ce qui est admis dans un refus. */
 export const EXTENSIONS_CONVERTIBLES: readonly string[] = CONVERTI;
 
 /** Peut-on afficher quelque chose (autre que « téléchargez ») ? */

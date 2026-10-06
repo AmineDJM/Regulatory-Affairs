@@ -7,9 +7,9 @@ const lire = (rel: string) =>
   readFileSync(join(process.cwd(), rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 describe("l'aperçu universel — une table, tous les écrans", () => {
-  it("la fenêtre des documents et la visionneuse du Drive montent le MÊME composant", () => {
-    expect(lire("src/components/documents/document-preview.tsx")).toContain("<ApercuUniversel");
-    expect(lire("src/app/(app)/drive/[id]/file-viewer.tsx")).toContain("<ApercuUniversel");
+  it("la fenêtre des documents et la visionneuse du Drive montent le MÊME composant, sur leur cible", () => {
+    expect(lire("src/components/documents/document-preview.tsx")).toMatch(/<ApercuUniversel[^>]*cible=\{srcOverride \? undefined : \{ type: "document", id \}\}/);
+    expect(lire("src/app/(app)/drive/[id]/file-viewer.tsx")).toMatch(/<ApercuUniversel[^>]*cible=\{\{ type: "drive", id \}\}/);
   });
 
   it("plus aucune liste d'extensions locale dans ces écrans", () => {
@@ -18,23 +18,38 @@ describe("l'aperçu universel — une table, tous les écrans", () => {
     expect(lire("src/components/documents/zip-viewer.tsx")).not.toMatch(/\["png", "jpg"/);
   });
 
-  it("les anciens formats passent par une route d'aperçu PDF, gardée par les droits du fichier", () => {
-    for (const rel of ["src/app/api/documents/[id]/apercu/route.ts", "src/app/api/drive/[id]/apercu/route.ts"]) {
-      expect(existsSync(join(process.cwd(), rel)), rel).toBe(true);
-      const src = lire(rel);
-      expect(src, rel).toContain("getCurrentUser()");
-      expect(src.indexOf("getCurrentUser()"), rel).toBeLessThan(src.indexOf("pdfDApercu("));
-      expect(src, rel).toMatch(/canAccessEntity|canViewDrive/);
-    }
+  it("Word, Excel, PowerPoint et leurs anciens formats s'ouvrent DANS L'ÉDITEUR OFFICE — la visionneuse du navigateur n'est que le secours", () => {
+    const src = lire("src/components/documents/apercu-universel.tsx");
+    expect(src).toContain("<EditeurEnLigne");
+    for (const v of ["DocxView", "XlsxView", "PptxView"]) expect(src, v).toContain(`<${v} `);
+    // Plus de conversion en PDF : on ouvre le document tel qu'il est.
+    expect(src).not.toMatch(/apercuSrc|\/apercu`|VueConvertie/);
+    expect(existsSync(join(process.cwd(), "src/lib/apercu-pdf.ts"))).toBe(false);
   });
 
-  it("Word, Excel et PowerPoint passent par le serveur d'abord ; la visionneuse du navigateur n'est que le secours", () => {
-    const src = lire("src/components/documents/apercu-universel.tsx");
-    for (const v of ["DocxView", "XlsxView", "PptxView"]) {
-      expect(src, v).toMatch(new RegExp(`<VueConvertie[^>]*secours=\\{<${v} `));
+  it("les droits de l'éditeur se jugent côté serveur, avant toute configuration", () => {
+    const route = lire("src/app/api/onlyoffice/session/route.ts");
+    expect(route).toContain("getCurrentUser()");
+    expect(route.indexOf("getCurrentUser()")).toBeLessThan(route.indexOf("sessionEditeur("));
+    const lib = lire("src/lib/onlyoffice-session.ts");
+    expect(lib).toMatch(/canViewDrive\(acces\)/);
+    expect(lib).toContain('canAccessEntity(user, doc.entityType, doc.entityId, "VIEW")');
+    expect(lib).toContain('canAccessEntity(user, doc.entityType, doc.entityId, "UPLOAD")');
+    // Lecture seule tant que le droit de modifier ou le format réécrivable manque.
+    expect(lib).toContain('peutModifier && modifiable ? "edit" : "view"');
+  });
+
+  it("le texte se lit (GET) et s'enregistre (POST) sur le serveur : routes gardées, conflit détecté", () => {
+    for (const kind of ["documents", "drive"]) {
+      const lecture = lire(`src/app/api/${kind}/[id]/texte/route.ts`);
+      expect(lecture, kind).toContain("export async function GET");
+      expect(lecture, kind).not.toContain("getCurrentUserPourEcrire");
+      const ecriture = lire(`src/app/api/${kind}/[id]/texte/enregistrer/route.ts`);
+      expect(ecriture, kind).toContain("export async function POST");
+      expect(ecriture, kind).toContain("getCurrentUserPourEcrire()");
+      expect(ecriture, kind).toContain("status: 409");
+      expect(ecriture, kind).not.toContain("getCurrentUser()");
     }
-    expect(lire("src/app/api/drive/[id]/apercu/route.ts")).toContain("apercuParServeur(");
-    expect(lire("src/app/api/documents/[id]/apercu/route.ts")).toContain("apercuParServeur(");
   });
 
   it("le dossier envoyé en messagerie est archivé par le serveur : plus de JSZip dans le navigateur", () => {

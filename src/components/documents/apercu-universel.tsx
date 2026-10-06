@@ -1,45 +1,49 @@
 "use client";
 
 import * as React from "react";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Pencil, Save, X } from "lucide-react";
 import { DocxView, XlsxView, PptxView } from "./office-viewers";
+import { EditeurEnLigne } from "./editeur-en-ligne";
 import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
 import { natureApercu, TAILLE_MAX_TEXTE_OCTETS, type NatureApercu } from "@/lib/formats/apercu";
 
 /**
- * L'APERÇU UNIVERSEL — un seul composant, pour le Drive, les documents et les pièces (Direction, 06/10 :
- * « tous les formats lisibles, navigables, téléchargeables »). La NATURE du fichier vient d'une table unique
- * (`formats/apercu.ts`) ; ici, on dit seulement comment chaque nature s'affiche.
+ * L'APERÇU UNIVERSEL — un seul composant, pour le Drive, les documents et les pièces (Direction, 06/10 : « quand on
+ * ouvre un Word, on voit un Word, on peut le modifier, et tout se passe sur le serveur — pareil pour tout ce qui est
+ * modifiable : le lire dans son format exact, le modifier, le supprimer »).
  *
- *   • les formats que le navigateur lit (image, vidéo, son, PDF) : tels quels ;
- *   • le texte (code, journaux, JSON, YAML, Markdown…) : en clair, tronqué au-delà de 1 Mo ;
- *   • le HTML : dans un cadre ISOLÉ (`sandbox=""`) — jamais exécuté dans l'application ;
- *   • Word / Excel / PowerPoint modernes : visionneuses du navigateur ;
- *   • les anciens formats et les formats « pas configurés » (.doc, .rtf, .odt, .ppt, .xls, .ods, .pages,
- *     .epub…) : rendus en PDF par l'éditeur Office (`apercuSrc`), puis affichés comme un PDF — lisibles,
- *     navigables, imprimables ;
- *   • tout le reste : jamais une page blanche — la phrase dit pourquoi et le téléchargement reste là.
+ *   • Word, Excel, PowerPoint ET leurs anciens formats (.doc, .xls, .ppt, .rtf, .odt, .ods, .odp, .pages, .key…) :
+ *     ouverts dans l'ÉDITEUR OFFICE, dans leur forme exacte — modifiables sur place si l'on a le droit, en lecture
+ *     sinon. Le Document Server lit le fichier d'origine et enregistre sur le serveur ; le PC n'affiche que l'interface
+ *     (plus de décodage dans l'onglet). Si l'éditeur n'est pas disponible, la visionneuse du navigateur prend le
+ *     relais (Word, Excel, PowerPoint modernes), sinon le téléchargement : jamais une page blanche ;
+ *   • le texte (code, journaux, JSON, YAML, Markdown, SQL…) : lu ET modifiable ici — la lecture, la vérification et
+ *     l'enregistrement (nouvelle version, conflit détecté) se font sur le serveur ;
+ *   • les formats que le navigateur lit seul (image, vidéo, son, PDF) : tels quels ;
+ *   • le HTML : dans un cadre ISOLÉ (`sandbox=""`), jamais exécuté dans l'application ;
+ *   • tout le reste : la raison est dite et le téléchargement reste à un clic.
  *
- * Le fichier d'origine n'est jamais modifié ; télécharger l'original est toujours possible.
+ * SUPPRIMER et RENOMMER restent dans la barre d'outils de la fenêtre (selon les droits). Le fichier d'origine n'est
+ * jamais converti en autre chose pour l'afficher.
  */
 export function ApercuUniversel({
-  src, apercuSrc, name, mime, telechargement,
+  src, name, mime, telechargement, cible,
 }: {
   /** La route qui sert les octets du fichier. */
   src: string;
-  /** La route qui sert l'aperçu PDF d'un format à convertir (Drive : `/api/drive/<id>/apercu`). */
-  apercuSrc: string;
   name: string;
   mime?: string | null;
   /** L'adresse de téléchargement de l'original. */
   telechargement: string;
+  /** Le fichier dans l'éditeur / l'éditeur de texte : Drive ou document. Absent (autre source) : visionneuses du navigateur. */
+  cible?: { type: "drive" | "document"; id: string };
 }) {
   const nature = natureApercu(name, mime);
-  return <Rendu nature={nature} src={src} apercuSrc={apercuSrc} name={name} telechargement={telechargement} />;
+  return <Rendu nature={nature} src={src} name={name} telechargement={telechargement} cible={cible} />;
 }
 
-function Rendu({ nature, src, apercuSrc, name, telechargement }: {
-  nature: NatureApercu; src: string; apercuSrc: string; name: string; telechargement: string;
+function Rendu({ nature, src, name, telechargement, cible }: {
+  nature: NatureApercu; src: string; name: string; telechargement: string; cible?: { type: "drive" | "document"; id: string };
 }) {
   switch (nature) {
     case "image":
@@ -51,23 +55,40 @@ function Rendu({ nature, src, apercuSrc, name, telechargement }: {
       return <audio src={src} controls className="w-full" />;
     case "pdf":
       return <iframe src={src} title={name} className="h-[78vh] w-full rounded-lg border border-border bg-white" />;
-    // LE SERVEUR D'ABORD (PC des utilisateurs limités) : Word, Excel et PowerPoint sont rendus en PDF par l'éditeur Office
-    // et le PC n'affiche qu'un PDF. La visionneuse du navigateur n'est que le SECOURS (éditeur absent, en panne, refus).
     case "docx":
-      return <VueConvertie apercuSrc={apercuSrc} name={name} telechargement={telechargement} secours={<DocxView src={src} name={name} />} />;
     case "xlsx":
-      return <VueConvertie apercuSrc={apercuSrc} name={name} telechargement={telechargement} secours={<XlsxView src={src} name={name} />} />;
     case "pptx":
-      return <VueConvertie apercuSrc={apercuSrc} name={name} telechargement={telechargement} secours={<PptxView src={src} name={name} />} />;
+    case "converti": {
+      const viseuse = nature === "docx" ? <DocxView src={src} name={name} /> : nature === "xlsx" ? <XlsxView src={src} name={name} /> : nature === "pptx" ? <PptxView src={src} name={name} /> : null;
+      const secours = (message: string) => (
+        <div className="space-y-3">
+          <p className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+            {message} {viseuse ? "Affichage de secours dans le navigateur (lecture seule)." : ""}
+          </p>
+          {viseuse ?? <SansApercu nom={name} telechargement={telechargement} raison="Ce format s'ouvre dans l'éditeur Office, qui n'est pas joignable pour le moment : téléchargez le fichier pour l'ouvrir." />}
+        </div>
+      );
+      return cible
+        ? <EditeurEnLigne type={cible.type} id={cible.id} name={name} secours={secours} />
+        : (viseuse ?? <SansApercu nom={name} telechargement={telechargement} raison="Ce format s'ouvre dans l'éditeur Office depuis le Drive ou la fiche du document : téléchargez le fichier pour l'ouvrir." />);
+    }
     case "texte":
-      return <VueTexte src={src} name={name} telechargement={telechargement} />;
+      return cible
+        ? <EditeurTexte cible={cible} name={name} telechargement={telechargement} />
+        : <VueTexte src={src} name={name} telechargement={telechargement} />;
     case "html":
       return <VueHtml src={src} name={name} telechargement={telechargement} />;
-    case "converti":
-      return <VueConvertie apercuSrc={apercuSrc} name={name} telechargement={telechargement} />;
     default:
       return <SansApercu nom={name} telechargement={telechargement} raison="Ce type de fichier n'a pas d'aperçu (binaire, exécutable, format propriétaire)." />;
   }
+}
+
+async function messageDErreur(r: Response): Promise<string> {
+  try {
+    const j = (await r.json()) as { error?: string };
+    if (j?.error) return j.error;
+  } catch { /* corps non JSON */ }
+  return `Lecture impossible (HTTP ${r.status}).`;
 }
 
 /** Charge un fichier en texte ; l'erreur du serveur est rapportée telle quelle. */
@@ -90,18 +111,10 @@ function useTexte(url: string) {
   return etat;
 }
 
-async function messageDErreur(r: Response): Promise<string> {
-  try {
-    const j = (await r.json()) as { error?: string };
-    if (j?.error) return j.error;
-  } catch { /* corps non JSON */ }
-  return `Lecture impossible (HTTP ${r.status}).`;
-}
-
-function Attente() {
+function Attente({ texte = "Préparation de l'aperçu…" }: { texte?: string }) {
   return (
     <div className="flex min-h-[30vh] items-center justify-center gap-2 text-sm text-muted-foreground">
-      <Loader2 className="h-4 w-4 animate-spin" /> Préparation de l&apos;aperçu…
+      <Loader2 className="h-4 w-4 animate-spin" /> {texte}
     </div>
   );
 }
@@ -118,6 +131,89 @@ function VueTexte({ src, name, telechargement }: { src: string; name: string; te
   );
 }
 
+/**
+ * LE TEXTE, LU ET MODIFIÉ SUR LE SERVEUR. Le navigateur n'affiche qu'une zone de texte : la lecture, la vérification de
+ * version et l'enregistrement sont des appels au serveur (`/api/{documents|drive}/<id>/texte`). Si quelqu'un a enregistré
+ * entre-temps, l'enregistrement est refusé avec la raison (rien n'est écrasé en silence).
+ */
+function EditeurTexte({ cible, name, telechargement }: { cible: { type: "drive" | "document"; id: string }; name: string; telechargement: string }) {
+  const url = `/api/${cible.type === "drive" ? "drive" : "documents"}/${encodeURIComponent(cible.id)}/texte`;
+  const [charge, setCharge] = React.useState<{ texte: string; tronque: boolean; modifiable: boolean; version: number } | null>(null);
+  const [erreur, setErreur] = React.useState<string | null>(null);
+  const [edition, setEdition] = React.useState(false);
+  const [brouillon, setBrouillon] = React.useState("");
+  const [enregistrement, setEnregistrement] = React.useState(false);
+  const [message, setMessage] = React.useState<{ ok: boolean; texte: string } | null>(null);
+
+  const lire = React.useCallback(async () => {
+    setErreur(null);
+    try {
+      const r = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+      if (!r.ok) throw new Error(await messageDErreur(r));
+      const j = (await r.json()) as { texte: string; tronque: boolean; modifiable: boolean; version: number };
+      setCharge(j);
+      setBrouillon(j.texte);
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : "Lecture impossible.");
+    }
+  }, [url]);
+  React.useEffect(() => { void lire(); }, [lire]);
+
+  if (erreur) return <SansApercu nom={name} telechargement={telechargement} raison={erreur} />;
+  if (!charge) return <Attente />;
+
+  const enregistrer = async () => {
+    setEnregistrement(true); setMessage(null);
+    try {
+      const r = await fetch(`${url}/enregistrer`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texte: brouillon, version: charge.version }) });
+      if (!r.ok) throw new Error(await messageDErreur(r));
+      const j = (await r.json()) as { version: number };
+      setCharge({ ...charge, texte: brouillon, version: j.version });
+      setEdition(false);
+      setMessage({ ok: true, texte: "Enregistré (nouvelle version)." });
+    } catch (e) {
+      setMessage({ ok: false, texte: e instanceof Error ? e.message : "Enregistrement impossible." });
+    } finally {
+      setEnregistrement(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {charge.modifiable && !edition && (
+          <button type="button" onClick={() => { setBrouillon(charge.texte); setMessage(null); setEdition(true); }} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
+            <Pencil className="h-3.5 w-3.5" /> Modifier
+          </button>
+        )}
+        {edition && (
+          <>
+            <button type="button" onClick={enregistrer} disabled={enregistrement || brouillon === charge.texte} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
+              {enregistrement ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Enregistrer
+            </button>
+            <button type="button" onClick={() => { setEdition(false); setBrouillon(charge.texte); setMessage(null); }} disabled={enregistrement} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
+              <X className="h-3.5 w-3.5" /> Annuler
+            </button>
+          </>
+        )}
+        {message && <span className={message.ok ? "text-xs text-success" : "text-xs text-destructive"} role="status">{message.texte}</span>}
+        {message && !message.ok && edition && (
+          <button type="button" onClick={() => void lire().then(() => setEdition(false))} className="text-xs text-primary hover:underline">Rouvrir la dernière version</button>
+        )}
+      </div>
+      {edition ? (
+        <textarea
+          value={brouillon} onChange={(e) => setBrouillon(e.target.value)} spellCheck={false} aria-label={`Contenu de ${name}`}
+          className="h-[70vh] w-full resize-y rounded-lg border border-input bg-background p-3 font-mono text-xs leading-relaxed focus-ring"
+        />
+      ) : (
+        <pre className="max-h-[78vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed">{charge.texte}</pre>
+      )}
+      {charge.tronque && <p className="text-xs text-muted-foreground">Fichier de plus d&apos;1 Mo : aperçu limité au début, et non modifiable d&apos;ici (enregistrer écraserait la fin). Téléchargez-le pour le modifier.</p>}
+    </div>
+  );
+}
+
 function VueHtml({ src, name, telechargement }: { src: string; name: string; telechargement: string }) {
   const { chargement, texte, tronque, erreur } = useTexte(src);
   if (chargement) return <Attente />;
@@ -129,29 +225,6 @@ function VueHtml({ src, name, telechargement }: { src: string; name: string; tel
       {tronque && <p className="text-xs text-muted-foreground">Aperçu limité au premier mégaoctet : téléchargez le fichier pour le lire en entier.</p>}
     </div>
   );
-}
-
-function VueConvertie({ apercuSrc, name, telechargement, secours }: { apercuSrc: string; name: string; telechargement: string; secours?: React.ReactNode }) {
-  const [etat, setEtat] = React.useState<{ chargement: boolean; url: string | null; erreur: string | null }>({ chargement: true, url: null, erreur: null });
-  React.useEffect(() => {
-    let vivant = true;
-    let objet: string | null = null;
-    setEtat({ chargement: true, url: null, erreur: null });
-    fetch(apercuSrc, { credentials: "same-origin" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(await messageDErreur(r));
-        const blob = await r.blob();
-        objet = URL.createObjectURL(blob);
-        if (vivant) setEtat({ chargement: false, url: objet, erreur: null });
-      })
-      .catch((e: unknown) => { if (vivant) setEtat({ chargement: false, url: null, erreur: e instanceof Error ? e.message : "Aperçu impossible." }); });
-    return () => { vivant = false; if (objet) URL.revokeObjectURL(objet); };
-  }, [apercuSrc]);
-  if (etat.chargement) return <Attente />;
-  // Le serveur n'a pas pu préparer le PDF : la visionneuse du navigateur prend le relais quand elle existe.
-  if ((etat.erreur || !etat.url) && secours) return <>{secours}</>;
-  if (etat.erreur || !etat.url) return <SansApercu nom={name} telechargement={telechargement} raison={etat.erreur ?? "Aperçu impossible."} />;
-  return <iframe src={etat.url} title={name} className="h-[78vh] w-full rounded-lg border border-border bg-white" />;
 }
 
 /** JAMAIS UNE PAGE BLANCHE : la raison est dite, et le téléchargement de l'original reste à un clic. */
