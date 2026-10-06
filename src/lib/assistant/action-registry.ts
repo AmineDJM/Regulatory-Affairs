@@ -1080,7 +1080,8 @@ X("SEGMENTATION STUDIO (Direction, 06/10) : stratégie, classement des produits,
   "segmentation-actions:publierRegles", "segmentation-actions:apercuImportSegmentation", "segmentation-actions:importerSegmentation",
   "segmentation-actions:enregistrerPotentiel", "segmentation-actions:changerStatut", "segmentation-actions:ajouterAuPanel",
   "segmentation-actions:retirerDuPanel", "segmentation-actions:poserDerogation", "segmentation-actions:leverDerogation",
-  "segmentation-actions:ciblerSpecialitesProduit",
+  "segmentation-actions:ciblerSpecialitesProduit", "segmentation-actions:ouvrirCycleSegmentation",
+  "segmentation-actions:cloreCycleSegmentation",
 ]);
 X("CONSUMPTION INTELLIGENCE : importer un fichier de consommation, trancher ce qui n'est pas sûr (une correspondance "
   + "confirmée s'apprend), écarter une ligne, VALIDER pour que les lignes comptent, annuler, régler l'affinité d'un "

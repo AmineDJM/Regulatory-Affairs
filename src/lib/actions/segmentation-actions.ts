@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { lireRegles, STATUTS, SEGMENTS, type Statut } from "@/lib/segmentation/regles";
 import { impactDesRegles, segmenterPraticien } from "@/lib/segmentation/moteur";
 import { apercuImport, appliquerImport, chargerFaits, chargerStrategie, type ApercuImport, type BilanImport } from "@/lib/segmentation/service";
+import { ouvrirCycle, cloreCycle } from "@/lib/segmentation/cycle-service";
 
 /**
  * SEGMENTATION STUDIO — les gestes. Chaque écriture vérifie le DROIT (module SEGMENTATION) et la PORTÉE
@@ -308,4 +309,29 @@ export async function ciblerSpecialitesProduit(strategieId: string, productId: s
   await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, field: "specialites-produit", newValue: ids.join(","), summary: `Spécialités visées par ${produit.nom} dans la BU ${s.businessUnit.name} : ${ids.length ? `${ids.length} spécialité(s)` : "toutes celles de la BU"}.` });
   revalidatePath(CHEMIN);
   return { ok: true };
+}
+// ───────────────────────────── Cycles ─────────────────────────────
+
+/** OUVRIR un cycle : il fige règles, contexte, résultats, couverture KAM et capacité (§50). */
+export async function ouvrirCycleSegmentation(input: { strategieId: string; debut: string; duree: string; fin: string; libelle: string }): Promise<R<{ id: string }>> {
+  const { user, refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const r = await ouvrirCycle(user.id, input.strategieId, { debut: input.debut, duree: input.duree, fin: input.fin || null, libelle: input.libelle });
+  if (r.ok) {
+    await recordAudit({ actorId: user.id, action: "CREATE", module: MODULE, entityId: r.id, summary: `Cycle de segmentation ouvert (${input.duree}, à partir du ${input.debut}) : règles et résultats figés.` });
+    revalidatePath(CHEMIN);
+  }
+  return r;
+}
+
+/** CLORE un cycle : les visites réalisées sont figées ; rien ne le recalcule plus. */
+export async function cloreCycleSegmentation(cycleId: string): Promise<R> {
+  const { user, refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const r = await cloreCycle(user.id, cycleId);
+  if (r.ok) {
+    await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityId: cycleId, summary: "Cycle de segmentation clos : visites réalisées figées." });
+    revalidatePath(CHEMIN);
+  }
+  return r;
 }

@@ -13,12 +13,15 @@ import { EditeurRegles } from "./regles-editeur";
 import { ImportClasseur } from "./import-classeur";
 import { ClassementProduits } from "./classement-produits";
 import { SpecialitesProduits } from "./specialites-produits";
+import { CyclesVue } from "./cycles-vue";
+import { chargerCycle } from "@/lib/segmentation/cycle-service";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Segmentation Studio — AMD Internal OS" };
 
 const VUES = [
   { cle: "panel", label: "Praticiens" },
+  { cle: "cycles", label: "Cycles" },
   { cle: "regles", label: "Règles" },
   { cle: "import", label: "Import" },
   { cle: "historique", label: "Historique" },
@@ -33,7 +36,7 @@ const VUES = [
  *
  * Portée : le KAM (portée « ses lignes ») ne voit que son panel ; les gestes suivent le module SEGMENTATION.
  */
-export default async function SegmentationPage({ searchParams }: { searchParams?: { s?: string; vue?: string; spe?: string } }) {
+export default async function SegmentationPage({ searchParams }: { searchParams?: { s?: string; vue?: string; spe?: string; cycle?: string } }) {
   const user = await requireModule("SEGMENTATION");
   const peutValider = userCan(user, "SEGMENTATION", "VALIDATE");
   const peutModifier = userCan(user, "SEGMENTATION", "UPDATE");
@@ -102,6 +105,9 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
     })),
   }));
   const zones = [...new Set(panel.map((l) => l.zone).filter((z): z is string => !!z))].sort();
+  const cycles = vue === "cycles" ? await prisma.segmentationCycle.findMany({ where: { strategieId: strategie.id }, orderBy: { debut: "desc" }, select: { id: true, libelle: true, statut: true, debut: true, fin: true } }) : [];
+  const cycleId = cycles.find((c) => c.id === searchParams?.cycle)?.id ?? cycles.find((c) => c.statut === "OUVERT")?.id ?? cycles[0]?.id ?? null;
+  const cycle = cycleId ? await chargerCycle(cycleId) : null;
   const href = (v: string, sp: string | null = spe) => `/segmentation?s=${strategie.id}&vue=${v}${sp ? `&spe=${sp}` : ""}`;
 
   return (
@@ -171,6 +177,9 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
           peutModifier={peutModifier}
           peutDeroger={peutDeroger}
         />
+      )}
+      {vue === "cycles" && (
+        <CyclesVue strategieId={strategie.id} cycles={cycles} cycle={cycle} peutGerer={peutValider} moi={user.access.modules.get("SEGMENTATION")?.scope === "ALL" ? null : user.id} />
       )}
       {vue === "regles" && (
         <div className="space-y-5">

@@ -14468,6 +14468,7 @@ model SegmentationStrategie {
   derogations  SegmentationDerogation[]
   imports      SegmentationImport[]
   observations HcpObservation[]
+  cycles       SegmentationCycle[]
 
   @@index([businessUnitId])
 }
@@ -14719,4 +14720,39 @@ model AffiniteConfig {
   fin         DateTime?
   updatedById String?
   updatedAt   DateTime  @updatedAt
+}
+
+/// UN CYCLE DE VISITES D'UNE STRATÉGIE (cahier des charges §49-55) — sa durée se règle (mois, 4 ou 6 semaines,
+/// trimestre, personnalisée). À l'OUVERTURE, il FIGE tout ce qui le gouverne : produits classés, version de règles,
+/// spécialités visées, affinités, résultat de chaque praticien (segments, priorité, visites requises) et le KAM qui
+/// le couvre. Les changements ultérieurs ne le touchent pas ; à la CLÔTURE, les visites réalisées sont figées aussi.
+///
+/// Pourquoi pas `PromoCycle` : celui-ci est un MOIS CALENDAIRE unique (année, mois) qui porte les prévisions et les
+/// affectations de toute la force de vente ; un cycle de segmentation appartient à UNE stratégie, a une durée
+/// réglable, et porte un instantané. Il pointe le `PromoCycle` du mois de son début quand il existe.
+model SegmentationCycle {
+  id           String                @id @default(cuid())
+  strategieId  String
+  strategie    SegmentationStrategie @relation(fields: [strategieId], references: [id], onDelete: Cascade)
+  libelle      String
+  /// MOIS · QUATRE_SEMAINES · SIX_SEMAINES · TRIMESTRE · PERSONNALISE
+  duree        String
+  debut        DateTime
+  fin          DateTime
+  /// OUVERT · CLOS
+  statut       String                @default("OUVERT")
+  regleVersion Int
+  /// Produits, règles, contexte, résultats par praticien, couverture KAM — figés à l'ouverture.
+  instantane   Json
+  /// Capacité par KAM (jours terrain, visites/jour, absences) — figée à l'ouverture, ajustable tant qu'il est ouvert.
+  capacite     Json
+  /// Visites réalisées par praticien, figées à la clôture.
+  realise      Json?
+  promoCycleId String?
+  ouvertParId  String?
+  createdAt    DateTime              @default(now())
+  closLe       DateTime?
+  closParId    String?
+
+  @@index([strategieId, debut])
 }
