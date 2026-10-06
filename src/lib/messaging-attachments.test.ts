@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   MAX_ATTACHMENTS, driveRefLabel, driveRefHref, recipientsToGrant, shareWarning,
   folderZipName, rootFolderName,
+  DOSSIER_MESSAGERIE, nomDossierConversation, nomLotMessagerie, piecesDuLot, libelleLot,
 } from "./messaging-attachments";
 
 describe("driveRefLabel — dire que ce n'est pas une copie", () => {
@@ -105,5 +106,37 @@ describe("rootFolderName — le seul indice du dossier choisi", () => {
 describe("MAX_ATTACHMENTS", () => {
   it("borne le nombre de pièces d'un message", () => {
     expect(MAX_ATTACHMENTS).toBe(10);
+  });
+});
+
+describe("gros envois de la messagerie — par le chemin du Drive (Direction, 06/10)", () => {
+  it("range les envois sous « Messagerie / <conversation> »", () => {
+    expect(DOSSIER_MESSAGERIE).toBe("Messagerie");
+    expect(nomDossierConversation("Équipe RA / 2026")).toBe("Équipe RA - 2026");
+    expect(nomDossierConversation(null)).toBe("Conversation");
+    expect(nomDossierConversation("  ///  ")).toBe("Conversation");
+  });
+
+  it("date le dossier d'un envoi à la seconde, à l'heure d'Alger", () => {
+    // 23:30:05 UTC = 00:30:05 le lendemain à Alger (UTC+1) — et jamais « 24h ».
+    expect(nomLotMessagerie(new Date("2026-10-06T23:30:05Z"))).toBe("Envoi du 2026-10-07 à 00h30m05");
+  });
+
+  it("joint les éléments un par un s'ils tiennent, sinon le dossier du lot", () => {
+    expect(piecesDuLot(0, 10)).toBe("rien");
+    expect(piecesDuLot(3, 10)).toBe("elements");
+    expect(piecesDuLot(10, 10)).toBe("elements");
+    expect(piecesDuLot(11, 10)).toBe("dossier");
+    expect(piecesDuLot(2, 1)).toBe("dossier");
+    expect(piecesDuLot(1, 0)).toBe("dossier");
+  });
+
+  it("n'autorise l'envoi du message qu'une fois le lot arrivé", () => {
+    const base = { total: 4, recus: 2, echecs: 0, annules: 0, enCours: true };
+    expect(libelleLot(base)).toEqual({ texte: "Envoi 2/4…", pret: false });
+    expect(libelleLot({ ...base, recus: 4, enCours: false })).toEqual({ texte: "4 fichiers prêts", pret: true });
+    expect(libelleLot({ ...base, recus: 3, echecs: 1, enCours: false })).toEqual({ texte: "3 fichiers prêts · 1 non envoyé", pret: true });
+    expect(libelleLot({ ...base, recus: 0, echecs: 4, enCours: false }).pret).toBe(false);
+    expect(libelleLot({ ...base, recus: 0, annules: 4, enCours: false }).texte).toBe("Envoi annulé");
   });
 });

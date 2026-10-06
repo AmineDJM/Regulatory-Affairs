@@ -82,6 +82,71 @@ export function shareWarning(recipientCount: number): string {
   return `Les ${recipientCount} destinataires recevront un accès en lecture à ce contenu du Drive.`;
 }
 
+// ─────────────────────────── Les gros envois : par le chemin du Drive ───────────────────────────
+
+/**
+ * ENVOYER DE GROS FICHIERS ET DES DOSSIERS EN MESSAGERIE — avec les performances du Drive
+ * (Direction, 06/10 : « pas que Drive ou Regulatory, et avec les exactes et mêmes performances »).
+ *
+ * Ce que l'on dépose dans une conversation part dans le Drive de l'EXPÉDITEUR, sous
+ * « Messagerie / <conversation> / Envoi du … », par le MÊME moteur que l'import du Drive : envoi en
+ * arrière-plan, six fichiers en parallèle, reprise, envoi direct au stockage au-delà du seuil,
+ * contenu déjà connu non retransféré, arborescence exacte d'un dossier. Le message joint ensuite le
+ * contenu du lot comme des RÉFÉRENCES au Drive — les destinataires reçoivent la lecture.
+ *
+ * Plus d'archive .zip faite en mémoire par le serveur, plus de limite de pièce jointe à 200 Mo :
+ * la seule limite est celle d'un fichier du Drive.
+ */
+export const DOSSIER_MESSAGERIE = "Messagerie";
+
+/** Le dossier d'une conversation dans « Messagerie » : son titre, nettoyé, ou « Conversation ». */
+export function nomDossierConversation(titre: string | null | undefined): string {
+  const propre = (titre ?? "").replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim().slice(0, 120);
+  return /[\p{L}\p{N}]/u.test(propre) ? propre : "Conversation";
+}
+
+/** Le dossier d'UN envoi : daté à la seconde, à l'heure d'Alger (le serveur peut tourner en UTC). */
+export function nomLotMessagerie(date: Date): string {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Africa/Algiers", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+    }).formatToParts(date).map((x) => [x.type, x.value]),
+  ) as Record<string, string>;
+  return `Envoi du ${p.year}-${p.month}-${p.day} à ${p.hour}h${p.minute}m${p.second}`;
+}
+
+/**
+ * CE QUE LE MESSAGE JOINT D'UN LOT : ses éléments un par un tant qu'ils tiennent dans la place
+ * restante (chacun s'ouvre d'un clic), sinon le DOSSIER du lot lui-même — quarante fichiers déposés
+ * ne font pas quarante pièces, ils font un dossier qui se navigue. Un lot vide ne joint rien.
+ */
+export function piecesDuLot(nbElements: number, placeRestante: number): "elements" | "dossier" | "rien" {
+  if (nbElements <= 0) return "rien";
+  return nbElements <= Math.max(0, placeRestante) ? "elements" : "dossier";
+}
+
+/** Où en est un lot déposé dans le compositeur — ce que dit la pastille, et si l'on peut envoyer. */
+export interface EtatLot {
+  total: number;
+  recus: number;
+  echecs: number;
+  annules: number;
+  enCours: boolean;
+}
+
+export function libelleLot(e: EtatLot): { texte: string; pret: boolean } {
+  const n = (k: number) => `${k} fichier${k > 1 ? "s" : ""}`;
+  if (e.enCours) return { texte: `Envoi ${e.recus}/${e.total}…`, pret: false };
+  if (e.recus === 0) {
+    return { texte: e.annules > 0 && e.echecs === 0 ? "Envoi annulé" : "Échec de l'envoi", pret: false };
+  }
+  const manque = e.echecs + e.annules;
+  return manque > 0
+    ? { texte: `${n(e.recus)} prêt${e.recus > 1 ? "s" : ""} · ${manque} non envoyé${manque > 1 ? "s" : ""}`, pret: true }
+    : { texte: `${n(e.recus)} prêt${e.recus > 1 ? "s" : ""}`, pret: true };
+}
+
 /**
  * Le nom du ZIP produit quand on envoie un DOSSIER de son ordinateur.
  *

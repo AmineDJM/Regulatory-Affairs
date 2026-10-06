@@ -1,4 +1,4 @@
-import type { HrDocumentCategory, HrRequestType, HrRequestStatus } from "@prisma/client";
+import type { HrDocumentCategory, HrRequestType, HrRequestStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { DocItem } from "@/components/documents/document-list";
 import type { CommentItem } from "@/components/shared/comment-thread";
@@ -178,15 +178,22 @@ export async function getEmployeeHrDossier(employeeId: string) {
 export interface HrQueueItem extends HrRequestDTO {
   employeeId: string;
   employeeName: string;
+  employeePosition: string | null;
 }
 
-/** File des demandes RH ouvertes (pour la page /rh). */
-export async function getHrRequestQueue(): Promise<HrQueueItem[]> {
+/**
+ * LA FILE DES DEMANDES RH — le sous-module « Demandes RH » (Direction, 06/10) : les demandes OUVERTES des salariés que la
+ * personne voit (bornées à la société, comme la liste des salariés — `clauseSalariesVisibles`), avec leurs pièces et leur
+ * fil, pour les traiter sur place sans passer par la fiche du salarié. Les plus anciennes d'abord : elles attendent le plus.
+ */
+export async function getHrRequestQueue(perimetre: Prisma.EmployeeWhereInput = {}): Promise<HrQueueItem[]> {
   const rows = await prisma.hrDocumentRequest.findMany({
-    where: { status: { in: ["PENDING", "IN_PROGRESS"] } },
+    where: { status: { in: ["PENDING", "IN_PROGRESS"] }, employee: perimetre },
     orderBy: { createdAt: "asc" },
-    include: { employee: { select: { id: true, fullName: true } }, fulfilment: { select: { id: true } } },
-    take: 50,
+    include: { employee: { select: { id: true, fullName: true, position: true } }, fulfilment: { select: { id: true } } },
+    take: 100,
   });
-  return rows.map((r) => ({ ...mapReq(r), employeeId: r.employee.id, employeeName: r.employee.fullName }));
+  const items: HrQueueItem[] = rows.map((r) => ({ ...mapReq(r), employeeId: r.employee.id, employeeName: r.employee.fullName, employeePosition: r.employee.position }));
+  await attachThreads(items);
+  return items;
 }

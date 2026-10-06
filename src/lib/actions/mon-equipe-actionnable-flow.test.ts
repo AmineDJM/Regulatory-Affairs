@@ -95,8 +95,9 @@ async function pageOuvrable(u: CurrentUser, href: string): Promise<boolean> {
     }).voir;
   }
   if ((m = href.match(/^\/rh\/([^/?#]+)$/))) {
-    // `rh/[id]/page.tsx` : requireModule("RH"), la fiche existe, puis `entitePermisePourFiche` → notFound.
-    if (!module("RH")) return false;
+    // `rh/[id]/page.tsx` : requireModule("EMPLOYEES") (sous-module « Employés », Direction 06/10), la fiche existe, puis
+    // `entitePermisePourFiche` → notFound.
+    if (!module("EMPLOYEES")) return false;
     const e = await prisma.employee.findUnique({ where: { id: m[1] }, select: { companyId: true } });
     return e !== null && (await entitePermisePourFiche(u.id, e.companyId));
   }

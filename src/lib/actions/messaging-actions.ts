@@ -8,8 +8,12 @@ import { prisma } from "@/lib/prisma";
 import { emettreMessageRecu } from "@/lib/events/messaging-events";
 import { notifyUser } from "@/lib/notify";
 import { resolveDriveAccess } from "@/lib/drive";
-import { MAX_ATTACHMENTS, recipientsToGrant } from "@/lib/messaging-attachments";
 import {
+  MAX_ATTACHMENTS, recipientsToGrant, DOSSIER_MESSAGERIE, nomDossierConversation, nomLotMessagerie, piecesDuLot,
+} from "@/lib/messaging-attachments";
+import { creerArborescenceDrive } from "@/lib/drive/arborescence";
+import {
+  canAccessConversation,
   getActiveMembership,
   findDirectConversation,
   sanitizeMentionIds,
@@ -126,14 +130,62 @@ async function parseDriveRefs(user: SessionUser, raw: string | null): Promise<Pa
   const out: ParsedDriveRef[] = [];
   for (const n of nodes) {
     if ((await resolveDriveAccess(user, n.id)) === "NONE") continue; // partager ce qu'on ne voit pas : non
-    out.push({
-      nodeId: n.id,
-      name: n.name.slice(0, 200),
-      mime: n.mimeType ?? (n.type === "FOLDER" ? "inode/directory" : "application/octet-stream"),
-      size: n.size,
-      isFolder: n.type === "FOLDER",
-      ownerId: n.ownerId,
+    out.push(refDuNoeud(n));
+  }
+  return out;
+}
+
+/**
+ * La taille d'une pièce jointe est un `Int` (32 bits) ; celle d'un nœud du Drive un `Float`, qui tient
+ * les fichiers de plus de 2 Go. Sans borne, joindre une référence à un fichier de 3 Go faisait ÉCHOUER
+ * l'envoi du message entier (Direction, 06/10). La taille affichée plafonne à 2 Go ; le fichier, lui,
+ * reste entier dans le Drive.
+ */
+const TAILLE_INT_MAX = 2_147_483_647;
+
+function refDuNoeud(n: { id: string; name: string; type: string; mimeType: string | null; size: number; ownerId: string | null }): ParsedDriveRef {
+  return {
+    nodeId: n.id,
+    name: n.name.slice(0, 200),
+    mime: n.mimeType ?? (n.type === "FOLDER" ? "inode/directory" : "application/octet-stream"),
+    size: Math.max(0, Math.min(Math.round(n.size || 0), TAILLE_INT_MAX)),
+    isFolder: n.type === "FOLDER",
+    ownerId: n.ownerId,
+  };
+}
+
+/**
+ * LES LOTS DÉPOSÉS DANS LE COMPOSITEUR (voir `preparerDepotMessagerie`), devenus pièces du message.
+ *
+ * Un lot n'est accepté que s'il est un dossier APPARTENANT à l'expéditeur — on ne fait pas joindre
+ * le dossier d'un autre en devinant son identifiant. Son contenu est relu en base au moment de
+ * l'envoi : ses éléments un par un s'ils tiennent dans la place restante, sinon le dossier du lot.
+ */
+async function parseDriveLots(user: SessionUser, rawIds: readonly string[], place: number, deja: ReadonlySet<string>): Promise<ParsedDriveRef[]> {
+  const ids = [...new Set(rawIds.map((x) => x.trim()).filter(Boolean))].slice(0, MAX_ATTACHMENTS);
+  const champs = { id: true, name: true, type: true, mimeType: true, size: true, ownerId: true } as const;
+  const out: ParsedDriveRef[] = [];
+  let reste = place;
+  for (const id of ids) {
+    const lot = await prisma.driveNode.findFirst({
+      where: { id, type: "FOLDER", ownerId: user.id, isTrashed: false },
+      select: champs,
     });
+    if (!lot) continue;
+    const elements = (await prisma.driveNode.findMany({
+      where: { parentId: lot.id, isTrashed: false },
+      select: champs,
+      orderBy: { name: "asc" },
+      take: MAX_ATTACHMENTS + 1, // au-delà, on sait déjà que ce sera le dossier
+    })).filter((n) => !deja.has(n.id));
+    const choix = piecesDuLot(elements.length, reste);
+    if (choix === "elements") {
+      out.push(...elements.map(refDuNoeud));
+      reste -= elements.length;
+    } else if (choix === "dossier") {
+      out.push(refDuNoeud(lot));
+      reste -= 1;
+    }
   }
   return out;
 }
@@ -335,7 +387,15 @@ export async function sendMessage(
 
   const body = (formData.get("body") ? String(formData.get("body")) : "").trim().slice(0, 8000);
   const attachments = parseAttachments(fdStr(formData, "attachments"));
-  const driveRefs = await parseDriveRefs(user, fdStr(formData, "driveRefs"));
+  const refsChoisies = await parseDriveRefs(user, fdStr(formData, "driveRefs"));
+  // Les lots déposés (gros fichiers, dossiers) — déjà dans le Drive de l'expéditeur, joints par référence.
+  const refsDesLots = await parseDriveLots(
+    user,
+    formData.getAll("driveLot").map((v) => String(v ?? "")),
+    MAX_ATTACHMENTS - attachments.length - refsChoisies.length,
+    new Set(refsChoisies.map((r) => r.nodeId)),
+  );
+  const driveRefs = [...refsChoisies, ...refsDesLots];
   const pieces = attachments.length + driveRefs.length;
   if (!body && pieces === 0) return { ok: false, error: "Message vide." };
 
@@ -392,6 +452,65 @@ export async function sendMessage(
 
   revalidatePath("/messages");
   return { ok: true, message: mapMessage(created as unknown as MessageRow, user.id) };
+}
+
+/**
+ * PRÉPARER UN DÉPÔT DANS UNE CONVERSATION — gros fichiers, ZIP, dossiers entiers.
+ *
+ * Crée (ou reprend, avec `lotId`) le dossier de l'envoi dans le Drive PERSONNEL de l'expéditeur —
+ * « Messagerie / <conversation> / Envoi du … » — puis l'arborescence des dossiers déposés (`dir`,
+ * chemins relatifs). Rend la carte `chemin → dossier` : le navigateur y envoie ensuite chaque fichier
+ * par les routes du Drive, exactement comme l'import de dossier du Drive (Direction, 06/10).
+ *
+ * L'expéditeur est PROPRIÉTAIRE du lot : cela suffit aux routes d'envoi du Drive (`refusDepotDrive`
+ * demande l'édition du dossier cible, et le propriétaire l'a) — le droit module « Téléverser » du
+ * Drive n'est pas requis ; c'est celui de la messagerie qui ouvre la porte ici.
+ */
+export async function preparerDepotMessagerie(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string; lotId?: string; map?: Record<string, string> }> {
+  const user = await requireUser();
+  if (!userCan(user, "MESSAGING", "UPLOAD")) return { ok: false, error: "Non autorisé." };
+  const conversationId = fdStr(formData, "conversationId");
+  if (!conversationId || !(await canAccessConversation(user.id, conversationId))) {
+    return { ok: false, error: "Conversation non autorisée." };
+  }
+  const dirs = [...new Set(formData.getAll("dir").map((d) => String(d ?? "").trim()).filter(Boolean))].slice(0, 5000);
+
+  let lotId = fdStr(formData, "lotId");
+  if (lotId) {
+    const lot = await prisma.driveNode.findFirst({
+      where: { id: lotId, type: "FOLDER", ownerId: user.id, isTrashed: false },
+      select: { id: true },
+    });
+    if (!lot) return { ok: false, error: "Envoi introuvable — redéposez les fichiers." };
+  } else {
+    const conv = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { title: true, members: { where: { leftAt: null, userId: { not: user.id } }, select: { user: { select: { name: true } } }, take: 3 } },
+    });
+    const titre = conv?.title || conv?.members.map((m) => m.user.name).join(", ") || null;
+    // Drive PERSONNEL (spaceId null) : un dossier « Messagerie » à la racine d'une catégorie ne compte pas.
+    let parentId: string | null = null;
+    for (const nom of [DOSSIER_MESSAGERIE, nomDossierConversation(titre)]) {
+      const existant: { id: string } | null = await prisma.driveNode.findFirst({
+        where: { type: "FOLDER", name: nom, parentId, ownerId: user.id, spaceId: null, isTrashed: false },
+        select: { id: true },
+      });
+      parentId = existant?.id ?? (await prisma.driveNode.create({
+        data: { name: nom, type: "FOLDER", parentId, ownerId: user.id, createdById: user.id },
+        select: { id: true },
+      })).id;
+    }
+    // Le dossier de l'envoi est TOUJOURS neuf : le message joindra son contenu, et rien d'autre.
+    lotId = (await prisma.driveNode.create({
+      data: { name: nomLotMessagerie(new Date()), type: "FOLDER", parentId, ownerId: user.id, createdById: user.id },
+      select: { id: true },
+    })).id;
+  }
+
+  const map = await creerArborescenceDrive({ ownerId: user.id, parentId: lotId, spaceId: null, paths: dirs });
+  return { ok: true, lotId, map };
 }
 
 export async function editMessage(formData: FormData): Promise<ActionResult> {

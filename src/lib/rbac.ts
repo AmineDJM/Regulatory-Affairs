@@ -115,6 +115,11 @@ export const MODULES = [
   // module à part, je n'arrive pas à gérer ses accès depuis la console »). Voir = la liste et la fiche 360° ; chaque
   // section de la fiche reste gardée par SON module (Regulatory, PCH, Ventes, Segmentation, Consommation, Finances).
   "PRODUCTS",
+  // LES SOUS-MODULES DES RESSOURCES HUMAINES (Direction, 06/10 : « transformer les onglets de RH en sous-modules
+  // indépendants mais reliés ») : EMPLOYEES — « Employés » (l'équipe, les consultants, les départements) ;
+  // HR_REQUESTS — « Demandes RH » (attestations, ordres de mission, notes de frais, congés et absences) ;
+  // TRAINING — « Formations ». « RH » garde la paie, les avances et le tableau de bord des RH.
+  "EMPLOYEES", "HR_REQUESTS", "TRAINING",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -504,6 +509,20 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
   if (!matrice.PRODUCTS && FACETTES_PRODUIT.some((m) => matrice[m]?.includes("VIEW"))) matrice.PRODUCTS = [...READ];
 }
 
+/**
+ * LES SOUS-MODULES RH PAR DÉFAUT — les mêmes personnes qu'hier : chaque rôle qui tenait les ressources humaines garde,
+ * sur Employés, Demandes RH et Formations, exactement ce qu'il avait sur « RH ». Ce n'est qu'un défaut, LISIBLE dans la
+ * console : chacun s'ouvre ou se ferme ensuite indépendamment des autres (Direction, 06/10).
+ */
+const SOUS_MODULES_RH: Module[] = ["EMPLOYEES", "HR_REQUESTS", "TRAINING"];
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (role === "SUPER_ADMIN") continue;
+  const matrice = PERMISSIONS[role];
+  const rh = matrice.RH;
+  if (!rh) continue;
+  for (const m of SOUS_MODULES_RH) if (!matrice[m]) matrice[m] = [...rh];
+}
+
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
 
 /** Type minimal « porteur de rôles » : rôle principal + éventuel rôle secondaire. */
@@ -832,6 +851,9 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
 const NAV_TARGETS: { href: string; module: Module; label: string }[] = NAVIGATION.flatMap((n) => [
   { href: n.href, module: n.module, label: n.label },
   ...(n.tabs ?? []).map((t) => ({ href: t.href, module: t.module, label: t.label })),
+  // LES SOUS-MODULES (Ressources humaines, Direction 06/10) : leur route ET leurs chemins rattachés disent leur module —
+  // « /rh/conges » est aux Demandes RH, pas au module RH du parent.
+  ...(n.children ?? []).flatMap((c) => [c.href, ...(c.match ?? [])].map((href) => ({ href, module: c.module, label: c.label }))),
 ]);
 
 function moduleFromLink(link: string): Module | null {

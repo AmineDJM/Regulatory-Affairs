@@ -34,6 +34,8 @@ export interface EntreeZip {
   decalage: number;
   methode: number;
   chiffree: boolean;
+  /** CRC-32 annoncé par le répertoire central — entre dans la clé du cache d'aperçu (zip-apercu). */
+  crc32: number;
 }
 
 export class ErreurZip extends Error {}
@@ -105,6 +107,7 @@ export async function listerZip(source: SourceZip, maxEntrees = 100_000): Promis
     if (entrees.length >= maxEntrees) { tronque = true; break; }
     const drapeaux = central.readUInt16LE(o + 8);
     const methode = central.readUInt16LE(o + 10);
+    const crc32 = central.readUInt32LE(o + 16);
     let tailleCompressee = central.readUInt32LE(o + 20);
     let taille = central.readUInt32LE(o + 24);
     const lNom = central.readUInt16LE(o + 28);
@@ -134,7 +137,7 @@ export async function listerZip(source: SourceZip, maxEntrees = 100_000): Promis
     const nom = decoderNom(nomBrut, drapeaux);
     const dossier = nom.endsWith("/") || nom.endsWith("\\");
     const chemin = cheminSur(nom);
-    if (chemin) entrees.push({ chemin, dossier, tailleCompressee, taille, decalage, methode, chiffree: (drapeaux & 0x0001) !== 0 });
+    if (chemin) entrees.push({ chemin, dossier, tailleCompressee, taille, decalage, methode, chiffree: (drapeaux & 0x0001) !== 0, crc32 });
     o += 46 + lNom + lExtra + lCom;
   }
   void nbEntrees;
@@ -175,18 +178,7 @@ export async function fluxEntreeZip(source: SourceZip, entree: EntreeZip, morcea
   if (entree.dossier) throw new ErreurZip("Un dossier n'a pas de contenu.");
   if (entree.chiffree) throw new ErreurZip("Cette entrée est protégée par un mot de passe — téléchargez l'archive pour l'ouvrir.");
   if (entree.methode !== 0 && entree.methode !== 8) throw new ErreurZip(`Méthode de compression ${entree.methode} non prise en charge ici — téléchargez l'archive.`);
-  const entete = await source.lire(entree.decalage, 30);
-  if (entete.length < 30 || entete.readUInt32LE(0) !== SIG_LOCAL) throw new ErreurZip("Entrée corrompue (en-tête local introuvable).");
-  const debutDonnees = entree.decalage + 30 + entete.readUInt16LE(26) + entete.readUInt16LE(28);
-  async function* morceaux(): AsyncGenerator<Buffer> {
-    for (let o = 0; o < entree.tailleCompressee; o += morceau) {
-      const n = Math.min(morceau, entree.tailleCompressee - o);
-      const b = await source.lire(debutDonnees + o, n);
-      if (b.length !== n) throw new ErreurZip("Entrée tronquée — archive incomplète.");
-      yield b;
-    }
-  }
-  const brut = Readable.from(morceaux());
+  const brut = fluxOctets(source, await debutDonneesEntree(source, entree), entree.tailleCompressee, morceau);
   if (entree.methode === 0) return brut;
   let sortis = 0;
   const garde = new Transform({
@@ -199,6 +191,30 @@ export async function fluxEntreeZip(source: SourceZip, entree: EntreeZip, morcea
   // `pipeline` propage une erreur de n'importe quel maillon à la sortie (et ferme les autres).
   pipeline(brut, createInflateRaw(), garde, () => undefined);
   return garde;
+}
+
+/**
+ * Position ABSOLUE des données d'une entrée dans l'archive. Pour une entrée STOCKÉE (méthode 0), l'entrée est
+ * une tranche de l'archive : une plage demandée par le navigateur se traduit en une plage de l'archive (zip-apercu).
+ */
+export async function debutDonneesEntree(source: SourceZip, entree: EntreeZip): Promise<number> {
+  // En-tête local : sa longueur de nom/extra peut différer de celle du répertoire central.
+  const entete = await source.lire(entree.decalage, 30);
+  if (entete.length < 30 || entete.readUInt32LE(0) !== SIG_LOCAL) throw new ErreurZip("Entrée corrompue (en-tête local introuvable).");
+  return entree.decalage + 30 + entete.readUInt16LE(26) + entete.readUInt16LE(28);
+}
+
+/** `longueur` octets de la source à partir de `debut`, en flux, une plage de `morceau` à la fois. */
+export function fluxOctets(source: SourceZip, debut: number, longueur: number, morceau = 8 * 1024 * 1024): Readable {
+  async function* morceaux(): AsyncGenerator<Buffer> {
+    for (let o = 0; o < longueur; o += morceau) {
+      const n = Math.min(morceau, longueur - o);
+      const b = await source.lire(debut + o, n);
+      if (b.length !== n) throw new ErreurZip("Entrée tronquée — archive incomplète.");
+      yield b;
+    }
+  }
+  return Readable.from(morceaux());
 }
 
 /** Source en mémoire (petites archives, ou tests). */

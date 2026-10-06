@@ -1163,6 +1163,8 @@ X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable
   "validation-actions:commenterValidation", "validation-actions:ajouterParticipantsValidation", "validation-actions:retirerParticipantValidation",
   // DÉPLACER UNE DÉPENSE « À IMPUTER » VERS SA SOCIÉTÉ : un geste de l'écran Budgets › Dépenses.
   "budget-envelope-actions:changerSocieteEcriture",
+  // PRÉPARER LE DOSSIER D'UN ENVOI DE LA MESSAGERIE : le composeur dépose ensuite les fichiers par la file du Drive.
+  "messaging-actions:preparerDepotMessagerie",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "

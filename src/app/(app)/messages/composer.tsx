@@ -1,14 +1,20 @@
 "use client";
 
 import * as React from "react";
-import { Send, Paperclip, Smile, X, Loader2, FileText, Folder, FolderUp, FolderSearch, Reply } from "lucide-react";
+import { Send, Paperclip, Smile, X, Loader2, FileText, Folder, FolderUp, FolderSearch, Reply, UploadCloud, CheckCircle2, AlertCircle } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { ConvMemberDTO, MessageDTO } from "@/lib/queries/messaging";
 import { EMOJI_PALETTE } from "./emoji";
 import { formatBytes } from "./format";
 import { DriveExplorerSheet, type DrivePickerValue } from "@/components/drive/drive-picker";
-import { MAX_ATTACHMENTS, folderZipName, rootFolderName, shareWarning } from "@/lib/messaging-attachments";
+import { MAX_ATTACHMENTS, rootFolderName, shareWarning, libelleLot, type EtatLot } from "@/lib/messaging-attachments";
+import { useBackgroundUpload } from "@/components/layout/background-upload";
+import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
+import { envoiArborescenceDrive, dossierDuCheminDrive } from "@/components/drive/envoi-drive";
+import { lireDepot, FICHIER_PARASITE, type EntreeDepot } from "@/components/documents/envoi-document";
+import { preparerDepotMessagerie } from "@/lib/actions/messaging-actions";
+import { trashNode } from "@/lib/actions/drive-actions";
 
 export interface UploadedAttachment {
   blobId: string;
@@ -30,8 +36,45 @@ export interface SendPayload {
   attachments: UploadedAttachment[];
   /** Références au Drive : le serveur revalide les droits et accorde la lecture aux membres. */
   driveRefs: DriveRef[];
+  /** Lots déposés (gros fichiers, dossiers), déjà arrivés dans le Drive de l'expéditeur. */
+  driveLots: { id: string; name: string }[];
   mentions: string[];
   parentId: string | null;
+}
+
+/** Un envoi confié au gestionnaire d'envois, dans le lot de la conversation. */
+interface EnvoiDuLot { total: number; recus: number; echecs: number; annules: number; fini: boolean }
+
+/**
+ * LE LOT DÉPOSÉ DANS LE COMPOSITEUR — un dossier du Drive de l'expéditeur (« Messagerie / … / Envoi
+ * du … ») où montent les fichiers, par le moteur du Drive. Plusieurs dépôts successifs s'y ajoutent ;
+ * le message le joint quand TOUT est arrivé.
+ */
+interface LotDepot {
+  conversationId: string;
+  lotId: string;
+  noms: string[];
+  envois: Record<string, EnvoiDuLot>;
+}
+
+function etatDuLot(l: LotDepot): EtatLot {
+  const e = Object.values(l.envois);
+  return {
+    total: e.reduce((a, x) => a + x.total, 0),
+    recus: e.reduce((a, x) => a + x.recus, 0),
+    echecs: e.reduce((a, x) => a + x.echecs, 0),
+    annules: e.reduce((a, x) => a + x.annules, 0),
+    enCours: e.some((x) => !x.fini),
+  };
+}
+
+/** Le nom d'un dépôt : le fichier seul, le dossier déposé, ou le compte. */
+function nomDuDepot(entrees: readonly EntreeDepot[]): string {
+  if (entrees.length === 1) return entrees[0].path.split("/").pop() || entrees[0].file.name;
+  const racines = new Set(entrees.map((e) => e.path.split("/")[0]));
+  const racine = rootFolderName(entrees.map((e) => e.path));
+  if (racines.size === 1 && racine && entrees.every((e) => e.path.includes("/"))) return racine;
+  return `${entrees.length} fichiers`;
 }
 
 interface Props {
@@ -43,19 +86,16 @@ interface Props {
   onSend: (payload: SendPayload) => Promise<boolean>;
 }
 
-interface Pending {
-  tempId: string;
-  name: string;
-}
-
 export function Composer({ conversationId, members, selfId, replyTo, onCancelReply, onSend }: Props) {
   const [text, setText] = React.useState("");
-  const [attachments, setAttachments] = React.useState<UploadedAttachment[]>([]);
   const [driveRefs, setDriveRefs] = React.useState<DriveRef[]>([]);
   const [attachMenu, setAttachMenu] = React.useState(false);
   const [drivePicker, setDrivePicker] = React.useState(false);
-  const [zipping, setZipping] = React.useState<string | null>(null);
-  const [pending, setPending] = React.useState<Pending[]>([]);
+  // Les lots déposés, PAR conversation : un envoi continue en arrière-plan si l'on passe à une autre,
+  // et son lot est retrouvé au retour.
+  const [lots, setLots] = React.useState<LotDepot[]>([]);
+  const [preparing, setPreparing] = React.useState(false);
+  const [dragOver, setDragOver] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [sending, setSending] = React.useState(false);
   const [showEmoji, setShowEmoji] = React.useState(false);
@@ -69,6 +109,15 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
   const folderRef = React.useRef<HTMLInputElement>(null);
   const lastPing = React.useRef(0);
   const draftKey = `amd-msg-draft-${conversationId}`;
+  const { enqueue } = useBackgroundUpload();
+  const limites = useLimitesEnvoi();
+
+  const lot = lots.find((l) => l.conversationId === conversationId) ?? null;
+  const etatLot = lot ? etatDuLot(lot) : null;
+  const libelle = etatLot ? libelleLot(etatLot) : null;
+  // Un lot dont rien n'est arrivé (échec, annulation) n'est pas joint : il ne bloque pas non plus l'envoi du texte.
+  const lotPret = Boolean(libelle?.pret);
+  const lotEnCours = Boolean(etatLot?.enCours) || preparing;
 
   const others = React.useMemo(() => members.filter((m) => m.userId !== selfId), [members, selfId]);
   const mentionMatches = mention.open
@@ -79,8 +128,8 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
   React.useEffect(() => {
     const saved = typeof window !== "undefined" ? window.localStorage.getItem(draftKey) : null;
     setText(saved ?? "");
-    setAttachments([]);
     setDriveRefs([]);
+    setError(null);
     setShowEmoji(false);
     setMention((m) => ({ ...m, open: false }));
     setTimeout(() => taRef.current?.focus(), 50);
@@ -157,75 +206,121 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
     }, 0);
   };
 
-  const uploadFiles = async (files: FileList) => {
+  /** Met à jour UN envoi du lot de la conversation `conv` (les rappels arrivent en arrière-plan). */
+  const majEnvoi = React.useCallback((conv: string, cle: string, fn: (e: EnvoiDuLot) => EnvoiDuLot) => {
+    setLots((ls) => ls.map((l) => (l.conversationId === conv && l.envois[cle] ? { ...l, envois: { ...l.envois, [cle]: fn(l.envois[cle]) } } : l)));
+  }, []);
+
+  /**
+   * DÉPOSER DES FICHIERS, DES ZIP, DES DOSSIERS — par le chemin du Drive, aux mêmes performances
+   * (Direction, 06/10 : « pas que Drive ou Regulatory, et avec les exactes et mêmes performances »).
+   *
+   * Avant : dix fichiers au plus, un par un, chacun tenu en mémoire par le serveur, 200 Mo de limite ; un
+   * dossier montait d'UNE requête et le serveur en faisait un .zip en mémoire. Désormais le serveur crée
+   * le dossier de l'envoi (et l'arborescence d'un dossier déposé) dans le Drive de l'expéditeur, puis le
+   * gestionnaire d'envois y monte chaque fichier exactement comme l'import de dossier du Drive : six en
+   * parallèle, reprise, envoi direct au stockage au-delà du seuil, contenu déjà connu non retransféré.
+   * L'envoi continue si l'on change d'écran ; le message attend que tout soit arrivé.
+   */
+  const deposer = async (brutes: EntreeDepot[]) => {
     setError(null);
-    for (const file of Array.from(files).slice(0, 10)) {
-      const tempId = crypto.randomUUID();
-      setPending((p) => [...p, { tempId, name: file.name }]);
-      const fd = new FormData();
-      fd.set("file", file);
-      fd.set("conversationId", conversationId);
-      try {
-        const res = await fetch("/api/messaging/upload", { method: "POST", body: fd });
-        const data = await res.json();
-        if (res.ok) {
-          setAttachments((a) => [...a, { blobId: data.blobId, sig: data.sig, name: data.name, mime: data.mime, size: data.size }]);
-        } else {
-          setError(data.error ?? "Échec de l'envoi du fichier.");
-        }
-      } catch {
-        setError("Échec de l'envoi du fichier.");
-      } finally {
-        setPending((p) => p.filter((x) => x.tempId !== tempId));
-      }
+    // .DS_Store, Thumbs.db… posés par le système, jamais par la personne.
+    const entrees = brutes.filter((e) => !FICHIER_PARASITE.test(e.file.name));
+    if (entrees.length === 0 || preparing) return;
+    const conv = conversationId;
+    const lotCourant = lots.find((l) => l.conversationId === conv) ?? null;
+    const fd = new FormData();
+    fd.set("conversationId", conv);
+    if (lotCourant) fd.set("lotId", lotCourant.lotId);
+    for (const d of new Set(entrees.map((e) => dossierDuCheminDrive(e.path)).filter(Boolean))) fd.append("dir", d);
+    setPreparing(true);
+    let r: Awaited<ReturnType<typeof preparerDepotMessagerie>>;
+    try {
+      r = await preparerDepotMessagerie(fd);
+    } catch {
+      r = { ok: false, error: "Impossible de préparer l'envoi — réseau indisponible ?" };
+    } finally {
+      setPreparing(false);
+    }
+    if (!r.ok || !r.lotId || !r.map) { setError(r.error ?? "Impossible de préparer l'envoi."); return; }
+    const lotId = r.lotId;
+    const cle = crypto.randomUUID();
+    const nom = nomDuDepot(entrees);
+    const envoi: EnvoiDuLot = { total: entrees.length, recus: 0, echecs: 0, annules: 0, fini: false };
+    setLots((ls) => {
+      const l = ls.find((x) => x.conversationId === conv && x.lotId === lotId);
+      if (l) return ls.map((x) => (x === l ? { ...x, noms: [...x.noms, nom], envois: { ...x.envois, [cle]: envoi } } : x));
+      return [...ls.filter((x) => x.conversationId !== conv), { conversationId: conv, lotId, noms: [nom], envois: { [cle]: envoi } }];
+    });
+    enqueue(envoiArborescenceDrive({
+      label: `Messagerie — ${nom}${entrees.length > 1 ? ` (${entrees.length} fichiers)` : ""}`,
+      entrees,
+      map: r.map,
+      parentId: lotId,
+      limites,
+      onFileDone: () => majEnvoi(conv, cle, (e) => ({ ...e, recus: e.recus + 1 })),
+      onJobStart: () => majEnvoi(conv, cle, (e) => ({ ...e, echecs: 0, annules: 0, fini: false })),
+      onJobDone: (b) => majEnvoi(conv, cle, () => ({ total: b.total, recus: b.recus, echecs: b.echecs, annules: b.annules, fini: true })),
+    }));
+  };
+
+  const fichiersChoisis = (files: FileList) =>
+    void deposer(Array.from(files).map((file) => ({ file, path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name })));
+
+  /** Retirer le lot avant l'envoi : ses fichiers partent à la CORBEILLE du Drive (récupérables). */
+  const retirerLot = () => {
+    if (!lot || lotEnCours) return;
+    const fd = new FormData();
+    fd.set("id", lot.lotId);
+    void trashNode(fd).catch(() => undefined);
+    setLots((ls) => ls.filter((l) => l !== lot));
+  };
+
+  // GLISSER-DÉPOSER sur le compositeur : fichiers ET dossiers (parcours récursif).
+  const aDesFichiers = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const onDragOver = (e: React.DragEvent) => {
+    if (!aDesFichiers(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    if (!dragOver) setDragOver(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDragOver(false);
+  };
+  const onDrop = async (e: React.DragEvent) => {
+    if (!aDesFichiers(e)) return;
+    e.preventDefault();
+    setDragOver(false);
+    try {
+      await deposer(await lireDepot(e.dataTransfer));
+    } catch {
+      setError("Lecture du dépôt impossible — réessayez avec le trombone.");
     }
   };
 
   /**
-   * ENVOYER UN DOSSIER DE SON ORDINATEUR.
-   *
-   * Un navigateur ne sait pas envoyer un dossier : `webkitdirectory` lui fait rendre les fichiers
-   * À PLAT, avec leur chemin relatif. Les joindre un par un afficherait quarante pièces sans
-   * hiérarchie, et perdrait justement ce qui fait un dossier.
-   *
-   * L'ARCHIVE SE FAIT SUR LE SERVEUR (Direction, 06/10 : les PC des utilisateurs sont limités) : le navigateur
-   * n'envoie que les fichiers et leur chemin, et ne compresse plus rien — avant, JSZip montait tout le dossier en
-   * mémoire dans l'onglet. Le serveur renvoie la pièce jointe prête (même signature qu'un fichier envoyé seul).
+   * ENVOYER. Un dossier déposé n'est plus une archive : il arrive dans le Drive avec son arborescence
+   * exacte, et le message en joint le contenu par référence. TANT QUE LE LOT MONTE, on n'envoie pas :
+   * un message parti avant ses fichiers annoncerait des pièces que personne ne trouverait.
    */
-  const uploadFolder = async (files: FileList) => {
-    setError(null);
-    const list = Array.from(files);
-    if (list.length === 0) return;
-    const paths = list.map((f) => (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name);
-    const zipName = folderZipName(rootFolderName(paths) ?? "Dossier");
-    setZipping(zipName);
-    try {
-      const fd = new FormData();
-      fd.set("conversationId", conversationId);
-      list.forEach((f, i) => { fd.append("file", f); fd.append("path", paths[i] || f.name); });
-      const res = await fetch("/api/messaging/upload-dossier", { method: "POST", body: fd });
-      const data = await res.json();
-      if (res.ok) {
-        setAttachments((a) => [...a, { blobId: data.blobId, sig: data.sig, name: data.name, mime: data.mime, size: data.size }]);
-      } else {
-        setError(data.error ?? "Impossible de préparer l'archive du dossier.");
-      }
-    } catch {
-      setError("Impossible d'envoyer le dossier.");
-    } finally {
-      setZipping(null);
-    }
-  };
   const submit = async () => {
     const body = text.trim();
-    if ((!body && attachments.length === 0 && driveRefs.length === 0) || sending || pending.length > 0) return;
+    if (sending) return;
+    if (lotEnCours) { setError("Les fichiers ne sont pas encore tous arrivés — le message pourra partir dès la fin de l'envoi."); return; }
+    if (!body && driveRefs.length === 0 && !lotPret) return;
     const mentions = others.filter((m) => body.includes(`@${m.name}`)).map((m) => m.userId);
+    const lotEnvoye = lotPret && lot ? lot : null;
     setSending(true);
-    const ok = await onSend({ body, attachments, driveRefs, mentions, parentId: replyTo?.id ?? null });
+    const ok = await onSend({
+      body, attachments: [], driveRefs, mentions, parentId: replyTo?.id ?? null,
+      driveLots: lotEnvoye ? [{ id: lotEnvoye.lotId, name: lotEnvoye.noms.join(", ") }] : [],
+    });
     setSending(false);
     if (ok) {
       setText("");
-      setAttachments([]);
+      // Le lot ENVOYÉ quitte le compositeur (ses fichiers restent dans le Drive, joints au message).
+      if (lotEnvoye) setLots((ls) => ls.filter((l) => l.lotId !== lotEnvoye.lotId));
       setDriveRefs([]);
       setShowEmoji(false);
       if (typeof window !== "undefined") window.localStorage.removeItem(draftKey);
@@ -249,10 +344,20 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
     }
   };
 
-  const canSend = (text.trim().length > 0 || attachments.length > 0 || driveRefs.length > 0) && !sending && pending.length === 0;
+  const canSend = (text.trim().length > 0 || driveRefs.length > 0 || lotPret) && !sending && !lotEnCours;
 
   return (
-    <div className="relative border-t border-border bg-card px-3 py-2.5">
+    <div
+      className="relative border-t border-border bg-card px-3 py-2.5"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => void onDrop(e)}
+    >
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-1 z-40 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary">
+          <UploadCloud className="h-5 w-5" /> Déposez fichiers, ZIP ou dossiers — ils partent dans la conversation
+        </div>
+      )}
       {replyTo && (
         <div className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-secondary/60 px-3 py-1.5 text-xs">
           <Reply className="h-3.5 w-3.5 text-primary" />
@@ -262,7 +367,7 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
         </div>
       )}
 
-      {(attachments.length > 0 || pending.length > 0 || driveRefs.length > 0 || zipping) && (
+      {(driveRefs.length > 0 || lot || preparing) && (
         <div className="mb-2 flex flex-wrap gap-2">
           {/* LES RÉFÉRENCES AU DRIVE, distinguées des fichiers téléversés : bordure de couleur et
               mention explicite. Confondre les deux, c'est ne pas savoir qu'on est sur le point
@@ -277,34 +382,50 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
               </button>
             </div>
           ))}
-          {attachments.map((a, i) => (
-            <div key={a.blobId + i} className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs">
-              <FileText className="h-4 w-4 text-primary" />
-              <span className="max-w-[160px] truncate font-medium">{a.name}</span>
-              <span className="text-muted-foreground">{formatBytes(a.size)}</span>
-              <button onClick={() => setAttachments((list) => list.filter((_, j) => j !== i))} className="rounded p-0.5 text-muted-foreground hover:bg-secondary">
+          {/* LE LOT DÉPOSÉ : où en est l'envoi (le détail, débit et temps restant, est dans la pastille
+              des envois). Le message ne part qu'une fois tout arrivé. */}
+          {lot && etatLot && libelle && (
+            <div
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs",
+                etatLot.enCours ? "border-dashed border-border bg-background text-muted-foreground"
+                  : libelle.pret ? "border-primary/50 bg-primary/5" : "border-destructive/50 bg-destructive/5 text-destructive",
+              )}
+              title={lot.noms.join(", ")}
+            >
+              {etatLot.enCours ? <Loader2 className="h-4 w-4 animate-spin" />
+                : libelle.pret ? <CheckCircle2 className="h-4 w-4 text-primary" />
+                : <AlertCircle className="h-4 w-4" />}
+              <span className="max-w-[180px] truncate font-medium">
+                {lot.noms[0]}{lot.noms.length > 1 ? ` + ${lot.noms.length - 1}` : ""}
+              </span>
+              <span className="text-muted-foreground">{libelle.texte}</span>
+              <button
+                onClick={retirerLot}
+                disabled={lotEnCours}
+                title={lotEnCours ? "Envoi en cours — annulez-le depuis la pastille des envois." : "Retirer (les fichiers vont à la corbeille du Drive)"}
+                className="rounded p-0.5 text-muted-foreground hover:bg-secondary disabled:opacity-40"
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-          ))}
-          {pending.map((p) => (
-            <div key={p.tempId} className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="max-w-[160px] truncate">{p.name}</span>
-            </div>
-          ))}
-          {/* Compresser un gros dossier prend du temps : le dire, sinon on croit à un blocage. */}
-          {zipping && (
+          )}
+          {preparing && (
             <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="max-w-[200px] truncate">Préparation de {zipping}…</span>
+              <span>Préparation de l&apos;envoi…</span>
             </div>
           )}
         </div>
       )}
 
-      {driveRefs.length > 0 && (
+      {(driveRefs.length > 0 || lot) && (
         <p className="mb-2 px-1 text-xs text-muted-foreground">{shareWarning(others.length)}</p>
+      )}
+      {lotEnCours && (
+        <p className="mb-2 px-1 text-xs text-muted-foreground">
+          L&apos;envoi continue en arrière-plan, même si vous changez d&apos;écran ; le message pourra partir quand tout sera arrivé.
+        </p>
       )}
 
       {error && <p className="mb-2 px-1 text-xs text-destructive">{error}</p>}
@@ -354,7 +475,9 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
                   <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <span>
                     Des fichiers de mon ordinateur
-                    <span className="block text-xs text-muted-foreground">Copiés dans la conversation.</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Gros fichiers et ZIP compris{limites ? ` (jusqu'à ${formatBytes(limites.maxDriveUploadMb * 1024 * 1024)} par fichier)` : ""} — ou glissez-les ici.
+                    </span>
                   </span>
                 </button>
                 <button
@@ -364,7 +487,7 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
                   <FolderUp className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <span>
                     Un dossier de mon ordinateur
-                    <span className="block text-xs text-muted-foreground">Envoyé en une archive .zip.</span>
+                    <span className="block text-xs text-muted-foreground">Arborescence exacte, sans archive — comme dans le Drive.</span>
                   </span>
                 </button>
                 <button
@@ -386,7 +509,7 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
           type="file"
           multiple
           className="hidden"
-          onChange={(e) => { if (e.target.files) void uploadFiles(e.target.files); e.target.value = ""; }}
+          onChange={(e) => { if (e.target.files) fichiersChoisis(e.target.files); e.target.value = ""; }}
         />
         {/* `webkitdirectory` n'existe pas dans les types React : l'attribut est bien standard dans
             tous les navigateurs de bureau, mais la définition TypeScript ne l'a jamais suivi. */}
@@ -396,7 +519,7 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
           multiple
           className="hidden"
           {...{ webkitdirectory: "", directory: "" }}
-          onChange={(e) => { if (e.target.files) void uploadFolder(e.target.files); e.target.value = ""; }}
+          onChange={(e) => { if (e.target.files) fichiersChoisis(e.target.files); e.target.value = ""; }}
         />
 
         {drivePicker && (
@@ -405,7 +528,7 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
             onPick={(v: DrivePickerValue) => {
               setDrivePicker(false);
               setDriveRefs((list) =>
-                list.some((r) => r.id === v.id) || list.length + attachments.length >= MAX_ATTACHMENTS
+                list.some((r) => r.id === v.id) || list.length + (lot ? 1 : 0) >= MAX_ATTACHMENTS
                   ? list
                   : [...list, { id: v.id, name: v.name, isFolder: v.isFolder }],
               );

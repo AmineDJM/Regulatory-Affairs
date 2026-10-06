@@ -172,7 +172,7 @@ export default async function TaskDossierPage({ params }: { params: { id: string
             </CardHeader>
             <CardContent className="space-y-3">
               {mayAttach ? (
-                <DocumentUpload entityType="TASK" entityId={task.id} />
+                <DocumentUpload entityType="TASK" entityId={task.id} categories={["SUPPORTING_DOC", "QUOTE", "INVOICE", "PHOTO", "ID_DOCUMENT", "OTHER"]} />
               ) : (
                 <p className="text-xs text-muted-foreground">
                   Vous suivez cette tâche en lecture : les pièces se déposent par la personne qui

@@ -169,6 +169,16 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
         />
       </div>
 
+      {/* LE TYPE SE CHOISIT, MÊME EN COMPACT (Direction, 06/10) : un dépôt compact retombait toujours sur le premier
+          type de la liste — un passeport et un justificatif finissaient sous la même étiquette, sans que la personne
+          puisse choisir celui que l'écran lui demandait. */}
+      {compact && categoryEntries.length > 1 && (
+        <Select value={category} onChange={(e) => setCategory(e.target.value)} className="h-8 text-xs" aria-label="Type de document">
+          {categoryEntries.map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </Select>
+      )}
       {!compact && (
         <div className="grid grid-cols-2 gap-2">
           <Select value={category} onChange={(e) => setCategory(e.target.value)} className="text-sm">

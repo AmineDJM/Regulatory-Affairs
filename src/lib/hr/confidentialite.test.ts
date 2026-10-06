@@ -63,7 +63,7 @@ suite("RH — qui voit la paie, et jusqu'où", () => {
     await mk("salB", "VIEWER", B);
     await mk("dir", "DIRECTION", A);
     // Le gestionnaire RH : un accès personnalisé au module, comme la console le donne.
-    await prisma.userAccess.create({ data: { userId: u.rhA, module: "RH", canView: true, canUpdate: true, scope: "ALL" } });
+    for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: u.rhA, module, canView: true, canUpdate: true, scope: "ALL" } });
     dirOps = await acteur(u.dirOps, "OPERATIONS_DIRECTOR");
     rhA = await acteur(u.rhA, "VIEWER");
     salarieA = await acteur(u.salA, "VIEWER");

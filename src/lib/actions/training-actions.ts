@@ -37,7 +37,7 @@ const PATH = "/formations";
  */
 
 function isHrOf(user: SessionUser): boolean {
-  return userCan(user, "RH", "VALIDATE") || userCan(user, "RH", "UPDATE");
+  return userCan(user, "TRAINING", "VALIDATE") || userCan(user, "TRAINING", "UPDATE");
 }
 
 async function revalidateTraining(id?: string): Promise<void> {
@@ -453,7 +453,7 @@ export async function annulerFormation(formData: FormData): Promise<ActionResult
       await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Formation annulée", body: corps, link: PATH }).catch(() => undefined);
     }
   } else {
-    const roles = (training.status === "APPROVED" ? ["DIRECTION", "SUPER_ADMIN", ...rolesWithModule("RH", "UPDATE")] : chainNotifyRoles(training.stage as ChainStage)) as UserRole[];
+    const roles = (training.status === "APPROVED" ? ["DIRECTION", "SUPER_ADMIN", ...rolesWithModule("TRAINING", "UPDATE")] : chainNotifyRoles(training.stage as ChainStage)) as UserRole[];
     if (roles.length) await notifyRoles([...new Set(roles)], { type: "GENERIC", title: "Formation annulée", body: corps, link: PATH }).catch(() => undefined);
   }
   await recordAudit({

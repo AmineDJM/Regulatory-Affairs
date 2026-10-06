@@ -1056,7 +1056,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["désactive la fiche employé", "réactive l'employé", "l'employé a quitté l'entreprise"],
     risk: "SENSITIVE",
     summary: "Active ou désactive une fiche employé (départ / retour) — la fiche sort des listes actives, rien n'est effacé.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["hr-actions:setEmployeeActive"],
   },
   {
@@ -1065,7 +1065,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["l'attestation est prête", "marque la demande rh traitée", "traite la demande rh de"],
     risk: "NORMAL",
     summary: "Fait avancer une demande RH (attestation, relevé…) : en préparation, prête, remise, accordée ou refusée — le demandeur est notifié à chaque marche.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "HR_REQUESTS", "UPDATE"),
     covers: ["hr-document-actions:processHrRequest"],
   },
   {
@@ -1074,7 +1074,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["approuve la note de frais", "refuse la note de frais", "note de frais sur le mois suivant"],
     risk: "SENSITIVE",
     summary: "Approuve une note de frais (sur son mois ou le mois SUIVANT) ou la refuse — l'imputation de paie suit la décision.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "HR_REQUESTS", "UPDATE"),
     covers: ["hr-document-actions:decideExpenseReport"],
   },
   {
@@ -1103,7 +1103,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["crée la fiche employé de", "nouvel employé au registre rh", "embauche : crée la fiche de"],
     risk: "NORMAL",
     summary: "Crée une fiche employé au registre RH (nom, poste, contrat, embauche, salaire de base) — le rattachement (département, compte) se règle ensuite.",
-    gate: (u) => userCan(u, "RH", "CREATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "CREATE"),
     covers: ["hr-actions:createEmployee", "finance-actions:createEmployee"],
   },
   {
@@ -1112,7 +1112,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["modifie la fiche de", "change le poste de", "corrige le téléphone de l'employé", "mets à jour le contrat de"],
     risk: "SENSITIVE",
     summary: "Modifie la fiche employé en PATCH : seuls les champs cités changent (poste, coordonnées, contrat, dates, solde de congés), TOUT le reste est rejoué à l'identique — diff montré, garde de fraîcheur à l'exécution. La rémunération a son op dédiée.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["hr-actions:updateEmployee"],
   },
   {
@@ -1139,7 +1139,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["corrige le congé de", "change les dates du congé de", "modifie la demande de congé"],
     risk: "SENSITIVE",
     summary: "Corrige un congé (dates, jours, type) — geste RH ; si le congé était accordé, le solde annuel est réajusté de la différence.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "HR_REQUESTS", "UPDATE"),
     covers: ["hr-actions:updateLeaveRequest"],
   },
   {
@@ -1175,7 +1175,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["accorde la sortie exceptionnelle de", "refuse l'arrêt maladie de", "accorde le congé demandé au dossier"],
     risk: "SENSITIVE",
     summary: "Tranche une demande d'absence du dossier personnel (congé, sortie, arrêt…) — un congé annuel accordé débite le solde ; l'employé est notifié.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "HR_REQUESTS", "UPDATE"),
     covers: ["hr-document-actions:decideHrLeave"],
   },
   {
@@ -1220,7 +1220,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["supprime le document rh de", "efface le contrat du dossier de"],
     risk: "CRITICAL",
     summary: "Supprime DÉFINITIVEMENT un document du dossier RH d'un employé — le fichier chiffré est libéré, aucun retour possible.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["hr-document-actions:deleteEmployeeDocument"],
   },
   {
@@ -1229,7 +1229,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["rends le document visible pour", "masque le document rh à"],
     risk: "NORMAL",
     summary: "Rend un document du dossier RH visible (ou non) par l'employé dans « Mon dossier ».",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["hr-document-actions:setEmployeeDocumentVisibility"],
   },
   {
@@ -1247,7 +1247,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["valide l'intérimaire de", "refuse l'intérimaire proposé"],
     risk: "SENSITIVE",
     summary: "Valide (la délégation d'accès prend effet pendant l'absence) ou refuse (motivé) l'intérimaire proposé sur un congé.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "HR_REQUESTS", "UPDATE"),
     covers: ["stand-in-actions:decideStandIn"],
   },
   {
@@ -1347,7 +1347,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["organise une formation", "crée une formation rh pour le département"],
     risk: "NORMAL",
     summary: "Les RH organisent une formation (sans N+1 : elle entre à l'étape Direction) — les invitations partent ensuite.",
-    gate: (u) => userCan(u, "RH", "UPDATE") || userCan(u, "RH", "VALIDATE"),
+    gate: (u) => userCan(u, "TRAINING", "UPDATE") || userCan(u, "TRAINING", "VALIDATE"),
     covers: ["training-actions:createHrTraining"],
   },
   {
@@ -1365,7 +1365,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["invite à la formation", "convoque l'équipe à la formation"],
     risk: "NORMAL",
     summary: "Invite (ils répondent) ou convoque (présence requise) des personnes à une formation — chacune est notifiée.",
-    gate: (u) => userCan(u, "RH", "UPDATE") || userCan(u, "RH", "VALIDATE"),
+    gate: (u) => userCan(u, "TRAINING", "UPDATE") || userCan(u, "TRAINING", "VALIDATE"),
     covers: ["training-actions:inviteTrainingParticipants"],
   },
   {
@@ -1796,7 +1796,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["crée un département", "nouveau sous-département"],
     risk: "NORMAL",
     summary: "Crée un département (ou sous-département : l'entité suit celle du parent) dans l'organigramme.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["department-actions:createDepartment"],
   },
   {
@@ -1805,7 +1805,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["rattache l'employé au département", "change le département de"],
     risk: "NORMAL",
     summary: "Rattache un employé à un département (ou l'en détache) — l'organigramme et les circuits N+1 suivent.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["department-actions:assignEmployeeDepartment"],
   },
   {
@@ -1814,7 +1814,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["désigne le manager de", "change le n+1 de", "rattache l'employé à son responsable"],
     risk: "NORMAL",
     summary: "Désigne (ou retire) le responsable hiérarchique direct d'un employé — les circuits de validation N+1 suivent.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["department-actions:assignEmployeeManager"],
   },
   {
@@ -3397,7 +3397,7 @@ export const OPS_CATALOG: OpMeta[] = [
     summary: "VALIDE (le contrat devient ACTIF) ou REFUSE (annulé, motif tracé) — le validateur désigné, qui doit déjà avoir le droit VALIDATE ; personne ne valide son propre engagement.",
     // Un contrat passé aux RH se valide par les RH (§118.150) : l'approximation de la porte doit
     // les inclure, sinon la carte serait refusée à un validateur que l'action accepte.
-    gate: (u) => userCan(u, "CONSULTING", "VALIDATE") || userCan(u, "RH", "VALIDATE") || hasGlobalView(u),
+    gate: (u) => userCan(u, "CONSULTING", "VALIDATE") || userCan(u, "EMPLOYEES", "VALIDATE") || hasGlobalView(u),
     covers: ["consulting-actions:decideConsultingContract"],
   },
   {
@@ -3451,7 +3451,7 @@ export const OPS_CATALOG: OpMeta[] = [
     summary: "Transfère un contrat de consulting d'un PÔLE à l'autre — Ad & Pro ⇄ Ressources humaines (champ « pole » : RH ou AD_PRO ; sans lui, vers l'autre pôle) — sans rien perdre : référence, tâches, pièces, validation et historique suivent. Retire la validation en attente au centre Ad & Pro, réaiguille les bons de commande en attente ; le geste inverse le ramène.",
     // La règle de l'action, mot pour mot (`transfertAutorise`) : MODIFIER les deux modules — la
     // carte n'est jamais offerte à qui l'action refuserait (§118.83). Un test compare les deux.
-    gate: (u) => userCan(u, "CONSULTING", "UPDATE") && userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "CONSULTING", "UPDATE") && userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["consulting-actions:transfererConsulting"],
   },
   // ───────────── VAGUE 5b — PRISES EN CHARGE (congrès) : décision PAR PERSONNE ─────────────
@@ -5135,7 +5135,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["renomme le département", "rattache le département à", "change le responsable du département"],
     risk: "SENSITIVE",
     summary: "Modifie un département (nom, rattachement, responsable, adjoint, description) — FUSION ; anti-cycle ; un sous-département suit l'entité de son parent ; le libellé des employés suit.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["department-actions:updateDepartment"],
   },
   {
@@ -5144,7 +5144,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["supprime le département", "retire ce sous-département"],
     risk: "SENSITIVE",
     summary: "Supprime un département : ses sous-départements REMONTENT d'un cran (jamais orphelins), ses membres repassent « non affectés » — personne n'est supprimé.",
-    gate: (u) => userCan(u, "RH", "UPDATE"),
+    gate: (u) => userCan(u, "EMPLOYEES", "UPDATE"),
     covers: ["department-actions:deleteDepartment"],
   },
   {

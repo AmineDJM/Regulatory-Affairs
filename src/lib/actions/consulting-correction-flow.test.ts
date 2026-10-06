@@ -143,7 +143,7 @@ suite("Consulting — renvoyer, corriger, resoumettre, prolonger, annuler (flux 
     ]);
     porteurId = porteur.id; gmId = gm.id; saId = sa.id; rhId = rh.id;
     // Les RH, et RIEN d'autre : un accès personnalisé au seul module RH (§118.147).
-    await prisma.userAccess.create({ data: { userId: rhId, module: "RH", canView: true, canCreate: true, canUpdate: true, canValidate: true, scope: "ALL" } });
+    for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: rhId, module, canView: true, canCreate: true, canUpdate: true, canValidate: true, scope: "ALL" } });
   });
 
   afterAll(async () => {

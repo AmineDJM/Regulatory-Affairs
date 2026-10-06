@@ -28,8 +28,8 @@ import { BackLink } from "@/components/shared/back-link";
 const d10 = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
 
 export default async function EmployeeDetailPage({ params }: { params: { id: string } }) {
-  const user = await requireModule("RH");
-  const canUpdate = userCan(user, "RH", "UPDATE");
+  const user = await requireModule("EMPLOYEES");
+  const canUpdate = userCan(user, "EMPLOYEES", "UPDATE");
 
   const employee = await prisma.employee.findUnique({
     where: { id: params.id },

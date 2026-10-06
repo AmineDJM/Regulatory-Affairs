@@ -10,14 +10,24 @@ import { natureApercu } from "@/lib/formats/apercu";
  * dossier (à la Filez / explorateur de fichiers) : dossier par dossier, fil d'Ariane, double-clic
  * pour entrer, aperçu inline du fichier choisi (image, PDF, texte, vidéo, audio) ou téléchargement.
  * Une recherche balaie toute l'archive. L'archive reste entière ; le serveur extrait UNE entrée à
- * la demande (voir /api/drive/[id]/zip). Rien n'est décompressé sur le disque.
+ * la demande (voir /api/drive/[id]/zip). Rien n'est décompressé sur le disque ; une GROSSE entrée compressée est
+ * extraite une fois dans le bucket, qui la sert par plages (lib/storage/zip-apercu).
  */
 
 interface ZipEntry { path: string; size: number | null }
 interface ZipList { ok: boolean; name?: string; count?: number; truncated?: boolean; entries?: ZipEntry[]; error?: string }
 
-/** Au-delà, l'aperçu prévient qu'il peut être lent (le serveur le sert en flux). */
-const GROS_FICHIER = 100 * 1024 * 1024;
+/**
+ * Au-delà, l'aperçu se PRÉPARE : le serveur extrait l'entrée UNE fois dans le bucket, qui la sert ensuite par plages
+ * (la première page d'un PDF de 488 Mo s'affiche aussitôt). Même seuil que `SEUIL_CACHE_APERCU` (zip-apercu-regles.ts,
+ * non importable ici : il tire `crypto`). En deçà — ou sans bucket — le serveur répond « prêt » tout de suite.
+ */
+const SEUIL_PREPARATION = 8 * 1024 * 1024;
+/** Le survol prépare la suite sans attendre le clic — borné : un balayage de la liste ne lance pas dix extractions. */
+const MAX_PRECHAUFFAGES_SURVOL = 3;
+const DELAI_SURVOL_MS = 300;
+/** Sous ce délai, l'attente se résume à un indicateur discret ; au-delà, un mot (et la progression si on la connaît). */
+const DELAI_TEXTE_MS = 1500;
 
 const humanSize = (n: number | null) => (n == null ? "" : n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : n >= 1024 ? `${Math.round(n / 1024)} Ko` : `${n} o`);
 
@@ -83,6 +93,55 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
     return () => { alive = false; };
   }, [base]);
 
+  // ── APERÇU SANS ATTENTE PERÇUE (Direction, 06/10 : « je ne veux pas ce ressenti d'expérience ») ──
+  // Une grosse entrée se prépare côté serveur (préchauffage au survol, puis à la sélection) ; l'aperçu ne se charge
+  // qu'une fois prête, et un voile discret couvre le panneau jusqu'au premier rendu — sans message d'excuse.
+  const [pretPour, setPretPour] = React.useState<string | null>(null);
+  const [progres, setProgres] = React.useState<{ octets: number; total: number } | null>(null);
+  const [rendu, setRendu] = React.useState(false);
+  const [lent, setLent] = React.useState(false);
+  const survol = React.useRef<{ minuteur?: ReturnType<typeof setTimeout>; faits: Set<string> }>({ faits: new Set() });
+  const aPreparer = React.useCallback((p: string) => {
+    const taille = list?.entries?.find((e) => e.path === p)?.size ?? 0;
+    return previewKind(p) !== "none" && taille > SEUIL_PREPARATION;
+  }, [list]);
+  const urlPrechauffage = React.useCallback((p: string) => `${base}?path=${encodeURIComponent(p)}&prechauffer=1`, [base]);
+
+  React.useEffect(() => {
+    setRendu(false); setLent(false); setProgres(null); setPretPour(null);
+    if (!sel) return;
+    let vivant = true;
+    const minuteur = setTimeout(() => { if (vivant) setLent(true); }, DELAI_TEXTE_MS);
+    if (!aPreparer(sel)) setPretPour(sel);
+    else {
+      void (async () => {
+        // 202 = extraction en cours (le serveur retient la réponse jusqu'à ~1 s) ; toute autre réponse = on charge.
+        for (let i = 0; vivant && i < 3000; i++) {
+          try {
+            const r = await fetch(urlPrechauffage(sel), { cache: "no-store" });
+            if (r.status !== 202) break;
+            const d = (await r.json()) as { octets?: number; total?: number };
+            if (vivant && d.total) setProgres({ octets: d.octets ?? 0, total: d.total });
+          } catch { break; }
+          await new Promise((ok) => setTimeout(ok, 400));
+        }
+        if (vivant) setPretPour(sel);
+      })();
+    }
+    return () => { vivant = false; clearTimeout(minuteur); };
+  }, [sel, aPreparer, urlPrechauffage]);
+
+  const survolerEntree = (p: string) => {
+    clearTimeout(survol.current.minuteur);
+    const s = survol.current;
+    if (p === sel || s.faits.has(p) || s.faits.size >= MAX_PRECHAUFFAGES_SURVOL || !aPreparer(p)) return;
+    s.minuteur = setTimeout(() => {
+      s.faits.add(p);
+      void fetch(urlPrechauffage(p), { cache: "no-store" }).catch(() => undefined);
+    }, DELAI_SURVOL_MS);
+  };
+  const quitterEntree = () => clearTimeout(survol.current.minuteur);
+
   if (!list) {
     return <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 p-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Lecture de l'archive…</div>;
   }
@@ -131,7 +190,7 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
               {searchResults.length === 0 ? (
                 <li className="px-3 py-6 text-center text-sm text-muted-foreground">Aucune entrée pour « {q} ».</li>
               ) : searchResults.map((e) => (
-                <li key={e.path} className={cn("flex items-center gap-2 px-3 py-1.5 text-sm", sel === e.path && "bg-accent/60")}>
+                <li key={e.path} onMouseEnter={() => survolerEntree(e.path)} onMouseLeave={quitterEntree} className={cn("flex items-center gap-2 px-3 py-1.5 text-sm", sel === e.path && "bg-accent/60")}>
                   <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate text-left hover:text-primary" title={e.path}>{e.path}</button>
                   <span className="shrink-0 text-xs text-muted-foreground">{humanSize(e.size)}</span>
@@ -166,7 +225,7 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
                     {files.map((e) => {
                       const nom = e.path.split("/").pop() ?? e.path;
                       return (
-                        <li key={e.path} className={cn("flex items-center gap-2 px-3 py-1.5 text-sm", sel === e.path && "bg-accent/60")}>
+                        <li key={e.path} onMouseEnter={() => survolerEntree(e.path)} onMouseLeave={quitterEntree} className={cn("flex items-center gap-2 px-3 py-1.5 text-sm", sel === e.path && "bg-accent/60")}>
                           <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                           <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate text-left hover:text-primary" title={nom}>{nom}</button>
                           <span className="shrink-0 text-xs text-muted-foreground">{humanSize(e.size)}</span>
@@ -193,22 +252,41 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
               </button>
             </div>
           )}
-          {sel && tailleSel != null && tailleSel > GROS_FICHIER && (kind === "pdf" || kind === "text") && (
-            <p className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">Fichier volumineux ({humanSize(tailleSel)}) : l&apos;aperçu peut prendre un moment à s&apos;afficher.</p>
-          )}
           {!sel ? (
             <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
               <Eye className="h-5 w-5" /> Sélectionnez un fichier pour l'afficher.
             </div>
-          ) : kind === "image" ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={selUrl!} alt={sel} className={cn("mx-auto rounded object-contain", plein ? "max-h-[calc(100vh-5rem)]" : "max-h-[62vh]")} />
-          ) : kind === "pdf" || kind === "text" ? (
-            <iframe src={selUrl!} title={sel} className={cn("w-full rounded border border-border bg-white", plein ? "h-[calc(100vh-5rem)]" : "h-[62vh]")} />
-          ) : kind === "video" ? (
-            <video src={selUrl!} controls className={cn("w-full rounded bg-black", plein ? "max-h-[calc(100vh-5rem)]" : "max-h-[62vh]")} />
-          ) : kind === "audio" ? (
-            <div className="flex h-full min-h-[40vh] items-center justify-center p-4"><audio src={selUrl!} controls className="w-full" /></div>
+          ) : kind !== "none" ? (
+            // L'élément n'existe qu'une fois l'entrée prête ; le voile reste jusqu'à son premier rendu.
+            <div className={cn("relative", !rendu && "min-h-[40vh]")}>
+              {pretPour !== sel ? (
+                <div className={cn("w-full rounded", kind === "pdf" || kind === "text" ? (plein ? "h-[calc(100vh-5rem)]" : "h-[62vh]") : "h-[40vh]")} />
+              ) : kind === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={sel} src={selUrl!} alt={sel} onLoad={() => setRendu(true)} onError={() => setRendu(true)} className={cn("mx-auto rounded object-contain", plein ? "max-h-[calc(100vh-5rem)]" : "max-h-[62vh]")} />
+              ) : kind === "pdf" || kind === "text" ? (
+                <iframe key={sel} src={selUrl!} title={sel} onLoad={() => setRendu(true)} className={cn("w-full rounded border border-border bg-white", plein ? "h-[calc(100vh-5rem)]" : "h-[62vh]")} />
+              ) : kind === "video" ? (
+                <video key={sel} src={selUrl!} controls onLoadedMetadata={() => setRendu(true)} onError={() => setRendu(true)} className={cn("w-full rounded bg-black", plein ? "max-h-[calc(100vh-5rem)]" : "max-h-[62vh]")} />
+              ) : (
+                <div className="flex h-full min-h-[40vh] items-center justify-center p-4"><audio key={sel} src={selUrl!} controls onLoadedMetadata={() => setRendu(true)} onError={() => setRendu(true)} className="w-full" /></div>
+              )}
+              {!rendu && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded bg-background/85 text-xs text-muted-foreground" aria-live="polite" aria-busy="true">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  {lent && (
+                    <>
+                      <span>{progres && pretPour !== sel ? `Préparation de l'aperçu… ${Math.min(99, Math.floor((progres.octets / Math.max(progres.total, 1)) * 100))} %` : "Ouverture de l'aperçu…"}</span>
+                      {progres && pretPour !== sel && (
+                        <span className="h-1 w-40 overflow-hidden rounded-full bg-muted">
+                          <span className="block h-full bg-primary transition-[width] duration-300" style={{ width: `${Math.min(100, (progres.octets / Math.max(progres.total, 1)) * 100)}%` }} />
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           ) : (
             <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
               <p className="text-sm text-muted-foreground">Ce format s'affiche une fois sorti de l'archive : téléchargez-le, ou déposez l'archive décompressée dans le Drive pour le lire ici.</p>

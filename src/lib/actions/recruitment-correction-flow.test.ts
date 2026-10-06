@@ -72,7 +72,7 @@ suite("Recrutement — renvoyer, corriger, rouvrir, annuler l'embauche, un geste
       u[k] = (await prisma.user.create({ data: { name: `${TAG}${k}`, email: `${TAG}${k}@t.dz`, role, passwordHash: "x" } })).id;
     }
     // Les RH sans vue globale : un accès PERSONNALISÉ au module RH, rien d'autre (§118.104).
-    await prisma.userAccess.create({ data: { userId: u.rh!, module: "RH", canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
+    for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: u.rh!, module, canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
     // Le demandeur voit le module Recrutement (la page et « Mon espace » le lisent).
     await prisma.userAccess.create({ data: { userId: u.dem!, module: "RECRUITMENT", canView: true, canCreate: true, scope: "ASSIGNED" } });
   });

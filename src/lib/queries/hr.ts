@@ -391,7 +391,7 @@ export interface LeaveToDecide {
  * s'affiche sur « Mon espace » de tout le monde, elle ne peut pas coûter N requêtes.
  */
 export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecide[]> {
-  const isHr = userCan(user, "RH", "VALIDATE");
+  const isHr = userCan(user, "HR_REQUESTS", "VALIDATE");
   // MÊME prédicat que `leaveDecider` : la file de décision et le droit de trancher doivent
   // dire la même chose, sinon la demande apparaît à quelqu'un qui ne peut pas la signer
   // (ou l'inverse, plus grave : elle disparaît de la file de celui qui le peut).

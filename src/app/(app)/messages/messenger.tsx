@@ -158,7 +158,7 @@ export function Messenger({
     const parent = payload.parentId ? detail?.messages.find((m) => m.id === payload.parentId) : null;
     const optimistic: MessageDTO = {
       id: tempId,
-      kind: (payload.attachments.length > 0 || payload.driveRefs.length > 0) && !payload.body ? "FILE" : "TEXT",
+      kind: (payload.attachments.length > 0 || payload.driveRefs.length > 0 || payload.driveLots.length > 0) && !payload.body ? "FILE" : "TEXT",
       body: payload.body,
       deleted: false,
       senderId: selfId,
@@ -182,6 +182,11 @@ export function Messenger({
           id: `tmp-drive-${i}`, name: r.name, mime: "", size: 0, isImage: false,
           driveNodeId: r.id, isFolder: r.isFolder,
         })),
+        // Le lot déposé, le temps du retour du serveur (qui joindra son contenu, élément par élément).
+        ...payload.driveLots.map((l, i) => ({
+          id: `tmp-lot-${i}`, name: l.name, mime: "", size: 0, isImage: false,
+          driveNodeId: l.id, isFolder: true,
+        })),
       ],
       mentionIds: payload.mentions,
       refType: null, refId: null, refLabel: null,
@@ -198,6 +203,8 @@ export function Messenger({
     // Seuls les IDENTIFIANTS partent : le serveur relit le nom, la taille et le type en base, et
     // revérifie que l'expéditeur a bien accès au nœud qu'il partage.
     if (payload.driveRefs.length) f.set("driveRefs", JSON.stringify(payload.driveRefs.map((r) => r.id)));
+    // Les lots déposés (gros fichiers, dossiers) : le serveur vérifie qu'ils appartiennent à l'expéditeur.
+    for (const l of payload.driveLots) f.append("driveLot", l.id);
 
     const r = await sendMessage(f);
     if (r.ok && r.message) {

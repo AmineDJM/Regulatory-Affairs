@@ -17,9 +17,10 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
-  if (!userCan(user, "RH", "UPDATE")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-
   const form = await req.formData();
+  // LE DROIT SUIT LE SOUS-MODULE (Direction, 06/10) : la pièce qui RÉPOND à une demande relève des Demandes RH ; un
+  // document du dossier d'un salarié, des Employés.
+  if (!userCan(user, form.get("requestId") ? "HR_REQUESTS" : "EMPLOYEES", "UPDATE")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
   const employeeId = (form.get("employeeId") as string) || "";

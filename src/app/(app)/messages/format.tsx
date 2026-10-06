@@ -73,6 +73,8 @@ export function presenceLine(presence: Presence, lastSeenAt: string | null): str
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} o`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} Ko`;
+  // Les gros envois passent par le Drive (jusqu'à plusieurs Go) : « 10240.0 Mo » ne se lit pas.
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} Go`;
   return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
 }
 

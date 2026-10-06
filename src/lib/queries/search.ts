@@ -79,7 +79,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
     userCan(user, "FINANCES", "VIEW")
       ? prisma.financeTransaction.findMany({ where: { AND: [await clauseEcrituresVisibles(user.id), ...(match(["label", "reference", "counterparty"]) as Prisma.FinanceTransactionWhereInput[])] }, take, select: { id: true, label: true, reference: true } })
       : [],
-    userCan(user, "RH", "VIEW")
+    userCan(user, "EMPLOYEES", "VIEW")
       ? prisma.employee.findMany({ where: { AND: [await clauseSalariesVisibles(user.id), ...(match(["fullName", "position", "department"]) as Prisma.EmployeeWhereInput[])] }, take, select: { id: true, fullName: true, position: true } })
       : [],
     userCan(user, "SALES", "VIEW")

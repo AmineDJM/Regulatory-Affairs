@@ -7,7 +7,7 @@ import { getHrPulse } from "@/lib/queries/hr-pulse";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
-import { HR_TABS } from "@/lib/labels";
+import { EMPLOYES_TABS } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Donut } from "@/components/charts/donut";
@@ -19,13 +19,13 @@ export const dynamic = "force-dynamic";
 
 /** RH — L'ANNUAIRE : qui travaille ici, où, et sous quel contrat. Cherchable. */
 export default async function RhTeamPage() {
-  const user = await requireModule("RH");
+  const user = await requireModule("EMPLOYEES");
   // LA MÊME RÈGLE que la fiche et la page RH (`hr/confidentialite.ts`) — elle disait VALIDER ici et rien
   // ailleurs. Et le salaire n'est plus SÉRIALISÉ quand la colonne est masquée : il partait dans les
   // données de la page, lisibles dans le navigateur de qui ne devait pas le voir (audit 360°, S5).
   const canSeeSalary = voitLesSalaires(user);
 
-  const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(user.id), visibleTabs(user, HR_TABS)]);
+  const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(user.id), visibleTabs(user, EMPLOYES_TABS)]);
 
   const rows: DirectoryRow[] = data.employees.map((e) => ({
     id: e.id,

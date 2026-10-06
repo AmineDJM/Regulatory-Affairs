@@ -52,13 +52,21 @@ describe("l'aperçu universel — une table, tous les écrans", () => {
     }
   });
 
-  it("le dossier envoyé en messagerie est archivé par le serveur : plus de JSZip dans le navigateur", () => {
-    expect(lire("src/app/(app)/messages/composer.tsx")).not.toContain("jszip");
-    expect(lire("src/app/(app)/messages/composer.tsx")).toContain("/api/messaging/upload-dossier");
-    const route = lire("src/app/api/messaging/upload-dossier/route.ts");
-    expect(route).toContain("ecrireZip(");
-    expect(route).toContain("getCurrentUserPourEcrire()");
-    expect(route).toContain("canAccessConversation(");
+  // Direction, 06/10 : « pas que Drive ou Regulatory, et avec les exactes et mêmes performances ».
+  it("fichiers, ZIP et dossiers envoyés en messagerie passent par le MOTEUR du Drive — plus d'archive en mémoire", () => {
+    const composer = lire("src/app/(app)/messages/composer.tsx");
+    expect(composer).not.toContain("jszip");
+    expect(composer).not.toContain("/api/messaging/upload-dossier");
+    expect(composer).not.toContain(".slice(0, 10)"); // plus de troncature silencieuse à dix fichiers
+    expect(composer).toContain("preparerDepotMessagerie(");
+    expect(composer).toContain("enqueue(envoiArborescenceDrive(");
+    expect(composer).toContain("lireDepot("); // glisser-déposer, dossiers compris
+    // UNE construction pour l'import de dossier du Drive et la messagerie : mêmes performances par construction.
+    expect(lire("src/app/(app)/drive/upload-button.tsx")).toContain("enqueue(envoiArborescenceDrive(");
+    const actions = lire("src/lib/actions/messaging-actions.ts");
+    expect(actions).toContain('userCan(user, "MESSAGING", "UPLOAD")');
+    expect(actions).toContain("canAccessConversation(user.id, conversationId)");
+    expect(actions).toContain("ownerId: user.id, isTrashed: false"); // un lot n'est joint que par son propriétaire
   });
 
   it("l'HTML d'un tiers ne s'exécute jamais dans l'application (cadre isolé)", () => {

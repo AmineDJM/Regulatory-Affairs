@@ -19,7 +19,16 @@ import {
  */
 
 type FileStatus = "pending" | "checking" | "uploading" | "done" | "error" | "cancelled";
-interface BgFile { name: string; size: number; status: FileStatus; progress: number; error?: string; direct?: boolean }
+/** Un message de REFUS (droit, type, catégorie, taille) — par opposition à une coupure réseau qu'une relance répare. */
+function estUnRefus(message: string): boolean {
+  return /autoris|catégorie|type de fichier|trop volumineux|choisissez|mot de passe|interdit|refus/i.test(message);
+}
+
+interface BgFile {
+  name: string; size: number; status: FileStatus; progress: number; error?: string; direct?: boolean;
+  /** Un REFUS (droit, type de fichier, catégorie) : le renvoyer tel quel donnerait le même refus — « Réessayer » ne sert à rien. */
+  definitif?: boolean;
+}
 interface BgJob {
   id: string; label: string; files: BgFile[]; phase: "uploading" | "done" | "error" | "cancelled"; spec: EnqueueSpec;
   /** Diagnostic du serveur sur l'envoi le plus lent du lot — affiché quand ça traîne. */
@@ -37,7 +46,8 @@ interface BgJob {
 export interface DirectSpec {
   ouvrir: () => Promise<{ sessionId: string; plan: PlanClient } | { error: string }>;
   replanifier: (sessionId: string) => Promise<PlanClient>;
-  finaliser: (sessionId: string, etags?: Record<number, string>) => Promise<{ ok: true } | { ok: false; error: string; reprendre?: boolean }>;
+  /** `body` : ce que le serveur a créé (l'id du nœud…), remis à `onFileDone` comme sur le chemin habituel. */
+  finaliser: (sessionId: string, etags?: Record<number, string>) => Promise<{ ok: true; body?: Record<string, unknown> } | { ok: false; error: string; reprendre?: boolean }>;
   abandonner: (sessionId: string) => Promise<void>;
 }
 
@@ -56,12 +66,18 @@ export interface EnqueueSpec {
    * existe déjà. Toute erreur ici est ignorée : c'est une optimisation, elle ne doit jamais faire
    * échouer un envoi.
    */
-  preflight?: (file: File) => Promise<boolean>;
+  preflight?: (file: File) => Promise<boolean | Record<string, unknown>>;
   /**
    * Après le dépôt RÉUSSI d'un fichier, avec le corps de la réponse du serveur — ce qu'il a créé.
    * Une erreur ici est avalée : l'envoi a eu lieu, un écran qui n'écoute plus ne le défait pas.
+   * Appelé sur LES TROIS chemins : envoi habituel, envoi direct au bucket (corps de la finalisation),
+   * contenu déjà connu (corps de l'essai, `{}` s'il n'a rendu que `true`).
    */
   onFileDone?: (file: File, body: Record<string, unknown>) => void;
+  /** Le lot (re)démarre — à l'envoi, puis à chaque « Réessayer ». */
+  onJobStart?: () => void;
+  /** Le lot est terminé (ou annulé) : le compte de TOUS ses fichiers, pour l'écran qui attend la fin. */
+  onJobDone?: (bilan: BilanEnvoi) => void;
   /**
    * REFUS AVANT L'ENVOI (audit du 04/10, constat 11) : type interdit ou taille au-delà de la
    * limite se disent tout de suite, avec la phrase du serveur — pas après avoir envoyé 300 Mo
@@ -71,6 +87,9 @@ export interface EnqueueSpec {
   /** Envoi DIRECT au bucket pour ce fichier (gros fichier, stockage objet branché), ou `null`. */
   direct?: (file: File) => DirectSpec | null;
 }
+
+/** Le compte d'un lot à sa fin. */
+export interface BilanEnvoi { total: number; recus: number; echecs: number; annules: number; annule: boolean }
 
 interface Ctx { enqueue: (spec: EnqueueSpec) => void }
 
@@ -124,14 +143,18 @@ function postFormXhr(
 export function BackgroundUploadProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [jobs, setJobs] = React.useState<BgJob[]>([]);
+  // L'état de chaque fichier, tenu AUSSI hors de React : le bilan de fin de lot (`onJobDone`) se lit
+  // ici, de façon synchrone — l'état React n'est pas lisible depuis la boucle d'envoi.
+  const statuts = React.useRef(new Map<string, FileStatus[]>());
 
   const patchFile = React.useCallback((jobId: string, idx: number, p: Partial<BgFile>) => {
+    if (p.status) { const s = statuts.current.get(jobId); if (s) s[idx] = p.status; }
     setJobs((js) => js.map((j) => (j.id === jobId ? { ...j, files: j.files.map((f, i) => (i === idx ? { ...f, ...p } : f)) } : j)));
   }, []);
   const patchJob = React.useCallback((jobId: string, p: Partial<BgJob>) => {
     setJobs((js) => js.map((j) => (j.id === jobId ? { ...j, ...p } : j)));
   }, []);
-  const dismiss = React.useCallback((jobId: string) => setJobs((js) => js.filter((j) => j.id !== jobId)), []);
+  const dismiss = React.useCallback((jobId: string) => { statuts.current.delete(jobId); setJobs((js) => js.filter((j) => j.id !== jobId)); }, []);
 
   // ANNULATION — le drapeau arrête la file, l'avortement coupe ce qui est déjà en vol. Les deux
   // sont nécessaires : sans le second, annuler un envoi de 200 Mo attendrait la fin du fichier
@@ -177,6 +200,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       total: indices.reduce((a, i) => a + (spec.files[i]?.size ?? 0), 0),
     });
     const stopped = () => cancelled.current.has(jobId);
+    try { spec.onJobStart?.(); } catch { /* l'écran qui écoutait a pu disparaître */ }
 
     /** Envoi DIRECT au bucket : ouverture (ou reprise), parties parallèles, finalisation. */
     const uploadDirect = async (idx: number, file: File, direct: DirectSpec): Promise<void> => {
@@ -203,6 +227,8 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
           if (f.ok) {
             directSessions.current.get(jobId)?.delete(ouv.sessionId);
             patchFile(jobId, idx, { status: "done", progress: 100 });
+            // Le gros fichier passé par le bucket se signale comme les autres (il ne le faisait pas).
+            try { spec.onFileDone?.(file, f.body ?? {}); } catch { /* l'écran qui écoutait a pu disparaître */ }
             return;
           }
           if (!f.reprendre || essai === 2) throw new Error(f.error);
@@ -212,7 +238,9 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
         if (e instanceof EnvoiAnnule || stopped()) { patchFile(jobId, idx, { status: "cancelled", progress: 0 }); return; }
         directSessions.current.get(jobId)?.delete(ouv.sessionId); // gardée côté serveur : la reprise la retrouvera
         const msg = e instanceof Error ? e.message : "Échec de l'envoi.";
-        patchFile(jobId, idx, { status: "error", progress: 0, error: `${msg} Relancez le même fichier : les parties déjà envoyées ne repartiront pas.` });
+        // UN REFUS N'EST PAS UNE COUPURE (Direction, 06/10) : « relancez » n'a de sens que pour un envoi interrompu.
+        const refus = estUnRefus(msg);
+        patchFile(jobId, idx, { status: "error", progress: 0, definitif: refus, error: refus ? msg : `${msg} Relancez le même fichier : les parties déjà envoyées ne repartiront pas.` });
       }
     };
 
@@ -232,7 +260,12 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       if (spec.preflight) {
         patchFile(jobId, idx, { status: "checking" });
         try {
-          if (await spec.preflight(file)) { patchFile(jobId, idx, { status: "done", progress: 100 }); return; }
+          const connu = await spec.preflight(file);
+          if (connu) {
+            patchFile(jobId, idx, { status: "done", progress: 100 });
+            try { spec.onFileDone?.(file, typeof connu === "object" ? connu : {}); } catch { /* écran disparu */ }
+            return;
+          }
         } catch { /* une optimisation ratée n'est pas un envoi raté */ }
         patchFile(jobId, idx, { status: "uploading" });
       }
@@ -268,8 +301,12 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
         const msg = (errs && errs.length > 0 ? errs.map((e) => (e.name ? `« ${e.name} » : ${e.error}` : e.error)).join(" · ") : undefined)
           ?? (r.body.error as string | undefined)
           ?? (r.status === 413 ? `Fichier trop volumineux pour cet envoi (${humanSize(file.size)}).`
-            : r.status === 0 ? "Réseau indisponible." : `Échec (code ${r.status}).`);
-        if (!retryable || attempt === attempts - 1) { patchFile(jobId, idx, { status: "error", progress: 0, error: msg }); return; }
+            : r.status === 0 ? "Réseau indisponible."
+            // UN REFUS SANS PHRASE DU SERVEUR se dit quand même en clair (Direction, 06/10) — jamais « Échec (code 403) ».
+            : r.status === 401 ? "Session expirée : reconnectez-vous, puis relancez l'envoi."
+            : r.status === 403 ? "Vous n'êtes pas autorisé à déposer un document ici : demandez l'accès au responsable de cet espace."
+            : `Échec (code ${r.status}).`);
+        if (!retryable || attempt === attempts - 1) { patchFile(jobId, idx, { status: "error", progress: 0, error: msg, definitif: !retryable }); return; }
         await new Promise((res) => setTimeout(res, 500 * 2 ** attempt)); // backoff : 0,5 → 1 → 2 → 4 s
       }
     };
@@ -296,6 +333,19 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       }
       return { ...j, phase: j.files.some((f) => f.status === "error") ? "error" : "done" };
     }));
+
+    // LE BILAN, pour l'écran qui attend la fin du lot (la messagerie n'envoie qu'un lot complet).
+    const annule = cancelled.current.has(jobId);
+    const s = statuts.current.get(jobId) ?? [];
+    if (annule) s.forEach((st, i) => { if (st !== "done" && st !== "error") s[i] = "cancelled"; });
+    try {
+      spec.onJobDone?.({
+        total: spec.files.length, annule,
+        recus: s.filter((st) => st === "done").length,
+        echecs: s.filter((st) => st === "error").length,
+        annules: s.filter((st) => st === "cancelled").length,
+      });
+    } catch { /* l'écran qui écoutait a pu disparaître */ }
     router.refresh();
   }, [patchFile, router, track, noterOctets]);
 
@@ -327,6 +377,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     if (files.length === 0) return;
     const id = `bg${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const fullSpec = { ...spec, files };
+    statuts.current.set(id, files.map(() => "pending"));
     setJobs((js) => [...js, { id, label: spec.label, phase: "uploading", spec: fullSpec, files: files.map((f) => ({ name: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name, size: f.size, status: "pending", progress: 0 })) }]);
     void runJob(id, fullSpec, files.map((_, i) => i));
   }, [runJob]);
@@ -337,6 +388,8 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       if (j.id !== jobId) return j;
       const failed = j.files.map((f, i) => (f.status === "error" ? i : -1)).filter((i) => i >= 0);
       if (failed.length === 0) return j;
+      const s = statuts.current.get(jobId);
+      if (s) failed.forEach((i) => { s[i] = "pending"; });
       void runJob(jobId, j.spec, failed);
       return { ...j, phase: "uploading", files: j.files.map((f) => (f.status === "error" ? { ...f, status: "pending" as FileStatus, error: undefined } : f)) };
     }));
@@ -367,6 +420,9 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
  */
 function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[]; onDismiss: (id: string) => void; onRetry: (id: string) => void; onCancel: (id: string) => void }) {
   const [minimized, setMinimized] = React.useState(false);
+  // UN ÉCHEC S'AFFICHE (Direction, 06/10) : réduit, le widget ne disait que « Échecs » — la raison restait cachée.
+  const nbEchecs = jobs.filter((j) => j.phase === "error").length;
+  React.useEffect(() => { if (nbEchecs > 0) setMinimized(false); }, [nbEchecs]);
   // Position libre (coin haut-gauche du widget). `null` = ancrage par défaut en bas-gauche.
   const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null);
   const drag = React.useRef<{ dx: number; dy: number } | null>(null);
@@ -499,7 +555,9 @@ function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[];
                   <div className="mt-1 space-y-1">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs text-destructive">{done} réussi·s, {failed} en échec.</p>
-                      <button type="button" onClick={() => onRetry(j.id)} className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted">Réessayer</button>
+                      {erreurs.some((f) => !f.definitif) && (
+                        <button type="button" onClick={() => onRetry(j.id)} className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted">Réessayer</button>
+                      )}
                     </div>
                     <ul className="space-y-0.5">
                       {erreurs.slice(0, 5).map((f, i) => (

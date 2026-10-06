@@ -53,7 +53,7 @@ suite("la fiche salarié et le compte applicatif", () => {
     await mk("partant", "VIEWER", A);
     await mk("sa", "SUPER_ADMIN", A);
     await mk("autre", "VIEWER", B);
-    await prisma.userAccess.create({ data: { userId: u.rh, module: "RH", canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
+    for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: u.rh, module, canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
     rhA = { id: u.rh, role: "VIEWER", secondaryRole: null, access: await getAccess(u.rh, "VIEWER") } as unknown as SessionUser;
     session = (await prisma.userSession.create({ data: { userId: u.partant, expiresAt: new Date(Date.now() + 86_400_000) } })).id;
     ACTEUR = rhA;

@@ -20,7 +20,7 @@ const RH_PATHS = ["/rh", "/rh/departements", "/admin/organigramme"];
 const revalidateAll = () => RH_PATHS.forEach((p) => revalidatePath(p));
 
 function canManageStructure(user: Awaited<ReturnType<typeof requireUser>>): boolean {
-  return userCan(user, "RH", "UPDATE");
+  return userCan(user, "EMPLOYEES", "UPDATE");
 }
 
 /** Code technique dérivé d'un nom (MAJUSCULES, sans accents, séparateurs → « _ »). */

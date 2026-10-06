@@ -165,7 +165,7 @@ export default async function RhPage() {
       {canValidate && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes RH à traiter ({openHrRequests.length})</h2>
-          <p className="text-xs text-muted-foreground">Demandes émises depuis « Mon Dossier RH » (attestations, congés, ordres de mission…). Cliquez pour traiter sur la fiche de l'employé.</p>
+          <p className="text-xs text-muted-foreground">Demandes émises depuis « Mon Dossier RH » (attestations, congés, ordres de mission…) — elles se traitent dans « Demandes RH ».</p>
           <Card>
             <CardContent className="p-0">
               {hrRequests.length === 0 ? (
@@ -191,7 +191,7 @@ export default async function RhPage() {
                         <TableCell className="text-sm text-muted-foreground">{formatDate(r.createdAt)}</TableCell>
                         <TableCell><StatusBadge map={HR_REQUEST_STATUS} value={r.status} /></TableCell>
                         <TableCell className="text-right">
-                          <Link href={`/rh/${r.employee.id}`} className="text-sm font-medium text-primary hover:underline">Traiter</Link>
+                          <Link href="/rh/demandes" className="text-sm font-medium text-primary hover:underline">Traiter</Link>
                         </TableCell>
                       </TableRow>
                     ))}
