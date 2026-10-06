@@ -1071,6 +1071,16 @@ classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle atten
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+X("SEGMENTATION STUDIO (Direction, 06/10) : stratégie, classement des produits, règles VERSIONNÉES publiées après l'aperçu "
+  + "de leur impact, import d'un classeur relu ligne à ligne, potentiel terrain, statut, dérogations MOTIVÉES. Chaque geste "
+  + "demande de VOIR ce qu'il change (impact, aperçu d'import, valeur calculée à côté de la dérogation) : c'est l'écran "
+  + "`/segmentation` qui le montre. Adam est en pause de développement (Super Admin seul) ; ses outils viendront avec la "
+  + "phase « interrogation assistée » du cahier des charges.", [
+  "segmentation-actions:creerStrategie", "segmentation-actions:classerProduits", "segmentation-actions:apercuRegles",
+  "segmentation-actions:publierRegles", "segmentation-actions:apercuImportSegmentation", "segmentation-actions:importerSegmentation",
+  "segmentation-actions:enregistrerPotentiel", "segmentation-actions:changerStatut", "segmentation-actions:ajouterAuPanel",
+  "segmentation-actions:retirerDuPanel", "segmentation-actions:poserDerogation", "segmentation-actions:leverDerogation",
+]);
 X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
   + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "
   + "validateur demandait — la fiche est l'endroit où elle le fait ; retirer clôt un circuit, motif à l'appui. "

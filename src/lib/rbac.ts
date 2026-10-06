@@ -100,6 +100,12 @@ export const MODULES = [
   // module à part, avec ses accès gérables depuis la console d'admin ») : le Super Admin l'ouvre ou le ferme, et en
   // règle les gestes, personne par personne dans Administration › Accès.
   "MARKETING_COCKPIT",
+  // SEGMENTATION : le SEGMENTATION STUDIO (Direction, 06/10 : « intègre en natif la segmentation… que tout soit relié »)
+  // — stratégie par BU, produits classés, règles versionnées, potentiel terrain, dérogations, import d'un classeur.
+  // Voir = lire le panel et le pourquoi de chaque segment ; Modifier = renseigner le potentiel et le statut (le terrain) ;
+  // Créer = poser une dérogation motivée ; Valider = publier une version de règles, importer, gérer la stratégie.
+  // La PORTÉE « ses lignes » borne le KAM à son panel (secteur ∪ rattachement, `clausePanelDuKam`).
+  "SEGMENTATION",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -442,6 +448,26 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
   if (matrice.SALES_PLANNING && !matrice.MARKETING_COCKPIT) matrice.MARKETING_COCKPIT = [...matrice.SALES_PLANNING];
 }
 
+/**
+ * « SEGMENTATION STUDIO » PAR DÉFAUT — le cahier des charges (§69, §86) : la Direction et le directeur des opérations
+ * tiennent la stratégie et les règles ; la Direction de la promotion lit, renseigne et pose des dérogations motivées ;
+ * le KAM lit SON panel et met à jour le potentiel terrain — sans jamais toucher aux règles, à la BU ni aux
+ * allocations. Ce n'est qu'un DÉFAUT : la console le règle ensuite personne par personne.
+ */
+const SEGMENTATION_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  OPERATIONS_DIRECTOR: MANAGE,
+  MEDICAL_PROMOTION_MANAGER: ["VIEW", "CREATE", "UPDATE", "EXPORT"],
+  HEAD_OF_SALES: READ,
+  PRODUCT_MANAGER: READ,
+  NATIONAL_SALES: ["VIEW", "UPDATE"],
+  MEDICAL_DELEGATE: ["VIEW", "UPDATE"],
+};
+for (const [role, actions] of Object.entries(SEGMENTATION_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].SEGMENTATION) PERMISSIONS[role].SEGMENTATION = [...actions];
+}
+
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
 
 /** Type minimal « porteur de rôles » : rôle principal + éventuel rôle secondaire. */
@@ -748,6 +774,8 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     // Sponsoring (audit 360°, I4) : le délégué DEMANDE et ne voit que ses demandes ; le National
     // Sales, absent, les voit toutes — c'est lui qui en instruit l'étape préliminaire.
     SPONSORING: ["MEDICAL_DELEGATE"],
+    // Segmentation Studio : le KAM ne voit et ne renseigne que SON panel (secteur ∪ rattachement).
+    SEGMENTATION: ["MEDICAL_DELEGATE"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }
