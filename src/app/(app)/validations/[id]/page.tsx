@@ -122,9 +122,9 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
           <CardHeader><CardTitle>À corriger</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
             {renvois.map((e) => (
-              <p key={e.id}>
+              <p key={e.id} className="[overflow-wrap:anywhere]">
                 <span className="font-medium">{e.validator?.name ?? "Le validateur"}</span> demande une correction :{" "}
-                <span className="rounded bg-secondary/40 px-1.5 py-0.5">« {e.reason ?? "sans motif"} »</span>
+                <span className="rounded bg-secondary/40 px-1.5 py-0.5 [box-decoration-break:clone]">« {e.reason ?? "sans motif"} »</span>
               </p>
             ))}
             {estDemandeur && surPlace ? (
@@ -156,7 +156,7 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
               <Info label="Déposée le"><span className="font-medium">{formatDateTime(req.createdAt)}</span></Info>
               <Info label="Échéance"><span className="font-medium">{req.deadline ? formatDate(req.deadline) : "—"}</span></Info>
               {req.amount !== null && (
-                <Info label="Montant"><span className="font-semibold">{formatCurrency(toNumber(req.amount))}</span></Info>
+                <Info label="Montant"><span className="font-semibold tabular-nums">{formatCurrency(toNumber(req.amount))}</span></Info>
               )}
               {req.link && (
                 <div className="col-span-2 min-w-0 sm:col-span-3">
@@ -169,7 +169,7 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
               {req.description && (
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Détails</p>
-                  <p className="whitespace-pre-wrap">{req.description}</p>
+                  <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{req.description}</p>
                 </div>
               )}
             </CardContent>
@@ -222,7 +222,7 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
                 </p>
                 {/* LE MOTIF EST CE QU'ON VIENT LIRE : « refusé » sans raison fait redéposer la
                     même demande, à l'identique. */}
-                {e.reason && <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs">{e.reason}</p>}
+                {e.reason && <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs [overflow-wrap:anywhere]">{e.reason}</p>}
               </div>
             ))}
             {req.status === "PENDING" && req.mode === "SEQUENTIAL" && (

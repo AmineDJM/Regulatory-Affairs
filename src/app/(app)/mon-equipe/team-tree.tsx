@@ -77,22 +77,27 @@ function MemberRow({ m }: { m: TeamMember }) {
   // la carte sur un téléphone, et le rang se lit de toute façon dans la puce « N-x ».
   const decalage = Math.min(m.depth - 1, 5) * 20;
 
+  // Au téléphone, le décalage est divisé par deux (50 px au plus) : la carte garde sa largeur
+  // pour le nom, et le rang reste lisible par la puce « N-x ».
   return (
-    <div style={{ marginLeft: decalage }}>
+    <div
+      style={{ "--decalage": `${decalage}px` } as React.CSSProperties}
+      className="min-w-0 ml-[calc(var(--decalage)/2)] sm:ml-[var(--decalage)]"
+    >
       <Card className={cn(open && "border-primary/40")}>
         <CardContent className="p-0">
           <button
             type="button"
             onClick={basculer}
             aria-expanded={open}
-            className="flex w-full items-start gap-2.5 p-4 text-left transition-colors hover:bg-secondary/40"
+            className="flex w-full min-w-0 items-start gap-2.5 p-3 text-left transition-colors hover:bg-secondary/40 sm:p-4"
           >
             <span className="mt-0.5 shrink-0 text-muted-foreground">
               {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             </span>
             <span className="min-w-0 flex-1 space-y-1.5">
               <span className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{m.fullName}</span>
+                <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{m.fullName}</span>
                 {m.depth > 1 && <Badge tone="neutral" dot={false}>N-{m.depth}</Badge>}
                 {m.absentToday && <Badge tone="info" dot={false}><Plane className="mr-1 inline h-3 w-3" /> absent·e aujourd&apos;hui</Badge>}
                 {m.pending > 0 && <Badge tone="warning" dot={false}>{m.pending} à décider</Badge>}
@@ -103,7 +108,7 @@ function MemberRow({ m }: { m: TeamMember }) {
                   </Badge>
                 )}
               </span>
-              <span className="block text-xs text-muted-foreground">
+              <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">
                 {[m.position, m.department].filter(Boolean).join(" · ") || "Fonction non renseignée"}
                 {m.role ? ` · ${ROLE_LABELS[m.role] ?? m.role}` : ""}
               </span>
@@ -111,18 +116,18 @@ function MemberRow({ m }: { m: TeamMember }) {
           </button>
 
           {open && (
-            <div className="space-y-3 border-t border-border px-4 py-3">
+            <div className="space-y-3 border-t border-border px-3 py-3 sm:px-4">
               {/* JOINDRE QUELQU'UN NE DOIT PAS DEMANDER UN DÉTOUR PAR LES RH. */}
               {(m.email || m.phone) && (
-                <p className="flex flex-wrap items-center gap-3 text-xs">
+                <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                   {m.email && (
-                    <a href={`mailto:${m.email}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                      <Mail className="h-3 w-3" /> {m.email}
+                    <a href={`mailto:${m.email}`} className="inline-flex min-h-9 min-w-0 items-center gap-1 text-primary hover:underline [overflow-wrap:anywhere] sm:min-h-0">
+                      <Mail className="h-3 w-3 shrink-0" /> {m.email}
                     </a>
                   )}
                   {m.phone && (
-                    <a href={`tel:${m.phone}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                      <Phone className="h-3 w-3" /> {m.phone}
+                    <a href={`tel:${m.phone}`} className="inline-flex min-h-9 items-center gap-1 whitespace-nowrap text-primary hover:underline sm:min-h-0">
+                      <Phone className="h-3 w-3 shrink-0" /> {m.phone}
                     </a>
                   )}
                 </p>

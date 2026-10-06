@@ -74,7 +74,7 @@ export function PublishPanel({ id, recipientCount, popup }: { id: string; recipi
             placeholder="Pourquoi cette note ne part pas — ce que l'auteur doit corriger."
             className="min-h-[70px]"
           />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm" variant="destructive" disabled={saving || !note.trim()}
               onClick={() => run(() => { const fd = new FormData(); fd.set("id", id); fd.set("note", note); return rejectDirective(fd); })}
@@ -124,7 +124,7 @@ export function MessageForm({ id }: { id: string }) {
     >
       <Textarea name="body" required placeholder="Votre retour, une précision, une question…" className="min-h-[70px]" />
       {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-      <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Répondre</Button>
+      <Button type="submit" size="sm" disabled={saving} className="w-full sm:w-auto">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Répondre</Button>
     </form>
   );
 }

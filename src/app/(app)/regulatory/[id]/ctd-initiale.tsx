@@ -312,17 +312,17 @@ function Noeud({
               onKeyDown={(e) => { if (e.key === "Escape") { setEdition(false); setBrouillon(noeud.nom); } }}
               className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs focus-ring"
             />
-            <button type="button" disabled={occupe} aria-label="Enregistrer le nom" className="rounded-md p-1 text-success hover:bg-success/10"
+            <button type="button" disabled={occupe} aria-label="Enregistrer le nom" className="rounded-md p-2 text-success hover:bg-success/10 sm:p-1"
               onClick={async () => { if (await renommer(noeud.chemin, brouillon)) setEdition(false); }}>
               {occupe ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             </button>
-            <button type="button" aria-label="Annuler" className="rounded-md p-1 text-muted-foreground hover:bg-secondary" onClick={() => { setEdition(false); setBrouillon(noeud.nom); }}>
+            <button type="button" aria-label="Annuler" className="rounded-md p-2 text-muted-foreground hover:bg-secondary sm:p-1" onClick={() => { setEdition(false); setBrouillon(noeud.nom); }}>
               <X className="h-3.5 w-3.5" />
             </button>
           </span>
         )}
         {canManage && !edition && (
-          <button type="button" aria-label={`Renommer le dossier ${noeud.nom}`} title="Renommer ce dossier" className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          <button type="button" aria-label={`Renommer le dossier ${noeud.nom}`} title="Renommer ce dossier" className="shrink-0 rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1"
             onClick={() => { setBrouillon(noeud.nom); setEdition(true); }}>
             <Pencil className="h-3.5 w-3.5" />
           </button>

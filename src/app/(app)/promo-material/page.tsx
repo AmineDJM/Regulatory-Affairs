@@ -52,8 +52,8 @@ export default async function PromoMaterialPage() {
       {items.length === 0 ? (
         <EmptyState icon="Megaphone" title="Aucun dossier" description={canCreate ? "Créez une demande de matériel promotionnel pour démarrer." : "Les dossiers de matériel promotionnel apparaîtront ici."} />
       ) : (
-        <div className="surface overflow-x-auto p-0">
-          <Table>
+        <div className="surface p-2 sm:overflow-x-auto sm:p-0">
+          <Table mobileCards>
             <TableHeader>
               <TableRow>
                 <TableHead>Référence</TableHead><TableHead>Campagne</TableHead><TableHead>Articles</TableHead><TableHead>Agence</TableHead>
@@ -65,8 +65,10 @@ export default async function PromoMaterialPage() {
                 <TableRow key={i.id} className="cursor-pointer">
                   <TableCell className="font-mono text-xs"><Link href={`/promo-material/${i.id}`} className="hover:underline">{i.reference}</Link></TableCell>
                   <TableCell className="font-medium">
-                    <Link href={`/promo-material/${i.id}`} className="hover:underline">{i.title}</Link>
-                    {i.company && <div className="mt-0.5"><CompanyBadge company={i.company} /></div>}
+                    <div>
+                      <Link href={`/promo-material/${i.id}`} className="hover:underline">{i.title}</Link>
+                      {i.company && <div className="mt-0.5"><CompanyBadge company={i.company} /></div>}
+                    </div>
                   </TableCell>
                   {/* LES ARTICLES DE LA DEMANDE (§118.173) — ses lignes, et non plus un « type » saisi à
                       côté. Trois noms au plus, le reste COMPTÉ : une coupe muette se lirait comme

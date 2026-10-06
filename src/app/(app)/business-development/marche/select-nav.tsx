@@ -27,7 +27,7 @@ export function SelectNav({ param, value, options, placeholder, extra }: {
         for (const [k, v] of Object.entries(extra ?? {})) next.set(k, v);
         router.push(`?${next.toString()}`);
       }}
-      className="max-w-md text-sm"
+      className="max-w-full text-base sm:max-w-md sm:text-sm"
     >
       {placeholder && <option value="">{placeholder}</option>}
       {options.map((o) => (

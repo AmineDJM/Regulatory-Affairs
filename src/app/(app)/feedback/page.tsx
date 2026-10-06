@@ -81,11 +81,11 @@ export default async function FeedbackPage() {
                     <p className="text-xs text-muted-foreground">{f.module ? `${f.module} · ` : ""}{formatDateTime(f.updatedAt)}</p>
                     <StatusBadge map={FEEDBACK_STATUS} value={f.status} />
                   </div>
-                  <p className="whitespace-pre-wrap rounded-lg bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">Vous : {f.message}</p>
+                  <p className="whitespace-pre-wrap break-words rounded-lg bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">Vous : {f.message}</p>
                   <FeedbackAttachments items={f.attachments.map((a) => ({ ...a, canRemove: true }))} />
                   <div className="flex items-start gap-2">
                     <Reply className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <p className="whitespace-pre-wrap text-sm font-medium">{f.adminNote}</p>
+                    <p className="min-w-0 whitespace-pre-wrap break-words text-sm font-medium">{f.adminNote}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -104,7 +104,7 @@ export default async function FeedbackPage() {
               <Card key={f.id}>
                 <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 space-y-1">
-                    <p className="whitespace-pre-wrap text-sm">{f.message}</p>
+                    <p className="whitespace-pre-wrap break-words text-sm">{f.message}</p>
                     <p className="text-xs text-muted-foreground">
                       {f.module ? `${f.module} · ` : ""}{formatDateTime(f.createdAt)}
                     </p>

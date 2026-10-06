@@ -52,12 +52,13 @@ export function TransferPanel({
       <p className="text-xs text-muted-foreground">
         Suivi aujourd&apos;hui par {depuis}. Le transfert le confie à {versLibelle}, sans rien perdre.
       </p>
-      <Button variant="outline" className="w-full" disabled={busy} onClick={transferer}>
+      {/* Le nom du pôle d'arrivée est long : le libellé passe à la ligne plutôt que de sortir du bouton. */}
+      <Button variant="outline" className="h-auto min-h-10 w-full whitespace-normal py-2 text-center" disabled={busy} onClick={transferer}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
         Transférer vers {versLibelle}
       </Button>
-      {fait && <p className="rounded-lg bg-success/10 px-3 py-2 text-sm text-success">{fait}</p>}
-      {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+      {fait && <p className="break-words rounded-lg bg-success/10 px-3 py-2 text-sm text-success">{fait}</p>}
+      {err && <p className="break-words rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { ArrowLeft, Coins, History } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableHeader, TableBody, TableRow, TableHead } from "@/components/ui/table";
 import { BackLink } from "@/components/shared/back-link";
 import { regulatoryAiSpend } from "@/lib/regulatory/intelligence/cost/ledger";
 import { listRegulatoryAudit } from "@/lib/regulatory/intelligence/queries";
@@ -86,23 +87,21 @@ export default async function RegulatoryIaAdminPage() {
                   Un plafond atteint ARRÊTE les analyses économiques du dossier concerné : les appels sont
                   refusés avant dépense, et l&apos;écran d&apos;analyse le dit.
                 </p>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[42rem] text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                        <th className="py-2 pr-3 font-medium">Dossier</th>
-                        <th className="py-2 pr-3 text-right font-medium">Appels</th>
-                        <th className="py-2 pr-3 text-right font-medium">Dépensé</th>
-                        <th className="py-2 font-medium">Plafond</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {spend.byDossier.map((d) => (
-                        <DossierBudgetRow key={d.dossierId} row={d} canManage={canManage} />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <Table mobileCards className="sm:min-w-[42rem]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Dossier</TableHead>
+                      <TableHead className="text-right">Appels</TableHead>
+                      <TableHead className="text-right">Dépensé</TableHead>
+                      <TableHead>Plafond</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {spend.byDossier.map((d) => (
+                      <DossierBudgetRow key={d.dossierId} row={d} canManage={canManage} />
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             </>
           )}
@@ -121,7 +120,7 @@ export default async function RegulatoryIaAdminPage() {
           ) : (
             <div className="space-y-1">
               {audit.map((a) => (
-                <div key={a.id} className="flex items-start justify-between gap-3 border-b border-border/50 py-1.5 text-xs last:border-0">
+                <div key={a.id} className="flex flex-col gap-0.5 border-b border-border/50 py-1.5 text-xs last:border-0 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                   <span className="min-w-0">
                     {a.dossier && (
                       <span className="mr-1.5 font-medium text-foreground">{a.dossier.reference}</span>

@@ -80,7 +80,7 @@ export function MeetingControls({
           }}
           className="flex flex-wrap items-end gap-2"
         >
-          <div className="space-y-1">
+          <div className="w-full space-y-1 sm:w-auto">
             <Label htmlFor={`meet-${requestId}`}>Date et heure (Alger)</Label>
             <Input id={`meet-${requestId}`} name="meetingAt" type="datetime-local" required />
           </div>

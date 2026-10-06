@@ -68,7 +68,7 @@ export function ReserveLetterButton({ cycleId }: { cycleId: string }) {
         type="button" disabled={busy}
         title="Composer la lettre de réponse (.docx) : chaque réserve mot à mot + votre réponse"
         onClick={() => run(() => { const fd = new FormData(); fd.set("cycleId", cycleId); return generateReserveLetterAction(fd); })}
-        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-2 text-xs font-medium hover:bg-accent disabled:opacity-50 sm:px-2 sm:py-1"
       >
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />} Lettre de réponse (.docx)
       </button>

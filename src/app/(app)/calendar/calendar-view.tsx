@@ -38,12 +38,16 @@ export function CalendarView({
 }) {
   const router = useRouter();
   const [sheet, setSheet] = React.useState<SheetMode>(null);
+  // Au téléphone, une grille de 7 colonnes laisse ~48 px par jour : illisible. On y ouvre donc
+  // l'agenda en LISTE (jours du mois qui ont un rendez-vous) ; la grille reste à un appui. Sans effet dès `sm`.
+  const [vueMobile, setVueMobile] = React.useState<"liste" | "mois">("liste");
 
   const byDay = React.useMemo(() => {
     const m = new Map<string, CalendarEventDTO[]>();
     for (const e of events) (m.get(e.ymd) ?? m.set(e.ymd, []).get(e.ymd)!).push(e);
     return m;
   }, [events]);
+  const joursDuMois = grid.filter((g) => g.inMonth && (byDay.get(g.ymd)?.length ?? 0) > 0);
 
   const prevHref = `/calendar?y=${month === 0 ? year - 1 : year}&m=${((month + 11) % 12) + 1}`;
   const nextHref = `/calendar?y=${month === 11 ? year + 1 : year}&m=${((month + 1) % 12) + 1}`;
@@ -56,15 +60,64 @@ export function CalendarView({
             l'écran (mesuré par l'audit navigateur). */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-1">
-            <button onClick={() => router.push(prevHref)} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Mois précédent"><ChevronLeft className="h-5 w-5" /></button>
+            <button onClick={() => router.push(prevHref)} className="rounded-md p-2 hover:bg-secondary sm:p-1.5" aria-label="Mois précédent"><ChevronLeft className="h-5 w-5" /></button>
             <h2 className="min-w-[8.5rem] text-center text-lg font-semibold">{MONTH_LABELS[month]} {year}</h2>
-            <button onClick={() => router.push(nextHref)} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Mois suivant"><ChevronRight className="h-5 w-5" /></button>
-            <button onClick={() => router.push("/calendar")} className="ml-2 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary">Aujourd'hui</button>
+            <button onClick={() => router.push(nextHref)} className="rounded-md p-2 hover:bg-secondary sm:p-1.5" aria-label="Mois suivant"><ChevronRight className="h-5 w-5" /></button>
+            <button onClick={() => router.push("/calendar")} className="ml-1 rounded-md border border-border px-3 py-2 text-xs font-medium hover:bg-secondary sm:ml-2 sm:px-2.5 sm:py-1">Aujourd'hui</button>
           </div>
           {canCreate && <Button size="sm" onClick={() => setSheet({ mode: "create" })}><Plus className="h-4 w-4" /> Nouveau</Button>}
         </div>
 
-        <div className="surface overflow-hidden p-0">
+        {/* Bascule Liste / Mois — téléphone seulement. */}
+        <div className="flex rounded-lg border border-border bg-secondary/40 p-0.5 sm:hidden" role="tablist" aria-label="Affichage">
+          {([["liste", "Liste"], ["mois", "Mois"]] as const).map(([v, l]) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={vueMobile === v}
+              onClick={() => setVueMobile(v)}
+              className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${vueMobile === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+
+        {/* Agenda en liste (téléphone). */}
+        <div className={vueMobile === "liste" ? "space-y-3 sm:hidden" : "hidden"}>
+          {joursDuMois.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">Aucun rendez-vous ce mois-ci.</p>
+          ) : (
+            joursDuMois.map((g) => (
+              <section key={g.ymd} className="space-y-1.5">
+                <h3 className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${g.isToday ? "text-primary" : "text-muted-foreground"}`}>
+                  {new Date(`${g.ymd}T12:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+                  {g.isToday && <span className="rounded-full bg-primary px-2 py-0.5 text-[0.6875rem] normal-case tracking-normal text-primary-foreground">Aujourd&apos;hui</span>}
+                </h3>
+                <div className="surface divide-y divide-border p-0">
+                  {(byDay.get(g.ymd) ?? []).map((e) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => setSheet({ mode: "view", event: e })}
+                      className="flex w-full items-stretch gap-3 px-3 py-2.5 text-left active:bg-secondary/40"
+                    >
+                      <span className="w-1 shrink-0 rounded-full" style={{ backgroundColor: colorOf(e) }} />
+                      <span className="w-12 shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">{e.timeLabel || "—"}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{e.title}</span>
+                        {e.location && <span className="block truncate text-xs text-muted-foreground">📍 {e.location}</span>}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))
+          )}
+        </div>
+
+        <div className={`surface overflow-hidden p-0 ${vueMobile === "mois" ? "" : "hidden sm:block"}`}>
           <div className="grid grid-cols-7 border-b border-border bg-secondary/40 text-center text-xs font-medium text-muted-foreground">
             {WEEKDAYS.map((d) => <div key={d} className="py-2">{d}</div>)}
           </div>
@@ -74,7 +127,7 @@ export function CalendarView({
               return (
                 <div
                   key={g.ymd}
-                  className={`min-h-[92px] border-b border-r border-border p-1 ${(i + 1) % 7 === 0 ? "border-r-0" : ""} ${!g.inMonth ? "bg-secondary/20" : ""} ${canCreate ? "cursor-pointer hover:bg-secondary/30" : ""}`}
+                  className={`min-h-[64px] min-w-0 border-b border-r border-border p-0.5 sm:min-h-[92px] sm:p-1 ${(i + 1) % 7 === 0 ? "border-r-0" : ""} ${!g.inMonth ? "bg-secondary/20" : ""} ${canCreate ? "cursor-pointer hover:bg-secondary/30" : ""}`}
                   onClick={(ev) => { if (canCreate && ev.target === ev.currentTarget) setSheet({ mode: "create", day: g.ymd }); }}
                 >
                   <div className="flex items-center justify-between px-0.5">
@@ -85,14 +138,15 @@ export function CalendarView({
                       <button
                         key={e.id}
                         onClick={() => setSheet({ mode: "view", event: e })}
-                        className="flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[0.6875rem] hover:opacity-80"
+                        className="flex w-full min-w-0 items-center gap-1 truncate rounded px-0.5 py-0.5 text-left text-[0.6875rem] hover:opacity-80 sm:px-1"
                         style={{ backgroundColor: `${colorOf(e)}1a`, color: colorOf(e) }}
                       >
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOf(e) }} />
-                        <span className="truncate font-medium">{e.timeLabel && `${e.timeLabel} `}{e.title}</span>
+                        {/* Au téléphone l'heure s'efface au profit du titre ; elle reste dans la liste et la fiche. */}
+                        <span className="truncate font-medium">{e.timeLabel && <span className="hidden sm:inline">{e.timeLabel} </span>}{e.title}</span>
                       </button>
                     ))}
-                    {dayEvents.length > 3 && <p className="px-1 text-[0.625rem] text-muted-foreground">+{dayEvents.length - 3} autre·s</p>}
+                    {dayEvents.length > 3 && <p className="truncate px-1 text-[0.6875rem] text-muted-foreground">+{dayEvents.length - 3}<span className="hidden sm:inline"> autre·s</span></p>}
                   </div>
                 </div>
               );
@@ -196,9 +250,9 @@ function EventDetail({ event: e, currentUserId, onEdit, onDone }: { event: Calen
         <StatusBadge map={CALENDAR_EVENT_KIND} value={e.kind} dot={false} />
         <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"><Clock className="h-4 w-4" /> {formatAlgiersDisplay(e.startAt, e.allDay)}{e.endAt ? ` → ${formatAlgiersDisplay(e.endAt, e.allDay)}` : ""}</span>
       </div>
-      {e.location && <p className="inline-flex items-center gap-1.5 text-sm"><MapPin className="h-4 w-4 text-muted-foreground" /> {e.location}</p>}
-      {e.meetLink && <a href={e.meetLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><Video className="h-4 w-4" /> Rejoindre la visio</a>}
-      {e.description && <p className="whitespace-pre-wrap text-sm">{e.description}</p>}
+      {e.location && <p className="flex items-start gap-1.5 text-sm [overflow-wrap:anywhere]"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> {e.location}</p>}
+      {e.meetLink && <a href={e.meetLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 py-1 text-sm font-medium text-primary hover:underline"><Video className="h-4 w-4" /> Rejoindre la visio</a>}
+      {e.description && <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{e.description}</p>}
       <p className="text-xs text-muted-foreground">Organisé par {e.organizerName}{isOrganizer ? " (vous)" : ""}.</p>
 
       {e.invitees.length > 0 && (
@@ -207,7 +261,7 @@ function EventDetail({ event: e, currentUserId, onEdit, onDone }: { event: Calen
           <ul className="space-y-1">
             {e.invitees.map((i) => (
               <li key={i.userId} className="flex items-center justify-between gap-2 text-sm">
-                <span className="flex items-center gap-1.5"><Avatar name={i.name} size="sm" className="h-5 w-5 text-[0.5625rem]" /> {i.name}</span>
+                <span className="flex min-w-0 items-center gap-1.5"><Avatar name={i.name} size="sm" className="h-5 w-5 shrink-0 text-[0.5625rem]" /> <span className="truncate">{i.name}</span></span>
                 <StatusBadge map={CALENDAR_INVITE_STATUS} value={i.status} dot={false} />
               </li>
             ))}
@@ -218,7 +272,7 @@ function EventDetail({ event: e, currentUserId, onEdit, onDone }: { event: Calen
       {amInvited && (
         <div className="space-y-1.5 border-t border-border pt-3">
           <p className="text-xs font-medium">Votre réponse</p>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-3 gap-2 sm:flex">
             <Button size="sm" variant={e.myStatus === "ACCEPTED" ? "primary" : "outline"} disabled={busy} onClick={() => respond("ACCEPTED")}>Accepter</Button>
             <Button size="sm" variant={e.myStatus === "TENTATIVE" ? "primary" : "outline"} disabled={busy} onClick={() => respond("TENTATIVE")}>Peut-être</Button>
             <Button size="sm" variant={e.myStatus === "DECLINED" ? "primary" : "outline"} disabled={busy} onClick={() => respond("DECLINED")}>Refuser</Button>
@@ -227,7 +281,7 @@ function EventDetail({ event: e, currentUserId, onEdit, onDone }: { event: Calen
       )}
 
       {isOrganizer && (
-        <div className="flex justify-end gap-2 border-t border-border pt-3">
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
           <Button size="sm" variant="outline" onClick={onEdit}><Pencil className="h-4 w-4" /> Modifier</Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={remove} className="text-destructive hover:bg-destructive/10"><Trash2 className="h-4 w-4" /> Supprimer</Button>
         </div>
@@ -271,15 +325,15 @@ function EventForm({
         <Input id="title" name="title" required defaultValue={ev?.title} placeholder="Ex. RDV pharmacien, réunion équipe…" />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="kind">Type</Label>
           <Select id="kind" name="kind" defaultValue={ev?.kind ?? "APPOINTMENT"}>
             {Object.entries(CALENDAR_EVENT_KIND).map(([v, d]) => <option key={v} value={v}>{d.label}</option>)}
           </Select>
         </div>
-        <div className="flex items-end pb-2">
-          <label className="flex items-center gap-2 text-sm">
+        <div className="flex items-end sm:pb-2">
+          <label className="flex items-center gap-2 py-1 text-sm sm:py-0">
             <input type="checkbox" name="allDay" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="h-4 w-4 rounded border-border" />
             Journée entière
           </label>
@@ -294,14 +348,14 @@ function EventForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="location">Lieu</Label>
           <Input id="location" name="location" defaultValue={ev?.location ?? ""} placeholder="Bureau, ville…" />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="meetLink">Lien visio</Label>
-          <Input id="meetLink" name="meetLink" defaultValue={ev?.meetLink ?? ""} placeholder="https://meet…" />
+          <Input id="meetLink" name="meetLink" inputMode="url" autoCapitalize="off" autoCorrect="off" spellCheck={false} defaultValue={ev?.meetLink ?? ""} placeholder="https://meet…" />
         </div>
       </div>
 
@@ -312,10 +366,10 @@ function EventForm({
 
       <div className="space-y-1.5">
         <Label>Inviter ({invitees.length})</Label>
-        <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+        <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border p-2 sm:max-h-40">
           {candidates.length === 0 && <p className="text-xs text-muted-foreground">Aucun collègue à inviter.</p>}
           {candidates.map((u) => (
-            <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary/50">
+            <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-2 text-sm hover:bg-secondary/50 sm:py-1">
               <input
                 type="checkbox"
                 checked={invitees.includes(u.id)}
@@ -329,9 +383,9 @@ function EventForm({
       </div>
 
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-      <div className="flex justify-end gap-2 pt-1">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>Annuler</Button>
-        <Button type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {ev ? "Enregistrer" : "Créer"}</Button>
+      <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={busy} className="w-full sm:w-auto">Annuler</Button>
+        <Button type="submit" disabled={busy} className="w-full sm:w-auto">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {ev ? "Enregistrer" : "Créer"}</Button>
       </div>
     </form>
   );

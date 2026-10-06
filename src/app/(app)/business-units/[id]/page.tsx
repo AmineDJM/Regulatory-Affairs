@@ -10,6 +10,7 @@ import { chargerCycle } from "@/lib/segmentation/cycle-service";
 import { ETAT_LABELS } from "@/lib/segmentation/regles";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 
@@ -62,11 +63,11 @@ export default async function BusinessUnit360Page({ params, searchParams }: { pa
       {bu.specialites.length > 1 && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
           <span className="text-muted-foreground">Spécialité :</span>
-          <Link href={`/business-units/${bu.id}`} className={`rounded-md border px-2 py-1 ${!spe ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>Toutes</Link>
-          {bu.specialites.map((s) => <Link key={s.specialtyId} href={`/business-units/${bu.id}?spe=${s.specialtyId}`} className={`rounded-md border px-2 py-1 ${spe === s.specialtyId ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{s.specialty.name}{s.principale ? " ★" : ""}</Link>)}
+          <Link href={`/business-units/${bu.id}`} className={`inline-flex min-h-9 items-center rounded-md border px-2 py-1 sm:min-h-0 ${!spe ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>Toutes</Link>
+          {bu.specialites.map((s) => <Link key={s.specialtyId} href={`/business-units/${bu.id}?spe=${s.specialtyId}`} className={`inline-flex min-h-9 items-center rounded-md border px-2 py-1 sm:min-h-0 ${spe === s.specialtyId ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{s.specialty.name}{s.principale ? " ★" : ""}</Link>)}
         </div>
       )}
-      <section className="surface space-y-1 p-4 text-sm">
+      <section className="surface space-y-1 p-3 text-sm [overflow-wrap:anywhere] sm:p-4">
         <h2 className="font-semibold">Produits ({produits.length}) et spécialités</h2>
         <p className="text-muted-foreground">Spécialités de la BU : {bu.specialites.map((s) => `${s.specialty.name}${s.principale ? " (principale)" : ""}`).join(", ") || "aucune déclarée"}.</p>
         {produits.map((p) => <p key={p.productId}><Link href={`/produits/${p.productId}`} className="text-primary hover:underline">{p.canonicalProduct?.canonicalName}</Link>{!p.isActive ? " (inactif)" : ""} — {p.specialitesCibles.map((x) => x.specialty.name).join(", ") || "toutes les spécialités de la BU"}</p>)}
@@ -84,11 +85,11 @@ export default async function BusinessUnit360Page({ params, searchParams }: { pa
           </div>
           {s.produits.map((p) => { const m = syn.parProduit[p.productId]; return m ? <p key={p.productId} className="text-sm text-muted-foreground"><span className="font-medium text-foreground">{p.nom}</span> {(["A", "B", "C", "D", "EN_ATTENTE", "NON_CIBLE"] as const).map((k) => `${ETAT_LABELS[k]} ${m[k]}`).join(" · ")}</p> : null; })}
           {cycle && cycle.parKam.length > 0 && (
-            <div className="surface overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b border-border text-left text-xs text-muted-foreground"><tr><th className="px-3 py-2">KAM</th><th className="px-3 py-2">P1</th><th className="px-3 py-2">Requis</th><th className="px-3 py-2">Réalisé</th><th className="px-3 py-2">Capacité</th><th className="px-3 py-2">Utilisation</th><th className="px-3 py-2">H sous-visités</th></tr></thead>
-                <tbody>{cycle.parKam.map((k) => <tr key={k.repId} className="border-b border-border/60"><td className="px-3 py-2">{k.nom}</td><td className="px-3 py-2">{k.p1}</td><td className="px-3 py-2">{Math.round(k.requis * 10) / 10}</td><td className="px-3 py-2">{k.realise}</td><td className="px-3 py-2">{k.capacite ?? "—"}</td><td className="px-3 py-2">{k.utilisation === null ? "—" : `${Math.round(k.utilisation * 100)} %`}</td><td className="px-3 py-2">{k.hSousVisites}</td></tr>)}</tbody>
-              </table>
+            <div className="surface">
+              <Table mobileCards>
+                <TableHeader><TableRow><TableHead>KAM</TableHead><TableHead>P1</TableHead><TableHead>Requis</TableHead><TableHead>Réalisé</TableHead><TableHead>Capacité</TableHead><TableHead>Utilisation</TableHead><TableHead>H sous-visités</TableHead></TableRow></TableHeader>
+                <TableBody>{cycle.parKam.map((k) => <TableRow key={k.repId}><TableCell data-sans-etiquette className="font-medium">{k.nom}</TableCell><TableCell>{k.p1}</TableCell><TableCell>{Math.round(k.requis * 10) / 10}</TableCell><TableCell>{k.realise}</TableCell><TableCell>{k.capacite ?? "—"}</TableCell><TableCell>{k.utilisation === null ? "—" : `${Math.round(k.utilisation * 100)} %`}</TableCell><TableCell>{k.hSousVisites}</TableCell></TableRow>)}</TableBody>
+              </Table>
             </div>
           )}
         </section>

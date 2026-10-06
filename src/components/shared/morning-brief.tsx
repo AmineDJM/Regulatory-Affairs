@@ -30,7 +30,7 @@ export function MorningBrief({ initial }: { initial: string }) {
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Votre point du matin</span>
         <button
           type="button" onClick={refresh} disabled={busy} title="Régénérer"
-          className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs sm:py-1 text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           Actualiser

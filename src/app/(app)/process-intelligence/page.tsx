@@ -57,7 +57,7 @@ export default async function ProcessIntelligencePage() {
                       <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", a.level === "danger" ? "bg-destructive" : a.level === "warning" ? "bg-warning" : "bg-primary")} />
                       <div className="min-w-0">
                         <p className="text-sm font-medium">{a.title}</p>
-                        <p className="truncate text-xs text-muted-foreground">{a.detail}</p>
+                        <p className="line-clamp-2 break-words text-xs text-muted-foreground sm:truncate">{a.detail}</p>
                       </div>
                     </Link>
                   </li>
@@ -76,8 +76,8 @@ export default async function ProcessIntelligencePage() {
             ) : (
               o.bottleneckStages.map((s) => (
                 <div key={s.label}>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="truncate">{s.label}</span>
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="min-w-0 truncate">{s.label}</span>
                     <span className={cn("font-semibold tabular-nums", ageTone(s.avgAge))}>{s.avgAge} j</span>
                   </div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
@@ -98,7 +98,7 @@ export default async function ProcessIntelligencePage() {
           {o.topBlockers.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">Aucun dossier en cours.</p>
           ) : (
-            <Table>
+            <Table mobileCards className="max-sm:p-3">
               <TableHeader>
                 <TableRow>
                   <TableHead>Objet</TableHead><TableHead>Module</TableHead><TableHead>Statut</TableHead>
@@ -108,7 +108,7 @@ export default async function ProcessIntelligencePage() {
               <TableBody>
                 {o.topBlockers.map((b) => (
                   <TableRow key={b.key}>
-                    <TableCell className="font-medium"><Link href={b.link} className="hover:underline">{b.label}</Link>{b.reference && <span className="ml-1 text-xs text-muted-foreground">{b.reference}</span>}</TableCell>
+                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start"><span className="min-w-0"><Link href={b.link} className="hover:underline">{b.label}</Link>{b.reference && <span className="ml-1 text-xs text-muted-foreground">{b.reference}</span>}</span></TableCell>
                     <TableCell className="text-muted-foreground">{b.moduleName}</TableCell>
                     <TableCell><Badge tone="neutral" dot={false}>{b.statusLabel}</Badge></TableCell>
                     <TableCell className="text-muted-foreground">{b.ownerName ?? "— non assigné"}</TableCell>
@@ -126,18 +126,18 @@ export default async function ProcessIntelligencePage() {
         <Card>
           <CardHeader><CardTitle>Par module</CardTitle></CardHeader>
           <CardContent className="p-0">
-            <Table>
+            <Table mobileCards className="max-sm:p-3">
               <TableHeader><TableRow><TableHead>Module</TableHead><TableHead className="text-right">En cours</TableHead><TableHead className="text-right">Âge moyen</TableHead><TableHead className="text-right">Bloqués</TableHead></TableRow></TableHeader>
               <TableBody>
                 {o.byModule.map((m) => (
                   <TableRow key={m.moduleKey}>
-                    <TableCell className="font-medium">{m.moduleName}</TableCell>
+                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{m.moduleName}</TableCell>
                     <TableCell className="text-right">{m.count}</TableCell>
                     <TableCell className={cn("text-right tabular-nums", ageTone(m.avgAge))}>{m.avgAge} j</TableCell>
                     <TableCell className="text-right">{m.stuck > 0 ? <Badge tone="warning" dot={false}>{m.stuck}</Badge> : "0"}</TableCell>
                   </TableRow>
                 ))}
-                {o.byModule.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground">Aucune donnée.</TableCell></TableRow>}
+                {o.byModule.length === 0 && <TableRow><TableCell colSpan={4} data-sans-etiquette className="text-center text-sm text-muted-foreground max-sm:!justify-center">Aucune donnée.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent>
@@ -157,7 +157,7 @@ export default async function ProcessIntelligencePage() {
                         <p className="truncate text-sm font-medium">{v.title}</p>
                         <p className="text-xs text-muted-foreground">{v.reference}{v.validatorName ? ` · ${v.validatorName}` : ""}</p>
                       </div>
-                      <span className={cn("text-sm font-semibold tabular-nums", ageTone(v.ageDays))}>{v.ageDays} j</span>
+                      <span className={cn("shrink-0 text-sm font-semibold tabular-nums", ageTone(v.ageDays))}>{v.ageDays} j</span>
                     </Link>
                   </li>
                 ))}

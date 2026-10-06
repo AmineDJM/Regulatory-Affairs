@@ -88,7 +88,7 @@ export function RecurrencesPanel({ recurrences, hospitals, users }: {
           {recurrences.map((r) => (
             <li key={r.id} className="space-y-1.5 px-3 py-2.5 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="min-w-0 font-medium">{r.name}</span>
+                <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{r.name}</span>
                 <span className={`rounded-full px-2 py-0.5 text-xs ${r.status === "ACTIVE" ? "bg-success/15 text-success" : "bg-secondary text-muted-foreground"}`}>
                   {r.status === "ACTIVE" ? "Active" : "En pause"}
                 </span>
@@ -148,18 +148,18 @@ export function RecurrencesPanel({ recurrences, hospitals, users }: {
             if (edite) { fd.set("id", edite.id); await lancer(() => updateStockRecurrence(fd)); }
             else await lancer(() => createStockRecurrence(fd));
           }}
-          className="surface space-y-3 p-4"
+          className="surface space-y-3 p-3 sm:p-4"
         >
           <p className="flex items-center gap-2 text-sm font-medium">
             <CalendarClock className="h-4 w-4" /> {edite ? `Modifier « ${edite.name} »` : "Nouvelle demande récurrente"}
           </p>
 
           <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-56 flex-1 space-y-1.5">
+            <div className="w-full min-w-0 flex-1 space-y-1.5 sm:w-auto sm:min-w-56">
               <Label htmlFor="rec-name">Nom — ce que vous relirez dans trois mois</Label>
               <Input id="rec-name" name="name" required defaultValue={edite?.name ?? ""} placeholder="Ex. Relevé mensuel secteur Est" />
             </div>
-            <div className="min-w-56 flex-1 space-y-1.5">
+            <div className="w-full min-w-0 flex-1 space-y-1.5 sm:w-auto sm:min-w-56">
               <Label htmlFor="rec-assignee">Demander à</Label>
               <Select id="rec-assignee" name="assigneeId" required defaultValue={edite?.assigneeId ?? ""}>
                 <option value="" disabled>Choisir une personne…</option>
@@ -169,19 +169,19 @@ export function RecurrencesPanel({ recurrences, hospitals, users }: {
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-44 space-y-1.5">
+            <div className="w-full space-y-1.5 sm:w-auto sm:min-w-44">
               <Label htmlFor="rec-cadence">Cadence</Label>
               <Select id="rec-cadence" name="recurrence" value={cadence} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCadence(e.target.value)}>
                 {RECURRENCES_STOCK.map((r) => <option key={r} value={r}>{libelleRecurrence(r)}</option>)}
               </Select>
             </div>
-            <div className="min-w-28 space-y-1.5">
+            <div className="min-w-0 flex-1 space-y-1.5 sm:flex-none sm:min-w-28">
               <Label htmlFor="rec-hour">Heure (Alger)</Label>
-              <Input id="rec-hour" name="hourLocal" type="number" min={0} max={23}
+              <Input id="rec-hour" name="hourLocal" type="number" inputMode="numeric" min={0} max={23}
                 defaultValue={edite?.hourLocal ?? HEURE_DEFAUT} />
             </div>
             {cadence === "WEEKLY" && (
-              <div className="min-w-40 space-y-1.5">
+              <div className="w-full space-y-1.5 sm:w-auto sm:min-w-40">
                 <Label htmlFor="rec-dow">Jour de la semaine</Label>
                 <Select id="rec-dow" name="dayOfWeek" defaultValue={String(edite?.dayOfWeek ?? 0)}>
                   {JOURS.map((j, i) => <option key={j} value={i}>{j}</option>)}
@@ -189,9 +189,9 @@ export function RecurrencesPanel({ recurrences, hospitals, users }: {
               </div>
             )}
             {cadence === "MONTHLY" && (
-              <div className="min-w-32 space-y-1.5">
+              <div className="min-w-0 flex-1 space-y-1.5 sm:flex-none sm:min-w-32">
                 <Label htmlFor="rec-dom">Jour du mois</Label>
-                <Input id="rec-dom" name="dayOfMonth" type="number" min={1} max={31} defaultValue={edite?.dayOfMonth ?? 1} />
+                <Input id="rec-dom" name="dayOfMonth" type="number" inputMode="numeric" min={1} max={31} defaultValue={edite?.dayOfMonth ?? 1} />
               </div>
             )}
           </div>
@@ -205,7 +205,7 @@ export function RecurrencesPanel({ recurrences, hospitals, users }: {
                 {hospitals.map((h) => (
                   <button key={h.id} type="button"
                     onClick={() => setCoches((v) => v.includes(h.id) ? v.filter((x) => x !== h.id) : [...v, h.id])}
-                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${coches.includes(h.id) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                    className={`min-h-8 rounded-full border px-2.5 py-1 text-xs transition-colors ${coches.includes(h.id) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
                     {h.name}
                   </button>
                 ))}

@@ -173,14 +173,14 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
           type de la liste — un passeport et un justificatif finissaient sous la même étiquette, sans que la personne
           puisse choisir celui que l'écran lui demandait. */}
       {compact && categoryEntries.length > 1 && (
-        <Select value={category} onChange={(e) => setCategory(e.target.value)} className="h-8 text-xs" aria-label="Type de document">
+        <Select value={category} onChange={(e) => setCategory(e.target.value)} className="h-9 text-xs sm:h-8" aria-label="Type de document">
           {categoryEntries.map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
         </Select>
       )}
       {!compact && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Select value={category} onChange={(e) => setCategory(e.target.value)} className="text-sm">
             {categoryEntries.map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
@@ -201,7 +201,7 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
               <FileUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate" title={it.path}>{it.path}</span>
               <span className="shrink-0 text-muted-foreground">{humanSize(it.file.size)}</span>
-              <button type="button" onClick={() => removeItem(it.id)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive" aria-label="Retirer"><X className="h-3 w-3" /></button>
+              <button type="button" onClick={() => removeItem(it.id)} className="shrink-0 rounded p-2 text-muted-foreground hover:text-destructive sm:p-0.5" aria-label="Retirer"><X className="h-3.5 w-3.5 sm:h-3 sm:w-3" /></button>
             </li>
           ))}
         </ul>
@@ -222,7 +222,7 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
         <p className="text-xs text-warning">Sélection pas encore envoyée — cliquez « Téléverser » pour l&apos;envoyer.</p>
       )}
 
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 text-xs">
           {queued > 0 && items.length === 0 && (
             <span className="flex items-center gap-1.5 text-success"><CheckCircle2 className="h-4 w-4" /> {queued} document·s en envoi — vous pouvez continuer à travailler.</span>

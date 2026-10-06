@@ -154,7 +154,8 @@ export function RegulatoryProcess({
         <span className="absolute left-0 top-0.5"><Dot state={st} n={s.n} /></span>
 
         <div className={cn("rounded-lg border px-3 py-2.5 transition-colors", done ? "border-success/30 bg-success/5" : st === "BLOCKED" ? "border-destructive/30 bg-destructive/5" : "border-border")}>
-          <div className="flex items-start gap-3">
+          {/* Au téléphone, l'état passe SOUS le libellé : à côté, le menu ne laissait que trois mots au titre. */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
             <button type="button" onClick={() => setOpenKey(expanded ? null : s.key)} className="min-w-0 flex-1 text-left">
               <p className={cn("text-sm font-medium", done && "text-muted-foreground line-through")}>{s.label}</p>
               <p className="text-xs text-muted-foreground">{s.responsible} · {s.expected}</p>
@@ -166,14 +167,14 @@ export function RegulatoryProcess({
               </span>
             </button>
 
-            <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:flex-col sm:items-end">
               {s.key === PRESUB_ANSWER_STEP ? (
                 canUpdate ? (
                   <Select
                     value={presubOutcome(state) ?? ""}
                     onChange={(e) => setPresub(e.target.value as RegPresubOutcome)}
                     disabled={busy === s.key}
-                    className="h-8 w-44 text-xs"
+                    className="h-9 w-full text-xs sm:h-8 sm:w-44"
                   >
                     <option value="" disabled>— Avis présoumission —</option>
                     {REG_PRESUB_OUTCOME_ORDER.map((o) => <option key={o} value={o}>{REG_PRESUB_OUTCOME[o].label}</option>)}
@@ -188,7 +189,7 @@ export function RegulatoryProcess({
                   value={st}
                   onChange={(e) => setStep(s.key, e.target.value as RegStepState)}
                   disabled={busy === s.key}
-                  className="h-8 w-32 text-xs"
+                  className="h-9 w-full text-xs sm:h-8 sm:w-32"
                 >
                   {STATE_OPTS.map((o) => <option key={o} value={o}>{REG_STEP_STATE[o].label}</option>)}
                 </Select>
@@ -199,7 +200,7 @@ export function RegulatoryProcess({
               {/* LA DEMANDE DE BV SE FAIT ICI. Le bouton disparaît une fois le BV payé : ce
                   qui est réglé ne se redemande pas depuis l'étape qui l'a demandé. */}
               {bvType && canUpdate && !bvPaid && (
-                <Button size="sm" variant="outline" className="h-8" onClick={() => setBvStep(s.key)}>
+                <Button size="sm" variant="outline" className="h-9 sm:h-8" onClick={() => setBvStep(s.key)}>
                   <ReceiptText className="h-3.5 w-3.5" /> Demander le {bvType}
                 </Button>
               )}
@@ -268,8 +269,8 @@ export function RegulatoryProcess({
   return (
     <div className="space-y-5">
       {/* Où en est-on ? */}
-      <div className="rounded-xl border border-border bg-secondary/30 p-4">
-        <div className="mb-2 flex items-center justify-between text-sm">
+      <div className="rounded-xl border border-border bg-secondary/30 p-3 sm:p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 text-sm">
           <span className="font-medium">Avancement</span>
           <span className="text-muted-foreground">{prog.done}/{prog.total} étapes · {prog.pct}%</span>
         </div>
@@ -492,7 +493,7 @@ function ChecklistPanel({ productId, checklist, canUpdate }: { productId: string
                   {group.items.map((item) => {
                     const checked = state[item.key]?.checked ?? false;
                     return (
-                      <label key={item.key} className={cn("flex items-start gap-2.5 rounded-lg px-2 py-1.5 hover:bg-secondary/50", canUpdate ? "cursor-pointer" : "cursor-default")}>
+                      <label key={item.key} className={cn("flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-secondary/50 sm:py-1.5", canUpdate ? "cursor-pointer" : "cursor-default")}>
                         <input
                           type="checkbox" checked={checked}
                           onChange={(e) => toggle(item.key, e.target.checked)}

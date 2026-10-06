@@ -208,9 +208,10 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm hover:bg-secondary/40"
               >
                 <span className="font-mono text-xs text-muted-foreground">{p.reference}</span>
-                <span className="min-w-0 flex-1 truncate font-medium">{p.title}</span>
-                <span className="truncate text-xs text-muted-foreground">{p.payee}</span>
-                <span className="tabular-nums">{formatCurrency(toNumber(p.amount))}</span>
+                {/* Au téléphone, l'objet prend sa propre ligne : tronqué à côté de la référence, il ne disait plus rien. */}
+                <span className="w-full min-w-0 truncate font-medium sm:w-auto sm:flex-1">{p.title}</span>
+                <span className="min-w-0 truncate text-xs text-muted-foreground">{p.payee}</span>
+                <span className="whitespace-nowrap font-semibold tabular-nums">{formatCurrency(toNumber(p.amount))}</span>
                 <span className="text-xs text-muted-foreground">
                   {deadlineLabel(p, PAYMENT_URGENCY)}
                   {isOverdue(p) && <Badge tone="danger" dot={false} className="ml-1.5">en retard</Badge>}
@@ -236,23 +237,23 @@ function MyRequestCard({ g, isSuperAdmin }: { g: ValidationGroup<MyValidationIte
   const head = g.main ?? g.pieces[0];
   return (
     <Card>
-      <CardContent className="space-y-2 p-4">
+      <CardContent className="space-y-2 p-3 sm:p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-muted-foreground">{head.reference}</span>
-            <span className="font-medium">{g.title}</span>
+            <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{g.title}</span>
             <Badge tone="neutral" dot={false}>{head.module}</Badge>
             {g.main && <span className="text-xs text-muted-foreground">{VALIDATION_MODE[g.main.mode]}</span>}
           </div>
-          <div className="flex items-center gap-2">
-            {head.amount !== null && <span className="text-sm font-semibold">{formatCurrency(head.amount)}</span>}
+          <div className="flex flex-wrap items-center gap-2">
+            {head.amount !== null && <span className="whitespace-nowrap text-sm font-semibold tabular-nums">{formatCurrency(head.amount)}</span>}
             <StatusBadge map={VALIDATION_STATUS} value={g.status} />
             {/* OUVRIR SA DEMANDE : relire ce qu'on a écrit, rouvrir la pièce envoyée, voir qui
                 bloque. Sans cette porte, il fallait téléphoner au validateur — le coup de fil
                 que ce module existe précisément pour éviter. */}
             <Link
               href={`/validations/${head.id}`}
-              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+              className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary sm:min-h-0 sm:px-2.5"
             >
               <ExternalLink className="h-3.5 w-3.5" /> Ouvrir
             </Link>
@@ -274,7 +275,7 @@ function MyRequestCard({ g, isSuperAdmin }: { g: ValidationGroup<MyValidationIte
               <li key={p.id} className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="font-medium">{p.documentName ?? p.title}</span>
+                  <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{p.documentName ?? p.title}</span>
                   <span className="font-mono text-muted-foreground">{p.reference}</span>
                   <StatusBadge map={VALIDATION_STATUS} value={p.status} dot={false} />
                 </div>
@@ -340,19 +341,19 @@ function PendingValidationCard({ v, actionable, focused = false }: { v: PendingV
   const msgDecision = v.itemDecisions.find((x) => x.itemKey === "MESSAGE");
   return (
     <Card id={`val-${v.stepId}`} className={focused ? "scroll-mt-24 ring-2 ring-primary/50" : "scroll-mt-24"}>
-      <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between">
+      <CardContent className="flex flex-col gap-3 p-3 sm:p-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
+            <span className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">{v.reference}</span>
             <Badge tone="neutral" dot={false}>{v.module}</Badge>
             {v.objectType && <Badge tone="neutral" dot={false}>{v.objectType}</Badge>}
             <StatusBadge map={PRIORITY} value={v.priority} dot={false} />
-            {v.amount !== null && <span className="text-sm font-semibold">{formatCurrency(v.amount)}</span>}
+            {v.amount !== null && <span className="whitespace-nowrap text-sm font-semibold tabular-nums">{formatCurrency(v.amount)}</span>}
             {/* En intérim, on tranche AU NOM de l'absent : la carte le dit avant le bouton (I18). */}
             {v.pourLeCompteDe && <Badge tone="info" dot={false}>Intérim pour {v.pourLeCompteDe}</Badge>}
           </div>
-          <p className="font-medium">{v.title}</p>
-          {v.description && <p className="text-sm text-muted-foreground">{v.description}</p>}
+          <p className="font-medium [overflow-wrap:anywhere]">{v.title}</p>
+          {v.description && <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{v.description}</p>}
           {/* Verdict par ÉLÉMENT (message) : approuver / réviser / refuser + commentaire optionnel. */}
           {actionable && (
             <div className="rounded-lg border border-border/60 bg-secondary/20 p-2">
@@ -365,7 +366,7 @@ function PendingValidationCard({ v, actionable, focused = false }: { v: PendingV
             {v.deadline ? ` · échéance ${formatDate(v.deadline)}${d !== null && d < 0 ? " (en retard)" : ""}` : ""}
           </p>
           {v.link && (
-            <Link href={v.link} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+            <Link href={v.link} className="inline-flex min-h-9 items-center gap-1 text-xs text-primary hover:underline sm:min-h-0">
               <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l&apos;élément
             </Link>
           )}
@@ -383,7 +384,7 @@ function PendingValidationCard({ v, actionable, focused = false }: { v: PendingV
             </div>
           )}
         </div>
-        <div className="shrink-0">
+        <div className="w-full shrink-0 border-t border-border/60 pt-3 lg:w-auto lg:border-0 lg:pt-0">
           {actionable ? (
             <ValidationDecision stepId={v.stepId} />
           ) : (

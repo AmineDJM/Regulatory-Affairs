@@ -213,7 +213,7 @@ function StepCard({
           <div className="flex shrink-0 items-center gap-1">
             <button
               type="button" onClick={() => setEditing(true)} title="Renommer l'étape"
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              className="rounded-md p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
@@ -224,7 +224,7 @@ function StepCard({
                   if (!window.confirm(`Supprimer l'étape « ${step.label} » ?`)) return;
                   run(() => { const fd = new FormData(); fd.set("id", step.id); return deleteDossierStep(fd); });
                 }}
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                className="rounded-md p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:p-1.5"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -259,7 +259,7 @@ function StepCard({
         <div className="border-t border-dashed border-border px-3 py-1.5">
           <button
             type="button" onClick={onAddAfter}
-            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-primary hover:bg-primary/5"
+            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-2 text-xs font-medium text-primary hover:bg-primary/5 sm:py-1"
           >
             <Plus className="h-3.5 w-3.5" /> Ajouter une étape ici
           </button>
@@ -353,7 +353,7 @@ function AddStepSheet({
 
         {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={() => { reset(); onClose(); }}>Annuler</Button>
           <Button type="submit" disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />} Ajouter l&apos;étape

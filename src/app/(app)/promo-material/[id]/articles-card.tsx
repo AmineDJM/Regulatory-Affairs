@@ -135,8 +135,8 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
         <ul className="divide-y divide-border rounded-lg border border-border">
           {articles.map((a) => (
             <li key={a.id} className="flex flex-wrap items-start justify-between gap-2 px-3 py-2">
-              <div className="min-w-0 space-y-1">
-                <p className="font-medium">
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="font-medium [overflow-wrap:anywhere]">
                   <span className="text-muted-foreground">{a.reference}</span> {a.nom}
                   {libellesPromusDeLArticle(a).length > 0 && <span> — {libellesPromusDeLArticle(a).join(", ")}</span>}
                 </p>
@@ -145,10 +145,10 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
                   {a.actions.map((x) => <Badge key={x} tone="info">{ACTION_LABEL[x]}</Badge>)}
                   {a.quantite != null && <span className="tabular-nums text-muted-foreground">{nombre(a.quantite)} {a.unite}</span>}
                 </div>
-                {a.commentaire && <p className="whitespace-pre-wrap text-xs text-muted-foreground">{a.commentaire}</p>}
+                {a.commentaire && <p className="whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">{a.commentaire}</p>}
               </div>
               {canEdit && (
-                <div className="flex gap-1">
+                <div className="flex shrink-0 gap-1">
                   <Button size="sm" variant="ghost" disabled={saving || enCours} onClick={() => setEdition(a)} aria-label={`Corriger ${a.nom}`}><Pencil className="h-4 w-4" /></Button>
                   <Button size="sm" variant="ghost" disabled={saving || enCours} onClick={() => retirer(a)} aria-label={`Retirer ${a.nom}`}><Trash2 className="h-4 w-4" /></Button>
                 </div>
@@ -170,10 +170,10 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
                 ? "Elle n'est pas encore partie : relisez-la, puis envoyez-la."
                 : "Elle n'est pas encore partie : le demandeur l'envoie d'ici."}
           </p>
-          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs">{envoiDevis.apercu}</pre>
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs [overflow-wrap:anywhere]">{envoiDevis.apercu}</pre>
           {envoiDevis.peutEnvoyer && (
             <form action={envoyer} className="space-y-2">
-              <Button type="submit" size="sm" disabled={saving || enCours}>
+              <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={saving || enCours}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande de devis
               </Button>
             </form>
@@ -186,7 +186,7 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
 
       {canEdit && avertissement && <p className="text-xs text-muted-foreground">{avertissement}</p>}
       {canEdit && (
-        <Button size="sm" variant="outline" disabled={saving || enCours} onClick={() => setEdition("nouveau")}><Plus className="h-4 w-4" /> Ajouter un article du catalogue</Button>
+        <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled={saving || enCours} onClick={() => setEdition("nouveau")}><Plus className="h-4 w-4" /> Ajouter un article du catalogue</Button>
       )}
 
       {canEdit && edition && (

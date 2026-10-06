@@ -110,6 +110,7 @@ export function DataTable<T>({
     return copy;
   }, [filtered, sortKey, sortDir, columns]);
 
+  const sortableCols = columns.filter((c) => c.sortable);
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
   const paged = sorted.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
@@ -150,7 +151,30 @@ export function DataTable<T>({
             className="pl-8"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* AU TÉLÉPHONE, l'en-tête disparaît avec le mode cartes — et avec lui le tri par clic.
+              Le même tri revient ici, dans un menu. */}
+          {sortableCols.length > 0 && (
+            <select
+              value={sortKey ? `${sortKey}:${sortDir}` : ""}
+              onChange={(e) => {
+                const [key, dir] = e.target.value.split(":");
+                if (!key) { setSortKey(null); return; }
+                setSortKey(key);
+                setSortDir(dir === "desc" ? "desc" : "asc");
+              }}
+              aria-label="Trier"
+              className="h-9 min-w-0 flex-1 rounded-[var(--radius)] border border-border bg-card px-2 text-sm sm:hidden"
+            >
+              <option value="">Trier par…</option>
+              {sortableCols.map((c) => (
+                <React.Fragment key={c.key}>
+                  <option value={`${c.key}:asc`}>{c.header} ↑</option>
+                  <option value={`${c.key}:desc`}>{c.header} ↓</option>
+                </React.Fragment>
+              ))}
+            </select>
+          )}
           {toolbar}
           {enableExport && (
             <Button variant="outline" size="sm" onClick={exportCsv} title="Exporter en CSV (Excel)">
@@ -161,8 +185,8 @@ export function DataTable<T>({
         </div>
       </div>
 
-      <div className="surface overflow-hidden">
-        <Table>
+      <div className="sm:surface sm:overflow-hidden">
+        <Table mobileCards>
           <TableHeader>
             <TableRow>
               {columns.map((col) => (
@@ -211,7 +235,11 @@ export function DataTable<T>({
                         col.className,
                       )}
                     >
-                      {col.render ? col.render(row) : accessorValue(col, row) || "—"}
+                      {/* Une seule enveloppe, transparente au bureau : en carte, la cellule est une rangée
+                          « intitulé | valeur » et un rendu à plusieurs éléments se mettrait en ligne. */}
+                      <div className="min-w-0 sm:contents">
+                        {col.render ? col.render(row) : accessorValue(col, row) || "—"}
+                      </div>
                     </TableCell>
                   ))}
                 </TableRow>

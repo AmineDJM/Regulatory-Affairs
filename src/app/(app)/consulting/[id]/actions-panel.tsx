@@ -103,7 +103,9 @@ export function ConsultingActions({
             value={note} onChange={(e) => setNote(e.target.value)} rows={2} aria-label="Motif de la décision"
             placeholder="Motif — obligatoire pour renvoyer ou refuser"
           />
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {/* Trois colonnes seulement quand le panneau a la largeur de l'écran (tablette) ; dans la
+              colonne latérale du bureau, « Renvoyer pour correction » n'y tient pas. */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-1">
             <BoutonDecisif
               disabled={busy !== null}
               onClick={() => run("approve", decideConsultingContract, { id, decision: "VALIDER", note })}
@@ -154,7 +156,7 @@ export function ConsultingActions({
             value={motifAnnulation} onChange={(e) => setMotifAnnulation(e.target.value)} aria-label="Motif de l'annulation"
             placeholder="Motif — obligatoire pour annuler"
           />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {status === "ACTIVE" && (
               <BoutonDecisif
                 variant="outline" className="flex-1" disabled={busy !== null}
@@ -180,13 +182,13 @@ export function ConsultingActions({
         ) : (
           <ul className="space-y-1">
             {tasks.map((t) => (
-              <li key={t.id} className="flex items-start gap-2 rounded-lg px-1.5 py-1 text-sm hover:bg-secondary/50">
+              <li key={t.id} className="flex items-start gap-2 rounded-lg px-1.5 py-1.5 text-sm hover:bg-secondary/50 sm:py-1">
                 <input
                   type="checkbox" checked={Boolean(t.doneAt)} disabled={!canEditTasks || busy !== null}
                   onChange={() => run(`task-${t.id}`, toggleConsultingTask, { taskId: t.id })}
                   className="mt-0.5 h-4 w-4 shrink-0 rounded border-input"
                 />
-                <span className={`min-w-0 flex-1 ${t.doneAt ? "text-muted-foreground line-through" : ""}`}>
+                <span className={`min-w-0 flex-1 break-words ${t.doneAt ? "text-muted-foreground line-through" : ""}`}>
                   {t.label}
                   {t.dueDate && <span className="ml-1.5 text-xs text-muted-foreground">· {t.dueDate}</span>}
                 </span>
@@ -194,7 +196,7 @@ export function ConsultingActions({
                   <button
                     type="button" aria-label="Supprimer la tâche" disabled={busy !== null}
                     onClick={() => run(`del-${t.id}`, deleteConsultingTask, { taskId: t.id })}
-                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    className="-my-1.5 shrink-0 rounded p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:my-0 sm:p-1"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -221,8 +223,8 @@ export function ConsultingActions({
 
       {transfer}
 
-      {annonce && <p role="status" className="rounded-lg bg-success/10 px-3 py-2 text-sm">{annonce}</p>}
-      {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+      {annonce && <p role="status" className="break-words rounded-lg bg-success/10 px-3 py-2 text-sm">{annonce}</p>}
+      {err && <p className="break-words rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
     </div>
   );
 }

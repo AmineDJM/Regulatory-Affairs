@@ -78,7 +78,7 @@ export function LegalAccessPanel({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle className="flex items-center gap-2 text-sm">
           {restricted ? <Lock className="h-4 w-4 text-warning" /> : <Unlock className="h-4 w-4 text-muted-foreground" />}
           Accès au document
@@ -133,12 +133,12 @@ export function LegalAccessPanel({
                 const on = picked.includes(p.id);
                 return (
                   <li key={p.id}>
-                    <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-secondary">
+                    <label className="flex min-h-10 cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-secondary sm:min-h-0">
                       <input
                         type="checkbox" checked={on} className="h-4 w-4 rounded border-input"
                         onChange={() => setPicked((prev) => (on ? prev.filter((x) => x !== p.id) : [...prev, p.id]))}
                       />
-                      <span className="min-w-0 flex-1">{p.name}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{p.name}</span>
                       {on && <Check className="h-3.5 w-3.5 shrink-0 text-success" />}
                     </label>
                   </li>

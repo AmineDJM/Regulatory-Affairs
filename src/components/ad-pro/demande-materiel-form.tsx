@@ -209,8 +209,8 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
                   <span className="text-xs font-medium">Ce qu&apos;on attend du fournisseur</span>
                   <div className="flex flex-wrap gap-1.5">
                     {ACTIONS.map((a) => (
-                      <label key={a} title={ACTION_AIDE[a]} className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-input px-2.5 py-1 text-xs has-[:checked]:border-primary has-[:checked]:bg-primary/10">
-                        <input type="checkbox" name={`${l.uid}:actions`} value={a} className="h-3.5 w-3.5 rounded border-input" />
+                      <label key={a} title={ACTION_AIDE[a]} className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border border-input px-3 py-1.5 text-xs has-[:checked]:border-primary has-[:checked]:bg-primary/10 sm:min-h-0 sm:px-2.5 sm:py-1">
+                        <input type="checkbox" name={`${l.uid}:actions`} value={a} className="h-4 w-4 rounded border-input sm:h-3.5 sm:w-3.5" />
                         {ACTION_LABEL[a]}
                       </label>
                     ))}
@@ -230,7 +230,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
                     <Input name={`${l.uid}:autre`} aria-label={`Autre produit promu, ligne ${i + 1}`} placeholder="Autre (saisie libre) — un produit qui n'est dans aucune liste" />
                   </div>
                 ) : (
-                  <button type="button" onClick={() => maj(l.uid, { produitsOuverts: true })} className="text-xs font-medium text-primary hover:underline">
+                  <button type="button" onClick={() => maj(l.uid, { produitsOuverts: true })} className="min-h-9 py-2 text-left text-xs font-medium text-primary hover:underline sm:min-h-0 sm:py-0">
                     + Préciser ce que la ligne promeut (société, gamme, produits…)
                   </button>
                 )}
@@ -242,14 +242,14 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
             );
           })}
         </ol>
-        <Button type="button" size="sm" variant="outline" disabled={busy || catalogue.length === 0} onClick={() => setLignes((ls) => [...ls, nouvelleLigne()])}>
+        <Button type="button" size="sm" variant="outline" className="h-10 w-full sm:h-8 sm:w-auto" disabled={busy || catalogue.length === 0} onClick={() => setLignes((ls) => [...ls, nouvelleLigne()])}>
           <Plus className="h-4 w-4" /> Ajouter une ligne
         </Button>
         {/* L'APERÇU AVANT ENVOI — la demande de devis part d'elle-même : à l'enregistrement si la demande n'a
             pas de validation, sinon dès qu'elle est validée. */}
         <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
+            <p className="min-w-0 flex-1 basis-56 text-xs text-muted-foreground">
               La demande de devis part d&apos;elle-même au secrétariat — à l&apos;enregistrement, ou dès que votre demande est validée.
             </p>
             <Button type="button" size="sm" variant="outline" onClick={() => setApercuOuvert((o) => !o)} aria-expanded={apercuOuvert}>
@@ -267,11 +267,11 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{err}</span>
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={busy}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button type="submit" disabled={busy} className="w-full sm:w-auto">
           {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer la demande
         </Button>
-        {onCancel && <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>{cancelLabel}</Button>}
+        {onCancel && <Button type="button" variant="outline" disabled={busy} onClick={onCancel} className="w-full sm:w-auto">{cancelLabel}</Button>}
       </div>
     </form>
   );

@@ -155,19 +155,19 @@ export function BdStrategicTable({
     <div className="space-y-3">
       {/* Barre d'outils */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher projet, gamme, DCI…" className="h-9 w-64 pl-8" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher projet, gamme, DCI…" className="h-9 w-full pl-8 sm:w-64" />
         </div>
-        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 w-auto">
+        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 w-auto min-w-0 flex-1 sm:flex-none">
           <option value="">Tous les statuts</option>
           {Object.entries(BD_PROJECT_STATUS).map(([v, d]) => <option key={v} value={v}>{d.label}</option>)}
         </Select>
-        <Select value={sourcingFilter} onChange={(e) => setSourcingFilter(e.target.value)} className="h-9 w-auto">
+        <Select value={sourcingFilter} onChange={(e) => setSourcingFilter(e.target.value)} className="h-9 w-auto min-w-0 flex-1 sm:flex-none">
           <option value="">Tout sourcing</option>
           {Object.entries(BD_SOURCING).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
-        <Select value={sort} onChange={(e) => setSort(e.target.value)} className="h-9 w-auto">
+        <Select value={sort} onChange={(e) => setSort(e.target.value)} className="h-9 w-full sm:w-auto">
           {Object.entries(SORTS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
         {hasFilter && (
@@ -175,7 +175,7 @@ export function BdStrategicTable({
             <X className="h-4 w-4" /> Réinitialiser
           </Button>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <span className="text-xs text-muted-foreground">{filtered.length} projet{filtered.length > 1 ? "s" : ""}</span>
           <Button variant="outline" size="sm" onClick={() => { setOpenProjects(new Set(filtered.map((p) => p.id))); setOpenRanges(new Set(filtered.flatMap((p) => p.ranges.map((r) => r.id)))); }}>Tout déplier</Button>
           <Button variant="outline" size="sm" onClick={() => { setOpenProjects(new Set()); setOpenRanges(new Set()); }}>Tout replier</Button>
@@ -198,7 +198,7 @@ export function BdStrategicTable({
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={3 + DATA_COLS.length + 2} className="px-4 py-10 text-center text-muted-foreground">Aucun projet ne correspond.</td></tr>
+              <tr><td colSpan={3 + DATA_COLS.length + 2} className="px-4 py-10 text-muted-foreground"><span className="sticky left-4 inline-block">Aucun projet ne correspond.</span></td></tr>
             ) : (
               filtered.map((p) => {
                 const pOpen = openProjects.has(p.id);
@@ -209,7 +209,7 @@ export function BdStrategicTable({
                     <tr className="border-t border-border bg-secondary/30 font-semibold">
                       <Td sticky left={0} width={W_PROJ} z={20} className="bg-[#eef1f4]">
                         <div className="flex items-center gap-1">
-                          <button onClick={() => toggleP(p.id)} className="rounded p-0.5 hover:bg-black/5">{pOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button>
+                          <button onClick={() => toggleP(p.id)} aria-label={pOpen ? "Replier le projet" : "Déplier le projet"} className="shrink-0 rounded p-2 hover:bg-black/5 sm:p-0.5">{pOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button>
                           <Link href={`/business-development/${p.id}`} className="truncate hover:underline" title={p.name}>{p.name}</Link>
                         </div>
                       </Td>
@@ -225,7 +225,7 @@ export function BdStrategicTable({
                       </Td>
                       <Td width={W_ACT}>
                         <div className="flex items-center justify-end gap-1">
-                          <Link href={`/business-development/${p.id}`} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Ouvrir le projet"><ExternalLink className="h-4 w-4" /></Link>
+                          <Link href={`/business-development/${p.id}`} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1" title="Ouvrir le projet" aria-label="Ouvrir le projet"><ExternalLink className="h-4 w-4" /></Link>
                           {canDelete && <DeleteBtn title="Supprimer le projet, ses gammes et produits ?" onConfirm={() => submit(() => deleteBdProject(fd({ id: p.id })))} />}
                         </div>
                       </Td>
@@ -240,7 +240,7 @@ export function BdStrategicTable({
                             <Td sticky left={0} width={W_PROJ} z={20} className="bg-[#f6f7f9]" />
                             <Td sticky left={L_RANGE} width={W_RANGE} z={20} className="bg-[#f6f7f9] font-medium">
                               <div className="flex items-center gap-1">
-                                <button onClick={() => toggleR(r.id)} className="rounded p-0.5 hover:bg-black/5">{rOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button>
+                                <button onClick={() => toggleR(r.id)} aria-label={rOpen ? "Replier la gamme" : "Déplier la gamme"} className="shrink-0 rounded p-2 hover:bg-black/5 sm:p-0.5">{rOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button>
                                 <span className="truncate" title={r.name}>{r.name}</span>
                               </div>
                             </Td>
@@ -254,7 +254,7 @@ export function BdStrategicTable({
                             <Td width={W_ACT}>
                               {canUpdate && (
                                 <div className="flex items-center justify-end gap-1">
-                                  <button onClick={() => { if (addProductFor === r.id) { setAddProductFor(null); } else { setAddProductFor(r.id); setOpenRanges((s) => { const n = new Set(s); n.add(r.id); return n; }); } }} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Ajouter un produit"><Plus className="h-4 w-4" /></button>
+                                  <button onClick={() => { if (addProductFor === r.id) { setAddProductFor(null); } else { setAddProductFor(r.id); setOpenRanges((s) => { const n = new Set(s); n.add(r.id); return n; }); } }} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1" title="Ajouter un produit" aria-label="Ajouter un produit"><Plus className="h-4 w-4" /></button>
                                   {canDelete && <DeleteBtn title="Supprimer cette gamme et ses produits ?" onConfirm={() => submit(() => deleteBdRange(fd({ id: r.id })))} />}
                                 </div>
                               )}
@@ -310,7 +310,7 @@ export function BdStrategicTable({
                       ) : (
                         <tr className="border-t border-border/40">
                           <td colSpan={3 + DATA_COLS.length + 2} className="px-3 py-1.5">
-                            <button onClick={() => setAddRangeFor(p.id)} className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Plus className="h-3.5 w-3.5" /> Ajouter une gamme à « {p.name} »</button>
+                            <button onClick={() => setAddRangeFor(p.id)} className="sticky left-3 inline-flex min-h-9 items-center gap-1 text-xs text-primary hover:underline sm:min-h-0"><Plus className="h-3.5 w-3.5" /> Ajouter une gamme à « {p.name} »</button>
                           </td>
                         </tr>
                       )
@@ -328,10 +328,15 @@ export function BdStrategicTable({
 
 // ───────────────────────────── cellules ─────────────────────────────
 
+/**
+ * Les trois colonnes gelées font 610 px : au téléphone elles couvriraient tout l'écran et
+ * masqueraient les données. Elles ne se figent donc qu'à partir de `sm` ; en dessous, le
+ * tableau défile en entier dans son conteneur.
+ */
 function Th({ children, width, left, sticky, z, border, right }: { children?: React.ReactNode; width: number; left?: number; sticky?: boolean; z?: number; border?: boolean; right?: boolean }) {
   return (
     <th
-      className={cn("whitespace-nowrap px-3 py-2 font-medium", sticky && "sticky bg-secondary/60", border && "border-r border-border", right && "text-right")}
+      className={cn("whitespace-nowrap px-3 py-2 font-medium", sticky && "bg-secondary/60 sm:sticky", border && "border-r border-border", right && "text-right")}
       style={{ width, minWidth: width, left: sticky ? left : undefined, zIndex: z }}
     >
       {children}
@@ -342,7 +347,7 @@ function Th({ children, width, left, sticky, z, border, right }: { children?: Re
 function Td({ children, width, left, sticky, z, border, right, className }: { children?: React.ReactNode; width: number; left?: number; sticky?: boolean; z?: number; border?: boolean; right?: boolean; className?: string }) {
   return (
     <td
-      className={cn("px-3 py-1.5 align-middle", sticky && "sticky", border && "border-r border-border", right && "text-right", className)}
+      className={cn("px-3 py-1.5 align-middle", sticky && "sm:sticky", border && "border-r border-border", right && "text-right", className)}
       style={{ width, minWidth: width, maxWidth: width, left: sticky ? left : undefined, zIndex: z }}
     >
       {children}
@@ -393,14 +398,14 @@ function EditableCell({
         inputMode={numeric ? "decimal" : undefined}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); else if (e.key === "Escape") { setEditing(false); } }}
-        className="h-7 w-full rounded border border-ring bg-card px-1.5 text-sm outline-none"
+        className="h-9 w-full rounded border border-ring bg-card px-1.5 text-base outline-none sm:h-7 sm:text-sm"
       />
     );
   }
   return (
     <button
       onClick={() => setEditing(true)}
-      className={cn("flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left hover:bg-secondary", numeric && "justify-end", className)}
+      className={cn("flex min-h-9 w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left hover:bg-secondary sm:min-h-0", numeric && "justify-end", className)}
       title={raw || "Cliquer pour éditer"}
     >
       {pending && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />}
@@ -446,7 +451,7 @@ function StatusSelect({ kind, id, value, canUpdate }: { kind: "project"; id: str
 
 function DeleteBtn({ title, onConfirm }: { title: string; onConfirm: () => void }) {
   return (
-    <button onClick={() => { if (window.confirm(title)) onConfirm(); }} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title={title}>
+    <button onClick={() => { if (window.confirm(title)) onConfirm(); }} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1" title={title} aria-label={title}>
       <Trash2 className="h-4 w-4" />
     </button>
   );
@@ -459,8 +464,10 @@ function InlineAddRow({ colSpan, placeholder, onSubmit, onCancel }: { colSpan: n
   return (
     <tr className="border-t border-border/40 bg-accent/30">
       <td colSpan={colSpan} className="px-3 py-2">
-        <div className="flex items-center gap-2">
-          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") go(); else if (e.key === "Escape") onCancel(); }} placeholder={placeholder} className="h-8 w-72" />
+        {/* Collé à gauche de la zone visible : la ligne fait toute la largeur du tableau, et le
+            champ resterait hors écran quand on l'ouvre depuis la colonne d'actions. */}
+        <div className="sticky left-3 flex w-fit items-center gap-2">
+          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") go(); else if (e.key === "Escape") onCancel(); }} placeholder={placeholder} className="h-9 w-48 sm:h-8 sm:w-72" />
           <Button size="sm" onClick={go} disabled={saving || !name.trim()}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Ajouter</Button>
           <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
         </div>

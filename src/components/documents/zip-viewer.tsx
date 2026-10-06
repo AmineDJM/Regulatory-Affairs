@@ -170,7 +170,7 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
         <FileArchive className="h-4 w-4 shrink-0 text-primary" />
         <span className="min-w-0 truncate font-medium" title={name}>{name}</span>
         <span className="ml-auto shrink-0 text-xs text-muted-foreground">{list.count} fichier·s{list.truncated ? " (aperçu limité)" : ""}</span>
@@ -181,20 +181,21 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
         <div className="rounded-lg border border-border">
           <div className="relative border-b border-border p-2">
             <Search className="absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher dans toute l'archive…" className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-2 text-sm outline-none focus:border-primary" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher dans toute l'archive…" className="w-full rounded-md border border-border bg-background py-2 pl-8 pr-2 text-base outline-none focus:border-primary sm:py-1.5 sm:text-sm" />
           </div>
 
+          {/* Au téléphone, l'aperçu s'empile SOUS la liste : une liste moins haute le garde à portée de pouce. */}
           {term ? (
             // ── Résultats de recherche (plats) ──
-            <ul className="max-h-[62vh] divide-y divide-border overflow-y-auto">
+            <ul className="max-h-[45dvh] divide-y divide-border overflow-y-auto lg:max-h-[62dvh]">
               {searchResults.length === 0 ? (
                 <li className="px-3 py-6 text-center text-sm text-muted-foreground">Aucune entrée pour « {q} ».</li>
               ) : searchResults.map((e) => (
-                <li key={e.path} onMouseEnter={() => survolerEntree(e.path)} onMouseLeave={quitterEntree} className={cn("flex items-center gap-2 px-3 py-1.5 text-sm", sel === e.path && "bg-accent/60")}>
+                <li key={e.path} onMouseEnter={() => survolerEntree(e.path)} onMouseLeave={quitterEntree} className={cn("flex items-center gap-2 px-3 py-1 text-sm sm:py-1.5", sel === e.path && "bg-accent/60")}>
                   <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate text-left hover:text-primary" title={e.path}>{e.path}</button>
+                  <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate py-2 text-left hover:text-primary sm:py-0" title={e.path}>{e.path}</button>
                   <span className="shrink-0 text-xs text-muted-foreground">{humanSize(e.size)}</span>
-                  <a href={`${base}?path=${encodeURIComponent(e.path)}&dl=1`} className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary" title="Télécharger"><Download className="h-3.5 w-3.5" /></a>
+                  <a href={`${base}?path=${encodeURIComponent(e.path)}&dl=1`} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-primary sm:h-auto sm:w-auto sm:p-1" title="Télécharger" aria-label="Télécharger"><Download className="h-3.5 w-3.5" /></a>
                 </li>
               ))}
             </ul>
@@ -202,34 +203,34 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
             <>
               {/* Fil d'Ariane dans l'archive */}
               <div className="flex flex-wrap items-center gap-0.5 border-b border-border px-3 py-1.5 text-xs">
-                <button type="button" onClick={() => goTo(0)} className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><House className="h-3.5 w-3.5" /> Archive</button>
+                <button type="button" onClick={() => goTo(0)} className="inline-flex items-center gap-1 rounded px-1 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:py-0.5"><House className="h-3.5 w-3.5" /> Archive</button>
                 {path.map((seg, i) => (
                   <span key={i} className="inline-flex items-center gap-0.5">
                     <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                    <button type="button" onClick={() => goTo(i + 1)} className="rounded px-1 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground">{seg}</button>
+                    <button type="button" onClick={() => goTo(i + 1)} className="max-w-[60vw] truncate rounded px-1 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:max-w-none sm:py-0.5" title={seg}>{seg}</button>
                   </span>
                 ))}
               </div>
-              <ul className="max-h-[58vh] divide-y divide-border overflow-y-auto">
+              <ul className="max-h-[45dvh] divide-y divide-border overflow-y-auto lg:max-h-[58vh]">
                 {folders.length === 0 && files.length === 0 ? (
                   <li className="px-3 py-6 text-center text-sm text-muted-foreground">Dossier vide.</li>
                 ) : (
                   <>
                     {folders.map((f) => (
-                      <li key={`d:${f.name}`} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+                      <li key={`d:${f.name}`} className="flex items-center gap-2 px-3 py-1 text-sm sm:py-1.5">
                         <Folder className="h-4 w-4 shrink-0 text-primary" />
-                        <button type="button" onDoubleClick={() => enterFolder(f.name)} onClick={() => enterFolder(f.name)} className="min-w-0 flex-1 truncate text-left font-medium hover:text-primary" title={f.name}>{f.name}</button>
+                        <button type="button" onDoubleClick={() => enterFolder(f.name)} onClick={() => enterFolder(f.name)} className="min-w-0 flex-1 truncate py-2 text-left font-medium hover:text-primary sm:py-0" title={f.name}>{f.name}</button>
                         <span className="shrink-0 text-xs text-muted-foreground">{f.count} élément·s</span>
                       </li>
                     ))}
                     {files.map((e) => {
                       const nom = e.path.split("/").pop() ?? e.path;
                       return (
-                        <li key={e.path} onMouseEnter={() => survolerEntree(e.path)} onMouseLeave={quitterEntree} className={cn("flex items-center gap-2 px-3 py-1.5 text-sm", sel === e.path && "bg-accent/60")}>
+                        <li key={e.path} onMouseEnter={() => survolerEntree(e.path)} onMouseLeave={quitterEntree} className={cn("flex items-center gap-2 px-3 py-1 text-sm sm:py-1.5", sel === e.path && "bg-accent/60")}>
                           <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate text-left hover:text-primary" title={nom}>{nom}</button>
+                          <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate py-2 text-left hover:text-primary sm:py-0" title={nom}>{nom}</button>
                           <span className="shrink-0 text-xs text-muted-foreground">{humanSize(e.size)}</span>
-                          <a href={`${base}?path=${encodeURIComponent(e.path)}&dl=1`} className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary" title="Télécharger"><Download className="h-3.5 w-3.5" /></a>
+                          <a href={`${base}?path=${encodeURIComponent(e.path)}&dl=1`} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-primary sm:h-auto sm:w-auto sm:p-1" title="Télécharger" aria-label="Télécharger"><Download className="h-3.5 w-3.5" /></a>
                         </li>
                       );
                     })}
@@ -245,9 +246,9 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
           {sel && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="min-w-0 flex-1 truncate font-medium" title={sel}>{sel.split("/").pop()}{tailleSel != null ? ` · ${humanSize(tailleSel)}` : ""}</span>
-              <a href={selUrl!} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted"><ExternalLink className="h-3.5 w-3.5" /> Nouvel onglet</a>
-              <a href={`${selUrl}&dl=1`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted"><Download className="h-3.5 w-3.5" /> Télécharger</a>
-              <button type="button" onClick={basculerPlein} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted" aria-pressed={plein}>
+              <a href={selUrl!} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-2 hover:bg-muted sm:py-1"><ExternalLink className="h-3.5 w-3.5" /> Nouvel onglet</a>
+              <a href={`${selUrl}&dl=1`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-2 hover:bg-muted sm:py-1"><Download className="h-3.5 w-3.5" /> Télécharger</a>
+              <button type="button" onClick={basculerPlein} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-2 hover:bg-muted sm:py-1" aria-pressed={plein}>
                 {plein ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {plein ? "Quitter le plein écran" : "Plein écran"}
               </button>
             </div>
@@ -260,14 +261,14 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
             // L'élément n'existe qu'une fois l'entrée prête ; le voile reste jusqu'à son premier rendu.
             <div className={cn("relative", !rendu && "min-h-[40vh]")}>
               {pretPour !== sel ? (
-                <div className={cn("w-full rounded", kind === "pdf" || kind === "text" ? (plein ? "h-[calc(100vh-5rem)]" : "h-[62vh]") : "h-[40vh]")} />
+                <div className={cn("w-full rounded", kind === "pdf" || kind === "text" ? (plein ? "h-[calc(100dvh-5rem)]" : "h-[62dvh]") : "h-[40vh]")} />
               ) : kind === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img key={sel} src={selUrl!} alt={sel} onLoad={() => setRendu(true)} onError={() => setRendu(true)} className={cn("mx-auto rounded object-contain", plein ? "max-h-[calc(100vh-5rem)]" : "max-h-[62vh]")} />
+                <img key={sel} src={selUrl!} alt={sel} onLoad={() => setRendu(true)} onError={() => setRendu(true)} className={cn("mx-auto rounded object-contain", plein ? "max-h-[calc(100dvh-5rem)]" : "max-h-[62dvh]")} />
               ) : kind === "pdf" || kind === "text" ? (
-                <iframe key={sel} src={selUrl!} title={sel} onLoad={() => setRendu(true)} className={cn("w-full rounded border border-border bg-white", plein ? "h-[calc(100vh-5rem)]" : "h-[62vh]")} />
+                <iframe key={sel} src={selUrl!} title={sel} onLoad={() => setRendu(true)} className={cn("w-full rounded border border-border bg-white", plein ? "h-[calc(100dvh-5rem)]" : "h-[62dvh]")} />
               ) : kind === "video" ? (
-                <video key={sel} src={selUrl!} controls onLoadedMetadata={() => setRendu(true)} onError={() => setRendu(true)} className={cn("w-full rounded bg-black", plein ? "max-h-[calc(100vh-5rem)]" : "max-h-[62vh]")} />
+                <video key={sel} src={selUrl!} controls onLoadedMetadata={() => setRendu(true)} onError={() => setRendu(true)} className={cn("w-full rounded bg-black", plein ? "max-h-[calc(100dvh-5rem)]" : "max-h-[62dvh]")} />
               ) : (
                 <div className="flex h-full min-h-[40vh] items-center justify-center p-4"><audio key={sel} src={selUrl!} controls onLoadedMetadata={() => setRendu(true)} onError={() => setRendu(true)} className="w-full" /></div>
               )}

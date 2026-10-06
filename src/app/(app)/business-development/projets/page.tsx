@@ -18,6 +18,7 @@ import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { PartagerButton } from "@/components/shared/partager-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BD_PROJECT_STATUS, REGULATORY_STATUS, PRIORITY, MANUFACTURING_STATUS } from "@/lib/labels";
 import { formatDate } from "@/lib/utils";
 
@@ -141,7 +142,7 @@ export default async function BdProjetsPage() {
                   <div className="min-w-0">
                     <CardTitle className="flex flex-wrap items-center gap-2">
                       <FolderKanban className="h-4 w-4 shrink-0 text-primary/80" />
-                      {p.name}
+                      <span className="min-w-0 [overflow-wrap:anywhere]">{p.name}</span>
                       {st && <StatusBadge map={BD_PROJECT_STATUS} value={p.status} dot={false} />}
                       {/* L'ENTITÉ se voit sur chaque projet — et son absence aussi : un projet d'avant
                           reste affiché pour qu'on le rattache, pas caché (§118.163). */}
@@ -185,47 +186,45 @@ export default async function BdProjetsPage() {
                       colonne « Projet », rangez-y les dossiers concernés.
                     </p>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[52rem] text-left text-sm">
-                        <thead className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-                          <tr>
-                            <th className="px-3 pb-2 font-medium">Référence</th>
-                            <th className="px-3 pb-2 font-medium">DCI / Marque</th>
-                            <th className="px-3 pb-2 font-medium">Entité</th>
-                            <th className="px-3 pb-2 font-medium">Statut</th>
-                            <th className="px-3 pb-2 font-medium">Niveau de process</th>
-                            <th className="px-3 pb-2 font-medium">Priorité</th>
-                            <th className="px-3 pb-2 font-medium">Chargé du dossier</th>
-                            <th className="px-3 pb-2 font-medium">Date cible enreg.</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          {lignes.map((d) => (
-                            <tr key={d.id} className="hover:bg-secondary/30">
-                              <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                                <Link href={`/regulatory/${d.id}`} className="hover:underline">{d.reference}</Link>
-                              </td>
-                              <td className="px-3 py-2">
-                                <Link href={`/regulatory/${d.id}`} className="font-medium hover:underline">{d.dci}</Link>
-                                {d.brandName && <span className="block text-xs text-muted-foreground">{d.brandName}</span>}
-                              </td>
-                              <td className="px-3 py-2 text-xs text-muted-foreground">
-                                {d.company?.shortName || d.company?.name || "—"}
-                              </td>
-                              <td className="px-3 py-2 text-xs">
-                                {MANUFACTURING_STATUS[d.manufacturingStatus] ?? d.manufacturingStatus}
-                              </td>
-                              <td className="px-3 py-2"><StatusBadge map={REGULATORY_STATUS} value={d.status} /></td>
-                              <td className="px-3 py-2"><StatusBadge map={PRIORITY} value={d.priority} /></td>
-                              <td className="px-3 py-2 text-muted-foreground">{d.responsible?.name ?? "—"}</td>
-                              <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                                {d.targetDate ? formatDate(d.targetDate.toISOString()) : "—"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <Table mobileCards className="sm:min-w-[52rem]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Référence</TableHead>
+                          <TableHead>DCI / Marque</TableHead>
+                          <TableHead>Entité</TableHead>
+                          <TableHead>Statut</TableHead>
+                          <TableHead>Niveau de process</TableHead>
+                          <TableHead>Priorité</TableHead>
+                          <TableHead>Chargé du dossier</TableHead>
+                          <TableHead>Date cible enreg.</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {lignes.map((d) => (
+                          <TableRow key={d.id}>
+                            <TableCell className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                              <Link href={`/regulatory/${d.id}`} className="hover:underline">{d.reference}</Link>
+                            </TableCell>
+                            <TableCell className="[overflow-wrap:anywhere]">
+                              <Link href={`/regulatory/${d.id}`} className="font-medium hover:underline">{d.dci}</Link>
+                              {d.brandName && <span className="block text-xs text-muted-foreground">{d.brandName}</span>}
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {d.company?.shortName || d.company?.name || "—"}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {MANUFACTURING_STATUS[d.manufacturingStatus] ?? d.manufacturingStatus}
+                            </TableCell>
+                            <TableCell><StatusBadge map={REGULATORY_STATUS} value={d.status} /></TableCell>
+                            <TableCell><StatusBadge map={PRIORITY} value={d.priority} /></TableCell>
+                            <TableCell className="text-muted-foreground">{d.responsible?.name ?? "—"}</TableCell>
+                            <TableCell className="whitespace-nowrap text-muted-foreground">
+                              {d.targetDate ? formatDate(d.targetDate.toISOString()) : "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   )}
                 </CardContent>
               </Card>

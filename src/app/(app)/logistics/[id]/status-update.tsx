@@ -30,10 +30,10 @@ export function StatusUpdate(props: Props) {
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
       }}
-      className="grid grid-cols-2 gap-3"
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
     >
       <input type="hidden" name="id" value={props.id} />
-      <div className="col-span-2 space-y-1">
+      <div className="space-y-1 sm:col-span-2">
         <Label htmlFor="status">Statut</Label>
         <Select id="status" name="status" defaultValue={props.status}>
           {Object.entries(LOGISTICS_STATUS).map(([v, d]) => (
@@ -59,10 +59,10 @@ export function StatusUpdate(props: Props) {
       </div>
       <div className="space-y-1">
         <Label htmlFor="quantityReceived">Quantité reçue</Label>
-        <Input id="quantityReceived" name="quantityReceived" type="number" defaultValue={props.quantityReceived} />
+        <Input id="quantityReceived" name="quantityReceived" type="number" inputMode="numeric" defaultValue={props.quantityReceived} />
       </div>
-      <div className="col-span-2 flex justify-end">
-        <Button type="submit" disabled={saving}>
+      <div className="flex justify-end sm:col-span-2">
+        <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
           {saved ? "Enregistré" : "Mettre à jour"}
         </Button>

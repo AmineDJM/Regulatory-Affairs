@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { clauseProduitTermine, PHRASE_PRODUITS_TERMINES } from "@/lib/products/termines";
 import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
+import { Table } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Produits — AMD Internal OS" };
@@ -32,15 +33,16 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
         <p><b className="text-foreground">D'où viennent ces produits ?</b> Du référentiel canonique : un produit naît d'un dossier réglementaire dont l'identité est complète (DCI, dosage, unité, forme, conditionnement), à la création du dossier ou depuis Regulatory › Catalogue produits. La Force de vente, les appels d'offres, la segmentation et la consommation s'y rattachent — jamais une copie.</p>
         {dossiersSansProduit !== null && dossiersSansProduit > 0 && <p>{dossiersSansProduit} dossier(s) réglementaire(s) ne sont pas encore des produits (identité incomplète ou non rattachée) : <Link href="/regulatory/catalogue" className="text-primary underline">les compléter dans le Catalogue produits</Link>.</p>}
       </div>
-      <form className="flex gap-2"><Input name="q" defaultValue={q} placeholder="Nom, DCI, référence ou alias…" className="w-80" /></form>
-      <div className="surface overflow-x-auto">
-        <table className="w-full text-sm">
+      <form className="flex gap-2"><Input name="q" defaultValue={q} placeholder="Nom, DCI, référence ou alias…" className="w-full sm:w-80" /></form>
+      {/* Au téléphone, un produit = une carte (le nom en titre, les autres colonnes étiquetées). */}
+      <div className="sm:surface">
+        <Table mobileCards>
           <thead className="border-b border-border text-left text-xs text-muted-foreground"><tr><th className="px-3 py-2">Produit</th><th className="px-3 py-2">Référence</th><th className="px-3 py-2">DCI</th><th className="px-3 py-2">Business Units</th><th className="px-3 py-2">Cycle de vie</th></tr></thead>
           <tbody>
-            {produits.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-muted-foreground">Aucun produit{q ? ` pour « ${q} »` : ""}.</td></tr>}
+            {produits.length === 0 && <tr><td colSpan={5} data-sans-etiquette className="px-3 py-4 text-muted-foreground">Aucun produit{q ? ` pour « ${q} »` : ""}.</td></tr>}
             {produits.map((p) => (
               <tr key={p.id} className="border-b border-border/60">
-                <td className="px-3 py-2"><Link href={`/produits/${p.id}`} className="font-medium text-primary hover:underline">{p.canonicalName}</Link>{!p.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactif)</span>}</td>
+                <td data-sans-etiquette className="px-3 py-2 max-sm:!justify-start"><span><Link href={`/produits/${p.id}`} className="font-medium text-primary hover:underline">{p.canonicalName}</Link>{!p.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactif)</span>}</span></td>
                 <td className="px-3 py-2 text-muted-foreground">{p.code}</td>
                 <td className="px-3 py-2">{p.dci}</td>
                 <td className="px-3 py-2">{[...new Set(p.promoProfiles.map((x) => x.businessUnit?.name).filter(Boolean))].join(", ") || "—"}</td>
@@ -48,7 +50,7 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </div>
     </div>
   );

@@ -61,19 +61,19 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
   const totalUnread = conversations.reduce((s, c) => s + (c.isMuted ? 0 : c.unread), 0);
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-border bg-card md:w-80 lg:w-96">
-      <div className="flex items-center justify-between px-4 pb-2 pt-4">
-        <h1 className="flex items-center gap-2 text-lg font-bold">
+    <div className="flex h-full w-full flex-col bg-card md:w-80 md:border-r md:border-border lg:w-96">
+      <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-3 sm:pt-4">
+        <h1 className="flex min-w-0 items-center gap-2 text-lg font-bold">
           Messagerie
           {totalUnread > 0 && (
             <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">{totalUnread}</span>
           )}
         </h1>
-        <div className="flex items-center gap-0.5">
-          <button onClick={onOpenBookmarks} title="Messages enregistrés" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button onClick={onOpenBookmarks} title="Messages enregistrés" aria-label="Messages enregistrés" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
             <Bookmark className="h-5 w-5" />
           </button>
-          <button onClick={onNew} title="Nouvelle conversation" className="rounded-lg p-2 text-primary hover:bg-accent">
+          <button onClick={onNew} title="Nouvelle conversation" aria-label="Nouvelle conversation" className="rounded-lg p-2 text-primary hover:bg-accent">
             <SquarePen className="h-5 w-5" />
           </button>
         </div>
@@ -88,7 +88,9 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Rechercher une conversation…"
-            className="h-9 w-full bg-transparent text-sm focus:outline-none"
+            type="search"
+            enterKeyHint="search"
+            className="h-10 w-full min-w-0 bg-transparent text-base focus:outline-none sm:h-9 lg:text-sm"
           />
         </div>
       </div>
@@ -99,7 +101,7 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
             key={f}
             onClick={() => setFilter(f)}
             className={cn(
-              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+              "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:py-1",
               filter === f ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground",
             )}
           >
@@ -108,7 +110,7 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
         ))}
       </div>
 
-      <div className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
+      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain px-2 pb-3">
         {filtered.length === 0 ? (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucune conversation.</p>
         ) : (
@@ -117,7 +119,7 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
               key={c.id}
               onClick={() => onSelect(c.id)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors",
+                "flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors sm:py-2",
                 activeId === c.id ? "bg-accent" : "hover:bg-secondary/70",
               )}
             >
@@ -127,7 +129,7 @@ export function ConversationList({ conversations, activeId, onSelect, onNew, onO
                   <span className={cn("truncate text-sm", c.unread > 0 && !c.isMuted ? "font-bold" : "font-semibold")}>{c.title}</span>
                   {c.isPinned && <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />}
                   {c.isMuted && <BellOff className="h-3 w-3 shrink-0 text-muted-foreground" />}
-                  <span className="ml-auto shrink-0 text-[0.625rem] text-muted-foreground">{relativeTime(c.lastMessageAt)}</span>
+                  <span className="ml-auto shrink-0 text-[0.6875rem] text-muted-foreground">{relativeTime(c.lastMessageAt)}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className={cn("truncate text-xs", c.unread > 0 && !c.isMuted ? "text-foreground" : "text-muted-foreground")}>

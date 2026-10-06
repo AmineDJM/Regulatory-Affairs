@@ -34,7 +34,7 @@ export function FileActions({ id, name, parentHref }: { id: string; name: string
             <Label htmlFor="rename">Nouveau nom</Label>
             <Input id="rename" name="name" defaultValue={name} required />
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setRenaming(false)}>Annuler</Button>
             <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Renommer</Button>
           </div>

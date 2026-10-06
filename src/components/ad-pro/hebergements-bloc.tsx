@@ -76,8 +76,8 @@ export function BlocHebergements({ itemId, hebergements, nomsSuggeres, peutEdite
             return (
               <li key={h.id} className="space-y-1.5 py-2" data-hebergement={nomComplet(h)}>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="font-medium text-foreground">{nomComplet(h)}</span>
-                  <span className="text-muted-foreground">
+                  <span className="min-w-0 font-medium text-foreground [overflow-wrap:anywhere]">{nomComplet(h)}</span>
+                  <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">
                     {lieu || "hôtel à préciser"}
                     {` · ${jourLisible(jour(h.dateArrivee))} → ${jourLisible(jour(h.dateDepart))}`}
                     {` · ${nuitsLisibles({ dateArrivee: jour(h.dateArrivee), dateDepart: jour(h.dateDepart) })}`}
@@ -90,7 +90,7 @@ export function BlocHebergements({ itemId, hebergements, nomsSuggeres, peutEdite
                     <span className="ml-auto inline-flex items-center gap-1">
                       <button
                         type="button" onClick={() => basculer(h.id, "MENU")} disabled={busy !== null}
-                        className="inline-flex items-center rounded px-1.5 py-1 text-muted-foreground hover:bg-secondary"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded text-muted-foreground hover:bg-secondary sm:h-auto sm:w-auto sm:px-1.5 sm:py-1"
                         aria-label={`Autres actions pour ${nomComplet(h)}`} aria-expanded={mode === "MENU"}
                       >
                         <MoreHorizontal className="h-3.5 w-3.5" />
@@ -122,7 +122,7 @@ export function BlocHebergements({ itemId, hebergements, nomsSuggeres, peutEdite
                 {(piece || h.autresDocuments.length > 0) && (mode === "DOCUMENTS" || mode === "MENU") && (
                   <div className="space-y-0.5">
                     {h.piecesIdentite.map((p) => (
-                      <div key={p.id} className="flex items-center gap-1.5">
+                      <div key={p.id} className="flex min-w-0 flex-wrap items-center gap-1.5">
                         <span className="text-[0.6875rem] text-muted-foreground">Pièce d&apos;identité</span>
                         <DocumentPreview id={p.id} name={p.name} hasFile={p.hasFile} canDelete={peutEditer} />
                       </div>
@@ -136,7 +136,7 @@ export function BlocHebergements({ itemId, hebergements, nomsSuggeres, peutEdite
                       Documents de {nomComplet(h)} — « Pièce d&apos;identité » pour le passeport ou la carte, « Autre » pour le reste
                     </p>
                     <DocumentUpload entityType="AD_PRO_ITEM" entityId={itemId} categories={["ID_DOCUMENT", "SUPPORTING_DOC", "OTHER"]} stepKey={h.id} compact />
-                    <button type="button" onClick={fermer} className="mt-1 text-[0.6875rem] text-muted-foreground hover:text-foreground">Fermer</button>
+                    <button type="button" onClick={fermer} className="mt-1 min-h-9 px-1 text-[0.6875rem] text-muted-foreground hover:text-foreground sm:min-h-0 sm:px-0">Fermer</button>
                   </div>
                 )}
                 {mode === "EDITER" && peutEditer && (
@@ -170,7 +170,7 @@ export function BlocHebergements({ itemId, hebergements, nomsSuggeres, peutEdite
             />
           </div>
         ) : (
-          <Button size="sm" variant="outline" onClick={() => setAjout(true)} disabled={busy !== null}>
+          <Button size="sm" variant="outline" className="h-10 w-full sm:h-8 sm:w-auto" onClick={() => setAjout(true)} disabled={busy !== null}>
             <Plus className="h-4 w-4" /> Ajouter une fiche hôtellerie
           </Button>
         )
@@ -183,7 +183,7 @@ function MenuItem({ children, onClick, danger }: { children: React.ReactNode; on
   return (
     <button
       type="button" role="menuitem" onClick={onClick}
-      className={`rounded px-2 py-1 text-[0.6875rem] font-medium hover:bg-secondary ${danger ? "text-destructive" : "text-foreground"}`}
+      className={`min-h-9 rounded px-3 py-2 text-[0.6875rem] font-medium hover:bg-secondary sm:min-h-0 sm:px-2 sm:py-1 ${danger ? "text-destructive" : "text-foreground"}`}
     >
       {children}
     </button>
@@ -291,11 +291,11 @@ function FormulaireHebergement({ suggestions, defaut, busy, libelle, onSubmit, o
       )}
 
       <p className="text-[0.6875rem] text-muted-foreground">Seul le nom est exigé : l&apos;hôtel, les dates et les documents peuvent venir plus tard.</p>
-      <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={busy}>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button size="sm" type="submit" disabled={busy} className="h-10 w-full sm:h-8 sm:w-auto">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} {libelle}
         </Button>
-        <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+        <Button size="sm" type="button" variant="outline" onClick={onCancel} className="h-10 w-full sm:h-8 sm:w-auto">Annuler</Button>
       </div>
     </form>
   );

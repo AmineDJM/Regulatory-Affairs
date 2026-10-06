@@ -75,10 +75,10 @@ export function BvRequestSheet({
         }}
         className="space-y-4"
       >
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="amount">Montant (DZD)</Label>
-            <Input id="amount" name="amount" type="number" step="any" min="1" required placeholder="Ex. 150000" />
+            <Input id="amount" name="amount" type="number" inputMode="decimal" step="any" min="1" required placeholder="Ex. 150000" />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="dueDate">Échéance souhaitée</Label>
@@ -119,7 +119,7 @@ export function BvRequestSheet({
                   <button
                     type="button"
                     onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
-                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                    className="shrink-0 rounded p-2 text-muted-foreground hover:text-destructive sm:p-0.5"
                     aria-label={`Retirer ${f.name}`}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -132,7 +132,7 @@ export function BvRequestSheet({
 
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
 
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Annuler</Button>
           <Button type="submit" disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReceiptText className="h-4 w-4" />} Envoyer au comptable
@@ -161,7 +161,7 @@ export function BvRequests({ items }: { items: BvItem[] }) {
   return (
     <ul className="divide-y divide-border">
       {items.map((b) => (
-        <li key={b.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+        <li key={b.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 text-sm">
           <div className="min-w-0">
             <p className="truncate font-medium">{b.label}</p>
             <p className="text-xs text-muted-foreground">

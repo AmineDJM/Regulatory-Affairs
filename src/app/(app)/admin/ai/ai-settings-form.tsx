@@ -74,12 +74,12 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
   return (
     <div className="space-y-5">
       {/* Interrupteur général */}
-      <div className={cn("flex items-center justify-between rounded-xl border p-4", s.masterEnabled ? "border-success/30 bg-success/5" : "border-destructive/30 bg-destructive/5")}>
-        <div className="flex items-start gap-3">
-          <span className={cn("flex h-10 w-10 items-center justify-center rounded-lg", s.masterEnabled ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive")}>
+      <div className={cn("flex items-center justify-between gap-3 rounded-xl border p-3 sm:p-4", s.masterEnabled ? "border-success/30 bg-success/5" : "border-destructive/30 bg-destructive/5")}>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", s.masterEnabled ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive")}>
             <Power className="h-5 w-5" />
           </span>
-          <div>
+          <div className="min-w-0">
             <p className="font-semibold">Interrupteur général de l'IA</p>
             <p className="text-sm text-muted-foreground">
               {s.masterEnabled ? "L'IA est active (selon les fonctions ci-dessous)." : "Toute l'IA est coupée, quelles que soient les bascules ci-dessous."}
@@ -92,8 +92,8 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
       {/* Bascules par fonction */}
       <div className="divide-y divide-border rounded-xl border border-border">
         {FEATURES.map((f) => (
-          <div key={f.key} className={cn("flex items-center justify-between gap-4 p-4", !s.masterEnabled && "opacity-60")}>
-            <div>
+          <div key={f.key} className={cn("flex items-center justify-between gap-3 p-3 sm:gap-4 sm:p-4", !s.masterEnabled && "opacity-60")}>
+            <div className="min-w-0">
               <p className="text-sm font-medium">{f.label}</p>
               <p className="text-xs text-muted-foreground">{f.desc}</p>
             </div>
@@ -102,9 +102,9 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
         ))}
       </div>
 
-      <div className="flex items-center justify-end gap-3">
-        {saved && <span className="flex items-center gap-1.5 text-sm text-success"><Check className="h-4 w-4" /> Enregistré</span>}
-        <Button onClick={save} disabled={saving || !dirty}>
+      <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+        {saved && <span className="flex items-center justify-center gap-1.5 text-sm text-success"><Check className="h-4 w-4" /> Enregistré</span>}
+        <Button onClick={save} disabled={saving || !dirty} className="w-full sm:w-auto">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Enregistrer les réglages
         </Button>

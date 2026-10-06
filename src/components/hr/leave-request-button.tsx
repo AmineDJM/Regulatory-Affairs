@@ -86,13 +86,13 @@ export function LeaveRequestButton({
           {/* L'IDENTITÉ EST LUE, PAS RESSAISIE — elle vient de la fiche employé, qui fait foi.
               La recopier dans la demande en ferait une seconde vérité qui vieillirait mal. */}
           {identity && (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border border-border bg-secondary/40 p-3 text-xs">
+            <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 rounded-lg border border-border bg-secondary/40 p-3 text-xs [overflow-wrap:anywhere] sm:grid-cols-2">
               <p><span className="text-muted-foreground">Nom :</span> <strong>{identity.nom || "—"}</strong></p>
               <p><span className="text-muted-foreground">Prénom :</span> <strong>{identity.prenom || "—"}</strong></p>
               <p><span className="text-muted-foreground">Fonction :</span> <strong>{identity.position ?? "—"}</strong></p>
               <p><span className="text-muted-foreground">Date de recrutement :</span> <strong>{identity.hireDate ?? "—"}</strong></p>
-              <p className="col-span-2"><span className="text-muted-foreground">Direction :</span> <strong>{identity.department ?? "—"}</strong></p>
-              <p className="col-span-2 text-muted-foreground">
+              <p className="sm:col-span-2"><span className="text-muted-foreground">Direction :</span> <strong>{identity.department ?? "—"}</strong></p>
+              <p className="text-muted-foreground sm:col-span-2">
                 Ces informations viennent de votre fiche employé et accompagnent la demande.
                 Une erreur ? Les RH la corrigent à la source.
               </p>
@@ -110,7 +110,7 @@ export function LeaveRequestButton({
             <p className="flex items-center gap-1.5 text-xs font-medium">
               <CalendarRange className="h-4 w-4 text-primary" /> Période
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Début <span className="text-destructive">*</span></Label>
                 <Input type="date" name="startDate" value={start} onChange={(e) => setStart(e.target.value)} required />
@@ -141,7 +141,7 @@ export function LeaveRequestButton({
               <Label>N° de téléphone</Label>
               <Input
                 name="phone" value={phone} onChange={(e) => setPhone(e.target.value)}
-                inputMode="tel" placeholder="Où vous joindre pendant l'absence"
+                type="tel" inputMode="tel" autoComplete="tel" placeholder="Où vous joindre pendant l'absence"
               />
             </div>
             <div className="space-y-1.5">
@@ -188,10 +188,10 @@ export function LeaveRequestButton({
             </span>
           </p>
 
-          {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-            <Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer la demande</Button>
+          {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0">{err}</span></div>}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)}>Annuler</Button>
+            <Button type="submit" className="w-full sm:w-auto" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer la demande</Button>
           </div>
         </form>
       </Sheet>

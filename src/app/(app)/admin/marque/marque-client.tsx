@@ -108,17 +108,17 @@ export function FormulaireLogo({ companyId, logo }: { companyId: string; logo: {
     <form action={agir} className="flex flex-wrap items-end gap-3 rounded-md border p-3" data-testid="logo-form">
       <input type="hidden" name="companyId" value={companyId} />
       {logo ? (
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={`/api/marque/${companyId}/logo?v=${encodeURIComponent(logo.nom)}-${logo.taille}`} alt={`Logo — ${logo.nom}`} className="h-10 max-w-[160px] object-contain" data-testid="logo-apercu" />
-          <span className="text-xs text-muted-foreground">{logo.nom} · {Math.round(logo.taille / 1024)} Ko · {logo.largeurCm} cm</span>
+          <span className="min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]">{logo.nom} · {Math.round(logo.taille / 1024)} Ko · {logo.largeurCm} cm</span>
         </div>
       ) : (
         <span className="text-xs text-muted-foreground">Aucun logo : les pièces sans papier en-tête partent sans image ; le papier en-tête, lui, porte le sien.</span>
       )}
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
         Logo (PNG ou JPEG, 2 Mo)
-        <input type="file" name="file" accept="image/png,image/jpeg" className="text-sm" data-testid="logo-fichier" />
+        <input type="file" name="file" accept="image/png,image/jpeg" className="max-w-full text-sm" data-testid="logo-fichier" />
       </label>
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
         Largeur (cm)

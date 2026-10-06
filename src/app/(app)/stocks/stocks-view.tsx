@@ -212,7 +212,7 @@ export function StocksView({
             setBusy(false);
             if (r.ok) { setShowRequest(false); setReqHospitals([]); router.refresh(); } else setError(r.error ?? "Échec.");
           }}
-          className="surface space-y-3 p-4"
+          className="surface space-y-3 p-3 sm:p-4"
         >
           <div className="space-y-1.5">
             <Label>Hôpitaux concernés — un ou plusieurs (aucun = demande générale)</Label>
@@ -222,7 +222,7 @@ export function StocksView({
               <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
                 {demandables.map((h) => (
                   <button key={h.key} type="button" onClick={() => toggleReqHospital(h.annexId as string)}
-                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${reqHospitals.includes(h.annexId as string) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
+                    className={`min-h-8 rounded-full border px-2.5 py-1 text-xs transition-colors ${reqHospitals.includes(h.annexId as string) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
                     {h.name}
                   </button>
                 ))}
@@ -230,14 +230,14 @@ export function StocksView({
             )}
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-56 flex-1 space-y-1.5 sm:max-w-xs">
+            <div className="w-full min-w-0 flex-1 space-y-1.5 sm:w-auto sm:min-w-56 sm:max-w-xs">
               <Label htmlFor="req-assignee">Demander à</Label>
               <Select id="req-assignee" name="assigneeId" required defaultValue="">
                 <option value="" disabled>Choisir une personne…</option>
                 {users.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
               </Select>
             </div>
-            <div className="min-w-56 flex-[2] space-y-1.5">
+            <div className="w-full min-w-0 flex-[2] space-y-1.5 sm:w-auto sm:min-w-56">
               <Label htmlFor="req-note">Précision (produit / échéance…)</Label>
               <Input id="req-note" name="note" placeholder="Ex. Stock actuel d'Amoxival 500 — pour vendredi" />
             </div>
@@ -252,7 +252,7 @@ export function StocksView({
       {/* HÔPITAUX : les établissements de l'annuaire (de son secteur, de sa BU, ou tous) —
           sélection + ajout depuis l'annuaire (Super Admin) + rattachement des lieux hérités. */}
       {tab === "HOSPITAL" && (
-        <div className="surface space-y-3 p-4">
+        <div className="surface space-y-3 p-3 sm:p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Hôpitaux ({hospitals.length}){herites > 0 && isSuperAdmin ? ` — dont ${herites} hérité${herites > 1 ? "s" : ""} à rattacher à l'annuaire` : ""}
           </h2>
@@ -270,12 +270,12 @@ export function StocksView({
                   <button onClick={() => { setHospitalKey(h.key); setError(null); }} className="rounded-full px-2 py-0.5 hover:text-foreground" title={h.wilaya ? `Wilaya : ${h.wilaya}` : undefined}>
                     {h.name}
                     {h.wilaya && <span className="ml-1 text-xs text-muted-foreground">· {h.wilaya}</span>}
-                    {h.herite && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-medium uppercase text-amber-800 dark:bg-amber-400/20 dark:text-amber-200">hérité</span>}
+                    {h.herite && <span className="ml-1 rounded bg-amber-100 px-1 text-[0.6875rem] font-medium uppercase text-amber-800 dark:bg-amber-400/20 dark:text-amber-200">hérité</span>}
                   </button>
                   {isSuperAdmin && h.herite && institutionsDisponibles.length > 0 && (
                     <select
                       aria-label={`Rattacher « ${h.name} » à un établissement de l'annuaire`}
-                      className="max-w-40 rounded-full border border-border bg-background px-1 py-0.5 text-xs"
+                      className="max-w-40 rounded-full border border-border bg-background px-1 py-0.5 text-base sm:text-xs"
                       defaultValue=""
                       disabled={busy}
                       onChange={(e) => { const v = e.target.value; if (v) void linkHospital(h, v); }}
@@ -285,7 +285,7 @@ export function StocksView({
                     </select>
                   )}
                   {isSuperAdmin && h.annexId && (
-                    <button onClick={() => removeHospital(h)} title="Retirer des lieux de stock (l'établissement reste dans l'annuaire)" className="rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                    <button onClick={() => removeHospital(h)} title="Retirer des lieux de stock (l'établissement reste dans l'annuaire)" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -303,7 +303,7 @@ export function StocksView({
               }}
               className="flex flex-wrap items-end gap-2"
             >
-              <div className="min-w-64 flex-1 space-y-1.5 sm:max-w-md">
+              <div className="w-full min-w-0 flex-1 space-y-1.5 sm:w-auto sm:min-w-64 sm:max-w-md">
                 <Label htmlFor="stock-institution">Ajouter un hôpital de l&apos;annuaire</Label>
                 <Select id="stock-institution" name="institutionId" required defaultValue="">
                   <option value="" disabled>{institutionsDisponibles.length === 0 ? "Tous les établissements de l'annuaire ont déjà leur lieu de stock" : "Choisir un établissement…"}</option>
@@ -322,7 +322,7 @@ export function StocksView({
 
       {/* ANNEXES PCH : des lieux nommés librement (Super Admin) — une annexe n'est pas un établissement. */}
       {tab === "ANNEX" && (
-        <div className="surface space-y-3 p-4">
+        <div className="surface space-y-3 p-3 sm:p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Annexes PCH ({annexes.length})</h2>
           {annexes.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
@@ -334,7 +334,7 @@ export function StocksView({
                 <span key={l.id} className={`inline-flex items-center gap-1 rounded-full border px-1 py-1 text-sm ${annexId === l.id ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground"}`}>
                   <button onClick={() => { setAnnexId(l.id); setError(null); }} className="rounded-full px-2 py-0.5 hover:text-foreground">{l.name}</button>
                   {isSuperAdmin && (
-                    <button onClick={() => removeAnnex(l)} title="Supprimer (annexe PCH)" className="rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                    <button onClick={() => removeAnnex(l)} title="Supprimer (annexe PCH)" className="rounded-full p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -352,7 +352,7 @@ export function StocksView({
               }}
               className="flex flex-wrap items-end gap-2"
             >
-              <div className="min-w-48 flex-1 space-y-1.5 sm:max-w-xs">
+              <div className="w-full min-w-0 flex-1 space-y-1.5 sm:w-auto sm:min-w-48 sm:max-w-xs">
                 <Label htmlFor="location-name">Nouvelle annexe PCH</Label>
                 <Input id="location-name" name="name" placeholder="Ex. Annexe Blida" required />
               </div>
@@ -370,7 +370,7 @@ export function StocksView({
       ) : (
         <section className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="min-w-56 flex-1 space-y-1.5 sm:max-w-md">
+            <div className="w-full min-w-0 flex-1 space-y-1.5 sm:w-auto sm:min-w-56 sm:max-w-md">
               <Label htmlFor="stock-product">Produit</Label>
               {products.length === 0 ? (
                 <p className="text-sm text-muted-foreground" data-testid="produits-vide">Aucun produit dans votre périmètre : le stock ne se relève que pour les produits de votre BU rattachés à un dossier Regulatory.</p>
@@ -406,17 +406,17 @@ export function StocksView({
                 setBusy(false);
                 if (r.ok) router.refresh(); else setError(r.error ?? "Échec.");
               }}
-              className="surface flex flex-wrap items-end gap-3 p-4"
+              className="surface flex flex-wrap items-end gap-3 p-3 sm:p-4"
             >
-              <div className="space-y-1.5">
+              <div className="min-w-0 flex-1 space-y-1.5 sm:flex-none">
                 <Label htmlFor="snap-date">Date de l&apos;état</Label>
                 <Input id="snap-date" name="date" type="date" defaultValue={todayInput()} required />
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 flex-1 space-y-1.5 sm:flex-none">
                 <Label htmlFor="snap-qty">Quantité restante</Label>
-                <Input id="snap-qty" name="quantity" type="number" min="0" step="1" placeholder="Ex. 1200" required className="w-36" />
+                <Input id="snap-qty" name="quantity" type="number" inputMode="numeric" min="0" step="1" placeholder="Ex. 1200" required className="w-full tabular-nums sm:w-36" />
               </div>
-              <Button type="submit" size="sm" disabled={busy}>
+              <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={busy}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Enregistrer l&apos;état
               </Button>
               <p className="basis-full text-xs text-muted-foreground sm:basis-auto sm:flex-1">
@@ -436,11 +436,11 @@ export function StocksView({
           ) : (
             <>
               <div className="flex flex-wrap gap-3 text-sm">
-                <div className="surface flex items-center gap-2 px-3 py-2">
-                  <span>Dernier état : <span className="font-semibold">{formatNumber(last.quantity)}</span> u. le {formatDate(last.date)}</span>
+                <div className="surface flex min-w-0 items-center gap-2 px-3 py-2">
+                  <span className="min-w-0">Dernier état : <span className="font-semibold">{formatNumber(last.quantity)}</span> u. le {formatDate(last.date)}</span>
                   {(canDelete || last.mine) && (
                     <button onClick={() => removeSnapshot(last.id)} title="Supprimer ce dernier état de stock"
-                      className="rounded-md p-1 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive">
+                      className="rounded-md p-2 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive sm:p-1">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -452,7 +452,7 @@ export function StocksView({
               )}
 
               {view === "chart" ? (
-                <div className="surface p-4">
+                <div className="surface p-2 sm:p-4">
                   <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={series} margin={{ top: 10, right: 14, left: -4, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f6" />
@@ -466,8 +466,8 @@ export function StocksView({
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="surface overflow-x-auto p-0">
-                  <Table>
+                <div className="surface p-0 sm:overflow-x-auto">
+                  <Table mobileCards>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
@@ -479,14 +479,14 @@ export function StocksView({
                     <TableBody>
                       {[...series].reverse().map((s) => (
                         <TableRow key={s.id}>
-                          <TableCell className="text-muted-foreground">{formatDate(s.date)}</TableCell>
-                          <TableCell className="text-right font-semibold">{formatNumber(s.quantity)}</TableCell>
+                          <TableCell className="font-medium text-muted-foreground sm:font-normal" data-sans-etiquette>{formatDate(s.date)}</TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums">{formatNumber(s.quantity)}</TableCell>
                           <TableCell className={`text-right ${s.delta === null ? "text-muted-foreground" : s.delta < 0 ? "text-destructive" : "text-emerald-600"}`}>
                             {s.delta === null ? "—" : `${s.delta > 0 ? "+" : ""}${formatNumber(s.delta)}`}
                           </TableCell>
                           <TableCell className="text-right">
                             {(canDelete || s.mine) && (
-                              <button onClick={() => removeSnapshot(s.id)} title="Supprimer cet état" className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                              <button onClick={() => removeSnapshot(s.id)} title="Supprimer cet état" aria-label="Supprimer cet état" className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5">
                                 <Trash2 className="h-4 w-4" />
                               </button>
                             )}

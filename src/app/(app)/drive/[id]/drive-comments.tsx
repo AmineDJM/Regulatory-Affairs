@@ -30,8 +30,8 @@ export function DriveComments({ nodeId, comments }: { nodeId: string; comments: 
         <ul className="space-y-2.5">
           {comments.map((c) => (
             <li key={c.id} className="rounded-lg border border-border bg-secondary/30 p-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium">{c.author}</span>
+              <div className="flex flex-wrap items-center justify-between gap-x-2">
+                <span className="min-w-0 truncate text-xs font-medium">{c.author}</span>
                 <span className="flex items-center gap-2">
                   <span className="text-[0.6875rem] text-muted-foreground">{c.createdLabel}</span>
                   {c.canDelete && (
@@ -40,7 +40,7 @@ export function DriveComments({ nodeId, comments }: { nodeId: string; comments: 
                       className="inline"
                     >
                       <input type="hidden" name="id" value={c.id} />
-                      <button type="submit" title="Supprimer" className="text-muted-foreground hover:text-destructive">
+                      <button type="submit" title="Supprimer" aria-label="Supprimer" className="inline-flex h-9 w-9 items-center justify-center text-muted-foreground hover:text-destructive sm:h-auto sm:w-auto">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </form>
@@ -70,14 +70,14 @@ export function DriveComments({ nodeId, comments }: { nodeId: string; comments: 
           required
           rows={2}
           placeholder="Écrire un commentaire…"
-          className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
         />
         {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="flex justify-end">
           <button
             type="submit"
             disabled={sending}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm sm:w-auto sm:py-1.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Commenter
           </button>

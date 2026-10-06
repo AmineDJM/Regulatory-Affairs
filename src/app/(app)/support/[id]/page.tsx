@@ -50,17 +50,17 @@ export default async function SupportDetailPage({ params }: { params: { id: stri
       </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <LifeBuoy className="h-5 w-5 text-primary" />
-            <h1 className="text-xl font-semibold tracking-tight">{r.subject}</h1>
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-start gap-2">
+            <LifeBuoy className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight">{r.subject}</h1>
           </div>
           <p className="text-sm text-muted-foreground">
             <span className="font-mono">{r.reference}</span> · de {r.requester?.name ?? "—"} → {target}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <div className="flex flex-wrap items-center gap-2">
             <StatusBadge map={SUPPORT_CATEGORY} value={r.category} dot={false} />
             <StatusBadge map={SUPPORT_STATUS} value={r.status} />
           </div>
@@ -73,8 +73,8 @@ export default async function SupportDetailPage({ params }: { params: { id: stri
           <Card>
             <CardHeader><CardTitle>Demande</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <p className="whitespace-pre-wrap text-sm">{r.body}</p>
-              <div className="flex flex-wrap gap-4 border-t border-border pt-3 text-xs text-muted-foreground">
+              <p className="whitespace-pre-wrap break-words text-sm">{r.body}</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 border-t border-border pt-3 text-xs text-muted-foreground">
                 <span>Priorité : {PRIORITY[r.priority]?.label ?? r.priority}</span>
                 {r.product && <span>Produit : {r.product}</span>}
                 <span>Émise le {formatDate(r.createdAt.toISOString())}</span>
@@ -95,8 +95,8 @@ export default async function SupportDetailPage({ params }: { params: { id: stri
                     const mine = m.authorId === user.id;
                     return (
                       <li key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
-                          <p className="whitespace-pre-wrap">{m.body}</p>
+                        <div className={`min-w-0 max-w-[85%] rounded-2xl px-3.5 py-2 text-sm sm:max-w-[80%] ${mine ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
+                          <p className="whitespace-pre-wrap break-words">{m.body}</p>
                           <p className={`mt-1 text-[0.6875rem] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{m.author?.name ?? "—"} · {formatDateTime(m.createdAt.toISOString())}</p>
                         </div>
                       </li>

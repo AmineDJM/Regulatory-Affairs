@@ -15,7 +15,8 @@ const variants = {
 } as const;
 
 const sizes = {
-  sm: "h-8 px-3 text-xs gap-1.5",
+  // Au doigt, 32 px se manque : 36 px sous 640 px, la taille compacte revient au bureau.
+  sm: "h-9 px-3 text-xs gap-1.5 sm:h-8",
   md: "h-10 px-4 text-sm gap-2",
   lg: "h-11 px-5 text-sm gap-2",
   icon: "h-10 w-10",

@@ -45,7 +45,7 @@ function CancelButton({ id }: { id: string }) {
       <button
         type="submit"
         disabled={saving}
-        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+        className="inline-flex min-h-10 items-center gap-1 rounded-md border border-border px-3 py-1 text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:min-h-0 sm:px-2 sm:text-xs"
       >
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} Annuler
       </button>
@@ -68,7 +68,7 @@ function StageTrail({ leave }: { leave: LeaveItem }) {
   const marches = leave.stage === "DG" ? STEPS_AVEC_DG : STEPS;
   const currentIdx = marches.findIndex((s) => s.stage === leave.stage);
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex flex-wrap items-center justify-end gap-1 sm:justify-start">
       {marches.map((s, i) => {
         const done = currentIdx < 0 || i < currentIdx;
         const current = i === currentIdx;
@@ -126,24 +126,35 @@ export function MyLeaves({ leaves, people = [], modules = [], moduleLabels = {} 
           {leaves.map((l) => (
             <TableRow key={l.id}>
               <TableCell label="Type" className="font-medium">{LEAVE_TYPE[l.type] ?? l.type}</TableCell>
-              <TableCell label="Période">{formatDate(l.startDate)} → {formatDate(l.endDate)}</TableCell>
+              <TableCell label="Période">
+                <span>
+                  <span className="whitespace-nowrap">{formatDate(l.startDate)} →</span>{" "}
+                  <span className="whitespace-nowrap">{formatDate(l.endDate)}</span>
+                </span>
+              </TableCell>
               <TableCell label="Jours" className="text-right">{l.days}</TableCell>
+              {/* En carte, chaque cellule à plusieurs morceaux les garde ensemble, alignés à droite
+                  sous leur intitulé — sinon ils s'étalaient côte à côte. */}
               <TableCell label="Statut">
-                <StatusBadge map={LEAVE_STATUS} value={l.status} />
-                {l.status === "PENDING" && (
-                  <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">{LEAVE_STAGE_LABELS[l.stage]}</p>
-                )}
+                <div className="flex min-w-0 flex-col items-end gap-0.5 sm:items-start">
+                  <StatusBadge map={LEAVE_STATUS} value={l.status} />
+                  {l.status === "PENDING" && (
+                    <p className="text-[0.6875rem] text-muted-foreground">{LEAVE_STAGE_LABELS[l.stage]}</p>
+                  )}
+                </div>
               </TableCell>
               <TableCell label="Circuit">
-                <StageTrail leave={l} />
-                {l.passed.filter((p) => p.note).map((p, i) => (
-                  <p key={i} className="mt-0.5 text-[0.6875rem] text-muted-foreground">{p.label} : {p.note}</p>
-                ))}
+                <div className="min-w-0">
+                  <StageTrail leave={l} />
+                  {l.passed.filter((p) => p.note).map((p, i) => (
+                    <p key={i} className="mt-0.5 text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere]">{p.label} : {p.note}</p>
+                  ))}
+                </div>
               </TableCell>
               {/* L'INTÉRIMAIRE se désigne tant que le congé n'est pas passé : c'est souvent en
                   voyant la demande accordée qu'on pense à faire tenir sa place. */}
               <TableCell label="Intérimaire">
-                <div className="flex flex-col items-start gap-1.5">
+                <div className="flex min-w-0 flex-col items-end gap-1.5 sm:items-start">
                   <StandInBadge state={l} moduleLabels={moduleLabels} />
                   {people.length > 0 && l.status !== "REJECTED" && l.status !== "CANCELLED" && !l.termine && (
                     <StandInButton leaveId={l.id} state={l} people={people} modules={modules} moduleLabels={moduleLabels} />

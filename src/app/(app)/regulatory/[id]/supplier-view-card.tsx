@@ -72,7 +72,7 @@ export function SupplierViewCard({
         </Select>
       </div>
 
-      <label className="flex items-center gap-2 text-sm">
+      <label className="flex items-center gap-2 py-1 text-sm">
         <input type="checkbox" name="portalVisible" defaultChecked={values.portalVisible} className="h-4 w-4 rounded border-input" />
         Visible dans le portail fournisseur
       </label>
@@ -102,14 +102,14 @@ export function SupplierViewCard({
         <Textarea id="externalComment" name="externalComment" defaultValue={values.externalComment} />
       </div>
 
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="externalNotify" defaultChecked={values.externalNotify} className="h-4 w-4 rounded border-input" />
+      <label className="flex items-start gap-2 py-1 text-sm">
+        <input type="checkbox" name="externalNotify" defaultChecked={values.externalNotify} className="mt-0.5 h-4 w-4 shrink-0 rounded border-input" />
         Notifier le fournisseur à la prochaine mise à jour (opt-in)
       </label>
 
       {err && <p className="text-sm text-destructive">{err}</p>}
-      <div className="flex items-center gap-2">
-        <Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer la vue fournisseur</Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" disabled={saving} className="w-full sm:w-auto">{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer la vue fournisseur</Button>
         {saved && <span className="inline-flex items-center gap-1 text-sm text-success"><Check className="h-4 w-4" /> Enregistré</span>}
         {values.portalVisible && (
           <a href="/portail" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">

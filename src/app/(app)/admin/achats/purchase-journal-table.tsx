@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Search, ChevronRight, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { formatDateTime, cn } from "@/lib/utils";
 
 export interface JournalRow {
@@ -57,56 +58,59 @@ export function PurchaseJournal({ rows, tronque }: { rows: JournalRow[]; tronque
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1 basis-full sm:basis-auto">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} className="h-9 pl-8"
+          <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} className="h-10 pl-8 sm:h-9"
             placeholder="Une référence, un nom, un article, un département…" />
         </div>
         <span className="text-xs text-muted-foreground">{visibles.length} / {rows.length} geste(s)</span>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[52rem] text-sm">
-          <thead className="border-b border-border text-xs text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 text-left font-medium">Quand</th>
-              <th className="px-3 py-2 text-left font-medium">Référence</th>
-              <th className="px-3 py-2 text-left font-medium">Geste</th>
-              <th className="px-3 py-2 text-left font-medium">Objet</th>
-              <th className="px-3 py-2 text-left font-medium">Demandeur</th>
-              <th className="px-3 py-2 text-left font-medium">Par</th>
-              <th className="px-3 py-2 text-right font-medium">Estimé</th>
-              <th className="px-3 py-2" />
-            </tr>
-          </thead>
-          <tbody>
+      {/* Une ligne par geste : au téléphone chaque geste devient une carte, sa copie complète s'ouvre dessous. */}
+      <Table mobileCards className="max-sm:p-3 sm:min-w-[52rem]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Quand</TableHead>
+              <TableHead>Référence</TableHead>
+              <TableHead>Geste</TableHead>
+              <TableHead>Objet</TableHead>
+              <TableHead>Demandeur</TableHead>
+              <TableHead>Par</TableHead>
+              <TableHead className="text-right">Estimé</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {visibles.map((r) => (
               <React.Fragment key={r.id}>
-                <tr className="border-b border-border/60 align-top hover:bg-secondary/40">
-                  <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{formatDateTime(r.createdAt)}</td>
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{r.reference}</td>
-                  <td className="px-3 py-2"><Badge tone={TON[r.event] ?? "neutral"} dot={false}>{r.eventLabel}</Badge></td>
-                  <td className="px-3 py-2">
-                    <span className="font-medium">{r.title}</span>
-                    {r.departmentName && <span className="block text-xs text-muted-foreground">{r.departmentName}</span>}
-                    {r.note && <span className="block text-xs text-muted-foreground">« {r.note} »</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs">{r.requesterName}</td>
-                  <td className="px-3 py-2 text-xs">{r.actorName}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right text-xs">
+                <TableRow className="align-top">
+                  <TableCell className="whitespace-nowrap py-2 text-xs text-muted-foreground">{formatDateTime(r.createdAt)}</TableCell>
+                  <TableCell className="whitespace-nowrap py-2 font-mono text-xs">{r.reference}</TableCell>
+                  <TableCell className="py-2"><Badge tone={TON[r.event] ?? "neutral"} dot={false}>{r.eventLabel}</Badge></TableCell>
+                  <TableCell className="py-2">
+                    <span>
+                      <span className="font-medium">{r.title}</span>
+                      {r.departmentName && <span className="block text-xs text-muted-foreground">{r.departmentName}</span>}
+                      {r.note && <span className="block text-xs text-muted-foreground">« {r.note} »</span>}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-2 text-xs">{r.requesterName}</TableCell>
+                  <TableCell className="py-2 text-xs">{r.actorName}</TableCell>
+                  <TableCell className="whitespace-nowrap py-2 text-right text-xs">
                     {r.estimatedTotal != null ? `${r.estimatedTotal.toLocaleString("fr-FR")} DZD` : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right">
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap py-2 text-right">
                     <button type="button" onClick={() => setOuvert((o) => (o === r.id ? null : r.id))}
                       title="Voir la copie complète enregistrée"
-                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+                      className="inline-flex min-h-9 w-full items-center justify-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground sm:min-h-0 sm:w-auto">
                       <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", ouvert === r.id && "rotate-90")} /> Détail
                     </button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
                 {ouvert === r.id && (
-                  <tr className="border-b border-border/60 bg-secondary/30">
-                    <td colSpan={8} className="px-3 py-3">
+                  <TableRow className="bg-secondary/30 hover:bg-secondary/30">
+                    <TableCell colSpan={8} data-sans-etiquette className="py-3">
+                      <div className="w-full min-w-0">
                       {/* LA COPIE COMPLÈTE, telle qu'elle a été enregistrée. On la montre brute :
                           la remettre en forme reviendrait à la réinterpréter, et le journal doit
                           pouvoir être opposé à quelqu'un. */}
@@ -121,14 +125,14 @@ export function PurchaseJournal({ rows, tronque }: { rows: JournalRow[]; tronque
                       <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-background p-2.5 text-xs">
                         {JSON.stringify(r.snapshot, null, 2)}
                       </pre>
-                    </td>
-                  </tr>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 )}
               </React.Fragment>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+      </Table>
 
       {tronque > 0 && (
         <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">

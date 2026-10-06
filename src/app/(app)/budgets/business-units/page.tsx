@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { ModuleTabs } from "@/components/shared/module-tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { BUDGET_TABS } from "@/lib/labels";
 import { buBudgetView, consumptionPct, buBudgetNotice, type BuBudgetLine } from "@/lib/sfe/bu-department";
@@ -118,54 +119,56 @@ export default async function BusinessUnitBudgetsPage({ searchParams }: { search
           description="Créez vos gammes dans Force de vente → Business Units : chacune deviendra un sous-département de la Direction commerciale, avec son budget Ad & Pro et sa masse salariale."
         />
       ) : (
-        <div className="surface overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-secondary/40 text-left">
-              <tr>
-                <th className="px-3 py-2 font-medium">Gamme</th>
-                <th className="px-3 py-2 text-right font-medium">Enveloppe</th>
-                <th className="px-3 py-2 text-right font-medium">Consommé</th>
-                <th className="px-3 py-2 text-right font-medium">Reste</th>
-                <th className="px-3 py-2 text-right font-medium">Taux</th>
-              </tr>
-            </thead>
-            <tbody>
+        // Une ligne par gamme : au téléphone, chaque gamme devient une carte (intitulés repris de l'en-tête),
+        // le consolidé une dernière carte aux intitulés écrits à la main — le pied n'est pas étiqueté d'office.
+        <div className="surface sm:overflow-hidden">
+          <Table mobileCards className="tabular-nums">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Gamme</TableHead>
+                <TableHead className="text-right">Enveloppe</TableHead>
+                <TableHead className="text-right">Consommé</TableHead>
+                <TableHead className="text-right">Reste</TableHead>
+                <TableHead className="text-right">Taux</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {view.lines.map((l) => {
                 const pct = consumptionPct(l);
                 const couleur = couleurParBu.get(l.businessUnitId);
                 return (
-                  <tr key={l.businessUnitId} className="border-b border-border last:border-0">
-                    <td className="px-3 py-2">
-                      <span className="flex items-center gap-2">
+                  <TableRow key={l.businessUnitId}>
+                    <TableCell data-sans-etiquette>
+                      <span className="flex flex-wrap items-center gap-2">
                         {couleur && <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: couleur }} />}
-                        <span className="font-medium">{l.label}</span>
+                        <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{l.label}</span>
                         {/* SANS SOUS-DÉPARTEMENT, LA GAMME NE COMPTE NULLE PART — et c'est dit
                             sur SA ligne, là où l'on peut agir, pas seulement dans un total. */}
                         {!l.attached && <span className="rounded bg-warning/20 px-2 py-0.5 text-[0.6875rem] text-warning">budget non ouvert</span>}
                       </span>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{l.attached ? formatCurrency(l.allocated) : "—"}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{l.attached ? formatCurrency(l.spent) : "—"}</td>
-                    <td className={`px-3 py-2 text-right tabular-nums ${l.attached && l.spent > l.allocated ? "text-destructive" : ""}`}>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right">{l.attached ? formatCurrency(l.allocated) : "—"}</TableCell>
+                    <TableCell className="whitespace-nowrap text-right">{l.attached ? formatCurrency(l.spent) : "—"}</TableCell>
+                    <TableCell className={`whitespace-nowrap text-right ${l.attached && l.spent > l.allocated ? "text-destructive" : ""}`}>
                       {l.attached ? formatCurrency(l.allocated - l.spent) : "—"}
-                    </td>
-                    <td className={`px-3 py-2 text-right tabular-nums ${pct != null && pct > 100 ? "font-semibold text-destructive" : ""}`}>
+                    </TableCell>
+                    <TableCell className={`whitespace-nowrap text-right ${pct != null && pct > 100 ? "font-semibold text-destructive" : ""}`}>
                       {pct != null ? `${pct} %` : "—"}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
+            </TableBody>
             <tfoot className="border-t border-border bg-secondary/30">
-              <tr>
-                <td className="px-3 py-2 font-semibold">Consolidé</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatCurrency(view.totalAllocated)}</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatCurrency(view.totalSpent)}</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatCurrency(view.totalAllocated - view.totalSpent)}</td>
-                <td className="px-3 py-2" />
-              </tr>
+              <TableRow>
+                <TableCell className="font-semibold" data-sans-etiquette>Consolidé</TableCell>
+                <TableCell label="Enveloppe" className="whitespace-nowrap text-right font-semibold">{formatCurrency(view.totalAllocated)}</TableCell>
+                <TableCell label="Consommé" className="whitespace-nowrap text-right font-semibold">{formatCurrency(view.totalSpent)}</TableCell>
+                <TableCell label="Reste" className="whitespace-nowrap text-right font-semibold">{formatCurrency(view.totalAllocated - view.totalSpent)}</TableCell>
+                <TableCell />
+              </TableRow>
             </tfoot>
-          </table>
+          </Table>
         </div>
       )}
     </div>

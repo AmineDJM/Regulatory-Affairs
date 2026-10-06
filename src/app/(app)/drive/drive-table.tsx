@@ -259,14 +259,14 @@ export function DriveTable({
           <span className="min-w-0 flex-1 truncate">{clipboardLabel(clip)}</span>
           <button
             type="button" disabled={pasting} onClick={() => void paste()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 sm:py-1"
           >
             {pasting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardPaste className="h-3.5 w-3.5" />} Coller ici
           </button>
           <button
             type="button"
             onClick={() => { try { window.localStorage.removeItem(cleClip); } catch { /* rien */ } setClip(null); }}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            className="px-1 py-2 text-xs text-muted-foreground hover:text-foreground sm:p-0"
           >
             Vider
           </button>
@@ -280,7 +280,7 @@ export function DriveTable({
           {selectedFiles.length > 0 && (
             <Link
               href={`/drive/vue?ids=${selectedFiles.map((r) => r.id).join(",")}`}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-2 text-sm font-medium sm:py-1.5 text-primary-foreground hover:bg-primary/90"
             >
               <FolderOpen className="h-4 w-4" /> Ouvrir{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ""}
             </Link>
@@ -292,21 +292,21 @@ export function DriveTable({
             archive
             onClick={downloadZip}
             ariaLabel="Télécharger la sélection"
-            className={`inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary ${zipping ? "pointer-events-none opacity-60" : ""}`}
+            className={`inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-sm font-medium sm:py-1.5 hover:bg-secondary ${zipping ? "pointer-events-none opacity-60" : ""}`}
           >
             {zipping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Télécharger
           </BoutonTelecharger>
 
           {!trash && users && users.length > 0 && canActOnAll && (
             <button type="button" onClick={() => setShareOpen(true)} disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-60">
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-sm font-medium sm:py-1.5 hover:bg-secondary disabled:opacity-60">
               <Share2 className="h-4 w-4" /> Partager
             </button>
           )}
 
           {!trash && canActOnAll && (
             <button type="button" onClick={() => void bulkTrash()} disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 px-2.5 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60">
+              className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 px-2.5 py-2 text-sm font-medium sm:py-1.5 text-destructive hover:bg-destructive/10 disabled:opacity-60">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Supprimer
             </button>
           )}
@@ -320,20 +320,20 @@ export function DriveTable({
 
           <button
             type="button" onClick={() => putClip("copy")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-sm font-medium sm:py-1.5 hover:bg-secondary"
           >
             <Copy className="h-4 w-4" /> Copier
           </button>
           {canActOnAll && (
             <button
               type="button" onClick={() => putClip("cut")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-sm font-medium sm:py-1.5 hover:bg-secondary"
             >
               <Scissors className="h-4 w-4" /> Couper
             </button>
           )}
 
-          <button type="button" onClick={clear} className="ml-auto text-muted-foreground hover:text-foreground">Désélectionner</button>
+          <button type="button" onClick={clear} className="ml-auto py-2 text-muted-foreground hover:text-foreground sm:py-0">Désélectionner</button>
         </div>
       )}
 
@@ -361,17 +361,20 @@ export function DriveTable({
             POLICE RÉDUITE D'ENVIRON 30 % (0,875 rem → 0,625 rem ; en-têtes 0,75 → 0,5625 rem), avec
             des lignes resserrées en proportion — sans quoi on aurait un texte petit dans des lignes
             hautes, ce qui est simplement moins lisible, pas plus dense. Les deux valeurs sont ici,
-            en un seul endroit, si l'on veut les rouvrir. */}
-        <Table className="table-fixed text-[0.625rem] [&_th]:h-8 [&_th]:px-2 [&_th]:text-[0.5625rem] [&_td]:px-2 [&_td]:py-1.5 sm:[&_td]:py-1.5">
+            en un seul endroit, si l'on veut les rouvrir.
+            AU TÉLÉPHONE, cette densité de bureau tombait sous les 11 px : la liste y garde une
+            police lisible et des lignes au pouce ; la réduction ne s'applique qu'à partir de sm. */}
+        <Table className="table-fixed text-sm sm:text-[0.625rem] [&_th]:h-9 [&_th]:px-2 [&_th]:text-[0.6875rem] sm:[&_th]:h-8 sm:[&_th]:text-[0.5625rem] [&_td]:px-2 [&_td]:py-2.5 sm:[&_td]:py-1.5">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-7">
-                <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Tout sélectionner" className="h-3.5 w-3.5 rounded border-input" />
+              <TableHead className="w-9 sm:w-7">
+                <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Tout sélectionner" className="h-5 w-5 rounded border-input sm:h-3.5 sm:w-3.5" />
               </TableHead>
               <SortHead k="name" label="Nom" className="w-auto" />
               <SortHead k="updatedAt" label="Modifié le" className="hidden w-36 sm:table-cell" />
-              {/* Un seul bouton : la colonne n'a plus besoin que de sa largeur. */}
-              <TableHead className="w-10 text-right"><span className="sr-only">Actions</span></TableHead>
+              {/* Un seul bouton : la colonne n'a plus besoin que de sa largeur (plus large au
+                  téléphone, où le bouton ⋮ fait 36 px). */}
+              <TableHead className="w-14 text-right sm:w-10"><span className="sr-only">Actions</span></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -413,14 +416,15 @@ export function DriveTable({
                     <input
                       type="checkbox" checked={sel.ids.includes(n.id)}
                       onChange={(e) => toggle(n.id, { toggle: true, range: (e.nativeEvent as MouseEvent).shiftKey })}
-                      aria-label={`Sélectionner ${n.name}`} className="h-3.5 w-3.5 rounded border-input"
+                      aria-label={`Sélectionner ${n.name}`} className="h-5 w-5 rounded border-input sm:h-3.5 sm:w-3.5"
                     />
                   </TableCell>
                   <TableCell>
                     {/* `min-w-0` à CHAQUE niveau : sans lui, `truncate` n'a aucun effet et le nom
                         pousse la ligne — c'est exactement ce qui faisait se chevaucher les colonnes. */}
                     <div className="flex min-w-0 items-center gap-1.5">
-                      {dndEnabled && n.canEdit && <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-muted-foreground/40" aria-hidden />}
+                      {/* La poignée ne sert qu'à la souris : au doigt, elle ne ferait que voler de la place au nom. */}
+                      {dndEnabled && n.canEdit && <GripVertical className="hidden h-3 w-3 shrink-0 cursor-grab text-muted-foreground/40 sm:block" aria-hidden />}
                       <Link href={n.href} draggable={false} title={n.name} className="flex min-w-0 items-center gap-1.5 font-medium hover:underline">
                         <FileGlyph name={n.name} isFile={n.isFile} />
                         <span className="truncate">{n.name}</span>
@@ -432,7 +436,7 @@ export function DriveTable({
                     </div>
                     {/* Sous le nom, sur ÉCRAN ÉTROIT : la date n'a plus de colonne, mais elle reste
                         l'information qu'on cherche le plus après le nom. */}
-                    <span className="mt-0.5 block truncate text-[0.5625rem] text-muted-foreground sm:hidden">{n.updatedLabel}</span>
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground sm:hidden">{n.updatedLabel}</span>
                   </TableCell>
                   <TableCell className="hidden whitespace-nowrap text-muted-foreground sm:table-cell">{n.updatedLabel}</TableCell>
                   <TableCell className="text-right">
@@ -524,10 +528,10 @@ function BulkShareSheet({
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground">{picked.size} personne·s</span>
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border border-input px-3 py-1.5 text-sm">Annuler</button>
+            <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border border-input px-3 py-2 text-sm sm:py-1.5">Annuler</button>
             <button
               type="button" onClick={() => void submit()} disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm sm:py-1.5 font-medium text-primary-foreground disabled:opacity-60"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Partager
             </button>

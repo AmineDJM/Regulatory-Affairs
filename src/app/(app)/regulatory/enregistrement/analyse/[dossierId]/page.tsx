@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { ReminderButton } from "@/components/reminders/reminder-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table } from "@/components/ui/table";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { getDossier, listVersions, listVersionDocuments, getAssessment, listFindings, listFacts, listConflicts, reservesByIds, documentNamesByIds } from "@/lib/regulatory/intelligence/queries";
 import { findingQuality } from "@/lib/regulatory/intelligence/findings/enrich";
@@ -150,7 +151,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageHeader title={dossier.title} description={`${dossier.reference} · ${PROCEDURE_TYPE_LABELS[dossier.procedureType]}`} />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ReminderButton defaultTitle={`Dossier ${dossier.reference} — ${dossier.title}`} link={`/regulatory/enregistrement/analyse/${dossier.id}`} />
           <Badge tone={DOSSIER_STATUS_TONE[dossier.status]} dot>{DOSSIER_STATUS_LABELS[dossier.status]}</Badge>
           {canDelete && <DeleteDossierButton dossierId={dossier.id} />}
@@ -215,11 +216,11 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                         {Math.round(risk * 100)} %{measured ? "" : "*"}
                       </span>
                       <span className="min-w-0 flex-1 truncate" title={f.title}>{f.title}</span>
-                      {f.sectionCode && <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[0.625rem] font-medium">CTD {f.sectionCode}</span>}
+                      {f.sectionCode && <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[0.6875rem] font-medium">CTD {f.sectionCode}</span>}
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-[0.625rem] text-muted-foreground/80">* estimation d&apos;après la gravité, faute de précédent ANPP comparable.</p>
+                <p className="mt-1 text-[0.6875rem] text-muted-foreground/80">* estimation d&apos;après la gravité, faute de précédent ANPP comparable.</p>
               </div>
             )}
 
@@ -247,17 +248,17 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
       {/* Manifeste de la dernière version */}
       {latest && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <FileText className="h-4 w-4 text-primary" /> Manifeste — version {latest.versionNo}
             </CardTitle>
-            <div className="flex items-center gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
               <span className="text-success">{latest.counts.safe} sain·s</span>
               {latest.counts.suspicious > 0 && <span className="text-amber-600">{latest.counts.suspicious} à vérifier</span>}
               {latest.counts.blocked > 0 && <span className="text-destructive">{latest.counts.blocked} bloqué·s</span>}
               {canView && latest.originalZipBlobId && (
                 <Link href={`/api/regulatory/intelligence/version/${latest.id}/original`}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 font-medium hover:bg-accent">
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-2 font-medium hover:bg-accent sm:px-2 sm:py-1">
                   <Download className="h-3.5 w-3.5" /> Archive originale
                 </Link>
               )}
@@ -281,8 +282,8 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                 SHA-256 archive : {latest.originalSha256}
               </p>
             )}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            {/* Au téléphone, chaque pièce devient une carte : six colonnes ne tiennent pas dans 360 px. */}
+            <Table mobileCards>
                 <thead>
                   <tr className="border-b border-border text-left text-xs text-muted-foreground">
                     <th className="py-1.5 pr-3 font-medium">Fichier &amp; nom proposé</th>
@@ -300,7 +301,8 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                     const inline = INLINE_EXT.has(doc.ext.toLowerCase());
                     return (
                       <tr key={doc.id} className="border-b border-border/60 align-top">
-                        <td className="py-1.5 pr-3">
+                        <td data-sans-etiquette className="py-1.5 pr-3 max-sm:!justify-start">
+                          <div className="min-w-0 max-w-full">
                           <span className="block max-w-[22rem] truncate font-medium" title={doc.originalPath}>{doc.originalFilename}</span>
                           {doc.approvedFilename ? (
                             <span className="block max-w-[22rem] truncate text-[0.6875rem] text-success" title={doc.approvedFilename}>✓ {doc.approvedFilename}</span>
@@ -310,8 +312,10 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                               {canApproveDoc && <ApproveNameButton documentId={doc.id} />}
                             </span>
                           ) : null}
+                          </div>
                         </td>
                         <td className="py-1.5 pr-3">
+                          <div>
                           {blocked ? (
                             <span className="text-xs text-muted-foreground">—</span>
                           ) : doc.ctdSection ? (
@@ -332,6 +336,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                               contient : {doc.containedSections.filter((s) => s !== doc.ctdSection).slice(0, 6).join(", ")}
                             </span>
                           )}
+                          </div>
                         </td>
                         <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground">{humanBytes(doc.sizeBytes)}</td>
                         <td className="py-1.5 pr-3">
@@ -352,8 +357,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                     );
                   })}
                 </tbody>
-              </table>
-            </div>
+            </Table>
           </CardContent>
         </Card>
       )}
@@ -374,7 +378,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                 {assessment.conforme ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                 {assessment.conforme ? "Aucun bloqueur détecté" : `${assessment.blockers} bloqueur·s — non conforme en l'état`}
               </div>
-              <div className="flex gap-2 text-xs">
+              <div className="flex flex-wrap gap-2 text-xs">
                 {assessment.criticals > 0 && <span className="rounded-md bg-destructive/10 px-2 py-1 text-destructive">{assessment.criticals} critique·s</span>}
                 {assessment.majors > 0 && <span className="rounded-md bg-amber-500/10 px-2 py-1 text-amber-600">{assessment.majors} majeur·s</span>}
                 {assessment.minors > 0 && <span className="rounded-md bg-blue-500/10 px-2 py-1 text-blue-600">{assessment.minors} mineur·s</span>}
@@ -412,7 +416,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                   {row.present ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" /> : <XCircle className={`h-4 w-4 shrink-0 ${row.kind === "required" ? "text-destructive" : "text-amber-600"}`} />}
                   <span className="font-medium">{row.code}</span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground" title={row.title}>{row.title}</span>
-                  {row.kind === "required" && <span className="shrink-0 text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">obligatoire</span>}
+                  {row.kind === "required" && <span className="shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground/70">obligatoire</span>}
                 </div>
               ))}
             </div>
@@ -440,7 +444,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                     : <Info className="h-4 w-4 shrink-0 text-muted-foreground/70" />}
                   <span className="font-medium">{row.code}</span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground" title={row.label}>{row.label}</span>
-                  <span className="shrink-0 text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">
+                  <span className="shrink-0 text-[0.6875rem] uppercase tracking-wide text-muted-foreground/70">
                     {row.present ? "joint" : "à fournir"}
                   </span>
                 </div>
@@ -540,10 +544,10 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                           <div className="min-w-0 flex-1 px-3 py-2.5">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="text-sm font-semibold text-foreground">{f.title}</span>
-                              {f.blocker && <span className="rounded bg-destructive px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">BLOQUEUR</span>}
-                              {f.source === "AI" && f.draft && <span className="rounded bg-amber-500/90 px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">PROJET IA — À RELIRE</span>}
-                              {f.source === "HUMAN" && <span className="rounded bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold text-white">HUMAIN</span>}
-                              {quality.defensible && <span className="rounded bg-success/15 px-1.5 py-0.5 text-[0.625rem] font-semibold text-success">DÉFENDABLE</span>}
+                              {f.blocker && <span className="rounded bg-destructive px-1.5 py-0.5 text-[0.6875rem] font-semibold text-white">BLOQUEUR</span>}
+                              {f.source === "AI" && f.draft && <span className="rounded bg-amber-500/90 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-white">PROJET IA — À RELIRE</span>}
+                              {f.source === "HUMAN" && <span className="rounded bg-primary px-1.5 py-0.5 text-[0.6875rem] font-semibold text-white">HUMAIN</span>}
+                              {quality.defensible && <span className="rounded bg-success/15 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-success">DÉFENDABLE</span>}
                             </div>
 
                             {/* OÙ : document, section, page — et la page est un LIEN vers la pièce. */}
@@ -698,7 +702,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><History className="h-4 w-4 text-primary" /> Versions</CardTitle></CardHeader>
           <CardContent className="space-y-1.5">
             {versions.map((v) => (
-              <div key={v.id} className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+              <div key={v.id} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-lg border border-border px-3 py-2 text-sm">
                 <span className="font-medium">Version {v.versionNo}{v.label ? ` — ${v.label}` : ""}</span>
                 <span className="text-xs text-muted-foreground">{v.fileCount} fichier·s · {humanBytes(v.totalBytes)} · {fmtDateTime(v.createdAt)}</span>
               </div>
@@ -784,18 +788,18 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
           </p>
           {linked.slice(0, 3).map((r) => (
             <div key={r.id} className="mt-1 text-[0.6875rem]">
-              <span className={`mr-1.5 rounded px-1 py-0.5 text-[0.625rem] font-semibold ${r.status === "ACCEPTED" ? "bg-success/15 text-success" : r.status === "REITERATED" ? "bg-destructive/15 text-destructive" : "bg-secondary text-muted-foreground"}`}>
+              <span className={`mr-1.5 rounded px-1 py-0.5 text-[0.6875rem] font-semibold ${r.status === "ACCEPTED" ? "bg-success/15 text-success" : r.status === "REITERATED" ? "bg-destructive/15 text-destructive" : "bg-secondary text-muted-foreground"}`}>
                 {r.status === "ACCEPTED" ? "réponse acceptée" : r.status === "REITERATED" ? "réitérée" : r.status.toLowerCase()}
               </span>
               <span className="text-muted-foreground">{r.verbatim.slice(0, 180)}{r.verbatim.length > 180 ? "…" : ""}</span>
               {r.status === "ACCEPTED" && r.response && (
-                <p className="mt-0.5 rounded bg-success/10 px-2 py-1 text-[10.5px]">
+                <p className="mt-0.5 rounded bg-success/10 px-2 py-1 text-[0.6875rem]">
                   <span className="font-medium">Réponse qui avait fonctionné :</span> {r.response.slice(0, 260)}
                 </p>
               )}
             </div>
           ))}
-          <p className="mt-1 text-[0.625rem] text-muted-foreground/80">
+          <p className="mt-1 text-[0.6875rem] text-muted-foreground/80">
             Précédent, pas règle de droit — la sévérité du constat n&apos;en a pas été modifiée.
           </p>
         </div>
@@ -803,7 +807,7 @@ function FindingEvidence({ finding: f, reserves, docNames }: { finding: FindingR
 
       {/* L'honnêteté du constat : ce sur quoi il ne repose pas. */}
       {quality.missing.length > 0 && (
-        <p className="flex items-start gap-1.5 text-[10.5px] text-muted-foreground/80">
+        <p className="flex items-start gap-1.5 text-[0.6875rem] text-muted-foreground/80">
           <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-warning" />
           <span>
             {quality.defensible ? "Constat étayé. " : "Constat à étayer avant de l'opposer : "}

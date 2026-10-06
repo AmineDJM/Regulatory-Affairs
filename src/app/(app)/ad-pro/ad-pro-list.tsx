@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { FilterX } from "lucide-react";
+import { FilterX, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
+import { Table } from "@/components/ui/table";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import {
   AD_PRO_KINDS, AD_PRO_STATE, AD_PRO_ENTITY_TYPE, kindSpec,
@@ -39,6 +40,9 @@ const EMPTY: Filters = {
 };
 
 const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
+/** Le même filtre au téléphone : plus haut, police ≥ 16 px (pas de zoom iOS). */
+const champMobile = "mt-1 h-10 w-full rounded-md border border-input bg-card px-3 text-base text-foreground outline-none focus:ring-1 focus:ring-ring";
+const pastille = "inline-flex min-h-9 items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors sm:min-h-0";
 
 export function AdProList({ rows }: { rows: AdProRequest[] }) {
   const [f, setF] = React.useState<Filters>(EMPTY);
@@ -73,7 +77,7 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button" onClick={() => setF((p) => ({ ...p, kind: "" }))}
-          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+          className={`${pastille} ${
             !f.kind ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
           }`}
         >
@@ -86,7 +90,7 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
             <button
               key={k.kind} type="button"
               onClick={() => setF((p) => ({ ...p, kind: isOn ? "" : k.kind }))}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              className={`${pastille} ${
                 isOn ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
               }`}
             >
@@ -99,14 +103,37 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>{shown.length} / {rows.length} demande{rows.length > 1 ? "s" : ""}</span>
         {active && (
-          <button type="button" onClick={() => setF(EMPTY)} className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary">
+          <button type="button" onClick={() => setF(EMPTY)} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary sm:min-h-0">
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser les filtres
           </button>
         )}
       </div>
 
-      <div className="surface overflow-x-auto">
-        <table className="table-clean w-full min-w-[64rem] text-sm">
+      {/* AU TÉLÉPHONE, chaque demande devient une carte et l'en-tête du tableau — sa rangée de filtres
+          comprise — disparaît : les MÊMES filtres se replient ici. La nature reste aux pastilles. */}
+      <details className="surface p-3 sm:hidden">
+        <summary className="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-medium">
+          <SlidersHorizontal className="h-4 w-4 text-muted-foreground" /> Filtres{active ? " (actifs)" : ""}
+        </summary>
+        <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-muted-foreground">
+          <label>Référence<input value={f.reference} onChange={set("reference")} placeholder="Filtrer" className={champMobile} /></label>
+          <label>Objet<input value={f.title} onChange={set("title")} placeholder="Filtrer" className={champMobile} /></label>
+          <label>Bénéficiaire<input value={f.beneficiary} onChange={set("beneficiary")} placeholder="Filtrer" className={champMobile} /></label>
+          <label>Montant minimum<input type="number" inputMode="decimal" value={f.minAmount} onChange={set("minAmount")} placeholder="≥" className={champMobile} /></label>
+          <label>Demandeur<input value={f.requester} onChange={set("requester")} placeholder="Filtrer" className={champMobile} /></label>
+          <label>À partir du<input type="date" value={f.dateFrom} onChange={set("dateFrom")} className={champMobile} /></label>
+          <label>
+            État
+            <select value={f.state} onChange={set("state")} className={champMobile}>
+              <option value="">Tous</option>
+              {statesPresent.map((s) => <option key={s} value={s}>{AD_PRO_STATE[s].label}</option>)}
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <div className="surface p-1.5 sm:p-0">
+        <Table mobileCards className="table-clean sm:min-w-[64rem]">
           <thead className="border-b border-border">
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-3 pt-2 text-left font-medium">Référence</th>
@@ -143,7 +170,7 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
           <tbody className="divide-y divide-border">
             {shown.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">Aucune demande ne correspond à ces filtres.</td>
+                <td colSpan={8} data-sans-etiquette className="px-3 py-8 text-center text-sm text-muted-foreground">Aucune demande ne correspond à ces filtres.</td>
               </tr>
             ) : (
               shown.map((r) => {
@@ -159,7 +186,7 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
                       </span>
                     </td>
                     <td className="px-3 py-2">
-                      <Link href={r.href} className="font-medium hover:underline">{r.title}</Link>
+                      <Link href={r.href} className="font-medium hover:underline [overflow-wrap:anywhere]">{r.title}</Link>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{r.beneficiary || "—"}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
@@ -168,7 +195,7 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
                     <td className="px-3 py-2 text-muted-foreground">{r.requester || "—"}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDate(r.createdAt)}</td>
                     <td className="px-3 py-2">
-                      <span className="flex items-center gap-2">
+                      <span className="flex items-center justify-end gap-2 sm:justify-start">
                         <Badge tone={st.tone} dot={false}>{st.label}</Badge>
                         {/* « Envoie la demande de sponsoring de Benali à la Direction » : le geste
                             part de la LIGNE, sur la nature réelle du dossier — le serveur vérifie
@@ -186,7 +213,7 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
               })
             )}
           </tbody>
-        </table>
+        </Table>
       </div>
     </div>
   );

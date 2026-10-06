@@ -215,8 +215,8 @@ export default async function KnowledgePage() {
               <p className="text-sm text-muted-foreground">Aucun document encore traité.</p>
             ) : (
               means.map((m) => (
-                <div key={m.key} className="flex items-center justify-between gap-3 text-sm">
-                  <span className={cn("truncate", meanTone(m.key))}>{m.label}</span>
+                <div key={m.key} className="flex items-start justify-between gap-3 text-sm">
+                  <span className={cn("min-w-0", meanTone(m.key))}>{m.label}</span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">
                     {m.count}
                     {meansTotal ? ` · ${Math.round((m.count / meansTotal) * 100)} %` : ""}
@@ -358,9 +358,9 @@ function Stat({
 
 function Line({ label, value, suffix }: { label: string; value: number; suffix?: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="truncate text-muted-foreground">{label}</span>
-      <span className="shrink-0 tabular-nums">
+    <div className="flex items-start justify-between gap-3">
+      <span className="min-w-0 text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-right tabular-nums">
         {value}
         {suffix ? <span className="ml-1.5 text-muted-foreground">· {suffix}</span> : null}
       </span>

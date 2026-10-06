@@ -129,8 +129,10 @@ export default async function AdminMessageriePage({ searchParams }: { searchPara
               {conversations.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell label="Nom" className="font-medium">
-                    {c.title?.trim() || <span className="italic text-muted-foreground">sans titre</span>}
-                    {c.isArchived && <Badge tone="neutral" className="ml-2">Archivé</Badge>}
+                    <span>
+                      {c.title?.trim() || <span className="italic text-muted-foreground">sans titre</span>}
+                      {c.isArchived && <Badge tone="neutral" className="ml-2">Archivé</Badge>}
+                    </span>
                   </TableCell>
                   <TableCell label="Type">
                     <Badge tone={c.type === "CHANNEL" ? "info" : "neutral"}>{c.type === "CHANNEL" ? "Canal" : "Groupe"}</Badge>
@@ -170,18 +172,18 @@ export default async function AdminMessageriePage({ searchParams }: { searchPara
           </div>
           {/* Filtre sans JavaScript : un formulaire GET, donc il fonctionne aussi quand la
               page est rendue côté serveur seul. */}
-          <form method="get" className="flex items-center gap-2">
+          <form method="get" className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <label htmlFor="qui" className="text-xs text-muted-foreground">Destinataire</label>
             <select
               id="qui" name="qui" defaultValue={qui ?? ""}
-              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              className="h-10 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-base sm:h-9 sm:flex-none sm:text-sm"
             >
               <option value="">Tous</option>
               {personnes.map((p) => (
                 <option key={p.id} value={p.id}>{p.name} ({p._count.notifications})</option>
               ))}
             </select>
-            <button type="submit" className="h-9 rounded-md border border-border px-3 text-sm font-medium hover:bg-secondary">
+            <button type="submit" className="h-10 rounded-md border border-border px-3 text-sm font-medium hover:bg-secondary sm:h-9">
               Filtrer
             </button>
           </form>
@@ -210,12 +212,16 @@ export default async function AdminMessageriePage({ searchParams }: { searchPara
                 <TableRow key={n.id}>
                   <TableCell label="Destinataire" className="font-medium whitespace-nowrap">{n.user.name}</TableCell>
                   <TableCell label="Titre">
-                    <span className="font-medium">{n.title}</span>
-                    {n.body && <span className="ml-2 text-xs text-muted-foreground">{n.body.length > 90 ? `${n.body.slice(0, 90)}…` : n.body}</span>}
+                    <span>
+                      <span className="font-medium">{n.title}</span>
+                      {n.body && <span className="block text-xs text-muted-foreground sm:ml-2 sm:inline">{n.body.length > 90 ? `${n.body.slice(0, 90)}…` : n.body}</span>}
+                    </span>
                   </TableCell>
                   <TableCell label="État">
-                    <Badge tone={n.isRead ? "neutral" : "warning"}>{n.isRead ? "Lue" : "Non lue"}</Badge>
-                    {n.popup && <Badge tone="info" className="ml-2">Pop-up</Badge>}
+                    <span>
+                      <Badge tone={n.isRead ? "neutral" : "warning"}>{n.isRead ? "Lue" : "Non lue"}</Badge>
+                      {n.popup && <Badge tone="info" className="ml-2">Pop-up</Badge>}
+                    </span>
                   </TableCell>
                   <TableCell label="Reçue le" className="whitespace-nowrap text-muted-foreground">{dateFr(n.createdAt)}</TableCell>
                   <TableCell label="Supprimer" className="text-right">

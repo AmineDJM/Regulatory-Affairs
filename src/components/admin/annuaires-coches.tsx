@@ -39,7 +39,7 @@ export function AnnuairesCoches({
         {ANNUAIRES_ACCORDABLES.map((cle) => (
           <label
             key={cle}
-            className="inline-flex items-center gap-1.5 text-xs"
+            className="inline-flex min-h-8 items-center gap-2 text-xs sm:min-h-0 sm:gap-1.5"
             title={LECTURE_POUR_TOUS.has(cle)
               ? "Tout le monde LIT déjà cet annuaire : le cocher n'ouvre que les gestes d'écriture cochés."
               : "Ouvre cet annuaire en entier — un référentiel, pas un portefeuille."}
@@ -54,7 +54,7 @@ export function AnnuairesCoches({
                 if (e.target.checked) next.add(cle); else next.delete(cle);
                 onChange(ANNUAIRES_ACCORDABLES.filter((c) => next.has(c)));
               }}
-              className="h-3.5 w-3.5 rounded border-input disabled:opacity-30"
+              className="h-4 w-4 shrink-0 rounded border-input disabled:opacity-30 sm:h-3.5 sm:w-3.5"
             />
             {LIBELLE_ANNUAIRE[cle]}
             {LECTURE_POUR_TOUS.has(cle) && <span className="text-muted-foreground">(lecture pour tous)</span>}

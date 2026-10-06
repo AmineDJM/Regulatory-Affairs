@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cleBrute } from "@/lib/consommation/lecture";
 import { impactConsommation } from "@/lib/segmentation/service";
 import { Revue, type GroupeARevoir } from "./revue";
@@ -73,7 +74,7 @@ export default async function RevueImportPage({ params, searchParams }: { params
         <Link href="/consommation" className="text-sm text-primary underline">Tous les imports</Link>
       </PageHeader>
 
-      <section className="surface space-y-2 p-4 text-sm">
+      <section className="surface space-y-2 p-3 text-sm [overflow-wrap:anywhere] sm:p-4">
         <h2 className="font-semibold">Ce qui a été lu</h2>
         {(analyse.feuilles ?? []).map((f) => (
           <div key={f.feuille} className="space-y-1">
@@ -86,7 +87,7 @@ export default async function RevueImportPage({ params, searchParams }: { params
       </section>
 
       {impact.length > 0 && (
-        <section className="surface space-y-1 p-4 text-sm">
+        <section className="surface space-y-1 p-3 text-sm [overflow-wrap:anywhere] sm:p-4">
           <h2 className="font-semibold">Impact sur la segmentation si cet import est validé</h2>
           {impact.map((x) => <p key={x.strategie}>{x.strategie} : {x.praticiens === 0 ? "aucun segment ne change." : `${x.praticiens} praticien(s), ${x.changements} segment(s) changent.`}</p>)}
         </section>
@@ -106,33 +107,34 @@ export default async function RevueImportPage({ params, searchParams }: { params
 
       <nav className="flex flex-wrap gap-1 text-xs">
         {[null, "OK", "A_REVOIR", "DOUBLON", "IGNOREE"].map((s) => (
-          <Link key={s ?? "tout"} href={`/consommation/${imp.id}${s ? `?statut=${s}` : ""}`} className={`rounded-md border px-2 py-1 ${filtre === s ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{s ? LIB[s] : "Toutes"}</Link>
+          <Link key={s ?? "tout"} href={`/consommation/${imp.id}${s ? `?statut=${s}` : ""}`} className={`rounded-md border px-3 py-2 sm:px-2 sm:py-1 ${filtre === s ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{s ? LIB[s] : "Toutes"}</Link>
         ))}
       </nav>
-      <div className="surface overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="border-b border-border text-left text-muted-foreground">
-            <tr><th className="px-2 py-2">Source</th><th className="px-2 py-2">Période</th><th className="px-2 py-2">Établissement</th><th className="px-2 py-2">Produit</th><th className="px-2 py-2">Quantité source</th><th className="px-2 py-2">Normalisée</th><th className="px-2 py-2">Confiance</th><th className="px-2 py-2">Statut</th><th className="px-2 py-2">Remarques</th></tr>
-          </thead>
-          <tbody>
+      {/* Une ligne lue = une carte au téléphone ; la source (feuille · ligne) en tête de carte. */}
+      <div className="surface max-sm:border-0 max-sm:bg-transparent">
+        <Table mobileCards className="text-xs">
+          <TableHeader className="bg-transparent">
+            <TableRow><TableHead className="px-2">Source</TableHead><TableHead className="px-2">Période</TableHead><TableHead className="px-2">Établissement</TableHead><TableHead className="px-2">Produit</TableHead><TableHead className="px-2">Quantité source</TableHead><TableHead className="px-2">Normalisée</TableHead><TableHead className="px-2">Confiance</TableHead><TableHead className="px-2">Statut</TableHead><TableHead className="px-2">Remarques</TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
             {lignes.map((l) => {
               const an = (l.anomalies ?? {}) as { messages?: string[] };
               return (
-                <tr key={l.id} className="border-b border-border/60 align-top">
-                  <td className="px-2 py-1">{l.feuille} · l. {l.ligneSource}</td>
-                  <td className="px-2 py-1">{l.periodeDebut ? `${l.periodeDebut.toISOString().slice(0, 7)}${l.periodeFin && l.periodeFin.toISOString().slice(0, 7) !== l.periodeDebut.toISOString().slice(0, 7) ? ` → ${l.periodeFin.toISOString().slice(0, 7)}` : ""}` : "—"}</td>
-                  <td className="px-2 py-1">{l.institution?.name ?? <span className="text-warning">{l.etablissementBrut ?? "—"}</span>}</td>
-                  <td className="px-2 py-1">{l.product?.canonicalName ?? <span className={l.molecule ? "" : "text-warning"}>{l.produitBrut ?? l.molecule ?? "—"}{!l.product && l.molecule ? " (hors référentiel)" : ""}</span>}</td>
-                  <td className="px-2 py-1">{l.quantiteSource === null ? "—" : `${Number(l.quantiteSource)} ${l.uniteSource ?? ""}`}</td>
-                  <td className="px-2 py-1">{l.quantite === null ? "—" : `${Number(l.quantite)} ${l.unite ?? ""}`}</td>
-                  <td className="px-2 py-1">{l.confiance} %</td>
-                  <td className="px-2 py-1"><Badge tone={TON[l.statut] ?? "neutral"}>{LIB[l.statut] ?? l.statut}</Badge></td>
-                  <td className="px-2 py-1 text-muted-foreground">{(an.messages ?? []).join(" ")}</td>
-                </tr>
+                <TableRow key={l.id} className="border-border/60 align-top">
+                  <TableCell data-sans-etiquette className="!justify-start px-2 align-top font-medium sm:py-1 sm:font-normal">{l.feuille} · l. {l.ligneSource}</TableCell>
+                  <TableCell className="px-2 align-top sm:py-1">{l.periodeDebut ? `${l.periodeDebut.toISOString().slice(0, 7)}${l.periodeFin && l.periodeFin.toISOString().slice(0, 7) !== l.periodeDebut.toISOString().slice(0, 7) ? ` → ${l.periodeFin.toISOString().slice(0, 7)}` : ""}` : "—"}</TableCell>
+                  <TableCell className="px-2 align-top sm:py-1">{l.institution?.name ?? <span className="text-warning">{l.etablissementBrut ?? "—"}</span>}</TableCell>
+                  <TableCell className="px-2 align-top sm:py-1">{l.product?.canonicalName ?? <span className={l.molecule ? "" : "text-warning"}>{l.produitBrut ?? l.molecule ?? "—"}{!l.product && l.molecule ? " (hors référentiel)" : ""}</span>}</TableCell>
+                  <TableCell className="px-2 align-top sm:py-1">{l.quantiteSource === null ? "—" : `${Number(l.quantiteSource)} ${l.uniteSource ?? ""}`}</TableCell>
+                  <TableCell className="px-2 align-top sm:py-1">{l.quantite === null ? "—" : `${Number(l.quantite)} ${l.unite ?? ""}`}</TableCell>
+                  <TableCell className="px-2 align-top sm:py-1">{l.confiance} %</TableCell>
+                  <TableCell className="px-2 align-top sm:py-1"><Badge tone={TON[l.statut] ?? "neutral"}>{LIB[l.statut] ?? l.statut}</Badge></TableCell>
+                  <TableCell className="px-2 align-top text-muted-foreground sm:py-1">{(an.messages ?? []).join(" ")}</TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
         {lignes.length === 400 && <p className="p-2 text-xs text-muted-foreground">Les 400 premières lignes sont affichées ; filtrez par statut pour voir le reste.</p>}
       </div>
     </div>

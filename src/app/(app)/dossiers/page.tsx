@@ -79,7 +79,7 @@ export default async function DossiersPage() {
       ) : (
         <Card>
           <CardContent className="p-0">
-            <Table>
+            <Table mobileCards>
               <TableHeader>
                 <TableRow>
                   <TableHead>Sujet</TableHead>
@@ -93,14 +93,14 @@ export default async function DossiersPage() {
               <TableBody>
                 {dossiers.map((d) => (
                   <TableRow key={d.id}>
-                    <TableCell>
-                      <Link href={`/dossiers/${d.id}`} className="inline-flex items-center gap-2 font-medium hover:underline">
-                        <ClipboardList className="h-4 w-4 text-primary" />
-                        <span>{d.title}</span>
+                    <TableCell data-sans-etiquette>
+                      <Link href={`/dossiers/${d.id}`} className="inline-flex max-w-full items-start gap-2 font-medium hover:underline">
+                        <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span className="min-w-0 break-words">{d.title}</span>
                       </Link>
-                      <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         <span className="font-mono">{d.reference}</span>
-                        {d.category && <span className="rounded-full bg-secondary px-2 py-0.5 text-[0.625rem] font-medium">{d.category}</span>}
+                        {d.category && <span className="rounded-full bg-secondary px-2 py-0.5 text-[0.6875rem] font-medium">{d.category}</span>}
                       </div>
                     </TableCell>
                     {/* L'entité se voit — et son absence aussi : un sujet sans société reste listé pour

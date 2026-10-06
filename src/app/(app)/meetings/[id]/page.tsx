@@ -119,7 +119,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="h-4 w-4 text-primary" /> Réunion en présentiel</CardTitle></CardHeader>
               <CardContent>
-                <p className="whitespace-pre-wrap text-sm">{meeting.location || "Lieu à préciser par l'organisateur."}</p>
+                <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{meeting.location || "Lieu à préciser par l'organisateur."}</p>
               </CardContent>
             </Card>
           ) : (
@@ -139,7 +139,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" /> Compte rendu</CardTitle></CardHeader>
               <CardContent>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">{meeting.summary}</p>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">{meeting.summary}</p>
               </CardContent>
             </Card>
           )}
@@ -150,10 +150,10 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
               <CardHeader><CardTitle className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" /> Tâches proposées</CardTitle></CardHeader>
               <CardContent className="space-y-2">
                 {openProposals.map((p) => (
-                  <div key={p.id} className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
+                  <div key={p.id} className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{p.title}</p>
-                      {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
+                      <p className="text-sm font-medium [overflow-wrap:anywhere]">{p.title}</p>
+                      {p.description && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{p.description}</p>}
                       <p className="mt-1 text-xs text-muted-foreground">Pour : {p.assignee?.name ?? "à assigner (organisateur)"}</p>
                     </div>
                     {canManage && <ProposalActions proposalId={p.id} />}
@@ -192,9 +192,9 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
             </CardHeader>
             <CardContent className="space-y-1.5 text-sm">
               <div className="flex items-center gap-2">
-                <CircleUser className="h-4 w-4 text-primary" />
-                <span className="font-medium">{meeting.organizer?.name ?? "—"}</span>
-                <Badge tone="neutral" dot={false}>Organisateur</Badge>
+                <CircleUser className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 truncate font-medium">{meeting.organizer?.name ?? "—"}</span>
+                <span className="ml-auto shrink-0"><Badge tone="neutral" dot={false}>Organisateur</Badge></span>
               </div>
               {meeting.participants.map((p) => (
                 <div key={p.id} className="flex items-center gap-2 text-muted-foreground">
@@ -225,9 +225,9 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+    <div className="flex items-start justify-between gap-3">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right font-medium [overflow-wrap:anywhere]">{value}</span>
     </div>
   );
 }

@@ -38,9 +38,9 @@ export function OuvrirPlan({
   };
 
   return (
-    <span className="flex flex-wrap items-center gap-2">
+    <span className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
       {err && <span className="text-xs text-destructive">{err}</span>}
-      <Button size="sm" onClick={() => void ouvrir()} disabled={busy}>
+      <Button size="sm" className="h-auto min-h-12 w-full whitespace-normal py-2 text-sm leading-tight sm:min-h-0 sm:h-8 sm:w-auto sm:whitespace-nowrap sm:py-0 sm:text-xs" onClick={() => void ouvrir()} disabled={busy}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
         Préparer {GRANULARITE_LABELS[granularite].toLowerCase() === "mensuelle" ? "le mois" : "la période"} {labelPeriodeSuivante}
       </Button>

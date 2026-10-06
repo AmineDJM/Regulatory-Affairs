@@ -50,11 +50,11 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
 
   if (!canEdit) {
     return (
-      <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:gap-x-6">
         {defs.map((d) => (
-          <div key={d.id}>
+          <div key={d.id} className="min-w-0">
             <p className="text-xs text-muted-foreground">{d.label}</p>
-            <p className="font-medium">
+            <p className="break-words font-medium">
               {d.type === "FILE" ? (
                 fileCustomValue(values[d.key]) ? (
                   <Link href={`/drive/${fileCustomValue(values[d.key])!.nodeId}`} className="text-primary underline underline-offset-2 hover:opacity-80">
@@ -88,14 +88,14 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
       <input type="hidden" name="entityType" value={entityType} />
       <input type="hidden" name="entityId" value={entityId} />
       <input type="hidden" name="path" value={pathname} />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {defs.map((d) => {
           const v = values[d.key];
           const name = `cf_${d.key}`;
           if (d.type === "FILE") {
             const picked = fileCustomValue(v);
             return (
-              <div key={d.id} className="col-span-2">
+              <div key={d.id} className="sm:col-span-2">
                 <DrivePickerField
                   name={name}
                   label={d.required ? `${d.label} *` : d.label}
@@ -107,7 +107,7 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
           }
           if (d.type === "BOOLEAN") {
             return (
-              <label key={d.id} className="col-span-2 flex items-center gap-2 text-sm">
+              <label key={d.id} className="flex items-center gap-2 py-1 text-sm sm:col-span-2">
                 <input type="checkbox" name={name} defaultChecked={Boolean(v)} className="h-4 w-4 rounded border-input" />
                 {d.label}
               </label>
@@ -142,7 +142,7 @@ export function CustomFieldsCard({ entityType, entityId, defs, values, canEdit }
       </div>
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       <div className="flex justify-end">
-        <Button type="submit" size="sm" disabled={saving}>
+        <Button type="submit" size="sm" disabled={saving} className="w-full sm:w-auto">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
           {saved ? "Enregistré" : "Enregistrer"}
         </Button>

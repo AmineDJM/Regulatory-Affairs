@@ -77,7 +77,7 @@ export function AdProTransferButton({ from, sourceId, title }: { from: Kind; sou
             <legend className="text-sm font-medium">Destination</legend>
             {targets.map((k) => (
               <label key={k} className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
-                <input type="radio" name="to" value={k} checked={to === k} onChange={() => setTo(k)} className="h-4 w-4" />
+                <input type="radio" name="to" value={k} checked={to === k} onChange={() => setTo(k)} className="h-4 w-4 shrink-0" />
                 {LABELS[k]}
               </label>
             ))}
@@ -85,7 +85,7 @@ export function AdProTransferButton({ from, sourceId, title }: { from: Kind; sou
 
           <div className="space-y-1.5 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm text-muted-foreground">
             <p className="flex items-center gap-2 font-medium text-foreground">
-              <AlertTriangle className="h-4 w-4 text-warning" /> Ce qui va se passer
+              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" /> Ce qui va se passer
             </p>
             <p>• Les <strong>pièces jointes suivent</strong> la demande.</p>
             <p>• Le <strong>circuit de validation repart du début</strong> : les modules n&apos;ont ni les mêmes étapes ni les mêmes acteurs, et rejouer un avancement produirait une demande qui se croit validée par des gens qui ne l&apos;ont jamais vue.</p>
@@ -96,15 +96,15 @@ export function AdProTransferButton({ from, sourceId, title }: { from: Kind; sou
           {msg && (
             <p className={`flex items-start gap-2 rounded-xl px-3 py-2 text-sm ${msg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
               {msg.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />}
-              {msg.text}
+              <span className="min-w-0 [overflow-wrap:anywhere]">{msg.text}</span>
             </p>
           )}
 
-          <div className="flex gap-2">
-            <Button size="sm" onClick={submit} disabled={!to || busy}>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button size="sm" className="h-10 w-full sm:h-8 sm:w-auto" onClick={submit} disabled={!to || busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4" />} Transférer
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+            <Button size="sm" variant="outline" className="h-10 w-full sm:h-8 sm:w-auto" onClick={() => setOpen(false)}>Annuler</Button>
           </div>
         </div>
       </Sheet>

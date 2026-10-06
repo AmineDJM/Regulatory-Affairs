@@ -130,7 +130,7 @@ export function BonDeCommandeGate({
               </span>
             </div>
             {porte.note && (
-              <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs">
+              <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs [overflow-wrap:anywhere]">
                 <strong>Motif du centre :</strong> {porte.note}
               </p>
             )}
@@ -198,7 +198,7 @@ export function BonDeCommandeGate({
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   value={motifRenvoi} onChange={(e) => setMotifRenvoi(e.target.value)} aria-label="Ce qu'il faut corriger"
-                  placeholder="Ce qu'il faut corriger (obligatoire)" className="min-w-0 flex-1"
+                  placeholder="Ce qu'il faut corriger (obligatoire)" className="min-w-0 flex-1 basis-full sm:basis-auto"
                 />
                 <BoutonDecisif size="sm" variant="secondary" onClick={() => void agir("RENVOYER")} disabled={busy !== null || !motifRenvoi.trim()}>
                   {busy === "RENVOYER" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Confirmer le renvoi

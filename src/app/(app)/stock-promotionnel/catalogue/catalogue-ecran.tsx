@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RecordForm, type FieldDef } from "@/components/shared/create-record-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
@@ -115,7 +116,7 @@ export function CatalogueEcran({ articles, droits }: { articles: ArticleCatalogu
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher une référence, un support…" className="pl-8" aria-label="Rechercher dans le catalogue" />
         </div>
         {nArchives > 0 && (
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <label className="flex min-h-9 items-center gap-2 text-xs text-muted-foreground sm:min-h-0">
             <input type="checkbox" checked={archives} onChange={(e) => setArchives(e.target.checked)} className="h-4 w-4 rounded border-input" />
             Archivés ({nArchives})
           </label>
@@ -131,11 +132,11 @@ export function CatalogueEcran({ articles, droits }: { articles: ArticleCatalogu
 
       {message && (
         <div role={message.ok ? "status" : "alert"} className={cn("flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm", message.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
-          <span className="flex items-start gap-2">
+          <span className="flex min-w-0 items-start gap-2 [overflow-wrap:anywhere]">
             {message.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
             {message.texte}
           </span>
-          <button type="button" onClick={() => setMessage(null)} aria-label="Fermer le message" className="shrink-0 rounded p-0.5 hover:bg-black/5"><X className="h-4 w-4" /></button>
+          <button type="button" onClick={() => setMessage(null)} aria-label="Fermer le message" className="-my-1 -mr-1.5 shrink-0 rounded p-2 hover:bg-black/5 sm:my-0 sm:mr-0 sm:p-0.5"><X className="h-4 w-4" /></button>
         </div>
       )}
 
@@ -150,7 +151,7 @@ export function CatalogueEcran({ articles, droits }: { articles: ArticleCatalogu
           return (
             <section key={famille} aria-labelledby={`famille-${famille}`} className="space-y-2">
               <div className="flex flex-wrap items-end justify-between gap-2">
-                <div>
+                <div className="min-w-0">
                   <h2 id={`famille-${famille}`} className="text-sm font-semibold text-foreground">
                     {TITRE_FAMILLE[famille]} <span className="font-normal text-muted-foreground">({total})</span>
                   </h2>
@@ -167,33 +168,35 @@ export function CatalogueEcran({ articles, droits }: { articles: ArticleCatalogu
                   {total === 0 ? "Aucun support dans cette famille." : "Aucun support de cette famille ne correspond."}
                 </p>
               ) : (
-                <div className="surface overflow-x-auto">
-                  <table className="w-full min-w-[560px] text-sm">
-                    <thead className="border-b border-border text-left text-xs text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-2 font-medium">Référence</th>
-                        <th className="px-3 py-2 font-medium">Support</th>
-                        <th className="px-3 py-2 text-right font-medium">En stock</th>
-                        <th className="px-3 py-2 font-medium" />
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
+                <div className="surface overflow-hidden">
+                  <Table mobileCards className="sm:min-w-[560px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Référence</TableHead>
+                        <TableHead>Support</TableHead>
+                        <TableHead className="text-right">En stock</TableHead>
+                        <TableHead />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {lignes.map((a) => (
-                        <tr key={a.id} className={cn("align-top", !a.actif && "opacity-60")}>
-                          <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{a.reference}</td>
-                          <td className="px-3 py-2">
-                            <p className="font-medium text-foreground">
-                              {/* Le NOM dans son propre élément : collé aux pastilles, « Fiche POSO » ne
-                                  se désignait plus seul — le banc navigateur l'a nommé. */}
-                              <span>{a.nom}</span>
-                              {a.exigeProduit && <Badge className="ml-2 align-middle">Par produit</Badge>}
-                              {!a.actif && <Badge className="ml-2 align-middle">Archivé</Badge>}
-                            </p>
-                            {a.description && <p className="text-xs text-muted-foreground">{a.description}</p>}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums" title="Articles de stock (par produit et par société) qui citent cette référence">{a.articlesDeStock}</td>
-                          <td className="px-3 py-2">
-                            <div className="flex justify-end gap-1">
+                        <TableRow key={a.id} className={cn("align-top", !a.actif && "opacity-60")}>
+                          <TableCell className="whitespace-nowrap font-mono text-xs sm:py-2">{a.reference}</TableCell>
+                          <TableCell data-sans-etiquette className="sm:py-2">
+                            <div className="w-full min-w-0">
+                              <p className="font-medium text-foreground">
+                                {/* Le NOM dans son propre élément : collé aux pastilles, « Fiche POSO » ne
+                                    se désignait plus seul — le banc navigateur l'a nommé. */}
+                                <span>{a.nom}</span>
+                                {a.exigeProduit && <Badge className="ml-2 align-middle">Par produit</Badge>}
+                                {!a.actif && <Badge className="ml-2 align-middle">Archivé</Badge>}
+                              </p>
+                              {a.description && <p className="text-xs text-muted-foreground">{a.description}</p>}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums sm:py-2" title="Articles de stock (par produit et par société) qui citent cette référence">{a.articlesDeStock}</TableCell>
+                          <TableCell className="sm:py-2">
+                            <div className="flex flex-wrap justify-end gap-1">
                               {droits.modifier && (
                                 <>
                                   <Button size="sm" variant="ghost" disabled={occupe} onClick={() => setEdition({ article: a })}>Modifier</Button>
@@ -202,11 +205,11 @@ export function CatalogueEcran({ articles, droits }: { articles: ArticleCatalogu
                               )}
                               <SuperAdminDeleteButton kind="PROMO_CATALOGUE" id={a.id} name={`${a.reference} — ${a.nom}`} enabled={droits.supprimer} compact stay />
                             </div>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </section>

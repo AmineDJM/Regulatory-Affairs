@@ -46,7 +46,7 @@ export function ImportTransactionsButton() {
       <Sheet open={open} onClose={() => setOpen(false)} title="Importer des écritures" description="Collez vos données CSV (1ʳᵉ ligne = en-tête).">
         <form action={(fd) => { setPending(true); formAction(fd); }} className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            Colonnes&nbsp;: <code>date, direction (IN/OUT), category, label, amount, method, account, counterparty</code>
+            Colonnes&nbsp;: <code className="[overflow-wrap:anywhere]">date, direction (IN/OUT), category, label, amount, method, account, counterparty</code>
             {" "}— séparées par « , » ou « ; », date au format AAAA-MM-JJ ou JJ/MM/AAAA.
           </p>
           <Textarea name="csv" defaultValue={SAMPLE} onChange={() => setDejaImporte(false)} className="min-h-[220px] font-mono text-xs" />
@@ -57,9 +57,9 @@ export function ImportTransactionsButton() {
               {bilan.ecartees ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />} {bilan.message ?? "Import terminé."}
             </div>
           )}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Fermer</Button>
-            <Button type="submit" disabled={pending || dejaImporte}>{pending && <Loader2 className="h-4 w-4 animate-spin" />} {dejaImporte ? "Importé" : "Importer"}</Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)}>Fermer</Button>
+            <Button type="submit" className="w-full sm:w-auto" disabled={pending || dejaImporte}>{pending && <Loader2 className="h-4 w-4 animate-spin" />} {dejaImporte ? "Importé" : "Importer"}</Button>
           </div>
         </form>
       </Sheet>

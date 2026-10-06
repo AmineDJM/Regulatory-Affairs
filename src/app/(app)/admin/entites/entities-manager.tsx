@@ -7,6 +7,7 @@ import { createCompany, updateCompany, toggleCompany } from "@/lib/actions/compa
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label } from "@/components/ui/input";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 
 export interface EntityRow {
   id: string;
@@ -54,59 +55,59 @@ export function EntitiesManager({ rows }: { rows: EntityRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Button onClick={openNew}><Plus className="h-4 w-4" /> Nouvelle entité</Button>
+        <Button onClick={openNew} className="w-full sm:w-auto"><Plus className="h-4 w-4" /> Nouvelle entité</Button>
       </div>
 
-      <div className="surface overflow-x-auto p-0">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 py-2 text-left">Entité</th>
-              <th className="px-3 py-2 text-left">Libellé court</th>
-              <th className="px-3 py-2 text-right">Produits</th>
-              <th className="px-3 py-2 text-right">Employés</th>
-              <th className="px-3 py-2 text-right">Départements</th>
-              <th className="px-3 py-2 text-center">Statut</th>
-              <th className="px-3 py-2 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
+      <div className="sm:surface sm:overflow-x-auto sm:p-0">
+        <Table mobileCards>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Entité</TableHead>
+              <TableHead>Libellé court</TableHead>
+              <TableHead className="text-right">Produits</TableHead>
+              <TableHead className="text-right">Employés</TableHead>
+              <TableHead className="text-right">Départements</TableHead>
+              <TableHead className="text-center">Statut</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((r) => (
-              <tr key={r.id} className={r.isActive ? "" : "opacity-60"}>
-                <td className="px-3 py-2">
+              <TableRow key={r.id} className={r.isActive ? "" : "opacity-60"}>
+                <TableCell data-sans-etiquette className="py-2 max-sm:!justify-start">
                   <span className="inline-flex items-center gap-2 font-medium">
-                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: r.color || "#64748b" }} />
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: r.color || "#64748b" }} />
                     {r.name}
                   </span>
-                </td>
-                <td className="px-3 py-2 text-muted-foreground">{r.shortName || "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.products}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.employees}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.departments}</td>
-                <td className="px-3 py-2 text-center">
+                </TableCell>
+                <TableCell className="py-2 text-muted-foreground">{r.shortName || "—"}</TableCell>
+                <TableCell className="py-2 text-right tabular-nums">{r.products}</TableCell>
+                <TableCell className="py-2 text-right tabular-nums">{r.employees}</TableCell>
+                <TableCell className="py-2 text-right tabular-nums">{r.departments}</TableCell>
+                <TableCell className="py-2 text-center">
                   {r.isActive ? (
                     <span className="rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">Active</span>
                   ) : (
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Inactive</span>
                   )}
-                </td>
-                <td className="px-3 py-2">
+                </TableCell>
+                <TableCell data-sans-etiquette className="py-2">
                   <div className="flex justify-end gap-1.5">
-                    <button onClick={() => openEdit(r)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Modifier">
+                    <button onClick={() => openEdit(r)} className="rounded-lg p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5" title="Modifier" aria-label={`Modifier ${r.name}`}>
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <button onClick={() => toggle(r)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title={r.isActive ? "Désactiver" : "Réactiver"}>
+                    <button onClick={() => toggle(r)} className="rounded-lg p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5" title={r.isActive ? "Désactiver" : "Réactiver"} aria-label={`${r.isActive ? "Désactiver" : "Réactiver"} ${r.name}`}>
                       <Power className="h-4 w-4" />
                     </button>
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucune entité. Créez-en une pour commencer.</td></tr>
+              <TableRow><TableCell colSpan={7} data-sans-etiquette className="py-6 text-center text-muted-foreground max-sm:!justify-center">Aucune entité. Créez-en une pour commencer.</TableCell></TableRow>
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       <Sheet

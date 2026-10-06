@@ -67,7 +67,7 @@ export function LegalChainCard({
                 )}
                 <div className={`rounded-lg border p-3 ${l.isCurrent ? "border-primary/40 bg-primary/5" : "border-border"}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="flex items-center gap-2 text-sm">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
                       <Badge tone={l.kind === "INVOICE" ? "warning" : l.kind === "QUOTE" ? "info" : "purple"} dot={false}>
                         {natureLegale(l.kind)}
                       </Badge>
@@ -124,7 +124,7 @@ export function LegalChainCard({
                     <Badge tone="info" dot={false}>Aux Finances — à régler</Badge>
                   )}
                 </span>
-                <span className="text-xs text-muted-foreground">{formatCurrency(settlement.amount)}</span>
+                <span className="whitespace-nowrap text-xs text-muted-foreground tabular-nums">{formatCurrency(settlement.amount)}</span>
               </div>
             </li>
           )}

@@ -133,7 +133,7 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
         <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
           <p className="truncate text-[0.6875rem] text-muted-foreground">Discussion enregistrée — quittez, revenez : elle reprend ici.</p>
           <button type="button" onClick={resetThread} disabled={busy}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50">
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1.5 text-[0.6875rem] sm:py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50">
             <MessageSquarePlus className="h-3.5 w-3.5" /> Nouvelle discussion
           </button>
         </div>
@@ -157,7 +157,7 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((s) => (
                 <button key={s} type="button" onClick={() => setInput(s)}
-                  className="rounded-full border border-border px-2.5 py-1 text-[0.6875rem] transition-colors hover:bg-accent">
+                  className="rounded-full border border-border px-2.5 py-1.5 text-left text-[0.6875rem] transition-colors hover:bg-accent sm:py-1">
                   {s}
                 </button>
               ))}
@@ -184,7 +184,7 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
               {m.files && m.files.length > 0 && (
                 <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
                   {m.files.map((f) => (
-                    <a key={f.url} href={f.url} className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10">
+                    <a key={f.url} href={f.url} className="inline-flex max-w-full items-center gap-1.5 break-all rounded-md border border-primary/40 bg-primary/5 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10">
                       <FileDown className="h-3.5 w-3.5" /> {f.name}
                     </a>
                   ))}
@@ -217,9 +217,9 @@ export function DossierChatPanel({ dossierId, configured, canView }: { dossierId
       {attached.length > 0 && (
         <div className="flex flex-wrap gap-1.5 border-t border-border/60 px-2 pt-2">
           {attached.map((f, i) => (
-            <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs">
+            <span key={`${f.name}-${i}`} className="inline-flex max-w-full items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs [overflow-wrap:anywhere]">
               <Paperclip className="h-3 w-3" /> {f.name}
-              <button type="button" aria-label={`Retirer ${f.name}`} onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}>
+              <button type="button" aria-label={`Retirer ${f.name}`} className="-my-1 -mr-1.5 rounded-full p-1.5 sm:m-0 sm:p-0" onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))}>
                 <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
               </button>
             </span>

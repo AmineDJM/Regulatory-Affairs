@@ -69,7 +69,7 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-card/80 px-4 backdrop-blur lg:px-6">
+      <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-border bg-card/80 px-3 backdrop-blur sm:gap-3 sm:px-4 lg:px-6">
         <button
           className="rounded-lg p-2 text-muted-foreground hover:bg-secondary lg:hidden"
           onClick={() => setDrawerOpen(true)}
@@ -96,7 +96,7 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
 
         {/* `shrink-0` : les actions (entité, messages, notifications, avatar) ne se laissent pas
             comprimer par la recherche — c'est la recherche qui tronque son libellé. */}
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
           <CompanySwitcher companies={companies} scope={companyScope} />
           {/* Plein écran — présent ici, donc sur TOUS les écrans. Garde la barre latérale. */}
           <FocusToggle />
@@ -152,7 +152,7 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
                   replie ici. */}
               {poles.length > 0 && (
                 <div>
-                  <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">Pôles</p>
+                  <p className="px-3 pb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-sidebar-muted">Pôles</p>
                   <ul className="space-y-0.5">
                     {poles.map((pole) => {
                       const opened = activePole === pole.key || (open[pole.key] ?? pole.defaultOpen);
@@ -248,7 +248,7 @@ function DrawerGroup({ label, items, pathname }: { label: string; items: NavItem
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">{label}</p>
+      <p className="px-3 pb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-sidebar-muted">{label}</p>
       <ul className="space-y-0.5">
         {items.map((item) => <DrawerItem key={item.href} item={item} pathname={pathname} />)}
       </ul>

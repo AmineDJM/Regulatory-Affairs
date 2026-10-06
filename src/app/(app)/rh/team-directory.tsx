@@ -59,7 +59,7 @@ export function TeamDirectory({ rows, canSeeSalary }: { rows: DirectoryRow[]; ca
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[15rem] flex-1">
+        <div className="relative w-full flex-1 sm:w-auto sm:min-w-[15rem]">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             value={q} onChange={(e) => setQ(e.target.value)}
@@ -71,14 +71,14 @@ export function TeamDirectory({ rows, canSeeSalary }: { rows: DirectoryRow[]; ca
         {departments.length > 0 && (
           <select
             value={dept} onChange={(e) => setDept(e.target.value)}
-            className="h-10 rounded-xl border border-border bg-background px-2.5 text-sm"
+            className="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-2.5 text-sm sm:flex-none"
             aria-label="Filtrer par département"
           >
             <option value="">Tous les départements</option>
             {departments.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         )}
-        <label className="flex h-10 items-center gap-2 rounded-xl border border-border px-3 text-sm">
+        <label className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-border px-3 text-sm">
           <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} className="h-4 w-4 rounded border-input" />
           Actifs seulement
         </label>

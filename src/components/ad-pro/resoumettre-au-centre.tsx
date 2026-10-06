@@ -39,12 +39,12 @@ export function ResoumettreAuCentre({ entityType, entityId, montant }: {
           placeholder="Ce que vous avez corrigé (obligatoire)" className="min-w-0"
         />
         <Input
-          name="amount" type="number" min={0} step="any" aria-label="Montant corrigé (DZD)"
+          name="amount" type="number" inputMode="decimal" min={0} step="any" aria-label="Montant corrigé (DZD)"
           defaultValue={montant == null ? "" : String(montant)} placeholder="Montant (DZD)"
         />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" size="sm" disabled={busy || enCours || !note.trim()}>
+        <Button type="submit" size="sm" className="h-10 w-full sm:h-8 sm:w-auto" disabled={busy || enCours || !note.trim()}>
           {busy || enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resoumettre au centre
         </Button>
         <span className="text-xs text-muted-foreground">Corrigé sous le seuil, il ne repasse pas par le centre.</span>

@@ -117,15 +117,15 @@ export function CallScreen({
             <p className="truncate text-[0.6875rem] text-muted-foreground">{label}</p>
           </div>
           <button type="button" onClick={onMute} title={muted ? "Réactiver le micro" : "Couper le micro"}
-            className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${muted ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:bg-secondary"}`}>
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition sm:h-8 sm:w-8 ${muted ? "bg-destructive/15 text-destructive" : "text-muted-foreground hover:bg-secondary"}`}>
             {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </button>
           <button type="button" onClick={onRestore} title="Reprendre l'appel en grand"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary">
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary sm:h-8 sm:w-8">
             <Maximize2 className="h-4 w-4" />
           </button>
           <button type="button" onClick={onEnd} title="Raccrocher"
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-destructive/10 text-destructive transition hover:bg-destructive/20">
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive transition hover:bg-destructive/20 sm:h-8 sm:w-8">
             <PhoneOff className="h-4 w-4" />
           </button>
         </div>
@@ -137,11 +137,11 @@ export function CallScreen({
   return (
     <div className="fixed inset-0 z-[60] flex sm:items-center sm:justify-center sm:p-4" role="dialog" aria-modal="true" aria-label="Appel avec My Chief of Staff">
       <button type="button" aria-label="Réduire l'appel" className="absolute inset-0 hidden bg-black/50 backdrop-blur-sm sm:block" onClick={onMinimize} />
-      <div className="relative z-10 flex h-full w-full flex-col bg-card pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-md sm:rounded-3xl sm:border sm:border-border sm:pb-6 sm:pt-6 sm:shadow-2xl">
+      <div className="relative z-10 flex h-full w-full flex-col bg-card pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] sm:h-auto sm:max-h-[92dvh] sm:w-full sm:max-w-md sm:rounded-3xl sm:border sm:border-border sm:pb-6 sm:pt-6 sm:shadow-2xl">
 
         {/* En-tête : identité, ● LIVE réel (jamais affiché sans connexion), timer. */}
-        <div className="flex items-center justify-between px-5">
-          <div>
+        <div className="flex shrink-0 items-center justify-between gap-3 px-5">
+          <div className="min-w-0">
             <p className="text-sm font-semibold tracking-wide">MY CHIEF OF STAFF</p>
             <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
               {connected ? (
@@ -155,32 +155,35 @@ export function CallScreen({
             </p>
           </div>
           <button type="button" onClick={onMinimize} title="Réduire — l'appel continue (Échap)"
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground">
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground sm:h-9 sm:w-9">
             <Minimize2 className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Corps : orbe, état, dernière réplique — de l'air, pas de surcharge. */}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 px-6 py-6">
+        {/* Corps : orbe, état, dernière réplique — de l'air, pas de surcharge.
+            Il défile quand le transcript, le champ et les cartes ne tiennent plus sur un petit
+            téléphone ; `my-auto` (et non `justify-center`) garde le haut atteignable. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+        <div className="my-auto flex w-full flex-col items-center gap-4 px-5 py-4 sm:gap-5 sm:px-6 sm:py-6">
           {orb}
-          <p className={`text-center text-sm ${error ? "text-destructive" : "text-muted-foreground"}`}>{label}</p>
+          <p className={`text-center text-sm [overflow-wrap:anywhere] ${error ? "text-destructive" : "text-muted-foreground"}`}>{label}</p>
           {!showTranscript && lastLine && !error && (
-            <p className="line-clamp-2 w-full max-w-sm text-center text-xs text-muted-foreground/80">
+            <p className="line-clamp-2 w-full max-w-sm text-center text-xs text-muted-foreground/80 [overflow-wrap:anywhere]">
               {lastLine.role === "user" ? "Vous : " : ""}{lastLine.text}
             </p>
           )}
           {showTranscript && (
-            <div className="max-h-44 w-full space-y-1.5 overflow-y-auto rounded-xl bg-secondary/50 p-3">
+            <div className="max-h-[min(11rem,30dvh)] w-full space-y-1.5 overflow-y-auto overscroll-contain rounded-xl bg-secondary/50 p-3">
               {lines.length === 0 && <p className="text-xs text-muted-foreground">La conversation s&apos;affichera ici.</p>}
               {lines.map((l, i) => (
-                <p key={i} className={`text-xs ${l.role === "user" ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                <p key={i} className={`text-xs [overflow-wrap:anywhere] ${l.role === "user" ? "font-medium text-foreground" : "text-muted-foreground"}`}>
                   {l.role === "user" ? "Vous — " : ""}{l.text}
                 </p>
               ))}
             </div>
           )}
           <button type="button" onClick={() => setShowTranscript((s) => !s)}
-            className="flex items-center gap-1 text-[0.6875rem] text-muted-foreground transition hover:text-foreground">
+            className="flex min-h-9 items-center gap-1 rounded-lg px-3 text-[0.6875rem] text-muted-foreground transition hover:text-foreground sm:min-h-0 sm:px-0">
             {showTranscript ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
             {showTranscript ? "Masquer le transcript" : "Voir le transcript"}
           </button>
@@ -190,16 +193,17 @@ export function CallScreen({
             </p>
           )}
         </div>
+        </div>
 
         {/* CARTES LIVE : ce dont on parle s'affiche — toucher ouvre la fiche, l'appel se réduit. */}
         {cards.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto px-5 pb-3 [scrollbar-width:none]">
+          <div className="flex shrink-0 gap-2 overflow-x-auto overscroll-x-contain px-5 pb-3 [scrollbar-width:none]">
             {cards.map((c) => (
               <button
                 key={c.href}
                 type="button"
                 onClick={() => onOpenCard(c.href)}
-                className="flex shrink-0 items-center gap-1.5 rounded-xl border border-border bg-secondary/50 px-3 py-2 text-xs font-medium transition hover:border-primary/50 hover:text-primary"
+                className="flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl border border-border bg-secondary/50 px-3 py-2 text-xs font-medium sm:min-h-0 transition hover:border-primary/50 hover:text-primary"
                 title="Ouvrir — l'appel continue en réduit"
               >
                 <span className="max-w-[11rem] truncate">{c.label}</span>
@@ -213,14 +217,15 @@ export function CallScreen({
         {typing && (
           <form
             onSubmit={(e) => { e.preventDefault(); submitDraft(); }}
-            className="flex items-center gap-2 px-5 pb-3"
+            className="flex shrink-0 items-center gap-2 px-5 pb-3"
           >
             <input
               ref={inputRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Écrire au Chief of Staff…"
-              className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3.5 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
+              enterKeyHint="send"
+              className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3.5 text-base outline-none lg:text-sm transition placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
             />
             <button type="submit" disabled={!draft.trim() || !connected}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition disabled:opacity-40">
@@ -230,7 +235,7 @@ export function CallScreen({
         )}
 
         {/* Contrôles : gros, peu nombreux — mute / type / raccrocher. */}
-        <div className="flex items-center justify-center gap-5 px-6">
+        <div className="flex shrink-0 items-center justify-center gap-6 px-6 sm:gap-5">
           <button type="button" onClick={onMute} disabled={!connected}
             title={muted ? "Réactiver le micro" : "Couper le micro"}
             className={`flex h-14 w-14 items-center justify-center rounded-full border transition disabled:opacity-40 ${

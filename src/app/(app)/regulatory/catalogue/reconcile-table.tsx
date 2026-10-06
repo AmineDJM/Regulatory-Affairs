@@ -153,7 +153,7 @@ function OrphanRow({ orphan, dossiers, canLink, picked, onPick, busy, onLink }: 
 
       {canLink && (
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
-          <Select value={picked} onChange={(e) => onPick(e.target.value)} className="h-8 text-xs">
+          <Select value={picked} onChange={(e) => onPick(e.target.value)} className="h-9 text-xs sm:h-8">
             <option value="">
               {top ? "…ou choisir un autre dossier" : "Choisir le dossier réglementaire"}
             </option>

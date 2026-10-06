@@ -65,7 +65,7 @@ export function DriveSearch({ initial = "" }: { initial?: string }) {
           type="button"
           onClick={() => { setValue(""); go(""); }}
           aria-label="Effacer la recherche"
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground sm:right-2 sm:h-auto sm:w-auto sm:p-1 hover:bg-secondary hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
         </button>

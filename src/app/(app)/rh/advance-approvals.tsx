@@ -27,7 +27,7 @@ function DecideButton({ id, decision, label, icon: IconCmp, danger }: { id: stri
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="decision" value={decision} />
       <BoutonDecisif brut type="submit" disabled={saving}
-        className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium disabled:opacity-50",
+        className={cn("inline-flex min-h-9 items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50 sm:min-h-0 sm:px-2 sm:py-1",
           danger ? "border-border text-muted-foreground hover:bg-destructive/10 hover:text-destructive" : "border-success/30 text-success hover:bg-success/10")}>
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <IconCmp className="h-3.5 w-3.5" />} {label}
       </BoutonDecisif>
@@ -41,7 +41,7 @@ export function AdvanceApprovals({ rows }: { rows: AdvanceRow[] }) {
   }
   return (
     <div className="surface overflow-hidden">
-      <Table>
+      <Table mobileCards>
         <TableHeader>
           <TableRow>
             <TableHead>Employé</TableHead>
@@ -58,10 +58,10 @@ export function AdvanceApprovals({ rows }: { rows: AdvanceRow[] }) {
               <TableCell className="font-medium">{r.employee}</TableCell>
               <TableCell>{formatDate(r.createdAt)}</TableCell>
               <TableCell className="text-right font-semibold">{formatCurrency(r.amount)}</TableCell>
-              <TableCell className="max-w-[200px] truncate text-muted-foreground">{r.reason || "—"}</TableCell>
+              <TableCell className="text-muted-foreground sm:max-w-[200px] sm:truncate" title={r.reason ?? undefined}>{r.reason || "—"}</TableCell>
               <TableCell><StatusBadge map={ADVANCE_STATUS} value={r.status} /></TableCell>
               <TableCell>
-                <div className="flex items-center justify-end gap-1.5">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
                   {r.status === "PENDING" && (
                     <>
                       <DecideButton id={r.id} decision="APPROVED" label="Approuver" icon={Check} />

@@ -42,18 +42,18 @@ export function FieldsManager({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
         <Label htmlFor="et" className="shrink-0">Module</Label>
-        <Select id="et" value={entityType} onChange={(e) => setEntityType(e.target.value)} className="w-72">
+        <Select id="et" value={entityType} onChange={(e) => setEntityType(e.target.value)} className="w-full sm:w-72">
           {entityTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </Select>
       </div>
 
-      <div className="surface overflow-hidden">
+      <div className="sm:surface sm:overflow-hidden">
         {fieldsForType.length === 0 ? (
           <div className="p-4"><EmptyState icon="Columns3" title="Aucun champ personnalisé" description="Ajoutez une colonne ci-dessous." /></div>
         ) : (
-          <Table>
+          <Table mobileCards>
             <TableHeader>
               <TableRow>
                 <TableHead>Libellé</TableHead>
@@ -68,8 +68,8 @@ export function FieldsManager({
             <TableBody>
               {fieldsForType.map((d) => (
                 <TableRow key={d.id}>
-                  <TableCell className="font-medium">{d.label}</TableCell>
-                  <TableCell><code className="text-xs">{d.key}</code></TableCell>
+                  <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{d.label}</TableCell>
+                  <TableCell><code className="text-xs [overflow-wrap:anywhere]">{d.key}</code></TableCell>
                   <TableCell><Badge tone="neutral" dot={false}>{TYPES.find((t) => t.value === d.type)?.label ?? d.type}</Badge></TableCell>
                   <TableCell className="text-xs text-muted-foreground">{d.options || "—"}</TableCell>
                   <TableCell>{d.required ? <Badge tone="warning" dot={false}>Obligatoire</Badge> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
@@ -77,7 +77,7 @@ export function FieldsManager({
                   <TableCell className="text-right">
                     <form action={async (fd) => { await deleteCustomFieldDef(fd); }} className="inline">
                       <input type="hidden" name="id" value={d.id} />
-                      <button type="submit" className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Supprimer">
+                      <button type="submit" className="rounded-lg p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5" title="Supprimer" aria-label={`Supprimer le champ ${d.label}`}>
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </form>
@@ -95,18 +95,18 @@ export function FieldsManager({
         className="surface grid grid-cols-2 gap-3 p-4 md:grid-cols-5"
       >
         <input type="hidden" name="entityType" value={entityType} />
-        <div className="space-y-1 md:col-span-2"><Label htmlFor="label">Nouveau champ</Label><Input id="label" name="label" placeholder="Ex. Numéro de lot" required /></div>
+        <div className="col-span-2 space-y-1"><Label htmlFor="label">Nouveau champ</Label><Input id="label" name="label" placeholder="Ex. Numéro de lot" required /></div>
         <div className="space-y-1"><Label htmlFor="type">Type</Label>
           <Select id="type" name="type">{TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</Select>
         </div>
         <div className="space-y-1"><Label htmlFor="options">Choix (si liste)</Label><Input id="options" name="options" placeholder="A, B, C" /></div>
-        <div className="space-y-1"><Label htmlFor="order">Ordre</Label><Input id="order" name="order" type="number" defaultValue={fieldsForType.length} /></div>
+        <div className="space-y-1"><Label htmlFor="order">Ordre</Label><Input id="order" name="order" type="number" inputMode="numeric" defaultValue={fieldsForType.length} /></div>
         <label className="col-span-2 flex items-center gap-2 text-sm md:col-span-2">
           <input type="checkbox" name="required" className="h-4 w-4 rounded border-input" />
           Champ obligatoire (à remplir avant d&apos;enregistrer la fiche)
         </label>
         <div className="col-span-2 flex items-end md:col-span-3 md:justify-end">
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" disabled={saving} className="w-full md:w-auto">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Ajouter la colonne
           </Button>

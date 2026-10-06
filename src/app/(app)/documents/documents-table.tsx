@@ -31,9 +31,9 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
   const columns: Column<DocumentRow>[] = [
     { key: "name", header: "Document", sortable: true, accessor: (r) => r.name,
       render: (r) => (
-        <span className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium">{r.name}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{r.name}</span>
         </span>
       ) },
     { key: "category", header: "Catégorie", sortable: true, accessor: (r) => DOCUMENT_CATEGORY[r.category] ?? r.category,
@@ -49,7 +49,7 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
     { key: "createdAt", header: "Date", sortable: true, accessor: (r) => r.createdAt, render: (r) => formatDate(r.createdAt) },
     { key: "actions", header: "", accessor: () => "",
       render: (r) => (
-        <a href={`/api/documents/${r.id}`} className="inline-flex rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Télécharger">
+        <a href={`/api/documents/${r.id}`} className="inline-flex rounded-lg p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5" title="Télécharger" aria-label="Télécharger">
           <Download className="h-4 w-4" />
         </a>
       ) },
@@ -64,7 +64,7 @@ export function DocumentsTable({ rows }: { rows: DocumentRow[] }) {
       emptyTitle="Aucun document"
       pageSize={15}
       toolbar={
-        <Select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} className="h-9 w-48 text-sm">
+        <Select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} className="h-9 w-full text-sm sm:w-48">
           <option value="">Tous les modules</option>
           {moduleOptions.map((m) => (
             <option key={m} value={m}>{ENTITY_TYPE_LABELS[m] ?? m}</option>

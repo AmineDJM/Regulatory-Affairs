@@ -87,18 +87,20 @@ export function DriveToolbar({
           onClick={() => setOpen((v) => !v)}
           aria-label="Plus d'actions"
           aria-expanded={open}
-          className="inline-flex items-center rounded-lg border border-input p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-input text-muted-foreground sm:h-auto sm:w-auto sm:p-2 transition-colors hover:bg-secondary hover:text-foreground"
         >
           <MoreHorizontal className="h-4 w-4" />
         </button>
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-xl">
+            {/* Au téléphone, le bouton peut tomber à gauche d'une rangée repliée : un menu
+                accroché à sa droite sortirait de l'écran. Il se pose alors en bas, pleine largeur. */}
+            <div className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-xl max-sm:fixed max-sm:inset-x-4 max-sm:bottom-[calc(1rem+env(safe-area-inset-bottom))] max-sm:top-auto max-sm:mt-0 max-sm:max-h-[70dvh] max-sm:w-auto max-sm:overflow-y-auto">
               <button
                 type="button"
                 onClick={() => { setFocusMode(true); setOpen(false); }}
-                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
+                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 sm:py-2text-left text-sm hover:bg-secondary"
               >
                 <Maximize2 className="h-4 w-4 text-muted-foreground" />
                 Plein écran
@@ -106,7 +108,7 @@ export function DriveToolbar({
               <button
                 type="button"
                 onClick={() => { toggleWide(); setOpen(false); }}
-                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
+                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 sm:py-2text-left text-sm hover:bg-secondary"
               >
                 <MoveHorizontal className="h-4 w-4 text-muted-foreground" />
                 {wide ? "Largeur de lecture" : "Pleine largeur"}
@@ -114,7 +116,7 @@ export function DriveToolbar({
               <Link
                 href={trashHref}
                 onClick={() => setOpen(false)}
-                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-secondary"
+                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 sm:py-2text-sm hover:bg-secondary"
               >
                 <Trash2 className="h-4 w-4 text-muted-foreground" /> {trashLabel}
               </Link>
@@ -123,7 +125,7 @@ export function DriveToolbar({
                   key={t.key}
                   type="button"
                   onClick={() => { setTool(t.key); setOpen(false); }}
-                  className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
+                  className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2.5 sm:py-2text-left text-sm hover:bg-secondary"
                 >
                   <span className="mt-0.5 shrink-0 text-muted-foreground">{t.icon}</span>
                   <span>

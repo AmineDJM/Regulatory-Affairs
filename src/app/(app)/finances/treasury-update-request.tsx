@@ -37,8 +37,8 @@ export function TreasuryUpdateRequestButton() {
 
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
-        <RefreshCw className="h-4 w-4" /> Demander l&apos;actualisation des soldes
+      <Button variant="outline" className="h-auto min-h-10 max-w-full whitespace-normal py-2" onClick={() => setOpen(true)}>
+        <RefreshCw className="h-4 w-4 shrink-0" /> Demander l&apos;actualisation des soldes
       </Button>
       <Sheet
         open={open}
@@ -56,7 +56,7 @@ export function TreasuryUpdateRequestButton() {
             />
           </div>
           {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-          <Button onClick={submit} disabled={busy || done}>
+          <Button className="w-full sm:w-auto" onClick={submit} disabled={busy || done}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <Check className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
             {done ? "Demande envoyée" : "Envoyer la demande"}
           </Button>

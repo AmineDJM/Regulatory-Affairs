@@ -37,7 +37,7 @@ export default async function CourrierAdminPage() {
 
       <Card>
         <CardContent className="space-y-4 p-5">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Mail className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold">État de la configuration</h2>
             <Badge tone={status.configured ? "success" : "warning"} dot={false}>
@@ -52,11 +52,11 @@ export default async function CourrierAdminPage() {
             </div>
             <div>
               <dt className="text-xs uppercase tracking-wide text-muted-foreground">Adresse d&apos;expédition</dt>
-              <dd className="text-sm font-medium">{status.from || "— non renseignée —"}</dd>
+              <dd className="text-sm font-medium [overflow-wrap:anywhere]">{status.from || "— non renseignée —"}</dd>
             </div>
             <div className="sm:col-span-2">
               <dt className="text-xs uppercase tracking-wide text-muted-foreground">Réception (webhook à déclarer chez le fournisseur)</dt>
-              <dd className="font-mono text-sm">{status.webhookPath}</dd>
+              <dd className="font-mono text-sm [overflow-wrap:anywhere]">{status.webhookPath}</dd>
             </div>
           </dl>
 
@@ -86,7 +86,7 @@ export default async function CourrierAdminPage() {
                 </li>
                 <li>
                   <strong className="text-foreground">4. Pour la réception</strong>, pointer le webhook du fournisseur
-                  sur <span className="font-mono">{status.webhookPath}</span> avec le même secret que
+                  sur <span className="font-mono [overflow-wrap:anywhere]">{status.webhookPath}</span> avec le même secret que
                   <span className="font-mono"> MAIL_WEBHOOK_SECRET</span> — les messages non signés sont refusés.
                 </li>
               </ol>

@@ -122,7 +122,7 @@ export function ReceiptLines({
                   value={r.articleId}
                   onChange={(e) => pickArticle(r, e.target.value)}
                   aria-label={`Article ${i + 1}`}
-                  className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm"
+                  className="h-10 w-full rounded-lg border border-border bg-background px-2 text-base sm:h-9 sm:text-sm"
                 >
                   <option value="">— Hors catalogue (à écrire) —</option>
                   {articles.map((a) => (
@@ -166,7 +166,7 @@ export function ReceiptLines({
                   type="button"
                   onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((x) => x.key !== r.key) : [empty(nextKey.current++)]))}
                   aria-label={`Retirer l'article ${i + 1}`}
-                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -179,7 +179,7 @@ export function ReceiptLines({
                     value={r.budgetCategoryId}
                     onChange={(e) => patch(r.key, { budgetCategoryId: e.target.value })}
                     aria-label={`Classement budgétaire de l'article ${i + 1}`}
-                    className="h-8 w-full rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground"
+                    className="h-9 w-full rounded-lg border border-border bg-background px-2 text-base text-muted-foreground sm:h-8 sm:text-xs"
                   >
                     <option value="">Budget : comme le ticket</option>
                     {budgetTargets.map((t) => (
@@ -205,7 +205,7 @@ export function ReceiptLines({
         <button
           type="button"
           onClick={() => setRows((rs) => [...rs, empty(nextKey.current++)])}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary sm:min-h-0"
         >
           <Plus className="h-3.5 w-3.5" /> Ajouter un article
         </button>

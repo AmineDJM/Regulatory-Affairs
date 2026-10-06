@@ -55,7 +55,7 @@ export function RattacherSansEntite({
   const ferme = busy !== null || enCours;
 
   return (
-    <section className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-4" aria-labelledby="sans-entite-titre">
+    <section className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-3 sm:p-4" aria-labelledby="sans-entite-titre">
       <div>
         <h2 id="sans-entite-titre" className="flex items-center gap-2 text-sm font-semibold">
           <UserX className="h-4 w-4 text-warning" /> Sans entité — à rattacher ({salaries.length})
@@ -70,15 +70,15 @@ export function RattacherSansEntite({
         <p className="text-xs text-muted-foreground">Aucune entité ne vous est ouverte : le rattachement se fait depuis une entité que vous voyez.</p>
       ) : (
         <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs">
+          <label className="flex w-full flex-col gap-1 text-xs sm:w-auto">
             <span className="text-muted-foreground">Tout rattacher à…</span>
-            <Select value={cibleTous} onChange={(e) => setCibleTous(e.target.value)} className="h-9 w-48 text-sm" aria-label="Entité pour tous les salariés sans entité">
+            <Select value={cibleTous} onChange={(e) => setCibleTous(e.target.value)} className="h-10 w-full text-sm sm:h-9 sm:w-48" aria-label="Entité pour tous les salariés sans entité">
               <option value="">— Choisir —</option>
               {entites.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </Select>
           </label>
           <Button
-            type="button" size="sm" disabled={ferme || !cibleTous || salaries.length === 0}
+            type="button" size="sm" className="w-full sm:w-auto" disabled={ferme || !cibleTous || salaries.length === 0}
             onClick={() => rattacher("tous", cibleTous, salaries.map((s) => s.id))}
           >
             {busy === "tous" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
@@ -91,7 +91,7 @@ export function RattacherSansEntite({
         {salaries.map((s) => (
           <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2" data-salarie={s.nom}>
             <div className="min-w-0">
-              <Link href={`/rh/${s.id}`} className="font-medium hover:underline">{s.nom}</Link>
+              <Link href={`/rh/${s.id}`} className="font-medium [overflow-wrap:anywhere] hover:underline">{s.nom}</Link>
               <p className="text-xs text-muted-foreground">
                 {s.poste || "Poste non renseigné"} · {s.salaires > 0
                   ? <>{formatCurrency(s.cout)} ({s.salaires} salaire{s.salaires > 1 ? "s" : ""} payé{s.salaires > 1 ? "s" : ""} en {year}, net {formatCurrency(s.net)})</>
@@ -99,10 +99,10 @@ export function RattacherSansEntite({
               </p>
             </div>
             {entites.length > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex w-full items-center gap-2 sm:w-auto">
                 <Select
                   value={cibles[s.id] ?? ""} onChange={(e) => setCibles((c) => ({ ...c, [s.id]: e.target.value }))}
-                  className="h-9 w-40 text-sm" aria-label={`Entité de ${s.nom}`}
+                  className="h-9 min-w-0 flex-1 text-sm sm:w-40 sm:flex-none" aria-label={`Entité de ${s.nom}`}
                 >
                   <option value="">Rattacher à…</option>
                   {entites.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}

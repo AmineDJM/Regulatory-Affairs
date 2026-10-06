@@ -47,7 +47,7 @@ export function SubmissionPanel({ tenderId, soumissions, canEdit }: {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Soumission ({soumissions.length} version{soumissions.length > 1 ? "s" : ""})
         </h2>
@@ -77,11 +77,11 @@ export function SubmissionPanel({ tenderId, soumissions, canEdit }: {
             <button
               type="button"
               onClick={() => setOpenId(ouvert ? null : s.id)}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left"
+              className="flex w-full flex-wrap items-center gap-2 px-3 py-3 text-left sm:px-4"
               aria-expanded={ouvert}
             >
               {ouvert ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-              <span className="font-medium">V{s.version}{s.label ? ` — ${s.label}` : ""}</span>
+              <span className="min-w-0 font-medium [overflow-wrap:anywhere]">V{s.version}{s.label ? ` — ${s.label}` : ""}</span>
               <Badge tone={st.tone} dot={false}>{st.label}</Badge>
               {s.lockedAt && (
                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -92,11 +92,11 @@ export function SubmissionPanel({ tenderId, soumissions, canEdit }: {
             </button>
 
             {ouvert && (
-              <div className="space-y-3 border-t border-border px-4 py-3">
+              <div className="space-y-3 border-t border-border px-3 py-3 sm:px-4">
                 <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                   {s.checklist.map((item) => (
                     <li key={item.key}>
-                      <label className={`flex items-start gap-2 text-sm ${s.lockedAt || !canEdit ? "cursor-default" : "cursor-pointer"}`}>
+                      <label className={`flex items-start gap-2 py-1 text-sm sm:py-0 ${s.lockedAt || !canEdit ? "cursor-default" : "cursor-pointer"}`}>
                         <input
                           type="checkbox"
                           checked={item.done}
@@ -119,14 +119,14 @@ export function SubmissionPanel({ tenderId, soumissions, canEdit }: {
                 {canEdit && !s.lockedAt && (
                   <div className="flex flex-wrap items-center gap-2">
                     <form
-                      className="flex min-w-0 flex-1 items-center gap-2"
+                      className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1"
                       action={(fd) => { fd.set("id", s.id); void run(() => addChecklistItem(fd)); }}
                     >
-                      <Input name="label" placeholder="Ajouter une exigence propre à cet AO…" className="h-8 text-sm" />
+                      <Input name="label" placeholder="Ajouter une exigence propre à cet AO…" className="h-10 min-w-0 text-base sm:h-8 sm:text-sm" />
                       <Button type="submit" size="sm" variant="outline" disabled={busy}>Ajouter</Button>
                     </form>
                     <select
-                      className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                      className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-base sm:h-8 sm:flex-none sm:text-sm"
                       value={s.status}
                       disabled={busy}
                       aria-label="État de la version"

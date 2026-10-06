@@ -80,12 +80,12 @@ export function RecordDeleteButton({
 
           <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
             <p className="text-xs text-muted-foreground">À supprimer</p>
-            <p className="font-medium">{name}</p>
+            <p className="break-words font-medium">{name}</p>
           </div>
 
           {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
 
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
               Annuler
             </Button>

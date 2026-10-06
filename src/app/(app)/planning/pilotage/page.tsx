@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { loadTourneeDirection } from "@/lib/queries/tour-schedule";
 import { STATUT_PLAN_LABELS, type StatutPlan } from "@/lib/sfe/tournee";
 import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PlanningTabs } from "../tabs";
@@ -73,6 +74,8 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
 
   const scopeLabel = scope.mode === "all" ? "Toute la force de vente" : scope.mode === "team" ? "Mes équipes" : "Mon activité";
   const cell = "px-2 py-1.5 text-sm border-b border-border/60";
+  // Le cockpit est une matrice KAM × indicateurs : il défile dans son cadre, la colonne « KAM » reste collée.
+  const sticky = "sticky left-0 z-10 bg-card";
 
   return (
     <div className="space-y-5">
@@ -80,9 +83,9 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
       <PlanningTabs active="pilotage" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} />
 
       <div className="flex items-center gap-2">
-        <Link href={`/planning/pilotage?y=${prev.y}&m=${prev.m}`} className="rounded-lg border border-input p-2 hover:bg-secondary"><ChevronLeft className="h-4 w-4" /></Link>
+        <Link href={`/planning/pilotage?y=${prev.y}&m=${prev.m}`} aria-label="Mois précédent" className="rounded-lg border border-input p-2.5 hover:bg-secondary sm:p-2"><ChevronLeft className="h-4 w-4" /></Link>
         <span className="min-w-40 text-center text-lg font-semibold">{monthLabel(year, month)}</span>
-        <Link href={`/planning/pilotage?y=${next.y}&m=${next.m}`} className="rounded-lg border border-input p-2 hover:bg-secondary"><ChevronRight className="h-4 w-4" /></Link>
+        <Link href={`/planning/pilotage?y=${next.y}&m=${next.m}`} aria-label="Mois suivant" className="rounded-lg border border-input p-2.5 hover:bg-secondary sm:p-2"><ChevronRight className="h-4 w-4" /></Link>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -124,51 +127,56 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
             Aucun KAM dans votre portée sur ce mois.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[620px] text-sm">
-              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="px-2 py-1.5 font-medium">KAM</th>
-                  <th className="px-2 py-1.5 font-medium">Gamme</th>
-                  <th className="px-2 py-1.5 font-medium">Plan</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Visitées / planifiées</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Hors délai</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Imprévues</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Nombre de visites</th>
-                </tr>
-              </thead>
-              <tbody>
+          // Une ligne = un KAM : au téléphone, chaque KAM devient une carte (intitulés repris de l'en-tête).
+          <div className="sm:overflow-hidden sm:rounded-xl sm:border sm:border-border">
+            <Table mobileCards className="sm:min-w-[620px]">
+              <TableHeader className="bg-muted/50">
+                <TableRow>
+                  <TableHead className="px-2">KAM</TableHead>
+                  <TableHead className="px-2">Gamme</TableHead>
+                  <TableHead className="px-2">Plan</TableHead>
+                  <TableHead className="px-2 text-right">Visitées / planifiées</TableHead>
+                  <TableHead className="px-2 text-right">Hors délai</TableHead>
+                  <TableHead className="px-2 text-right">Imprévues</TableHead>
+                  <TableHead className="px-2 text-right">Nombre de visites</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {tournees.lignes.map((l) => (
-                  <tr key={l.repId} className="border-t border-border/60">
-                    <td className="px-2 py-1.5 font-medium">{l.repName}</td>
-                    <td className="px-2 py-1.5 text-muted-foreground">{l.buName ?? "—"}</td>
-                    <td className="px-2 py-1.5">
-                      {/* UN KAM SANS PLAN EST NOMMÉ : sans cette ligne, il compterait 0/0 et se
-                          lirait comme « rien à faire », alors qu'il n'a rien soumis. */}
-                      {l.statutPlan
-                        ? STATUT_PLAN_LABELS[l.statutPlan as StatutPlan]
-                        : <span className="text-warning">aucun plan</span>}
-                      {/* L'ÉCHÉANCE SE LIT ICI AUSSI : un plan attendu et non soumis est ce que la
-                          Direction relance — sans cette ligne, l'échéance n'existait que chez le KAM. */}
-                      {l.retard.enRetard && (
-                        <span className="ml-1 text-xs font-medium text-destructive">en retard de {l.retard.jours} j</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">
-                      {l.avancement.visitees}/{l.avancement.planifiees}
-                      {l.avancement.planifiees > 0 && (
-                        <span className="ml-1 text-xs text-muted-foreground">({l.avancement.tauxRealisation} %)</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">
+                  <TableRow key={l.repId}>
+                    <TableCell data-sans-etiquette className="!justify-start px-2 font-medium sm:py-1.5">{l.repName}</TableCell>
+                    <TableCell className="px-2 text-muted-foreground sm:py-1.5">{l.buName ?? "—"}</TableCell>
+                    <TableCell className="px-2 sm:py-1.5">
+                      <span>
+                        {/* UN KAM SANS PLAN EST NOMMÉ : sans cette ligne, il compterait 0/0 et se
+                            lirait comme « rien à faire », alors qu'il n'a rien soumis. */}
+                        {l.statutPlan
+                          ? STATUT_PLAN_LABELS[l.statutPlan as StatutPlan]
+                          : <span className="text-warning">aucun plan</span>}
+                        {/* L'ÉCHÉANCE SE LIT ICI AUSSI : un plan attendu et non soumis est ce que la
+                            Direction relance — sans cette ligne, l'échéance n'existait que chez le KAM. */}
+                        {l.retard.enRetard && (
+                          <span className="ml-1 text-xs font-medium text-destructive">en retard de {l.retard.jours} j</span>
+                        )}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-2 text-right tabular-nums sm:py-1.5">
+                      <span>
+                        {l.avancement.visitees}/{l.avancement.planifiees}
+                        {l.avancement.planifiees > 0 && (
+                          <span className="ml-1 text-xs text-muted-foreground">({l.avancement.tauxRealisation} %)</span>
+                        )}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-2 text-right tabular-nums sm:py-1.5">
                       {l.avancement.perdues > 0 ? <span className="text-warning">{l.avancement.perdues}</span> : "—"}
-                    </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{l.avancement.imprevues || "—"}</td>
-                    <td className="px-2 py-1.5 text-right font-medium tabular-nums">{l.avancement.visitesTotales}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="px-2 text-right tabular-nums sm:py-1.5">{l.avancement.imprevues || "—"}</TableCell>
+                    <TableCell className="px-2 text-right font-medium tabular-nums sm:py-1.5">{l.avancement.visitesTotales}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
         {tournees.sansPlan > 0 && (
@@ -190,11 +198,11 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
       ) : (
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
               <table className="w-full min-w-[900px] border-collapse">
                 <thead>
                   <tr className="border-b border-border bg-secondary/40 text-left text-xs font-medium text-muted-foreground">
-                    <th className="px-2 py-2">KAM</th>
+                    <th className={`${sticky} px-2 py-2`}>KAM</th>
                     <th className="px-2 py-2 w-20" title="Capacité terrain (visites/mois)">Capacité</th>
                     <th className="px-2 py-2 w-24" title="Panel (praticiens) par palier">Panel</th>
                     <th className="px-2 py-2 w-24" title="Visites cibles selon la fréquence par palier">Fréq. cible</th>
@@ -221,23 +229,23 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
                           const covPct = pct(r.coveredDoctors, r.panelSize);
                           return (
                             <tr key={r.repId} className="hover:bg-secondary/30">
-                              <td className={`${cell} font-medium`}>{r.name}</td>
+                              <td className={`${cell} ${sticky} min-w-[8rem] max-w-[12rem] font-medium [overflow-wrap:anywhere]`}>{r.name}</td>
                               <td className={`${cell} tabular-nums`}>{r.capacity}</td>
                               <td className={cell}>
                                 <span className="font-medium tabular-nums">{r.panelSize}</span>
-                                <span className="ml-1 text-[0.625rem] text-muted-foreground">{TIERS.map((t) => r.panelByTier[t] ? `${TIER_LABELS[t][0]}${r.panelByTier[t]}` : "").filter(Boolean).join(" ")}</span>
+                                <span className="ml-1 text-[0.6875rem] text-muted-foreground">{TIERS.map((t) => r.panelByTier[t] ? `${TIER_LABELS[t][0]}${r.panelByTier[t]}` : "").filter(Boolean).join(" ")}</span>
                               </td>
                               <td className={`${cell} tabular-nums text-muted-foreground`}>{r.requiredVisits}</td>
                               <td className={`${cell} tabular-nums`}>{r.plannedVisits}</td>
                               <td className={`${cell} tabular-nums`}>{r.plannedFte.toFixed(2)}</td>
                               <td className={`${cell} tabular-nums`}>{r.realVisits}</td>
                               <td className={`${cell} tabular-nums font-medium ${toneOf(realPct)}`}>{realPct}%</td>
-                              <td className={`${cell} tabular-nums ${toneOf(covPct)}`}>{covPct}% <span className="text-[0.625rem] text-muted-foreground">({r.coveredDoctors}/{r.panelSize})</span></td>
+                              <td className={`${cell} tabular-nums ${toneOf(covPct)}`}>{covPct}% <span className="text-[0.6875rem] text-muted-foreground">({r.coveredDoctors}/{r.panelSize})</span></td>
                             </tr>
                           );
                         })}
                         <tr className="bg-secondary/30 text-sm font-medium">
-                          <td className="px-2 py-1.5 text-right text-xs text-muted-foreground">Sous-total {g.buName}</td>
+                          <td className="sticky left-0 z-10 bg-muted px-2 py-1.5 text-right text-xs text-muted-foreground">Sous-total {g.buName}</td>
                           <td className="px-2 py-1.5 tabular-nums">{sCap}</td>
                           <td className="px-2 py-1.5" />
                           <td className="px-2 py-1.5" />
@@ -253,7 +261,7 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-border bg-primary/5 text-sm font-bold">
-                    <td className="px-2 py-2 text-right">Total</td>
+                    <td className={`${sticky} px-2 py-2 text-right`}>Total</td>
                     <td className="px-2 py-2 tabular-nums">{tCapacity}</td>
                     <td className="px-2 py-2" />
                     <td className="px-2 py-2" />
@@ -289,39 +297,40 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
               la visite qui l&apos;a préparée, et un marché public ne doit rien au détaillage. Ce qu&apos;on vient
               lire ici, ce sont les deux <em>anomalies</em> signalées.
             </p>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse">
-                <thead>
-                  <tr className="border-b border-border bg-secondary/40 text-left text-xs font-medium text-muted-foreground">
-                    <th className="px-2 py-2">Produit</th>
-                    <th className="px-2 py-2 w-24" title="Visites où il a été présenté">Visites</th>
-                    <th className="px-2 py-2 w-20" title="Part de l'effort total">Effort</th>
-                    <th className="px-2 py-2 w-32" title="Chiffre d'affaires du mois">CA du mois</th>
-                    <th className="px-2 py-2 w-20" title="Part du chiffre d'affaires">Part CA</th>
-                    <th className="px-2 py-2 w-28" title="Échelle de comparaison entre produits — jamais une note">DZD / visite</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {effort.map((e) => (
-                    <tr key={e.productId} className="hover:bg-secondary/30">
-                      <td className={`${cell} font-medium`}>
+            {/* Une ligne = un produit : cartes au téléphone, tableau au-delà. */}
+            <Table mobileCards className="border-collapse sm:min-w-[720px]">
+              <TableHeader className="bg-secondary/40">
+                <TableRow>
+                  <TableHead className="px-2">Produit</TableHead>
+                  <TableHead className="w-24 px-2" title="Visites où il a été présenté">Visites</TableHead>
+                  <TableHead className="w-20 px-2" title="Part de l'effort total">Effort</TableHead>
+                  <TableHead className="w-32 px-2" title="Chiffre d'affaires du mois">CA du mois</TableHead>
+                  <TableHead className="w-20 px-2" title="Part du chiffre d'affaires">Part CA</TableHead>
+                  <TableHead className="w-28 px-2" title="Échelle de comparaison entre produits — jamais une note">DZD / visite</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {effort.map((e) => (
+                  <TableRow key={e.productId}>
+                    <TableCell data-sans-etiquette className="!justify-start px-2 font-medium sm:py-1.5">
+                      <span className="min-w-0">
                         {e.name}
                         {e.note && (
                           <span className={`block text-[0.6875rem] font-normal ${e.verdict === "EFFORT_SANS_VENTE" ? "text-destructive" : "text-warning"}`}>
                             {e.note}
                           </span>
                         )}
-                      </td>
-                      <td className={`${cell} tabular-nums`}>{e.visits}</td>
-                      <td className={`${cell} tabular-nums text-muted-foreground`}>{e.effortShare} %</td>
-                      <td className={`${cell} tabular-nums`}>{new Intl.NumberFormat("fr-DZ").format(Math.round(e.revenue))}</td>
-                      <td className={`${cell} tabular-nums text-muted-foreground`}>{e.revenueShare} %</td>
-                      <td className={`${cell} tabular-nums`}>{e.perVisit === null ? "—" : new Intl.NumberFormat("fr-DZ").format(e.perVisit)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-2 tabular-nums sm:py-1.5">{e.visits}</TableCell>
+                    <TableCell className="px-2 tabular-nums text-muted-foreground sm:py-1.5">{e.effortShare} %</TableCell>
+                    <TableCell className="px-2 tabular-nums sm:py-1.5">{new Intl.NumberFormat("fr-DZ").format(Math.round(e.revenue))}</TableCell>
+                    <TableCell className="px-2 tabular-nums text-muted-foreground sm:py-1.5">{e.revenueShare} %</TableCell>
+                    <TableCell className="px-2 tabular-nums sm:py-1.5">{e.perVisit === null ? "—" : new Intl.NumberFormat("fr-DZ").format(e.perVisit)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}

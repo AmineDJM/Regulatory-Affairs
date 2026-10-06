@@ -20,9 +20,9 @@ const ROLE_ENTRIES = (Object.entries(ROLE_LABELS) as [string, string][]).filter(
 
 function RoleGrid({ name, selected, max = "max-h-40" }: { name: string; selected: string[]; max?: string }) {
   return (
-    <div className={`grid grid-cols-2 gap-x-4 gap-y-1.5 overflow-y-auto rounded-lg border border-input p-2.5 ${max}`}>
+    <div className={`grid grid-cols-1 gap-x-4 gap-y-0.5 overflow-y-auto rounded-lg border border-input p-2.5 sm:grid-cols-2 sm:gap-y-1.5 ${max}`}>
       {ROLE_ENTRIES.map(([r, lbl]) => (
-        <label key={r} className="flex items-center gap-1.5 text-sm">
+        <label key={r} className="flex min-w-0 items-center gap-1.5 py-1.5 text-sm sm:py-0">
           <input type="checkbox" name={name} value={r} defaultChecked={selected.includes(r)} className="h-4 w-4 rounded border-input" />
           {lbl}
         </label>
@@ -34,9 +34,9 @@ function RoleGrid({ name, selected, max = "max-h-40" }: { name: string; selected
 function UserGrid({ name, users, selected, max = "max-h-40" }: { name: string; users: UserOpt[]; selected: string[]; max?: string }) {
   if (users.length === 0) return null;
   return (
-    <div className={`grid grid-cols-2 gap-x-4 gap-y-1.5 overflow-y-auto rounded-lg border border-input p-2.5 ${max}`}>
+    <div className={`grid grid-cols-1 gap-x-4 gap-y-0.5 overflow-y-auto rounded-lg border border-input p-2.5 sm:grid-cols-2 sm:gap-y-1.5 ${max}`}>
       {users.map((u) => (
-        <label key={u.id} className="flex items-center gap-1.5 text-sm">
+        <label key={u.id} className="flex min-w-0 items-center gap-1.5 py-1.5 text-sm sm:py-0">
           <input type="checkbox" name={name} value={u.id} defaultChecked={selected.includes(u.id)} className="h-4 w-4 rounded border-input" />
           {u.name}
         </label>
@@ -104,7 +104,7 @@ export function CreateSpaceButton({ users }: { users: UserOpt[] }) {
         >
           <AccessFields users={users} />
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Annuler</Button>
             <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Créer</Button>
           </div>
@@ -135,8 +135,8 @@ export function SpaceSettingsButton({ space, users, canDelete }: { space: SpaceD
         <form action={(fd) => run(() => { fd.set("id", space.id); return updateDriveSpace(fd); })} className="space-y-4">
           <AccessFields users={users} space={space} />
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-          <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
-            <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+            <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" disabled={saving}
                 onClick={() => run(() => { const fd = new FormData(); fd.set("id", space.id); fd.set("archived", "1"); return archiveDriveSpace(fd); }, () => router.push("/drive"))}>
                 Archiver
@@ -152,7 +152,7 @@ export function SpaceSettingsButton({ space, users, canDelete }: { space: SpaceD
                 </Button>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="ml-auto flex gap-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Annuler</Button>
               <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer</Button>
             </div>

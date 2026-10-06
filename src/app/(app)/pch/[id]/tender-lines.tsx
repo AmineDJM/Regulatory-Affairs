@@ -21,7 +21,8 @@ type Res = { ok: boolean; error?: string; message?: string };
  * cellule) ; qui veut une largeur précise part de `inpBase`. Le garde
  * `src/lib/ui/class-collision.test.ts` fait échouer la suite si la collision revient.
  */
-const inpBase = "h-8 rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+// Au téléphone : 40 px de haut et 16 px de texte (pas de zoom automatique d'iOS au focus).
+const inpBase = "h-10 rounded-md border border-input bg-background px-2 text-base focus:border-primary focus:outline-none sm:h-8 sm:text-sm";
 const inp = `${inpBase} w-full`;
 const LINE_STATUS: { value: string; label: string }[] = [
   { value: "PENDING", label: "À étudier" }, { value: "QUOTED", label: "Chiffré" },
@@ -95,21 +96,21 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => setShowAnalyze((s) => !s)} disabled={!aiConfigured}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50" title={aiConfigured ? "Lire le document et en extraire les produits (son texte ; l'OCR seulement pour un scan)" : "IA non configurée"}>
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm sm:py-1.5 font-medium hover:bg-secondary disabled:opacity-50" title={aiConfigured ? "Lire le document et en extraire les produits (son texte ; l'OCR seulement pour un scan)" : "IA non configurée"}>
               <Wand2 className="h-4 w-4" /> Analyser le document (IA)
             </button>
             <button type="button" disabled={busy || lines.length === 0} onClick={() => { const fd = new FormData(); fd.set("tenderId", tenderId); run(() => enrichAllTenderLines(fd)); }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-50 sm:py-1.5"
               title="Rejouer l'intelligence marché sur TOUTES les lignes : prix de référence, nomenclature, concurrents, production locale ou importée">
               <Sparkles className="h-4 w-4" /> Enrichir tout
             </button>
             <button type="button" disabled={busy} onClick={() => { const fd = new FormData(); fd.set("tenderId", tenderId); run(() => addTenderLine(fd)); }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-60"><Plus className="h-4 w-4" /> Ajouter</button>
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60 sm:py-1.5"><Plus className="h-4 w-4" /> Ajouter</button>
           </div>
         )}
         {lines.length > 0 && (
           <a href={`/api/pch/export?id=${tenderId}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium hover:bg-secondary sm:py-1.5"
             title="Tableau Excel : produits demandés (unité, conditionnement, boîtes, prix de référence) + analyse de marché">
             <Download className="h-4 w-4" /> Tableau Excel
           </a>
@@ -119,8 +120,8 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
       {bilan && (
         <div role={bilan.ok ? "status" : "alert"}
           className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${bilan.ok ? "border-success/40 bg-success/5" : "border-destructive/40 bg-destructive/5"}`}>
-          <p className="whitespace-pre-line">{bilan.texte}</p>
-          <button type="button" onClick={() => setBilan(null)} className="shrink-0 rounded px-2 py-0.5 text-xs hover:bg-secondary">Fermer</button>
+          <p className="min-w-0 whitespace-pre-line [overflow-wrap:anywhere]">{bilan.texte}</p>
+          <button type="button" onClick={() => setBilan(null)} className="shrink-0 rounded px-2 py-2 text-xs hover:bg-secondary sm:py-0.5">Fermer</button>
         </div>
       )}
 
@@ -141,7 +142,7 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
             <p className="text-xs font-medium">Téléverser le document (PDF ou image) — son texte est lu tel quel ; l&apos;OCR ne sert qu&apos;aux pages scannées</p>
             <div className="flex flex-wrap items-center gap-2">
               <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff" disabled={analyzing}
-                className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium" />
+                className="max-w-full text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium" />
               <button type="button" onClick={analyzeFile} disabled={analyzing} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
                 {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Analyser le fichier
               </button>
@@ -156,8 +157,8 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
           {/* 2) Le texte de l'appel d'offres, collé (une annexe, une suite au-delà de ce qu'une lecture analyse). */}
           <div className="space-y-2">
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="Texte de l'appel d'offres…"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none" />
-            <div className="flex gap-2">
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-base focus:border-primary focus:outline-none sm:text-sm" />
+            <div className="flex flex-wrap gap-2">
               <button type="button" onClick={analyzeText} disabled={analyzing || !text.trim()} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60">
                 {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Extraire du texte
               </button>
@@ -243,9 +244,9 @@ function LineCard({ tenderId, line, canEdit, busy, run, reserve }: { tenderId: s
   if (!canEdit) {
     return (
       <div className="rounded-lg border border-border bg-card p-3 text-sm">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-medium">{line.designation}</span>
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{LINE_STATUS.find((x) => x.value === line.status)?.label ?? line.status}</span>
+        <div className="flex items-start justify-between gap-2">
+          <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{line.designation}</span>
+          <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-xs">{LINE_STATUS.find((x) => x.value === line.status)?.label ?? line.status}</span>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">{[line.dci, line.dosage, line.form].filter(Boolean).join(" · ") || "—"} · {fmt(line.quantityUnits)} {line.unitLabel ? `${line.unitLabel}(s)` : "unités"}{line.boxesNeeded ? ` = ${fmt(line.boxesNeeded)} boîtes` : ""}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -275,12 +276,12 @@ function LineCard({ tenderId, line, canEdit, busy, run, reserve }: { tenderId: s
         <input className={`${inp} sm:col-span-3`} value={s.dosage} onChange={(e) => setS({ ...s, dosage: e.target.value })} onBlur={save} placeholder="Dosage" />
         <input className={`${inp} sm:col-span-3`} value={s.form} onChange={(e) => setS({ ...s, form: e.target.value })} onBlur={save} placeholder="Forme" />
         <div className="flex items-center gap-1 sm:col-span-3">
-          <input className={inp} inputMode="numeric" value={s.quantityUnits} onChange={(e) => setS({ ...s, quantityUnits: e.target.value })} onBlur={save} placeholder="Quantité" />
+          <input className={`${inp} min-w-0`} inputMode="numeric" value={s.quantityUnits} onChange={(e) => setS({ ...s, quantityUnits: e.target.value })} onBlur={save} placeholder="Quantité" />
           {/* Un appel d'offres ne parle pas toujours de comprimés : flacon, seringue, ampoule… */}
-          <input className={`${inpBase} w-28`} value={s.unitLabel} onChange={(e) => setS({ ...s, unitLabel: e.target.value })} onBlur={save} placeholder="comprimé…" title="Nature de l'unité demandée" />
+          <input className={`${inpBase} w-28 shrink-0`} value={s.unitLabel} onChange={(e) => setS({ ...s, unitLabel: e.target.value })} onBlur={save} placeholder="comprimé…" title="Nature de l'unité demandée" />
         </div>
         <div className="flex items-center gap-1 sm:col-span-3">
-          <input className={inp} inputMode="numeric" value={s.unitsPerBox} onChange={(e) => setS({ ...s, unitsPerBox: e.target.value })} onBlur={save} placeholder="Boîte de N" />
+          <input className={`${inp} min-w-0`} inputMode="numeric" value={s.unitsPerBox} onChange={(e) => setS({ ...s, unitsPerBox: e.target.value })} onBlur={save} placeholder="Boîte de N" />
           <span className="whitespace-nowrap text-xs font-medium text-primary">{boxes != null ? `= ${fmt(boxes)} bt` : ""}</span>
         </div>
         <label className="flex items-center gap-1.5 text-xs sm:col-span-3"><input type="checkbox" checked={s.haveProduct} onChange={(e) => { setS({ ...s, haveProduct: e.target.checked }); }} onBlur={save} className="h-4 w-4 rounded border-input" /> Nous l'avons</label>
@@ -323,9 +324,9 @@ function LineCard({ tenderId, line, canEdit, busy, run, reserve }: { tenderId: s
         <MarketBadges line={line} />
         <div className="ml-auto flex items-center gap-1.5">
           <button type="button" disabled={busy} onClick={() => { const fd = new FormData(); fd.set("id", line.id); fd.set("tenderId", tenderId); run(() => enrichTenderLine(fd)); }}
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-primary hover:bg-primary/10" title="Verrou prix Réception 2025 + concurrents + nomenclature + notre produit"><Sparkles className="h-3.5 w-3.5" /> Enrichir</button>
-          <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Supprimer « ${line.designation} » ?`)) { const fd = new FormData(); fd.set("id", line.id); fd.set("tenderId", tenderId); run(() => deleteTenderLine(fd)); } }}
-            className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
+            className="inline-flex items-center gap-1 rounded px-2 py-2 text-primary hover:bg-primary/10 sm:py-1" title="Verrou prix Réception 2025 + concurrents + nomenclature + notre produit"><Sparkles className="h-3.5 w-3.5" /> Enrichir</button>
+          <button type="button" disabled={busy} aria-label={`Supprimer ${line.designation}`} onClick={() => { if (window.confirm(`Supprimer « ${line.designation} » ?`)) { const fd = new FormData(); fd.set("id", line.id); fd.set("tenderId", tenderId); run(() => deleteTenderLine(fd)); } }}
+            className="rounded p-2 text-destructive hover:bg-destructive/10 sm:p-1"><Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" /></button>
         </div>
       </div>
 
@@ -363,7 +364,7 @@ function MarketBadges({ line }: { line: PchTenderLineDTO }) {
       )}
       {concentration && <span className="rounded bg-secondary px-2 py-0.5" title={`HHI ${line.marketHhi}`}>Marché {concentration}</span>}
       {line.competitorsTop && (
-        <span className="max-w-[22rem] truncate rounded bg-secondary px-2 py-0.5" title={line.competitorsTop}>
+        <span className="max-w-full rounded bg-secondary px-2 py-0.5 [overflow-wrap:anywhere] sm:max-w-[22rem] sm:truncate" title={line.competitorsTop}>
           {line.competitorsTop}
         </span>
       )}
@@ -401,7 +402,7 @@ function SalesBlock({ tenderId, line, canEdit, busy, run }: { tenderId: string; 
         <div className="flex flex-wrap items-center gap-1.5">
           <input className={`${inpBase} w-32`} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Quantité vendue" />
           <input className={`${inp} min-w-[8rem] flex-1`} value={ref} onChange={(e) => setRef(e.target.value)} placeholder="N° bon de commande (optionnel)" />
-          <button type="button" disabled={busy} onClick={addOrder} className="inline-flex items-center gap-1 rounded-lg bg-success px-2.5 py-1.5 text-xs font-medium text-white hover:bg-success/90 disabled:opacity-60"><ShoppingCart className="h-3.5 w-3.5" /> Enregistrer la vente</button>
+          <button type="button" disabled={busy} onClick={addOrder} className="inline-flex items-center gap-1 rounded-lg bg-success px-2.5 py-2.5 text-xs font-medium text-white hover:bg-success/90 disabled:opacity-60 sm:py-1.5"><ShoppingCart className="h-3.5 w-3.5" /> Enregistrer la vente</button>
         </div>
       )}
       <p className="text-[0.6875rem] text-muted-foreground">Chaque bon de commande devient une <strong>vente réelle</strong> (fraction de la quantité attribuée) et apparaît dans « Bons de commande » ci-dessous, avec son suivi logistique.</p>

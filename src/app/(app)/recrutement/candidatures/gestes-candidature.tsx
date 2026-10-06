@@ -60,7 +60,7 @@ export function GestesCandidature({
             id={`poste-${id}`}
             value={poste}
             onChange={(e) => setPoste(e.target.value)}
-            className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+            className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-base sm:h-9 sm:text-sm"
           >
             <option value="">{postesOuverts.length ? "Choisir un poste ouvert…" : "Aucun poste ouvert en ce moment"}</option>
             {postesOuverts.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
@@ -84,7 +84,7 @@ export function GestesCandidature({
               value={motif}
               onChange={(e) => setMotif(e.target.value)}
               placeholder="Motif (facultatif)"
-              className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm sm:max-w-xs"
+              className="h-10 min-w-0 flex-1 basis-full rounded-md border border-input bg-background px-2 text-base sm:h-9 sm:max-w-xs sm:basis-0 sm:text-sm"
             />
             <Button size="sm" variant="outline" disabled={enCours !== null} onClick={() => void agir("classer", classerCandidatureSite, { motif })}>
               {enCours === "classer" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}

@@ -146,7 +146,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             « + Pièce jointe » en haut à droite. La chaîne d'achat vit sur chaque poste. */}
         <CarteDetailsDemande
           titre="Informations"
-          contentClassName="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3"
+          contentClassName="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6"
           pieces={{
             entityType: "EVENT", entityId: e.id, documents: docItems,
             peutDeposer: canUploadDocs, motif: uploadHint,
@@ -164,7 +164,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             <Info label="Budget estimé" value={e.estimatedBudget !== null ? formatCurrency(e.estimatedBudget) : "—"} />
             <Info label="Responsable" value={e.responsibleName} />
             {e.meetingLink && <div className="col-span-full"><a href={e.meetingLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><Video className="h-4 w-4" /> Lien de connexion (webinar)</a></div>}
-            {e.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Description</p><p className="whitespace-pre-wrap">{e.description}</p></div>}
+            {e.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Description</p><p className="whitespace-pre-wrap break-words">{e.description}</p></div>}
         </CarteDetailsDemande>
 
       </div>
@@ -256,5 +256,5 @@ export default async function EventDetailPage({ params }: { params: { id: string
 }
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium">{value || "—"}</p></div>;
+  return <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="break-words font-medium">{value || "—"}</p></div>;
 }

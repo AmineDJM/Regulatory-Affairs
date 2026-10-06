@@ -61,7 +61,7 @@ export function AgentsPanel({ dossierId, agents, configured, cleIa = null }: { d
                 )}
               </div>
               <button type="button" disabled={busy !== null} onClick={() => run(a.key)}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-3 py-2 text-xs font-medium hover:bg-accent disabled:opacity-50 sm:px-2 sm:py-1">
                 {busy === a.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Analyser"}
               </button>
             </div>

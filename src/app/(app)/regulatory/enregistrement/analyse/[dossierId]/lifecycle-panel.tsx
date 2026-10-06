@@ -61,14 +61,14 @@ export function LifecyclePanel({ dossierId, events, obligations, canManage }: { 
       )}
       <div className="space-y-1.5">
         {events.map((e) => (
-          <div key={e.id} className="flex items-start gap-2 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs">
+          <div key={e.id} className="flex flex-wrap items-start gap-2 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs">
             <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">{KINDS.find(([v]) => v === e.kind)?.[1] ?? e.kind}</span>
             <div className="min-w-0 flex-1">
               <p className="font-medium">{e.label}{e.operation ? ` · ${e.operation}` : ""}{e.sequenceNo != null ? ` · séq. ${e.sequenceNo}` : ""}</p>
               {e.note && <p className="whitespace-pre-wrap text-muted-foreground">{e.note}</p>}
               {e.effectiveDate && <p className="text-muted-foreground/70">Effet : {new Date(e.effectiveDate).toLocaleDateString("fr-FR")}</p>}
             </div>
-            {canManage && <button type="button" disabled={busy !== null} onClick={() => run(`de-${e.id}`, () => { const fd = new FormData(); fd.set("id", e.id); return deleteLifecycleEvent(fd); })} className="text-destructive"><Trash2 className="h-3 w-3" /></button>}
+            {canManage && <button type="button" disabled={busy !== null} onClick={() => run(`de-${e.id}`, () => { const fd = new FormData(); fd.set("id", e.id); return deleteLifecycleEvent(fd); })} aria-label="Supprimer l'événement" className="-m-1 rounded p-2 text-destructive sm:m-0 sm:p-0"><Trash2 className="h-3 w-3" /></button>}
           </div>
         ))}
         {events.length === 0 && <p className="text-xs text-muted-foreground">Aucun événement. Ajoutez la soumission initiale, les séquences, modifications…</p>}
@@ -95,8 +95,8 @@ export function LifecyclePanel({ dossierId, events, obligations, canManage }: { 
             <CalendarClock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">{o.label}{o.certType ? ` (${o.certType})` : ""}{o.dueDate ? ` — ${new Date(o.dueDate).toLocaleDateString("fr-FR")}` : ""}</span>
             <span className={`rounded px-1.5 py-0.5 ${OB_STATUS[o.status] ?? ""}`}>{o.status === "OVERDUE" ? "En retard" : o.status === "DONE" ? "Traité" : "Ouvert"}</span>
-            {canManage && o.status !== "DONE" && <button type="button" disabled={busy !== null} onClick={() => run(`co-${o.id}`, () => { const fd = new FormData(); fd.set("id", o.id); return completeObligation(fd); })} className="text-success"><CheckCircle2 className="h-3.5 w-3.5" /></button>}
-            {canManage && <button type="button" disabled={busy !== null} onClick={() => run(`do-${o.id}`, () => { const fd = new FormData(); fd.set("id", o.id); return deleteObligation(fd); })} className="text-destructive"><Trash2 className="h-3 w-3" /></button>}
+            {canManage && o.status !== "DONE" && <button type="button" disabled={busy !== null} onClick={() => run(`co-${o.id}`, () => { const fd = new FormData(); fd.set("id", o.id); return completeObligation(fd); })} aria-label="Marquer traitée" className="-m-1 rounded p-2 text-success sm:m-0 sm:p-0"><CheckCircle2 className="h-3.5 w-3.5" /></button>}
+            {canManage && <button type="button" disabled={busy !== null} onClick={() => run(`do-${o.id}`, () => { const fd = new FormData(); fd.set("id", o.id); return deleteObligation(fd); })} aria-label="Supprimer l'obligation" className="-m-1 rounded p-2 text-destructive sm:m-0 sm:p-0"><Trash2 className="h-3 w-3" /></button>}
           </div>
         ))}
         {obligations.length === 0 && <p className="text-xs text-muted-foreground">Aucune obligation. Suivez ici les certificats expirants (CPP/GMP) et obligations post-enregistrement.</p>}

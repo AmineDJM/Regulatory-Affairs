@@ -36,7 +36,7 @@ export function InvolvementConversations({
           <MessagesSquare className="h-4 w-4" /> Échanges avec les personnes impliquées
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-4 sm:space-y-5">
         {threads.map((t) => {
           // Seul un membre du fil écrit. Le demandeur (créateur) et la personne l'étant tous deux,
           // ce test couvre les deux côtés sans droit de module.
@@ -45,8 +45,8 @@ export function InvolvementConversations({
           return (
             <section key={t.dossierId} className="space-y-3 rounded-xl border border-border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">Avec {t.personName}</h3>
-                <Link href={`/dossiers/${t.dossierId}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                <h3 className="min-w-0 text-sm font-semibold [overflow-wrap:anywhere]">Avec {t.personName}</h3>
+                <Link href={`/dossiers/${t.dossierId}`} className="inline-flex min-h-9 items-center gap-1 text-xs text-primary hover:underline sm:min-h-0">
                   Ouvrir le sujet <ExternalLink className="h-3 w-3" />
                 </Link>
               </div>

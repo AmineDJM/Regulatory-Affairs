@@ -29,7 +29,7 @@ import { deposerFacturePoste, demanderPaiementPoste } from "@/lib/actions/ad-pro
 
 type Run = (key: string, fn: () => Promise<{ ok: boolean; error?: string; message?: string }>, okText: string) => Promise<void>;
 
-const champ = "w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-none focus:border-primary/60";
+const champ = "w-full rounded border border-border bg-background px-1.5 py-2 text-xs outline-none focus:border-primary/60 sm:py-1";
 
 /** Les BC signés qui n'ont pas encore de facture. */
 export function bcsSansFacture(bcs: readonly BcDePoste[], factures: readonly PieceDePoste[]): BcDePoste[] {
@@ -71,24 +71,25 @@ export function DeposerFactureBC({ itemId, bcs, factures, busy, run, onClose }: 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-background p-2.5 text-xs" aria-label="Déposer la facture">
       <div className="flex items-center gap-2">
-        <p className="flex-1 font-medium text-foreground">Déposer la facture du bon de commande</p>
-        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">Fermer</button>
+        <p className="min-w-0 flex-1 font-medium text-foreground">Déposer la facture du bon de commande</p>
+        <button type="button" onClick={onClose} className="min-h-9 px-2 text-muted-foreground hover:text-foreground sm:min-h-0 sm:px-0">Fermer</button>
       </div>
       <p className="text-muted-foreground">Luna lit la facture et la compare au(x) bon(s) de commande signé(s) qu&apos;elle couvre : montant total, numéro de BC cité, fournisseur.</p>
       <label className="block space-y-0.5">
         <span className="font-medium text-foreground">Facture (PDF ou photo) — obligatoire</span>
-        <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*" aria-label="Fichier de la facture" onChange={(e) => setFichier(e.target.files?.[0] ?? null)} className="block w-full" />
+        <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*" aria-label="Fichier de la facture" onChange={(e) => setFichier(e.target.files?.[0] ?? null)} className="block w-full min-w-0 max-w-full py-1 [overflow-wrap:anywhere]" />
       </label>
       {libres.length > 1 && (
         <fieldset className="space-y-0.5">
           <legend className="font-medium text-foreground">Cette facture couvre</legend>
           {libres.map((b) => (
-            <label key={b.id} className="flex items-center gap-1.5">
+            <label key={b.id} className="flex min-h-9 items-center gap-1.5 sm:min-h-0">
               <input
                 type="checkbox" checked={coches.has(b.id)} aria-label={`La facture couvre ${b.reference ?? b.titre}`}
+                className="shrink-0 max-sm:h-5 max-sm:w-5"
                 onChange={(e) => setCoches((cur) => { const n = new Set(cur); if (e.target.checked) n.add(b.id); else n.delete(b.id); return n; })}
               />
-              <span>{b.reference ?? b.titre}{b.montant != null ? ` — ${formatCurrency(b.montant)}` : ""}</span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">{b.reference ?? b.titre}{b.montant != null ? ` — ${formatCurrency(b.montant)}` : ""}</span>
             </label>
           ))}
         </fieldset>
@@ -97,7 +98,7 @@ export function DeposerFactureBC({ itemId, bcs, factures, busy, run, onClose }: 
         <label className="space-y-0.5">N° de facture (facultatif)<input className={champ} value={reference} onChange={(e) => setReference(e.target.value)} /></label>
         <label className="space-y-0.5">Montant TTC (si la lecture échoue)<input className={champ} inputMode="decimal" value={montant} onChange={(e) => setMontant(e.target.value)} /></label>
       </div>
-      <Button size="sm" onClick={deposer} disabled={enCours || !fichier || coches.size === 0}>
+      <Button size="sm" className="h-10 w-full sm:h-8 sm:w-auto" onClick={deposer} disabled={enCours || !fichier || coches.size === 0}>
         {enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Déposer et contrôler
       </Button>
     </div>
@@ -112,8 +113,8 @@ export function DemandePaiementBC({ itemId, bcs, factures, accorde, peutDemander
   const [oui, setOui] = React.useState(false);
   if (expenseOrder) {
     return (
-      <p className="inline-flex items-center gap-1 text-muted-foreground">
-        <Receipt className="h-3 w-3" /> Paiement {expenseOrder.reference} · {expenseOrder.status === "PAID" ? "réglé" : "au centre de paiement"}
+      <p className="inline-flex flex-wrap items-center gap-1 text-muted-foreground [overflow-wrap:anywhere]">
+        <Receipt className="h-3 w-3 shrink-0" /> Paiement {expenseOrder.reference} · {expenseOrder.status === "PAID" ? "réglé" : "au centre de paiement"}
       </p>
     );
   }
@@ -147,8 +148,8 @@ export function DemandePaiementBC({ itemId, bcs, factures, accorde, peutDemander
                 <span className="text-foreground">Pourquoi le paiement doit-il tout de même partir ? (obligatoire)</span>
                 <textarea className={champ} rows={2} value={argumentation} onChange={(e) => setArgumentation(e.target.value)} />
               </label>
-              <label className="flex items-start gap-1.5">
-                <input type="checkbox" checked={oui} onChange={(e) => setOui(e.target.checked)} className="mt-0.5" aria-label="Faire quand même la demande de paiement" />
+              <label className="flex items-start gap-1.5 py-1 sm:py-0">
+                <input type="checkbox" checked={oui} onChange={(e) => setOui(e.target.checked)} className="mt-0.5 shrink-0 max-sm:h-5 max-sm:w-5" aria-label="Faire quand même la demande de paiement" />
                 <span>Oui, je souhaite quand même faire la demande de paiement.</span>
               </label>
             </>
@@ -156,7 +157,7 @@ export function DemandePaiementBC({ itemId, bcs, factures, accorde, peutDemander
         </div>
       )}
       {peutDemander && !depasse && (
-        <BoutonDecisif size="sm" onClick={demander} disabled={enCours || (ecarts.length > 0 && (!argumentation.trim() || !oui))}>
+        <BoutonDecisif size="sm" className="max-sm:w-full" onClick={demander} disabled={enCours || (ecarts.length > 0 && (!argumentation.trim() || !oui))}>
           {enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Receipt className="h-3.5 w-3.5" />} Demander le paiement
         </BoutonDecisif>
       )}

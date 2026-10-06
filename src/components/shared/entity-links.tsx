@@ -76,7 +76,7 @@ export function EntityLinks({ self, links, canEdit, emptyHint }: {
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2">
           <Link2 className="h-4 w-4" aria-hidden /> Relié à
           <span className="text-sm font-normal text-muted-foreground">({links.length})</span>
@@ -95,10 +95,10 @@ export function EntityLinks({ self, links, canEdit, emptyHint }: {
         ) : (
           <ul className="flex flex-wrap gap-1.5">
             {links.map((l) => (
-              <li key={l.id} className="flex items-center gap-1 rounded-full border border-border bg-secondary/50 py-1 pl-2.5 pr-1 text-sm">
+              <li key={l.id} className="flex min-w-0 max-w-full items-center gap-1 rounded-full border border-border bg-secondary/50 py-1 pl-2.5 pr-1 text-sm">
                 <span className="text-xs text-muted-foreground">{l.typeLabel} ·</span>
                 {l.href ? (
-                  <Link href={l.href} className="inline-flex items-center gap-1 font-medium hover:underline">
+                  <Link href={l.href} className="inline-flex min-w-0 items-center gap-1 font-medium [overflow-wrap:anywhere] hover:underline">
                     {l.label} <ExternalLink className="h-3 w-3 text-muted-foreground" />
                   </Link>
                 ) : (
@@ -109,7 +109,7 @@ export function EntityLinks({ self, links, canEdit, emptyHint }: {
                     type="button"
                     aria-label={`Retirer le lien ${l.label}`}
                     disabled={busy}
-                    className="rounded-full p-0.5 text-muted-foreground hover:bg-secondary hover:text-destructive"
+                    className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-secondary hover:text-destructive sm:p-0.5"
                     onClick={() => run(() => { const fd = new FormData(); fd.set("id", l.id); return removeEntityLink(fd); })}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -166,7 +166,7 @@ export function EntityLinks({ self, links, canEdit, emptyHint }: {
             </select>
           </div>
           {err && <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Annuler</Button>
             <Button type="submit" disabled={busy || candidates === null}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} Relier

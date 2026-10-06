@@ -44,7 +44,7 @@ export function BudgetForm({ dossierId, current }: { dossierId: string; current:
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor="ai-budget" className="text-xs text-muted-foreground">Plafond du dossier ($)</label>
         <input
-          id="ai-budget" type="number" min="0" step="0.5" value={value}
+          id="ai-budget" type="number" inputMode="decimal" min="0" step="0.5" value={value}
           onChange={(e) => setValue(e.target.value)} placeholder="plafond global"
           className="w-32 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm tabular-nums outline-none focus:border-primary/60"
         />
@@ -100,7 +100,7 @@ export function DeferredReviewButton({ dossierId, pending }: { dossierId: string
   if (pending) {
     return (
       <div className="rounded-xl border border-border px-3 py-2">
-        <p className="flex items-center gap-2 text-sm">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
           <Hourglass className="h-4 w-4 text-primary" />
           <span className="font-medium">Analyse différée en cours</span>
           <span className="text-xs text-muted-foreground">{pending.requestCount} part(s), déposée le {new Date(pending.submittedAt).toLocaleString("fr-FR")}</span>

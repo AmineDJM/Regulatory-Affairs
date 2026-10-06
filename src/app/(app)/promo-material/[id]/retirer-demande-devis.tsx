@@ -28,7 +28,7 @@ export function RetirerDemandeDevis({ promoMaterialId, references, refus }: { pr
       {msg && <p className="text-emerald-700 dark:text-emerald-400">{msg}</p>}
       {err && <p role="alert" className="text-destructive">{err}</p>}
       {!ouvert ? (
-        <Button size="sm" variant="outline" disabled={occupe} onClick={() => { setOuvert(true); setErr(null); }}>
+        <Button size="sm" variant="outline" className="h-auto min-h-9 w-full whitespace-normal py-1.5 [overflow-wrap:anywhere] sm:h-auto sm:min-h-8 sm:w-auto" disabled={occupe} onClick={() => { setOuvert(true); setErr(null); }}>
           <Undo2 className="h-4 w-4" /> Retirer la demande de devis{references.length ? ` (${references.join(", ")})` : ""}
         </Button>
       ) : (
@@ -50,7 +50,7 @@ export function RetirerDemandeDevis({ promoMaterialId, references, refus }: { pr
         >
           <label className="block font-medium" htmlFor={`motif-retrait-${promoMaterialId}`}>Pourquoi retirer la demande de devis ?</label>
           <Textarea id={`motif-retrait-${promoMaterialId}`} value={motif} onChange={(e) => setMotif(e.target.value)} rows={2} />
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Button type="submit" size="sm" variant="destructive" disabled={occupe || motif.trim() === ""}>
               {occupe ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Retirer la demande
             </Button>

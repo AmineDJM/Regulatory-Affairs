@@ -58,7 +58,7 @@ export function DepartmentsManager({
     <div className="space-y-5">
       {canManage && (
         <div className="flex justify-end">
-          <Button size="sm" onClick={() => setSheet({ mode: "create", parentId: null, parentName: null })}>
+          <Button size="sm" className="w-full sm:w-auto" onClick={() => setSheet({ mode: "create", parentId: null, parentName: null })}>
             <Plus className="h-4 w-4" /> Nouveau département
           </Button>
         </div>
@@ -100,12 +100,12 @@ function DeptCard({
 }) {
   const isRoot = node.depth === 0;
   return (
-    <div className={isRoot ? "surface p-4" : "rounded-lg border border-border bg-card/60 p-3"}>
+    <div className={isRoot ? "surface p-3 sm:p-4" : "rounded-lg border border-border bg-card/60 p-2.5 sm:p-3"}>
       <div className="flex flex-wrap items-center gap-2">
         {!isRoot && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-        <span className={isRoot ? "font-semibold" : "text-sm font-medium"}>{node.name}</span>
-        <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.625rem] text-muted-foreground">{node.code}</span>
-        {isRoot && node.companyName && <Badge tone="purple" dot={false} className="text-[0.625rem]">{node.companyName}</Badge>}
+        <span className={`min-w-0 [overflow-wrap:anywhere] ${isRoot ? "font-semibold" : "text-sm font-medium"}`}>{node.name}</span>
+        <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere]">{node.code}</span>
+        {isRoot && node.companyName && <Badge tone="purple" dot={false} className="text-[0.6875rem]">{node.companyName}</Badge>}
 
         {node.headName ? (
           <Badge tone="info" dot={false} className="gap-1"><ShieldCheck className="h-3 w-3" /> {node.headName}</Badge>
@@ -122,15 +122,15 @@ function DeptCard({
         {canManage && (
           <div className="ml-auto flex items-center gap-1">
             <Button size="sm" variant="outline" onClick={() => onAddChild(node)}><Plus className="h-3.5 w-3.5" /> Sous-département</Button>
-            <button title="Modifier" onClick={() => onEdit(node)} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-4 w-4" /></button>
-            <button title="Supprimer" onClick={() => onDelete(node)} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+            <button title="Modifier" aria-label="Modifier" onClick={() => onEdit(node)} className="rounded p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"><Pencil className="h-4 w-4" /></button>
+            <button title="Supprimer" aria-label="Supprimer" onClick={() => onDelete(node)} className="rounded p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"><Trash2 className="h-4 w-4" /></button>
           </div>
         )}
       </div>
       {node.description && <p className="mt-1 text-xs text-muted-foreground">{node.description}</p>}
 
       {node.children.length > 0 && (
-        <div className="mt-3 space-y-2 border-l-2 border-border pl-4">
+        <div className="mt-3 space-y-2 border-l-2 border-border pl-2.5 sm:pl-4">
           {node.children.map((c) => (
             <DeptCard key={c.id} node={c} canManage={canManage} onAddChild={onAddChild} onEdit={onEdit} onDelete={onDelete} />
           ))}
@@ -144,7 +144,7 @@ function DeptCard({
 function UnassignedPanel({ employees, options }: { employees: EmpOpt[]; options: DepartmentOption[] }) {
   const { busy, err, run } = useRun();
   return (
-    <section className="surface space-y-3 p-4">
+    <section className="surface space-y-3 p-3 sm:p-4">
       <div className="flex items-center gap-2">
         <UserPlus className="h-4 w-4 text-warning" />
         <h2 className="text-sm font-semibold">Personnes non affectées ({employees.length})</h2>
@@ -153,13 +153,13 @@ function UnassignedPanel({ employees, options }: { employees: EmpOpt[]; options:
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="divide-y divide-border">
         {employees.map((e) => (
-          <div key={e.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
-            <Link href={`/rh/${e.id}`} className="font-medium hover:underline">{e.fullName}</Link>
-            {e.position && <span className="text-xs text-muted-foreground">{e.position}</span>}
+          <div key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5 text-sm sm:py-2">
+            <Link href={`/rh/${e.id}`} className="min-w-0 font-medium [overflow-wrap:anywhere] hover:underline">{e.fullName}</Link>
+            {e.position && <span className="min-w-0 text-xs text-muted-foreground">{e.position}</span>}
             <Select
               defaultValue=""
               disabled={busy}
-              className="ml-auto h-8 w-64 text-xs"
+              className="w-full sm:ml-auto sm:h-8 sm:w-64 sm:text-xs"
               onChange={(ev) => {
                 const departmentId = ev.target.value;
                 if (!departmentId) return;
@@ -212,9 +212,9 @@ function DeptSheet({
             run(() => createDepartment(fd), onClose).finally(done);
           }
         }}
-        className="grid grid-cols-2 gap-3"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2"
       >
-        <div className="col-span-2 space-y-1.5">
+        <div className="space-y-1.5 sm:col-span-2">
           <Label>Nom <span className="text-destructive">*</span></Label>
           <Input name="name" required defaultValue={editing?.name ?? ""} placeholder="Ex. Commercial, Ventes Nord…" />
         </div>
@@ -223,7 +223,7 @@ function DeptSheet({
           <Input name="code" defaultValue={editing?.code ?? ""} placeholder="COMMERCIAL" />
         </div>
         {(sheet.mode === "edit" ? !editing?.parentId : !sheet.parentId) && companies.length > 0 && (
-          <div className="col-span-2 space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2">
             <Label>Entité</Label>
             <Select name="companyId" defaultValue={editing ? editing.companyId ?? "" : companyScope ?? ""}>
               <option value="">— Transverse au groupe —</option>
@@ -253,14 +253,14 @@ function DeptSheet({
             {employees.map((e) => <option key={e.id} value={e.id}>{e.fullName}</option>)}
           </Select>
         </div>
-        <div className="col-span-2 space-y-1.5">
+        <div className="space-y-1.5 sm:col-span-2">
           <Label>Description</Label>
           <Textarea name="description" defaultValue={editing?.description ?? ""} rows={2} placeholder="Mission du département…" />
         </div>
-        {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
-        <div className="col-span-2 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
-          <Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
+        {err && <p className="text-sm text-destructive sm:col-span-2">{err}</p>}
+        <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={onClose}>Annuler</Button>
+          <Button type="submit" className="w-full sm:w-auto" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
         </div>
       </form>
     </Sheet>

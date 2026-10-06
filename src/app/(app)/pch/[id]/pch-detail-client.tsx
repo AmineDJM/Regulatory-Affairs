@@ -19,7 +19,7 @@ import { OrderExecution } from "./order-execution";
 type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 
 function W({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
-  return <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
+  return <div className={full ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
 }
 
 function useSubmit() {
@@ -49,7 +49,7 @@ export function EditTenderButton({ tender, canDelete, users = [], businessUnits 
       <Button variant="outline" size="sm" onClick={() => { setErr(null); setOpen(true); }}><Pencil className="h-4 w-4" /> Modifier</Button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Modifier l'appel d'offres" width="lg">
         <form action={(fd) => { fd.set("id", t.id); submit(updateTender, fd, () => setOpen(false)); }} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* LA RÉFÉRENCE DU MARCHÉ SE CORRIGE ICI. Elle est saisie à la main le jour de la
                 publication : une coquille dans le numéro se paie pendant des années. Elle reste
                 unique — le serveur refuse en NOMMANT le marché qui la porte déjà. */}
@@ -73,28 +73,28 @@ export function EditTenderButton({ tender, canDelete, users = [], businessUnits 
             <W full label="Produits"><Textarea name="products" defaultValue={t.products} /></W>
             <W label="Fournisseur"><Input name="supplier" defaultValue={t.supplier} /></W>
             <W label="Pays du fournisseur"><Input name="supplierCountry" defaultValue={t.supplierCountry} /></W>
-            <W label="Quantité"><Input name="quantity" type="number" defaultValue={t.quantity} /></W>
-            <W label="Valeur (DZD)"><Input name="value" type="number" step="any" defaultValue={t.value ?? ""} /></W>
+            <W label="Quantité"><Input name="quantity" type="number" inputMode="numeric" defaultValue={t.quantity} /></W>
+            <W label="Valeur (DZD)"><Input name="value" type="number" step="any" inputMode="decimal" defaultValue={t.value ?? ""} /></W>
             <W label="Client"><Input name="client" defaultValue={t.client} /></W>
             <W label="Statut"><Select name="status" defaultValue={t.status}>{Object.entries(PCH_TENDER_STATUS).map(([v, d]) => <option key={v} value={v}>{d.label}</option>)}</Select></W>
             <W label="Date d'attribution"><Input name="awardDate" type="date" defaultValue={t.awardDate?.slice(0, 10) ?? ""} /></W>
             <W full label="— Caution —"><div /></W>
-            <W label="Montant caution (DZD)"><Input name="cautionAmount" type="number" step="any" defaultValue={t.cautionAmount ?? ""} /></W>
+            <W label="Montant caution (DZD)"><Input name="cautionAmount" type="number" step="any" inputMode="decimal" defaultValue={t.cautionAmount ?? ""} /></W>
             <W label="Déposée ?"><label className="flex h-9 items-center gap-2 text-sm"><input type="hidden" name="cautionDeposited" value="off" /><input type="checkbox" name="cautionDeposited" defaultChecked={t.cautionDeposited} className="h-4 w-4 rounded border-input" /> Caution déposée</label></W>
             <W label="Caution — début"><Input name="cautionStart" type="date" defaultValue={t.cautionStart?.slice(0, 10) ?? ""} /></W>
             <W label="Caution — fin"><Input name="cautionEnd" type="date" defaultValue={t.cautionEnd?.slice(0, 10) ?? ""} /></W>
             <W full label="Notes"><Textarea name="notes" defaultValue={t.notes} /></W>
           </div>
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-          <div className="flex items-center justify-between pt-1">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
             {canDelete ? (
-              <Button type="button" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm("Supprimer cet appel d'offres ? Il part à la corbeille avec ses lots, ses bons de commande et leurs livraisons — le Super Admin peut tout restaurer.")) { const fd = new FormData(); fd.set("id", t.id); deleteTender(fd).then((r) => { if (r.ok) router.push("/pch"); else window.alert(r.error); }); } }}>
+              <Button type="button" variant="ghost" className="w-full text-destructive sm:w-auto" onClick={() => { if (window.confirm("Supprimer cet appel d'offres ? Il part à la corbeille avec ses lots, ses bons de commande et leurs livraisons — le Super Admin peut tout restaurer.")) { const fd = new FormData(); fd.set("id", t.id); deleteTender(fd).then((r) => { if (r.ok) router.push("/pch"); else window.alert(r.error); }); } }}>
                 <Trash2 className="h-4 w-4" /> Supprimer
               </Button>
-            ) : <span />}
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-              <Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
+            ) : <span className="hidden sm:block" />}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} className="w-full sm:w-auto">Annuler</Button>
+              <Button type="submit" disabled={saving} className="w-full sm:w-auto">{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
             </div>
           </div>
         </form>
@@ -124,7 +124,7 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Bons de commande ({orders.length})</h2>
         {canEdit && <Button size="sm" onClick={() => { setErr(null); setAdding(true); }}><Plus className="h-4 w-4" /> Nouveau bon</Button>}
       </div>
@@ -133,7 +133,7 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
         <p className="surface p-4 text-sm text-muted-foreground">Aucun bon de commande. Ajoutez les bons reçus de la PCH.</p>
       ) : (
         <div className="surface overflow-x-auto">
-          <Table>
+          <Table mobileCards>
             <TableHeader>
               <TableRow>
                 <TableHead>Référence</TableHead><TableHead>Produits</TableHead><TableHead className="text-right">Qté</TableHead>
@@ -147,8 +147,8 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
                   className={detailOf.has(ord.id) ? "cursor-pointer" : undefined}
                   onClick={() => detailOf.has(ord.id) && setExpanded(expanded === ord.id ? null : ord.id)}
                 >
-                  <TableCell className="font-mono text-xs">{ord.reference || "—"}</TableCell>
-                  <TableCell>{ord.products || "—"}</TableCell>
+                  <TableCell className="font-mono text-xs [overflow-wrap:anywhere]">{ord.reference || "—"}</TableCell>
+                  <TableCell className="[overflow-wrap:anywhere]">{ord.products || "—"}</TableCell>
                   <TableCell className="text-right">{formatNumber(ord.quantity)}</TableCell>
                   <TableCell className="text-right">{ord.value !== null ? formatCurrency(ord.value) : "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{ord.receivedDate ? formatDate(ord.receivedDate) : "—"}</TableCell>
@@ -156,14 +156,14 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
                   <TableCell><StatusBadge map={PCH_ORDER_STATUS} value={ord.status} /></TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-0.5">
-                      {canEdit && <button onClick={(e) => { e.stopPropagation(); setErr(null); setEditing(ord); }} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-4 w-4" /></button>}
-                      {canDelete && <button onClick={(e) => { e.stopPropagation(); if (window.confirm("Supprimer ce bon de commande ?")) { const fd = new FormData(); fd.set("id", ord.id); deleteOrder(fd).then(() => router.refresh()); } }} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}
+                      {canEdit && <button aria-label="Modifier le bon" onClick={(e) => { e.stopPropagation(); setErr(null); setEditing(ord); }} className="rounded p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"><Pencil className="h-4 w-4" /></button>}
+                      {canDelete && <button aria-label="Supprimer le bon" onClick={(e) => { e.stopPropagation(); if (window.confirm("Supprimer ce bon de commande ?")) { const fd = new FormData(); fd.set("id", ord.id); deleteOrder(fd).then(() => router.refresh()); } }} className="rounded p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"><Trash2 className="h-4 w-4" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>
                 {expanded === ord.id && detailOf.has(ord.id) && (
                   <TableRow>
-                    <TableCell colSpan={8} className="bg-transparent p-2">
+                    <TableCell colSpan={8} data-sans-etiquette className="bg-transparent p-2">
                       <OrderExecution bon={detailOf.get(ord.id)!} contrats={contrats} canEdit={canEdit} canInvoice={canInvoice} />
                     </TableCell>
                   </TableRow>
@@ -183,7 +183,7 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <W label="Référence (n° BC)"><Input name="reference" defaultValue={o?.reference} /></W>
             <W label="Statut"><Select name="status" defaultValue={o?.status ?? "PENDING"}>{Object.entries(PCH_ORDER_STATUS).map(([v, d]) => <option key={v} value={v}>{d.label}</option>)}</Select></W>
             {/* Le CONTRAT exécuté : c'est lui qui ouvre le contrôle du restant sur les lignes. */}
@@ -196,16 +196,16 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
               </W>
             )}
             <W full label="Produits"><Input name="products" defaultValue={o?.products} /></W>
-            <W label="Quantité"><Input name="quantity" type="number" defaultValue={o?.quantity ?? ""} /></W>
-            <W label="Valeur (DZD)"><Input name="value" type="number" step="any" defaultValue={o?.value ?? ""} /></W>
+            <W label="Quantité"><Input name="quantity" type="number" inputMode="numeric" defaultValue={o?.quantity ?? ""} /></W>
+            <W label="Valeur (DZD)"><Input name="value" type="number" step="any" inputMode="decimal" defaultValue={o?.value ?? ""} /></W>
             <W label="Date de réception"><Input name="receivedDate" type="date" defaultValue={o?.receivedDate?.slice(0, 10) ?? ""} /></W>
             <W label="Date de paiement"><Input name="paymentDate" type="date" defaultValue={o?.paymentDate?.slice(0, 10) ?? ""} /></W>
             <W full label="Notes"><Textarea name="notes" defaultValue={o?.notes} /></W>
           </div>
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => { setAdding(false); setEditing(null); }}>Annuler</Button>
-            <Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => { setAdding(false); setEditing(null); }} className="w-full sm:w-auto">Annuler</Button>
+            <Button type="submit" disabled={saving} className="w-full sm:w-auto">{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
           </div>
         </form>
       </Sheet>

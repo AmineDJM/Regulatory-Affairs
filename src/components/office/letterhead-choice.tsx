@@ -98,7 +98,7 @@ function ChoiceTile({
       <IconCmp className={cn("h-5 w-5 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">{label}</span>
-        <span className="block truncate text-[0.6875rem] text-muted-foreground">{hint}</span>
+        <span className="block text-[0.6875rem] leading-snug text-muted-foreground sm:truncate">{hint}</span>
       </span>
     </button>
   );

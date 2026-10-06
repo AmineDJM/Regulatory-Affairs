@@ -104,15 +104,15 @@ export function SpecialitesTable({
                         if (e.key === "Escape") { e.preventDefault(); setRenomme(null); }
                       }}
                       aria-label={`Nouveau nom de la spécialité ${s.name}`}
-                      className="h-8 min-w-0 flex-1"
+                      className="h-10 min-w-0 flex-1 sm:h-8"
                     />
                     <button type="button" disabled={busy} aria-label="Enregistrer le nom"
                       onClick={async () => { if (await executer(updateSpecialty, { id: s.id, name: renomme.name })) setRenomme(null); }}
-                      className="rounded-md p-1.5 text-success hover:bg-success/10">
+                      className="rounded-md p-2.5 sm:p-1.5 text-success hover:bg-success/10">
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                     </button>
                     <button type="button" onClick={() => setRenomme(null)} disabled={busy} aria-label="Annuler le renommage"
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-muted">
+                      className="rounded-md p-2.5 sm:p-1.5 text-muted-foreground hover:bg-muted">
                       <X className="h-4 w-4" />
                     </button>
                   </>
@@ -124,7 +124,7 @@ export function SpecialitesTable({
                       aria-label={`Fusionner ${s.name} dans`}
                       value={fusion.cibleId}
                       onChange={(e) => setFusion({ id: s.id, cibleId: e.target.value })}
-                      className="h-8 min-w-0 flex-1 text-sm"
+                      className="h-10 min-w-0 flex-1 text-sm sm:h-8"
                     >
                       <option value="">— Fusionner dans… —</option>
                       {autres(s.id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -141,17 +141,17 @@ export function SpecialitesTable({
                       <GitMerge className="h-4 w-4" /> Fusionner
                     </Button>
                     <button type="button" onClick={() => setFusion(null)} disabled={busy} aria-label="Annuler la fusion"
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-muted">
+                      className="rounded-md p-2.5 sm:p-1.5 text-muted-foreground hover:bg-muted">
                       <X className="h-4 w-4" />
                     </button>
                   </>
                 ) : (
                   <>
-                    <span className="min-w-0 flex-1 font-medium">{s.name}</span>
+                    <span className="min-w-0 flex-1 basis-40 break-words font-medium">{s.name}</span>
                     {s.bu.length > 0 && (
                       // LES BU QUI LA VISENT (§118.183) — dites AVANT le clic : un retrait sera refusé, une
                       // fusion les fera suivre.
-                      <span className="text-xs text-muted-foreground" title="Business Units qui visent cette spécialité (★ : principale)">
+                      <span className="min-w-0 break-words text-xs text-muted-foreground" title="Business Units qui visent cette spécialité (★ : principale)">
                         BU : {s.bu.map((b) => `${b.nom}${b.principale ? " ★" : ""}`).join(", ")}
                       </span>
                     )}
@@ -159,14 +159,14 @@ export function SpecialitesTable({
                     {canEdit && (
                       <button type="button" disabled={busy} aria-label={`Renommer ${s.name}`}
                         onClick={() => { setMsg(null); setFusion(null); setRenomme({ id: s.id, name: s.name }); }}
-                        className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+                        className="rounded-md p-2.5 sm:p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
                         <Pencil className="h-4 w-4" />
                       </button>
                     )}
                     {canDelete && specialites.length > 1 && (
                       <button type="button" disabled={busy} aria-label={`Fusionner ${s.name} dans une autre spécialité`}
                         onClick={() => { setMsg(null); setRenomme(null); setFusion({ id: s.id, cibleId: "" }); }}
-                        className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+                        className="rounded-md p-2.5 sm:p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
                         <GitMerge className="h-4 w-4" />
                       </button>
                     )}
@@ -179,7 +179,7 @@ export function SpecialitesTable({
                           if (!window.confirm(`Retirer « ${s.name} » du référentiel ?${suite}`)) return;
                           await executer(deleteSpecialty, { id: s.id });
                         }}
-                        className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                        className="rounded-md p-2.5 sm:p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
@@ -219,7 +219,7 @@ export function SpecialitesTable({
                         aria-label={`Rattacher « ${h.libelle} » à`}
                         value={cible}
                         onChange={(e) => setCibles((c) => ({ ...c, [h.libelle]: e.target.value }))}
-                        className="h-8 w-full text-sm sm:w-56"
+                        className="h-10 w-full text-sm sm:h-8 sm:w-56"
                       >
                         <option value="">— Rattacher à… —</option>
                         {specialites.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -233,7 +233,7 @@ export function SpecialitesTable({
                     </>
                   )}
                   {canCreate && !h.designe && (
-                    <Button type="button" size="sm" variant="ghost" disabled={busy}
+                    <Button type="button" size="sm" variant="ghost" disabled={busy} className="h-auto min-h-9 max-w-full whitespace-normal text-left sm:min-h-8"
                       onClick={() => void executer(createSpecialty, { name: h.libelle })}>
                       <Plus className="h-4 w-4" /> Créer « {h.libelle} »
                     </Button>

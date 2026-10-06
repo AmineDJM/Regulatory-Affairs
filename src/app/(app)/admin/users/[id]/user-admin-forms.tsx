@@ -38,13 +38,13 @@ export function ProfileForm({ user }: { user: Profile }) {
       </div>
       <div className="sm:col-span-2 space-y-1">
         <Label htmlFor="email">E-mail (identifiant de connexion)</Label>
-        <Input id="email" name="email" type="email" defaultValue={user.email} />
+        <Input id="email" name="email" type="email" autoComplete="off" defaultValue={user.email} />
       </div>
       <div className="space-y-1"><Label htmlFor="title">Fonction</Label><Input id="title" name="title" defaultValue={user.title} /></div>
       <div className="space-y-1"><Label htmlFor="region">Région</Label><Input id="region" name="region" defaultValue={user.region} /></div>
       {error && <p className="sm:col-span-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       <div className="sm:col-span-2 flex justify-end">
-        <Button type="submit" disabled={saving}>
+        <Button type="submit" disabled={saving} className="w-full sm:w-auto">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
           {saved ? "Enregistré" : "Enregistrer le profil"}
         </Button>
@@ -71,7 +71,7 @@ export function ResetPasswordForm({ userId }: { userId: string }) {
       <input type="hidden" name="userId" value={userId} />
       <Label htmlFor="password">Nouveau mot de passe</Label>
       <div className="flex gap-2">
-        <Input id="password" name="password" value={pw} onChange={(e) => { setPw(e.target.value); setDone(false); }} placeholder="min. 8 caractères" />
+        <Input id="password" name="password" autoComplete="new-password" className="min-w-0" value={pw} onChange={(e) => { setPw(e.target.value); setDone(false); }} placeholder="min. 8 caractères" />
         <Button type="button" variant="outline" onClick={generate}>Générer</Button>
       </div>
       <label className="flex items-center gap-2 text-sm">
@@ -84,7 +84,7 @@ export function ResetPasswordForm({ userId }: { userId: string }) {
       </Button>
       {done && (
         <p className="rounded-lg bg-success/10 px-3 py-2 text-sm text-success">
-          Mot de passe défini. Communiquez-le à l’utilisateur&nbsp;: <code className="font-mono">{pw}</code>
+          Mot de passe défini. Communiquez-le à l’utilisateur&nbsp;: <code className="font-mono [overflow-wrap:anywhere]">{pw}</code>
           <br />Toutes ses sessions ont été révoquées.
         </p>
       )}

@@ -27,7 +27,7 @@ export function HrRequestThread({
 
   return (
     <div className="mt-1 w-full">
-      <button onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+      <button onClick={() => setOpen((v) => !v)} className="inline-flex flex-wrap items-center gap-1.5 py-1.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground sm:py-0">
         {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         <Paperclip className="h-3.5 w-3.5" /> {documents.length}
         <MessageSquare className="h-3.5 w-3.5" /> {comments.length}

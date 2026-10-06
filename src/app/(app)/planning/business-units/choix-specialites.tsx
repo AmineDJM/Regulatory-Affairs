@@ -52,7 +52,7 @@ export function ChoixSpecialites({
         // moitié remplie. Filtrer n'envoie rien.
         onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
         placeholder="Filtrer les spécialités…" aria-label="Filtrer les spécialités"
-        className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
+        className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm sm:h-9"
       />
       <ul className="max-h-56 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1.5" aria-label="Spécialités du référentiel">
         {visibles.map((s) => {
@@ -60,9 +60,9 @@ export function ChoixSpecialites({
           const estPrincipale = valeur.principaleId === s.id;
           return (
             <li key={s.id} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-secondary/60">
-              <label className="flex min-w-0 flex-1 items-center gap-2">
+              <label className="flex min-h-9 min-w-0 flex-1 items-center gap-2 sm:min-h-0">
                 <input type="checkbox" checked={estCochee} onChange={() => basculer(s.id)} disabled={disabled} />
-                <span className="truncate">{s.name}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere] sm:truncate">{s.name}</span>
               </label>
               {estCochee && (
                 <button
@@ -70,7 +70,7 @@ export function ChoixSpecialites({
                   onClick={() => onChange({ ...valeur, principaleId: estPrincipale ? null : s.id })}
                   aria-pressed={estPrincipale}
                   title={estPrincipale ? "Retirer comme principale" : "Faire la spécialité principale"}
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] ${estPrincipale ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "text-muted-foreground hover:bg-secondary"}`}
+                  className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-2 text-[0.6875rem] sm:px-2 sm:py-0.5 ${estPrincipale ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "text-muted-foreground hover:bg-secondary"}`}
                 >
                   <Star className={`h-3 w-3 ${estPrincipale ? "fill-current" : ""}`} aria-hidden />
                   {estPrincipale ? "Principale" : "Principale ?"}

@@ -32,7 +32,7 @@ export function SupprimerPieceLegal({ id, nom, offert }: { id: string; nom: stri
         onClick={() => setOpen(true)}
         aria-label={`Supprimer la pièce « ${nom} »`}
         title="Supprimer la pièce (réversible — corbeille)"
-        className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground sm:h-auto sm:w-auto sm:p-1.5 transition-colors hover:bg-destructive/10 hover:text-destructive"
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>

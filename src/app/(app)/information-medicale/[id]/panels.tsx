@@ -64,8 +64,8 @@ export function CancelRequestButton({ id }: { id: string }) {
       type="button"
       onClick={() => { const fd = new FormData(); fd.set("id", id); run(() => cancelDocRequest(fd)); }}
       disabled={saving}
-      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive disabled:opacity-50"
-      title="Annuler la demande"
+      className="-m-1 inline-flex items-center gap-1 rounded p-2 text-xs text-muted-foreground hover:text-destructive disabled:opacity-50 sm:m-0 sm:p-0"
+      title="Annuler la demande" aria-label="Annuler la demande"
     >
       {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
     </button>
@@ -242,7 +242,7 @@ export function SlipsCard({
                     <button
                       type="button" title="Retirer ce matériel" disabled={saving}
                       onClick={() => { const fd = new FormData(); fd.set("slipId", sl.id); run(() => removeMedicalInfoSlip(fd)); }}
-                      className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                      className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:p-1"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -288,7 +288,7 @@ export function SlipsCard({
                       </div>
                     </form>
                   ) : (
-                    <Button size="sm" variant="outline" onClick={() => setPane(`pay:${sl.id}`)}>
+                    <Button size="sm" variant="outline" className="h-auto min-h-9 whitespace-normal py-1.5 text-left sm:min-h-8" onClick={() => setPane(`pay:${sl.id}`)}>
                       <HandCoins className="h-4 w-4" /> Demander le paiement de cette quittance
                     </Button>
                   )
@@ -304,7 +304,7 @@ export function SlipsCard({
                       <Label>Note de remise (facultatif)</Label>
                       <Input name="note" className="h-9" placeholder="Remis en main propre le…" />
                     </div>
-                    <Button type="submit" size="sm" disabled={saving}>
+                    <Button type="submit" size="sm" disabled={saving} className="w-full sm:w-auto">
                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Quittance remise au PRIM
                     </Button>
                   </form>
@@ -492,9 +492,9 @@ export function ValidateButton({ id, hasPending }: { id: string; hasPending: boo
       </p>
       <Err msg={err} />
       {!confirm ? (
-        <Button onClick={() => setConfirm(true)} disabled={saving}><BadgeCheck className="h-4 w-4" /> Valider et transmettre à la Direction</Button>
+        <Button onClick={() => setConfirm(true)} disabled={saving} className="h-auto min-h-10 w-full whitespace-normal py-2 sm:w-auto"><BadgeCheck className="h-4 w-4 shrink-0" /> Valider et transmettre à la Direction</Button>
       ) : (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={() => { const fd = new FormData(); fd.set("id", id); run(() => validateDeclaration(fd)); }} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Confirmer
           </Button>
@@ -524,9 +524,9 @@ export function DirectionValidateButton({ id, amount }: { id: string; amount: nu
       </div>
       <Err msg={err} />
       {!confirm ? (
-        <Button onClick={() => setConfirm(true)} disabled={saving}><BadgeCheck className="h-4 w-4" /> Valider pour le comptable</Button>
+        <Button onClick={() => setConfirm(true)} disabled={saving} className="w-full sm:w-auto"><BadgeCheck className="h-4 w-4" /> Valider pour le comptable</Button>
       ) : (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={() => { const fd = new FormData(); fd.set("id", id); if (comment.trim()) fd.set("comment", comment); run(() => validateDeclarationByDirection(fd)); }} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Confirmer la validation
           </Button>

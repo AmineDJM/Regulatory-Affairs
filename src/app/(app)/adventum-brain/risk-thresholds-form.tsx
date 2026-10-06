@@ -12,7 +12,7 @@ export function RiskThresholdsForm({ initial }: { initial: RiskThresholds }) {
 
   return (
     <details className="surface group">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3">
         <span className="flex items-center gap-2 text-sm font-medium">
           <SlidersHorizontal className="h-4 w-4 text-primary" /> Réglage des seuils du Risk Radar
         </span>
@@ -29,11 +29,12 @@ export function RiskThresholdsForm({ initial }: { initial: RiskThresholds }) {
               <span className="flex items-center gap-1.5">
                 <input
                   type="number"
+                  inputMode="numeric"
                   name={f.key}
                   defaultValue={initial[f.key]}
                   min={f.min}
                   max={f.max}
-                  className="h-9 w-24 rounded-lg border border-input bg-background px-2.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-10 w-24 rounded-lg border border-input bg-background px-2.5 text-base shadow-sm sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
                 <span className="text-xs text-muted-foreground">{f.suffix}</span>
               </span>
@@ -41,9 +42,9 @@ export function RiskThresholdsForm({ initial }: { initial: RiskThresholds }) {
             </label>
           ))}
         </div>
-        <div className="mt-4 flex items-center justify-end gap-3">
+        <div className="mt-4 flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
           {saved && <span className="flex items-center gap-1.5 text-sm text-success"><Check className="h-4 w-4" /> Seuils enregistrés</span>}
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" disabled={saving} className="w-full sm:w-auto">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Enregistrer les seuils
           </Button>

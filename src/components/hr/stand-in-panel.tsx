@@ -46,7 +46,7 @@ export function StandInBadge({ state, moduleLabels }: { state: StandInState; mod
   return (
     <span className="flex flex-col gap-0.5">
       <span className="flex flex-wrap items-center gap-1.5">
-        <span className="text-sm">{state.standInName ?? "—"}</span>
+        <span className="min-w-0 text-sm [overflow-wrap:anywhere]">{state.standInName ?? "—"}</span>
         <Badge tone={TONE[state.standInStatus]} dot={false}>{STAND_IN_LABEL[state.standInStatus]}</Badge>
       </span>
       {state.standInModules.length > 0 && (
@@ -140,11 +140,11 @@ export function StandInButton({
             )}
             <div className="grid grid-cols-1 gap-1.5 pt-1 sm:grid-cols-2">
               {modules.map((m) => (
-                <label key={m.value} className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-sm">
+                <label key={m.value} className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm sm:min-h-0 sm:px-2">
                   <input
                     type="checkbox" checked={picked.includes(m.value)}
                     onChange={() => toggle(m.value)}
-                    className="h-4 w-4 rounded border-input"
+                    className="h-4 w-4 shrink-0 rounded border-input"
                   />
                   {m.label}
                 </label>
@@ -153,18 +153,18 @@ export function StandInButton({
           </div>
 
           {error && (
-            <p className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4" /> {error}
+            <p className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0">{error}</span>
             </p>
           )}
 
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             {state.standInId && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => save(true)}>
+              <Button variant="outline" size="sm" className="min-h-10 w-full sm:min-h-0 sm:w-auto" disabled={busy} onClick={() => save(true)}>
                 <X className="h-4 w-4" /> Retirer
               </Button>
             )}
-            <Button size="sm" disabled={busy || !who || picked.length === 0} onClick={() => save(false)}>
+            <Button size="sm" className="min-h-10 w-full sm:min-h-0 sm:w-auto" disabled={busy || !who || picked.length === 0} onClick={() => save(false)}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               Proposer aux RH
             </Button>
@@ -195,16 +195,18 @@ export function StandInDecision({ leaveId }: { leaveId: string }) {
   }
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end sm:gap-1.5">
       <Input
         value={note} onChange={(e) => setNote(e.target.value)}
-        placeholder="Motif (obligatoire pour refuser)" className="h-8 w-56 text-xs"
+        aria-label="Motif"
+        placeholder="Motif (obligatoire pour refuser)" className="h-10 w-full sm:h-8 sm:w-56 sm:text-xs"
       />
-      <div className="flex gap-1.5">
-        <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => decide(true)}>
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-1.5">
+        <BoutonDecisif size="sm" className="min-h-10 max-sm:flex-1 sm:min-h-0" disabled={busy !== null} onClick={() => decide(true)}>
           {busy === "ok" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Valider
         </BoutonDecisif>
         <BoutonDecisif
+          className="min-h-10 max-sm:flex-1 sm:min-h-0"
           variant="outline" size="sm" disabled={busy !== null || !note.trim()}
           title={note.trim() ? undefined : "Un refus se motive : l'intéressé doit savoir quoi proposer d'autre."}
           onClick={() => decide(false)}

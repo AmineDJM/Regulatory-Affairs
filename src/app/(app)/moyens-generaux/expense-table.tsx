@@ -3,6 +3,7 @@
 import * as React from "react";
 import { FileText, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { DEPT_BUDGET_LABEL } from "@/lib/department-budget";
 import { ExpenseRowActions } from "./expense-row-actions";
@@ -77,7 +78,7 @@ export function ExpenseTable({
               type="button"
               onClick={() => setFiltre(f.key)}
               aria-pressed={filtre === f.key}
-              className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
+              className={`min-h-9 rounded-lg border px-3 py-1 text-xs font-medium sm:min-h-0 sm:px-2.5 ${
                 filtre === f.key
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border text-muted-foreground hover:bg-secondary"
@@ -100,49 +101,54 @@ export function ExpenseTable({
           Aucune dépense {filtre === "CASH" ? "payée sur la caisse d'avance" : "payée hors caisse"} cette année.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[52rem] text-sm">
-            <thead className="border-y border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th scope="col" className="px-4 py-2 font-medium">Dépense</th>
-                <th scope="col" className="px-3 py-2 font-medium">Classement</th>
-                <th scope="col" className="px-3 py-2 font-medium">Paiement</th>
-                <th scope="col" className="px-3 py-2 font-medium">Date</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">Montant</th>
-                <th scope="col" className="px-3 py-2 font-medium">Pièces</th>
-                {canSpend && <th scope="col" className="px-3 py-2 font-medium"><span className="sr-only">Actions</span></th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+        // Une ligne = une dépense : au téléphone, chaque dépense devient une carte (intitulés repris de l'en-tête).
+        <div className="px-3 pb-3 sm:px-0 sm:pb-0">
+          <Table mobileCards className="sm:min-w-[52rem]">
+            <TableHeader className="border-y border-border bg-secondary/40">
+              <TableRow>
+                <TableHead scope="col" className="px-4">Dépense</TableHead>
+                <TableHead scope="col">Classement</TableHead>
+                <TableHead scope="col">Paiement</TableHead>
+                <TableHead scope="col">Date</TableHead>
+                <TableHead scope="col" className="text-right">Montant</TableHead>
+                <TableHead scope="col">Pièces</TableHead>
+                {canSpend && <TableHead scope="col"><span className="sr-only">Actions</span></TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((e) => (
-                <tr key={e.id} className="align-top">
-                  <td className="px-4 py-2.5">
-                    <span className="font-medium">{e.label}</span>
-                    {e.notes && <span className="block text-xs text-muted-foreground">{e.notes}</span>}
-                    {/* LE DÉTAIL DU TICKET. Sans lui, on relit « courses — 12 400 DZD » six mois
-                        plus tard sans savoir ce qui a été acheté. */}
-                    {e.lines.length > 0 && (
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {e.lines.map((l) => `${l.quantity > 1 ? `${l.quantity}× ` : ""}${l.label} (${formatCurrency(l.amount)})`).join(" · ")}
-                      </span>
-                    )}
-                    {e.createdBy && <span className="block text-[0.6875rem] text-muted-foreground">{e.createdBy}</span>}
-                  </td>
-                  <td className="px-3 py-2.5 text-xs">
-                    <span className="text-muted-foreground">{DEPT_BUDGET_LABEL[e.kind]}</span>
-                    {e.budgetLabel && <span className="block text-muted-foreground">{e.budgetLabel}</span>}
-                    {/* « À classer » se dit ICI, là où la dépense se corrige — pas dans le module
-                        Budget, que la personne qui achète n'ouvre jamais. */}
-                    {budgetTargets.length > 0 && e.toClassify && <Badge tone="warning" dot={false}>à classer</Badge>}
-                  </td>
-                  <td className="px-3 py-2.5">
+                <TableRow key={e.id} className="align-top">
+                  <TableCell className="px-4 py-2.5 align-top sm:py-2.5" data-sans-etiquette>
+                    <div className="min-w-0">
+                      <span className="font-medium [overflow-wrap:anywhere]">{e.label}</span>
+                      {e.notes && <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{e.notes}</span>}
+                      {/* LE DÉTAIL DU TICKET. Sans lui, on relit « courses — 12 400 DZD » six mois
+                          plus tard sans savoir ce qui a été acheté. */}
+                      {e.lines.length > 0 && (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {e.lines.map((l) => `${l.quantity > 1 ? `${l.quantity}× ` : ""}${l.label} (${formatCurrency(l.amount)})`).join(" · ")}
+                        </span>
+                      )}
+                      {e.createdBy && <span className="block text-[0.6875rem] text-muted-foreground">{e.createdBy}</span>}
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top text-xs">
+                    <div>
+                      <span className="text-muted-foreground">{DEPT_BUDGET_LABEL[e.kind]}</span>
+                      {e.budgetLabel && <span className="block text-muted-foreground">{e.budgetLabel}</span>}
+                      {/* « À classer » se dit ICI, là où la dépense se corrige — pas dans le module
+                          Budget, que la personne qui achète n'ouvre jamais. */}
+                      {budgetTargets.length > 0 && e.toClassify && <Badge tone="warning" dot={false}>à classer</Badge>}
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
                     {e.fromPettyCash
                       ? <Badge tone="info" dot={false}>caisse d&apos;avance</Badge>
                       : <span className="text-xs text-muted-foreground">hors caisse</span>}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">{formatDate(e.date)}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums">{formatCurrency(e.amount)}</td>
-                  <td className="px-3 py-2.5">
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap align-top text-xs text-muted-foreground">{formatDate(e.date)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-right align-top font-semibold tabular-nums">{formatCurrency(e.amount)}</TableCell>
+                  <TableCell className="align-top">
                     <span className="flex flex-wrap items-center gap-1">
                       {e.documents.length === 0 ? (
                         <Badge tone="danger" dot={false}>sans pièce</Badge>
@@ -151,15 +157,16 @@ export function ExpenseTable({
                           key={d.id}
                           href={`/api/documents/${d.id}?dl=1`}
                           title={d.name}
-                          className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[0.6875rem] hover:bg-secondary"
+                          aria-label={`Télécharger ${d.name}`}
+                          className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border px-2.5 py-0.5 text-[0.6875rem] hover:bg-secondary sm:min-h-0 sm:px-1.5"
                         >
                           <FileText className="h-3 w-3" /> <Download className="h-3 w-3" />
                         </a>
                       ))}
                     </span>
-                  </td>
+                  </TableCell>
                   {canSpend && (
-                    <td className="px-3 py-2.5">
+                    <TableCell className="align-top" data-sans-etiquette>
                       {/* Corriger ou supprimer se fait ICI, là où l'erreur se voit. Le serveur
                           revérifie le droit : sur une dépense payée en liquide, seule la personne
                           qui détient la caisse (ou la direction) y touche. */}
@@ -174,12 +181,12 @@ export function ExpenseTable({
                           cashUsable={cashUsable}
                         />
                       )}
-                    </td>
+                    </TableCell>
                   )}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>

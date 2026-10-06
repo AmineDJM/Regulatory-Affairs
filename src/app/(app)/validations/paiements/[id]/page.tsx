@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
   if (!value) return null;
-  return <div><p className="text-xs text-muted-foreground">{label}</p><div className="font-medium">{value}</div></div>;
+  return <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><div className="font-medium [overflow-wrap:anywhere]">{value}</div></div>;
 }
 
 /**
@@ -172,8 +172,8 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
 
       <Card>
         <CardHeader><CardTitle>Le paiement demandé</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
-          <Info label="Montant" value={formatCurrency(amount)} />
+        <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4 sm:gap-x-6">
+          <Info label="Montant" value={<span className="text-base tabular-nums sm:text-sm">{formatCurrency(amount)}</span>} />
           <Info label="Bénéficiaire" value={req.payee} />
           <Info
             label="Échéance"

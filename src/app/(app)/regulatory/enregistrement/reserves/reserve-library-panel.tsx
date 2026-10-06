@@ -163,7 +163,7 @@ function PrecedentSearch() {
 
       {risk && (
         <div className="rounded-xl border border-border p-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">Probabilité qu&apos;elle revienne</span>
             <Badge tone={risk.level === "ÉLEVÉ" ? "danger" : risk.level === "MOYEN" ? "warning" : "success"} dot={false}>
               {risk.level} · {Math.round(risk.score * 100)} %

@@ -54,9 +54,9 @@ const moduleLabel = (m: string | null | undefined) => MODULE_OPTIONS.find((o) =>
 /** Cases à cocher : une enveloppe peut couvrir un OU plusieurs modules. */
 function modulesField(defaultModules: string[] = []) {
   return (
-    <div className="col-span-2 space-y-1.5">
+    <div className="space-y-1.5 sm:col-span-2">
       <Label>Modules rattachés</Label>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border border-input p-2.5">
+      <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 rounded-lg border border-input p-2.5 sm:grid-cols-2">
         {MODULE_OPTIONS.map((o) => (
           <label key={o.value} className="flex items-center gap-1.5 text-sm">
             <input type="checkbox" name="modules" value={o.value} defaultChecked={defaultModules.includes(o.value)} className="h-4 w-4 rounded border-input" />
@@ -73,7 +73,7 @@ function modulesField(defaultModules: string[] = []) {
  *  ne voient que les enveloppes ainsi ouvertes. */
 function accessRolesField(defaultRoles: string[] = []) {
   return (
-    <div className="col-span-2 space-y-1.5">
+    <div className="space-y-1.5 sm:col-span-2">
       <Label>Ouvrir en consultation à</Label>
       <div className="flex flex-wrap gap-x-4 gap-y-1.5">
         {ACCESS_ROLE_OPTIONS.map((r) => (
@@ -92,9 +92,9 @@ function accessRolesField(defaultRoles: string[] = []) {
 function accessUsersField(users: UserOpt[], defaultIds: string[] = []) {
   if (users.length === 0) return null;
   return (
-    <div className="col-span-2 space-y-1.5">
+    <div className="space-y-1.5 sm:col-span-2">
       <Label>Autoriser des personnes précises</Label>
-      <div className="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1.5 overflow-y-auto rounded-lg border border-input p-2.5">
+      <div className="grid max-h-40 grid-cols-1 gap-x-4 gap-y-1.5 overflow-y-auto rounded-lg border border-input p-2.5 sm:grid-cols-2">
         {users.map((u) => (
           <label key={u.id} className="flex items-center gap-1.5 text-sm">
             <input type="checkbox" name="accessUserIds" value={u.id} defaultChecked={defaultIds.includes(u.id)} className="h-4 w-4 rounded border-input" />
@@ -114,7 +114,7 @@ function accessUsersField(users: UserOpt[], defaultIds: string[] = []) {
  */
 function managersField(users: UserOpt[], defaultRoles: string[] = [], defaultIds: string[] = []) {
   return (
-    <div className="col-span-2 space-y-2 rounded-lg border border-dashed border-input p-2.5">
+    <div className="space-y-2 rounded-lg border border-dashed border-input p-2.5 sm:col-span-2">
       <Label>Déléguer la gestion (au-delà de la consultation)</Label>
       <div className="flex flex-wrap gap-x-4 gap-y-1.5">
         {ACCESS_ROLE_OPTIONS.map((r) => (
@@ -125,7 +125,7 @@ function managersField(users: UserOpt[], defaultRoles: string[] = [], defaultIds
         ))}
       </div>
       {users.length > 0 && (
-        <div className="grid max-h-36 grid-cols-2 gap-x-4 gap-y-1.5 overflow-y-auto rounded-lg border border-input p-2">
+        <div className="grid max-h-36 grid-cols-1 gap-x-4 gap-y-1.5 overflow-y-auto rounded-lg border border-input p-2 sm:grid-cols-2">
           {users.map((u) => (
             <label key={u.id} className="flex items-center gap-1.5 text-sm">
               <input type="checkbox" name="managerUserIds" value={u.id} defaultChecked={defaultIds.includes(u.id)} className="h-4 w-4 rounded border-input" />
@@ -161,7 +161,7 @@ export function useRun() {
 
 function field(name: string, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}, full = false) {
   return (
-    <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}>
+    <div className={full ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
       <Label>{label}</Label>
       <Input name={name} {...props} />
     </div>
@@ -176,18 +176,18 @@ export function CreateEnvelopeButton({ users = [] }: { users?: UserOpt[] }) {
     <>
       <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Nouvelle enveloppe</Button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Nouvelle enveloppe budgétaire" description="Un budget total pour une période, à répartir ensuite en catégories." width="md">
-        <form action={(fd) => run(() => createEnvelope(fd), () => setOpen(false))} className="grid grid-cols-2 gap-3">
+        <form action={(fd) => run(() => createEnvelope(fd), () => setOpen(false))} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {field("name", "Nom de l'enveloppe", { placeholder: `Budget ${year}`, required: true }, true)}
           {modulesField()}
-          {field("totalAmount", "Montant de l'enveloppe (DZD)", { type: "number", step: "any", placeholder: "0" }, true)}
+          {field("totalAmount", "Montant de l'enveloppe (DZD)", { type: "number", inputMode: "decimal", step: "any", placeholder: "0" }, true)}
           {field("periodStart", "Début de période", { type: "date", defaultValue: `${year}-01-01` })}
           {field("periodEnd", "Fin de période", { type: "date", defaultValue: `${year}-12-31` })}
           {accessRolesField()}
           {accessUsersField(users)}
           {managersField(users)}
-          <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
-          {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
-          <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
+          {err && <p className="text-sm text-destructive sm:col-span-2">{err}</p>}
+          <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
         </form>
       </Sheet>
     </>
@@ -210,11 +210,11 @@ export function BudgetTotalSheet({ info, onClose }: { info: BudgetTotalInfo; onC
         {mode === "FIXED" && (
           <div className="space-y-1.5">
             <Label>Montant total fixe (DZD)</Label>
-            <Input name="budgetFixedTotal" type="number" step="any" defaultValue={info.fixed} />
+            <Input name="budgetFixedTotal" type="number" inputMode="decimal" step="any" defaultValue={info.fixed} />
           </div>
         )}
         {err && <p className="text-sm text-destructive">{err}</p>}
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
       </form>
     </Sheet>
   );
@@ -233,22 +233,22 @@ export function AddExpenseRow({ categories }: { categories: BudgetCategoryView[]
       action={(fd) => run(() => addBudgetExpense(fd), () => formRef.current?.reset())}
       className="surface flex flex-wrap items-end gap-2 p-3"
     >
-      <div className="space-y-1">
+      <div className="w-full space-y-1 sm:w-auto">
         <Label className="text-xs">Budget consommé</Label>
-        <Select name="budgetCategoryId" required defaultValue="" className="h-9 w-56">
+        <Select name="budgetCategoryId" required defaultValue="" className="h-10 w-full sm:h-9 sm:w-56">
           <option value="" disabled>Choisir une (sous-)catégorie…</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
         </Select>
       </div>
-      <div className="space-y-1">
+      <div className="w-full space-y-1 sm:w-auto">
         <Label className="text-xs">Référence</Label>
-        <Input name="reference" required placeholder="Ex. Facture 2026-042" className="h-9 w-48" />
+        <Input name="reference" required placeholder="Ex. Facture 2026-042" className="h-10 w-full sm:h-9 sm:w-48" />
       </div>
-      <div className="space-y-1">
+      <div className="w-full space-y-1 sm:w-auto">
         <Label className="text-xs">Montant (DZD)</Label>
-        <Input name="amount" type="number" step="any" min="0" required placeholder="0" className="h-9 w-32" />
+        <Input name="amount" type="number" inputMode="decimal" step="any" min="0" required placeholder="0" className="h-10 w-full tabular-nums sm:h-9 sm:w-32" />
       </div>
-      <Button type="submit" size="sm" disabled={busy}>
+      <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={busy}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter la dépense
       </Button>
       {err && <p className="w-full text-xs text-destructive">{err}</p>}
@@ -265,19 +265,19 @@ export function ExpenseEditSheet({ tx, categories, onClose }: { tx: AttributedTx
   const { busy, err, run } = useRun();
   return (
     <Sheet open onClose={onClose} title="Modifier la dépense" description="Ligne purement budgétaire — la consommation de la catégorie est réajustée aussitôt." width="md">
-      <form action={(fd) => { fd.set("id", tx.id); run(() => updateBudgetExpense(fd), onClose); }} className="grid grid-cols-2 gap-3">
+      <form action={(fd) => { fd.set("id", tx.id); run(() => updateBudgetExpense(fd), onClose); }} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {field("reference", "Référence", { defaultValue: tx.reference, placeholder: "Ex. Facture 2026-042", required: true }, true)}
-        {field("amount", "Montant (DZD)", { type: "number", step: "any", min: 0, defaultValue: tx.amount, required: true })}
+        {field("amount", "Montant (DZD)", { type: "number", inputMode: "decimal", step: "any", min: 0, defaultValue: tx.amount, required: true })}
         {field("date", "Date", { type: "date", defaultValue: d10(tx.date) })}
-        <div className="col-span-2 space-y-1.5">
+        <div className="space-y-1.5 sm:col-span-2">
           <Label>Budget consommé</Label>
           <Select name="budgetCategoryId" defaultValue={tx.categoryId}>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
           </Select>
           <p className="text-xs text-muted-foreground">Changez la (sous-)catégorie pour ré-imputer la dépense.</p>
         </div>
-        {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
-        <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
+        {err && <p className="text-sm text-destructive sm:col-span-2">{err}</p>}
+        <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
       </form>
     </Sheet>
   );
@@ -289,17 +289,17 @@ export function CategoryCard({ c, subs, canManage, onEdit, onDelete, onAddSub }:
   const subAllocated = subs.reduce((a, s) => a + s.allocated, 0);
   return (
     <div className="surface p-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: c.color ?? "#64748b" }} />
-        <span className="font-semibold">{c.name}</span>
+        <span className="min-w-0 font-semibold [overflow-wrap:anywhere]">{c.name}</span>
         {c.module && <Badge tone="info" dot={false}>{moduleLabel(c.module) ?? c.module}</Badge>}
         <Badge tone={h.tone} dot={false}>{h.label}</Badge>
-        <span className="ml-auto text-sm text-muted-foreground">{formatCurrency(c.consumed)} / {formatCurrency(c.allocated)}</span>
+        <span className="ml-auto whitespace-nowrap text-sm text-muted-foreground tabular-nums">{formatCurrency(c.consumed)} / {formatCurrency(c.allocated)}</span>
         {canManage && (
           <div className="flex items-center gap-0.5">
-            <button title="Ajouter une sous-catégorie" onClick={onAddSub} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Plus className="h-4 w-4" /></button>
-            <button title="Modifier" onClick={() => onEdit(c)} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-4 w-4" /></button>
-            <button title="Supprimer" onClick={() => onDelete(c)} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+            <button title="Ajouter une sous-catégorie" aria-label="Ajouter une sous-catégorie" onClick={onAddSub} className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"><Plus className="h-4 w-4" /></button>
+            <button title="Modifier" aria-label="Modifier" onClick={() => onEdit(c)} className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"><Pencil className="h-4 w-4" /></button>
+            <button title="Supprimer" aria-label="Supprimer" onClick={() => onDelete(c)} className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"><Trash2 className="h-4 w-4" /></button>
           </div>
         )}
       </div>
@@ -317,15 +317,15 @@ export function CategoryCard({ c, subs, canManage, onEdit, onDelete, onAddSub }:
       {subs.length > 0 && (
         <div className="mt-2 space-y-1 border-l-2 border-border pl-3">
           {subs.map((s) => (
-            <div key={s.id} className="flex items-center gap-2 text-sm">
+            <div key={s.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
               <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: s.color ?? "#94a3b8" }} />
-              <span className="truncate">{s.name}</span>
-              <span className="ml-auto text-xs text-muted-foreground">{formatCurrency(s.consumed)} / {formatCurrency(s.allocated)}</span>
+              <span className="min-w-0 flex-1 truncate">{s.name}</span>
+              <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground tabular-nums">{formatCurrency(s.consumed)} / {formatCurrency(s.allocated)}</span>
               {canManage && (
                 <div className="flex items-center gap-0.5">
-                  <button title="Modifier" onClick={() => onEdit(s)} className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
-                  <button title="Supprimer" onClick={() => onDelete(s)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                  <button title="Modifier" aria-label="Modifier" onClick={() => onEdit(s)} className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1"><Pencil className="h-3.5 w-3.5" /></button>
+                  <button title="Supprimer" aria-label="Supprimer" onClick={() => onDelete(s)} className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               )}
             </div>
@@ -340,21 +340,21 @@ export function EnvelopeSheet({ envelope, users, onClose, onDeleted, canDelete }
   const { busy, err, run } = useRun();
   return (
     <Sheet open onClose={onClose} title="Modifier l'enveloppe" width="md">
-      <form action={(fd) => { fd.set("id", envelope.id); run(() => updateEnvelope(fd), onClose); }} className="grid grid-cols-2 gap-3">
+      <form action={(fd) => { fd.set("id", envelope.id); run(() => updateEnvelope(fd), onClose); }} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {field("name", "Nom", { defaultValue: envelope.name, required: true }, true)}
         {modulesField(envelope.modules.length ? envelope.modules : envelope.module ? [envelope.module] : [])}
-        {field("totalAmount", "Budget total (DZD)", { type: "number", step: "any", defaultValue: envelope.total }, true)}
+        {field("totalAmount", "Budget total (DZD)", { type: "number", inputMode: "decimal", step: "any", defaultValue: envelope.total }, true)}
         {field("periodStart", "Début", { type: "date", defaultValue: d10(envelope.periodStart) })}
         {field("periodEnd", "Fin", { type: "date", defaultValue: d10(envelope.periodEnd) })}
         {accessRolesField(envelope.accessRoles)}
         {accessUsersField(users, envelope.accessUserIds)}
         {managersField(users, envelope.managerRoles, envelope.managerUserIds)}
-        <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={envelope.notes ?? ""} rows={2} /></div>
-        <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="isActive" defaultChecked={envelope.isActive} className="h-4 w-4 rounded border-input" /> Enveloppe active</label>
-        {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
-        <div className="col-span-2 flex items-center justify-between">
+        <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea name="notes" defaultValue={envelope.notes ?? ""} rows={2} /></div>
+        <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" name="isActive" defaultChecked={envelope.isActive} className="h-4 w-4 rounded border-input" /> Enveloppe active</label>
+        {err && <p className="text-sm text-destructive sm:col-span-2">{err}</p>}
+        <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
           {canDelete ? <Button type="button" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm("Supprimer cette enveloppe et ses catégories ?")) { const fd = new FormData(); fd.set("id", envelope.id); deleteEnvelope(fd).then(onDeleted); } }}><Trash2 className="h-4 w-4" /> Supprimer</Button> : <span />}
-          <div className="flex gap-2"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
         </div>
       </form>
     </Sheet>
@@ -373,11 +373,11 @@ export function CategorySheet({ envelopeId, cat, defaultParentId, parentOptions,
           if (cat) { fd.set("id", cat.id); run(() => updateBudgetCategory(fd), onClose); }
           else { fd.set("envelopeId", envelopeId); run(() => createBudgetCategory(fd), onClose); }
         }}
-        className="grid grid-cols-2 gap-3"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2"
       >
         {field("name", "Nom de la catégorie", { defaultValue: cat?.name, placeholder: parent ? "Ex. Table ronde" : "Ex. Sponsoring", required: true }, true)}
         {opts.length > 0 && (
-          <div className="col-span-2 space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2">
             <Label>Catégorie parente</Label>
             <Select name="parentId" value={parent} onChange={(e) => setParent(e.target.value)}>
               <option value="">— Catégorie de tête —</option>
@@ -388,7 +388,7 @@ export function CategorySheet({ envelopeId, cat, defaultParentId, parentOptions,
         )}
         {/* Le module ne s'applique qu'aux catégories de tête (attribution automatique). */}
         {!parent && (
-          <div className="col-span-2 space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2">
             <Label>Module associé</Label>
             <Select name="module" defaultValue={cat?.module ?? ""}>
               <option value="">— Aucun —</option>
@@ -397,11 +397,11 @@ export function CategorySheet({ envelopeId, cat, defaultParentId, parentOptions,
             <p className="text-xs text-muted-foreground">Les dépenses d'une demande de ce module, une fois validées et réglées par les Finances, sont attribuées automatiquement à cette catégorie.</p>
           </div>
         )}
-        {field("allocated", "Allocation (DZD)", { type: "number", step: "any", defaultValue: cat?.allocated ?? "" })}
+        {field("allocated", "Allocation (DZD)", { type: "number", inputMode: "decimal", step: "any", defaultValue: cat?.allocated ?? "" })}
         <div className="space-y-1.5"><Label>Couleur</Label><input type="color" name="color" defaultValue={cat?.color ?? "#0ea5e9"} className="h-9 w-full cursor-pointer rounded-lg border border-input" /></div>
-        <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={cat?.notes ?? ""} rows={2} /></div>
-        {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
-        <div className="col-span-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea name="notes" defaultValue={cat?.notes ?? ""} rows={2} /></div>
+        {err && <p className="text-sm text-destructive sm:col-span-2">{err}</p>}
+        <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={onClose}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
       </form>
     </Sheet>
   );

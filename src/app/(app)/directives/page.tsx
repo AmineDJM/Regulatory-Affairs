@@ -107,8 +107,8 @@ export default async function DirectivesPage() {
 
       {canPublish && attente.length > 0 && (
         <Card className="border-warning/30 bg-warning/5">
-          <CardContent className="flex items-center gap-3 py-3 text-sm">
-            <BellRing className="h-4 w-4 shrink-0 text-warning" />
+          <CardContent className="flex items-start gap-3 py-3 text-sm sm:items-center">
+            <BellRing className="mt-0.5 h-4 w-4 shrink-0 text-warning sm:mt-0" />
             <span>
               <strong>{attente.length} directive{attente.length > 1 ? "s" : ""}</strong> attend{attente.length > 1 ? "ent" : ""} votre
               validation — rien ne part avant votre accord.
@@ -123,11 +123,11 @@ export default async function DirectivesPage() {
         <Card>
           <div className="divide-y divide-border">
             {directives.map((d) => (
-              <Link key={d.id} href={`/directives/${d.id}`} className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-secondary/50">
+              <Link key={d.id} href={`/directives/${d.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 transition-colors hover:bg-secondary/50 sm:flex-nowrap sm:gap-4 sm:px-4">
                 <Megaphone className="h-5 w-5 shrink-0 text-primary" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-muted-foreground">{d.reference}</span>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">{d.reference}</span>
                     <span className="truncate font-medium">{d.title}</span>
                   </div>
                   <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
@@ -145,12 +145,15 @@ export default async function DirectivesPage() {
                     {d.popup && <span className="inline-flex items-center gap-1"><BellRing className="h-3 w-3" /> pop-up</span>}
                   </p>
                 </div>
-                {d.publication !== "PUBLISHED" && (
-                  <Badge tone={PUBLICATION_TONE[d.publication].tone}>{PUBLICATION_TONE[d.publication].label}</Badge>
-                )}
-                <StatusBadge map={PRIORITY} value={d.priority} dot={false} />
-                <StatusBadge map={DIRECTIVE_STATUS} value={d.status} />
-                <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                {/* Au téléphone, les pastilles passent sous le texte (alignées sur lui) au lieu de l'écraser. */}
+                <div className="flex basis-full flex-wrap items-center gap-2 pl-8 sm:basis-auto sm:shrink-0 sm:flex-nowrap sm:pl-0">
+                  {d.publication !== "PUBLISHED" && (
+                    <Badge tone={PUBLICATION_TONE[d.publication].tone}>{PUBLICATION_TONE[d.publication].label}</Badge>
+                  )}
+                  <StatusBadge map={PRIORITY} value={d.priority} dot={false} />
+                  <StatusBadge map={DIRECTIVE_STATUS} value={d.status} />
+                  <ArrowRight className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
+                </div>
               </Link>
             ))}
           </div>

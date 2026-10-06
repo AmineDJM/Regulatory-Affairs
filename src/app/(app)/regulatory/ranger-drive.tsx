@@ -29,11 +29,11 @@ export function RangerDansLeDrive() {
     setEnvoi(false);
   }
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex max-w-full flex-wrap items-center gap-2">
       <Button variant="outline" size="sm" disabled={envoi} onClick={() => void lancer()} title="Crée le dossier Drive de chaque dossier du suivi (catégorie « Regulatory ») et y range ses pièces">
         {envoi ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderTree className="h-4 w-4" />} Ranger les dossiers dans le Drive
       </Button>
-      {msg && <span className={`text-xs ${msg.ok ? "text-muted-foreground" : "text-destructive"}`}>{msg.text}</span>}
+      {msg && <span className={`min-w-0 text-xs ${msg.ok ? "text-muted-foreground" : "text-destructive"}`}>{msg.text}</span>}
     </span>
   );
 }

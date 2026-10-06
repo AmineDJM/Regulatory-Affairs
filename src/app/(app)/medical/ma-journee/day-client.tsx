@@ -74,7 +74,7 @@ export function DayClient({
               <button
                 type="button"
                 onClick={() => ouvrir(t.doctorId, t.name)}
-                className="w-full rounded-lg border border-border bg-card px-3 py-3 text-left transition-colors hover:border-primary/50 hover:bg-secondary/40"
+                className="w-full rounded-lg border border-border bg-card px-3 py-3 text-left transition-colors hover:border-primary/50 hover:bg-secondary/40 active:bg-secondary/60"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -95,7 +95,7 @@ export function DayClient({
         </ul>
       )}
 
-      <Button variant="outline" className="w-full" onClick={() => { setCible(null); setAutre(true); }}>
+      <Button variant="outline" className="h-12 w-full sm:h-10" onClick={() => { setCible(null); setAutre(true); }}>
         <Stethoscope className="h-4 w-4" /> Saisir une visite chez quelqu&apos;un d&apos;autre
       </Button>
 
@@ -142,10 +142,10 @@ function PickDoctor({
               <li key={d.id}>
                 <button
                   type="button" onClick={() => onPick(d.id, d.name)}
-                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-secondary"
+                  className="w-full rounded-md px-3 py-3 text-left text-sm hover:bg-secondary active:bg-secondary sm:py-2"
                 >
                   <span className="font-medium">{d.name}</span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block truncate text-xs text-muted-foreground">
                     {[d.specialty, d.institution, d.wilaya].filter(Boolean).join(" · ") || "—"}
                   </span>
                 </button>
@@ -211,13 +211,13 @@ function CaptureSheet({
                   <button
                     key={p.productId} type="button" onClick={() => toggle(p.productId)}
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors",
+                      "inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm transition-colors sm:min-h-0 sm:px-3 sm:py-1.5",
                       on ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-secondary",
                     )}
                   >
                     {on ? <Check className="h-3.5 w-3.5" /> : <span className="h-3.5 w-3.5 rounded-full border border-current" />}
                     {p.name}
-                    <span className="text-[0.625rem] opacity-70">P{p.position}</span>
+                    <span className="text-[0.6875rem] opacity-70">P{p.position}</span>
                   </button>
                 );
               })}
@@ -243,9 +243,11 @@ function CaptureSheet({
 
         {err && <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}><X className="h-4 w-4" /> Annuler</Button>
-          <Button type="submit" disabled={saving}>
+        {/* L'ACTION RESTE SOUS LE POUCE : la barre colle au bas de la feuille pendant qu'on défile.
+            L'ombre pleine, couleur carte, couvre la marge basse de la feuille sous la barre. */}
+        <div className="sticky bottom-0 z-10 -mx-4 flex gap-2 border-t border-border bg-card px-4 py-3 shadow-[0_3rem_0_0_hsl(var(--card))] sm:-mx-5 sm:justify-end sm:px-5">
+          <Button type="button" variant="outline" className="h-12 flex-1 sm:h-10 sm:flex-none" onClick={onClose}><X className="h-4 w-4" /> Annuler</Button>
+          <Button type="submit" className="h-12 flex-[2] sm:h-10 sm:flex-none" disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />} Visite faite
           </Button>
         </div>

@@ -145,13 +145,13 @@ function StepEditor({ index, total, step, onChange, onMove, onRemove }: {
 
   return (
     <div className="rounded-lg border border-border bg-secondary/20 p-3 space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{index + 1}</span>
         <GripVertical className="h-4 w-4 text-muted-foreground" />
-        <Input value={step.title} onChange={(e) => onChange({ title: e.target.value })} className="flex-1" placeholder="Titre de l'étape" />
-        <Button variant="ghost" size="icon" onClick={() => onMove(-1)} disabled={index === 0}><ArrowUp className="h-4 w-4" /></Button>
-        <Button variant="ghost" size="icon" onClick={() => onMove(1)} disabled={index === total - 1}><ArrowDown className="h-4 w-4" /></Button>
-        <Button variant="ghost" size="icon" onClick={onRemove}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+        <Input value={step.title} onChange={(e) => onChange({ title: e.target.value })} className="order-last min-w-0 flex-1 basis-full sm:order-none sm:basis-auto" placeholder="Titre de l'étape" />
+        <Button variant="ghost" size="icon" onClick={() => onMove(-1)} disabled={index === 0} aria-label="Monter l'étape" className="ml-auto sm:ml-0"><ArrowUp className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => onMove(1)} disabled={index === total - 1} aria-label="Descendre l'étape"><ArrowDown className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={onRemove} aria-label="Supprimer l'étape"><Trash2 className="h-4 w-4 text-destructive" /></Button>
       </div>
 
       <Textarea value={step.description ?? ""} onChange={(e) => onChange({ description: e.target.value })} placeholder="Description (aide affichée aux acteurs)…" className="min-h-[44px]" />
@@ -200,6 +200,7 @@ function StepEditor({ index, total, step, onChange, onMove, onRemove }: {
         <Label>Franchir automatiquement si le montant ≤ <span className="text-xs font-normal text-muted-foreground">(DZD — optionnel, anti-bureaucratie)</span></Label>
         <Input
           type="number"
+          inputMode="numeric"
           min={0}
           step={1000}
           value={step.autoSkipMaxAmount ?? ""}
@@ -240,7 +241,7 @@ function ChipGroup({ entries, selected, onToggle }: { entries: [string, string][
             key={v}
             type="button"
             onClick={() => onToggle(v)}
-            className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"}`}
+            className={`rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors sm:py-1 ${on ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"}`}
           >
             {l}
           </button>
@@ -252,7 +253,7 @@ function ChipGroup({ entries, selected, onToggle }: { entries: [string, string][
 
 function Flag({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm">
+    <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm sm:min-h-0">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 rounded border-border accent-primary" />
       <span className={checked ? "font-medium" : "text-muted-foreground"}>{label}</span>
     </label>

@@ -66,12 +66,12 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
       </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <ClipboardList className="h-5 w-5 text-primary" />
-            <h1 className="text-xl font-semibold tracking-tight">{d.title}</h1>
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-start gap-2">
+            <ClipboardList className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight">{d.title}</h1>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="break-words text-sm text-muted-foreground">
             <span className="font-mono">{d.reference}</span> · ouvert par {d.createdBy?.name ?? "—"}
             {d.assignedTo && <> · responsable {d.assignedTo.name}</>}
           </p>
@@ -80,8 +80,8 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
             Entité : {d.company ? (d.company.shortName || d.company.name) : <span className="text-warning">à renseigner — le Super Admin la rattache depuis Administration › Entités</span>}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col items-start gap-2 sm:shrink-0 sm:items-end">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             {d.category && <Badge tone="neutral" dot={false}>{d.category}</Badge>}
             <StatusBadge map={DOSSIER_STATUS} value={d.status} />
           </div>
@@ -95,11 +95,11 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
             <CardHeader><CardTitle>Sujet</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {d.description ? (
-                <p className="whitespace-pre-wrap text-sm">{d.description}</p>
+                <p className="whitespace-pre-wrap break-words text-sm">{d.description}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">Aucune description.</p>
               )}
-              <div className="flex flex-wrap gap-4 border-t border-border pt-3 text-xs text-muted-foreground">
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 border-t border-border pt-3 text-xs text-muted-foreground">
                 <span>Priorité : {PRIORITY[d.priority]?.label ?? d.priority}</span>
                 <span>Ouvert le {formatDate(d.createdAt.toISOString())}</span>
                 {d.dueDate && <span>Échéance : {formatDate(d.dueDate.toISOString())}</span>}

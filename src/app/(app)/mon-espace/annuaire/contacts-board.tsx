@@ -69,7 +69,7 @@ export function ContactsBoard({
   return (
     <div className="space-y-4">
       <div className="surface flex flex-wrap items-center gap-2 p-3">
-        <div className="relative min-w-0 flex-1">
+        <div className="relative w-full min-w-0 sm:w-auto sm:flex-1">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query} onChange={(e) => setQuery(e.target.value)}
@@ -116,14 +116,15 @@ export function ContactsBoard({
                       </p>
                       {c.contactName && <p className="truncate text-xs text-muted-foreground">{c.contactName}</p>}
                     </div>
-                    <span className="hidden shrink-0 items-center gap-0.5 group-hover:inline-flex">
+                    {/* Au doigt, pas de survol : les actions restent visibles ; à la souris, elles apparaissent au survol. */}
+                    <span className="inline-flex shrink-0 items-center gap-0.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-focus-within:inline-flex [@media(hover:hover)]:group-hover:inline-flex">
                       {canEdit && (
-                        <button type="button" title="Modifier" onClick={() => { setErr(null); setEditing(c); }} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                        <button type="button" title="Modifier" aria-label="Modifier" onClick={() => { setErr(null); setEditing(c); }} className="rounded p-2 text-muted-foreground hover:text-foreground sm:p-0.5">
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
                       )}
                       {canDelete && (
-                        <button type="button" title="Retirer" disabled={busy} onClick={() => void remove(c)} className="rounded p-0.5 text-muted-foreground hover:text-destructive">
+                        <button type="button" title="Retirer" disabled={busy} onClick={() => void remove(c)} aria-label="Retirer" className="rounded p-2 text-muted-foreground hover:text-destructive sm:p-0.5">
                           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                         </button>
                       )}
@@ -203,7 +204,8 @@ function CopyLine({ icon: I, value, href, external }: { icon: React.ElementType;
             setTimeout(() => setDone(false), 1200);
           } catch { /* presse-papier refusé : le lien reste cliquable */ }
         }}
-        className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+        aria-label="Copier"
+        className="-my-1.5 shrink-0 rounded p-2.5 text-muted-foreground hover:text-foreground sm:my-0 sm:p-0.5"
       >
         {done ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
       </button>
@@ -279,7 +281,7 @@ function ContactSheet({
         )}
 
         {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Annuler</Button>
           <Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
         </div>
@@ -288,11 +290,19 @@ function ContactSheet({
   );
 }
 
+/** Le clavier adapté au téléphone — sans `type="email"`, qui ajouterait une validation du navigateur. */
+function fieldKeyboard(name: string): React.InputHTMLAttributes<HTMLInputElement> {
+  if (name === "phone" || name === "phoneAlt") return { type: "tel", inputMode: "tel" };
+  if (name === "email") return { inputMode: "email", autoCapitalize: "off", spellCheck: false };
+  if (name === "website") return { inputMode: "url", autoCapitalize: "off", spellCheck: false };
+  return {};
+}
+
 function Field({ name, label, defaultValue, required }: { name: string; label: string; defaultValue?: string | null; required?: boolean }) {
   return (
     <div className="space-y-1.5">
       <Label htmlFor={`cc-${name}`}>{label}</Label>
-      <Input id={`cc-${name}`} name={name} defaultValue={defaultValue ?? ""} required={required} />
+      <Input id={`cc-${name}`} name={name} defaultValue={defaultValue ?? ""} required={required} {...fieldKeyboard(name)} />
     </div>
   );
 }

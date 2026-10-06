@@ -83,7 +83,7 @@ export function OrphansPanel({
             <Select
               value={target[g.model] ?? ""}
               onChange={(e) => setTarget((t) => ({ ...t, [g.model]: e.target.value }))}
-              className="h-9 w-48 text-xs"
+              className="h-10 min-w-0 flex-1 basis-40 text-xs sm:h-9 sm:w-48 sm:flex-none sm:basis-auto"
               aria-label={`Entité de rattachement — ${g.label}`}
             >
               <option value="">— Entité —</option>

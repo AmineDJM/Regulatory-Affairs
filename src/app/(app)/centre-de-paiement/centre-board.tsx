@@ -145,32 +145,33 @@ export function CentreBoard({
                             posé à côté disait deux fois la même chose et allongeait une barre
                             d'actions déjà chargée : ce qu'on veut lire, on clique dessus. */}
                         <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                          {/* Au téléphone, le libellé se lit en entier (deux lignes) : on autorise ce qu'on lit. */}
                           {o.dossierHref ? (
-                            <Link href={o.dossierHref} className="truncate text-primary hover:underline" title="Ouvrir le dossier : pièces, demandes de pièces, discussion">
+                            <Link href={o.dossierHref} className="min-w-0 text-primary [overflow-wrap:anywhere] hover:underline sm:truncate" title="Ouvrir le dossier : pièces, demandes de pièces, discussion">
                               {o.label}
                             </Link>
                           ) : (
-                            <span className="truncate">{o.label}</span>
+                            <span className="min-w-0 [overflow-wrap:anywhere] sm:truncate">{o.label}</span>
                           )}
                           <Badge tone={TONE[o.centralStatus]}>{CENTRAL_STATUS_LABEL[o.centralStatus]}</Badge>
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                           {o.reference} · {o.beneficiary ?? "bénéficiaire non précisé"} · demandé par {o.requestedBy ?? "—"} · {formatDateTime(o.createdAt)}
                         </p>
                         {o.proposedAmount != null && (
-                          <p className="text-xs text-info">
+                          <p className="text-xs text-info tabular-nums">
                             Montant proposé par le centre : {formatCurrency(o.proposedAmount)}
                           </p>
                         )}
                       </div>
-                      <p className="shrink-0 text-sm font-semibold tabular-nums">{formatCurrency(o.amount)}</p>
+                      <p className="shrink-0 whitespace-nowrap text-base font-semibold tabular-nums sm:text-sm">{formatCurrency(o.amount)}</p>
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       {o.messages.length > 0 && (
                         <button
                           type="button" onClick={() => setOpen(isOpen ? null : o.id)}
-                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-secondary"
+                          className="inline-flex min-h-9 items-center gap-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-secondary sm:min-h-0 sm:px-1.5 sm:py-0.5"
                         >
                           <MessageSquare className="h-3 w-3" /> {o.messages.length} échange{o.messages.length > 1 ? "s" : ""}
                           <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -181,7 +182,7 @@ export function CentreBoard({
                             dossier dit ce qui JUSTIFIE le paiement (facture, bon, discussion),
                             l'origine dit ce qu'on ACHÈTE. */}
                       {o.sourceHref && (
-                        <Link href={o.sourceHref} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-secondary">
+                        <Link href={o.sourceHref} className="inline-flex min-h-9 min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-secondary sm:min-h-0 sm:px-1.5 sm:py-0.5">
                           <ExternalLink className="h-3 w-3" /> {o.sourceLabel ?? "Demande d'origine"}
                         </Link>
                       )}
@@ -208,12 +209,16 @@ export function CentreBoard({
                             moduleLibelle={null}
                             canAskValidation={false}
                           />
-                          <Button size="sm" disabled={enCours} onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>
-                            <ShieldCheck className="h-4 w-4" /> Autoriser
-                          </Button>
-                          <Button size="sm" variant="outline" disabled={enCours} className="text-destructive hover:bg-destructive/10" onClick={() => { setErr(null); setActing({ order: o, decision: "REFUSE" }); }}>
-                            <ShieldX className="h-4 w-4" /> Refuser
-                          </Button>
+                          {/* Au téléphone, les deux issues prennent toute la largeur de la carte, côte à côte,
+                              à hauteur de pouce : on ne les cherche pas au bout d'une rangée. */}
+                          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                            <Button size="sm" disabled={enCours} className="h-11 text-sm sm:h-8 sm:text-xs" onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>
+                              <ShieldCheck className="h-4 w-4" /> Autoriser
+                            </Button>
+                            <Button size="sm" variant="outline" disabled={enCours} className="h-11 text-sm text-destructive hover:bg-destructive/10 sm:h-8 sm:text-xs" onClick={() => { setErr(null); setActing({ order: o, decision: "REFUSE" }); }}>
+                              <ShieldX className="h-4 w-4" /> Refuser
+                            </Button>
+                          </div>
                         </>
                       )}
 
@@ -305,9 +310,9 @@ export function CentreBoard({
               />
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setActing(null)} disabled={busy}>Annuler</Button>
-              <BoutonDecisif type="submit" disabled={busy} variant={acting.decision === "REFUSE" ? "destructive" : "primary"}>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setActing(null)} disabled={busy}>Annuler</Button>
+              <BoutonDecisif type="submit" disabled={busy} className="h-11 w-full sm:h-10 sm:w-auto" variant={acting.decision === "REFUSE" ? "destructive" : "primary"}>
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />} {CENTRAL_DECISION_LABEL[acting.decision]}
               </BoutonDecisif>
             </div>
@@ -336,9 +341,9 @@ export function CentreBoard({
               <Textarea id="pc-reply" name="body" rows={4} required placeholder="Votre argumentation, ou le montant corrigé et ce qui le justifie…" />
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setReplying(null)} disabled={busy}>Annuler</Button>
-              <Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer</Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setReplying(null)} disabled={busy}>Annuler</Button>
+              <Button type="submit" className="w-full sm:w-auto" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer</Button>
             </div>
           </form>
         </Sheet>

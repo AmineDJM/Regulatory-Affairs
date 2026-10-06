@@ -48,7 +48,7 @@ export function ResubmitValidation({ id, description, montant }: {
       {montant !== null && (
         <label className="block space-y-1 text-sm">
           <span className="font-medium">Montant (DZD)</span>
-          <Input name="amount" type="number" min={0} step="any" defaultValue={String(montant)} />
+          <Input name="amount" type="number" inputMode="decimal" min={0} step="any" defaultValue={String(montant)} />
           <span className="block text-xs text-muted-foreground">Relevé, il fait repartir les accords déjà donnés : un accord ne couvre pas plus que ce qu&apos;il a vu.</span>
         </label>
       )}
@@ -57,7 +57,7 @@ export function ResubmitValidation({ id, description, montant }: {
         <Input name="files" type="file" multiple />
       </label>
       {err && <p className="text-xs text-destructive">{err}</p>}
-      <Button type="submit" size="sm" disabled={busy || enCours || !note.trim()}>
+      <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={busy || enCours || !note.trim()}>
         {busy || enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resoumettre
       </Button>
     </form>

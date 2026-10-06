@@ -19,15 +19,15 @@ export function ProductMarkets({ rows }: { rows: ProductMarketRow[] }) {
   const totalAttribue = rows.reduce((s, r) => s + r.valeurAttribuee, 0);
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2"><Gavel className="h-4 w-4" aria-hidden /> Marchés PCH du produit</CardTitle>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {totalAttribue > 0 && <Badge tone="success" dot={false}>{formatCurrency(totalAttribue)} attribués</Badge>}
           <Badge tone="neutral">{rows.length}</Badge>
         </div>
       </CardHeader>
-      <CardContent className="overflow-x-auto p-0 sm:p-0">
-        <Table>
+      <CardContent className="p-3 pt-0 sm:overflow-x-auto sm:p-0">
+        <Table mobileCards>
           <TableHeader>
             <TableRow>
               <TableHead>Marché</TableHead><TableHead>Niveau</TableHead><TableHead>Lot</TableHead>
@@ -41,9 +41,11 @@ export function ProductMarkets({ rows }: { rows: ProductMarketRow[] }) {
           <TableBody>
             {rows.map((r, i) => (
               <TableRow key={`${r.tenderId}-${i}`}>
-                <TableCell className="font-mono text-xs">
-                  <Link href={`/pch/${r.tenderId}`} className="hover:underline">{r.reference}</Link>
-                  {r.annee && <span className="ml-1 text-muted-foreground">({r.annee})</span>}
+                <TableCell data-sans-etiquette className="font-mono text-xs font-medium">
+                  <span>
+                    <Link href={`/pch/${r.tenderId}`} className="hover:underline">{r.reference}</Link>
+                    {r.annee && <span className="ml-1 text-muted-foreground">({r.annee})</span>}
+                  </span>
                 </TableCell>
                 <TableCell><StatusBadge map={PCH_MARKET_NIVEAU} value={r.niveauMarche} /></TableCell>
                 <TableCell><StatusBadge map={PCH_LINE_STATUS} value={r.statutLigne} dot={false} /></TableCell>

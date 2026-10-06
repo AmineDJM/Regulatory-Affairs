@@ -31,11 +31,11 @@ export default async function NoAccessPage() {
       </div>
       <Card className="w-full">
         <CardContent className="space-y-3 py-4 text-sm">
-          <div className="flex items-center justify-between"><span className="text-muted-foreground">Compte</span><span className="font-medium">{user.email}</span></div>
+          <div className="flex items-center justify-between gap-3"><span className="shrink-0 text-muted-foreground">Compte</span><span className="min-w-0 text-right font-medium [overflow-wrap:anywhere]">{user.email}</span></div>
           <div className="flex items-center justify-between"><span className="text-muted-foreground">Modules accessibles</span><span className="font-medium">{count}</span></div>
         </CardContent>
       </Card>
-      <Link href="/api/auth/signout" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
+      <Link href="/api/auth/signout" className="inline-flex min-h-10 items-center text-sm text-muted-foreground hover:text-foreground hover:underline">
         Se déconnecter
       </Link>
     </div>

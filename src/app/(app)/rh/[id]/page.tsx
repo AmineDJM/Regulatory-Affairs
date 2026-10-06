@@ -130,13 +130,13 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
       </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{employee.fullName}</h1>
+        <div className="min-w-0 space-y-1">
+          <h1 className="text-xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-2xl">{employee.fullName}</h1>
           <p className="text-muted-foreground">
             {employee.position || "Poste non défini"}{employee.department ? ` · ${employee.department}` : ""}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
           {employee.isActive ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="danger" dot={false}>Inactif</Badge>}
           <SuperAdminDeleteButton
             kind="EMPLOYEE"
@@ -179,7 +179,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
           <div>
             <p className="text-xs text-muted-foreground">Responsable hiérarchique (N+1)</p>
             {manager ? (
-              <p className="font-medium">
+              <p className="font-medium [overflow-wrap:anywhere]">
                 {manager.fullName}
                 <span className="ml-2 text-xs font-normal text-muted-foreground">
                   {manager.source === "MANAGER" ? "manager désigné (organigramme)"
@@ -258,7 +258,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
               {employee.leaveRequests.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">Aucune demande de congé.</p>
               ) : (
-                <Table>
+                <Table mobileCards>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Type</TableHead><TableHead>Période</TableHead>
@@ -320,7 +320,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
                 <p className="text-muted-foreground">Aucun bulletin.</p>
               ) : (
                 employee.payrolls.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between">
+                  <div key={p.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <span className="text-muted-foreground">{String(p.month).padStart(2, "0")}/{p.year}</span>
                     <span className="font-medium">{formatCurrency(toNumber(p.net))}</span>
                     <StatusBadge map={PAYROLL_STATUS} value={p.status} dot={false} />
@@ -339,7 +339,7 @@ function Info({ label, value }: { label: string; value: string | null | undefine
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium">{value || "—"}</p>
+      <p className="font-medium [overflow-wrap:anywhere]">{value || "—"}</p>
     </div>
   );
 }

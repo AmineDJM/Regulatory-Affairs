@@ -49,8 +49,8 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
 
       {busy && (
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5">
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1.5 [overflow-wrap:anywhere]">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
               {job?.phase === "uploading" ? `Téléversement de ${job?.fileName}…` : "Inspection & extraction sécurisées…"}
             </span>
@@ -66,7 +66,7 @@ export function CtdUpload({ dossierId }: { dossierId: string }) {
                 version à moitié constituée. */}
             {job?.phase === "uploading" && (
               <button type="button" onClick={() => cancel(dossierId)}
-                className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive">
+                className="shrink-0 rounded-md border border-border px-2.5 py-2 text-xs font-medium sm:px-2 sm:py-1 text-muted-foreground hover:bg-muted hover:text-destructive">
                 <Ban className="mr-1 inline h-3.5 w-3.5" /> Annuler l&apos;envoi
               </button>
             )}

@@ -44,7 +44,7 @@ export function MissionAssignmentsCard({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex-row items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2"><Users className="h-4 w-4" /> Accompagnants & délégués</CardTitle>
         <Badge tone="neutral" dot={false}>{assignments.length}</Badge>
       </CardHeader>
@@ -65,8 +65,8 @@ export function MissionAssignmentsCard({
 
         {canManage && (
           <form ref={formRef} action={add} className="space-y-2 border-t border-border pt-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="col-span-2 space-y-1">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="space-y-1 sm:col-span-2">
                 <Label htmlFor="mission-user">Personne</Label>
                 <Select id="mission-user" name="userId" required disabled={options.length === 0}>
                   <option value="">{options.length === 0 ? "— Toutes assignées —" : "— Sélectionner —"}</option>
@@ -87,7 +87,7 @@ export function MissionAssignmentsCard({
             </div>
             {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
             <div className="flex justify-end">
-              <Button type="submit" size="sm" disabled={busy || options.length === 0}>
+              <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={busy || options.length === 0}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Assigner
               </Button>
             </div>

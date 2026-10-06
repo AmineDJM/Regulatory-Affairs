@@ -52,12 +52,12 @@ export function MyStatus({ name, status, message }: { name: string; status: stri
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-64 rounded-xl border border-border bg-popover p-2 shadow-xl">
+          <div className="absolute left-0 top-full z-20 mt-1 w-[min(16rem,calc(100vw-2rem))] rounded-xl border border-border bg-popover p-2 shadow-xl">
             <ul className="space-y-0.5">
               {CHAT_STATUSES.map((s) => (
                 <li key={s}>
                   <button type="button" onClick={() => apply(s, draft)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-secondary">
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-2.5 text-left text-sm hover:bg-secondary sm:py-1.5">
                     <span className={`h-2.5 w-2.5 rounded-full ${DOT[s]}`} />
                     <span className="flex-1">{CHAT_STATUS_LABEL[s]}</span>
                     {current === s && <Check className="h-4 w-4 text-primary" />}
@@ -66,7 +66,7 @@ export function MyStatus({ name, status, message }: { name: string; status: stri
               ))}
               <li>
                 <button type="button" onClick={() => apply(null, draft)}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-secondary">
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-2.5 text-left text-sm text-muted-foreground hover:bg-secondary sm:py-1.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/60" />
                   <span className="flex-1">Automatique (présence)</span>
                   {!current && <Check className="h-4 w-4 text-primary" />}
@@ -74,9 +74,9 @@ export function MyStatus({ name, status, message }: { name: string; status: stri
               </li>
             </ul>
             <div className="mt-2 space-y-1.5 border-t border-border pt-2">
-              <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Message de statut (optionnel)…" maxLength={120} className="h-8 text-xs"
+              <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Message de statut (optionnel)…" maxLength={120} className="h-10 text-base sm:h-8 lg:text-xs"
                 onKeyDown={(e) => { if (e.key === "Enter") apply(current, draft); }} />
-              <button type="button" onClick={() => apply(current, draft)} className="w-full rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90">
+              <button type="button" onClick={() => apply(current, draft)} className="w-full rounded-md bg-primary px-2 py-2 text-xs sm:py-1 font-medium text-primary-foreground hover:opacity-90">
                 Enregistrer le message
               </button>
             </div>

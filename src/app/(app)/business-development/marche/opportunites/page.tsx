@@ -63,18 +63,18 @@ export default async function MarketOpportunitiesPage({ searchParams }: { search
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-muted-foreground">Vue :</span>
         {VIEWS.map((v) => (
-          <Link key={v.key} href={qs({ view: v.key })} className={`rounded-full px-3 py-1 text-xs font-medium ${view === v.key ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>{v.label}</Link>
+          <Link key={v.key} href={qs({ view: v.key })} className={`inline-flex min-h-9 items-center rounded-full px-3 py-1 text-xs font-medium sm:min-h-0 ${view === v.key ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>{v.label}</Link>
         ))}
-        <span className="ml-3 text-xs font-medium text-muted-foreground">Marché :</span>
+        <span className="w-full text-xs font-medium text-muted-foreground sm:ml-3 sm:w-auto">Marché :</span>
         {MINS.map((m) => (
-          <Link key={m.v} href={qs({ min: m.v })} className={`rounded-full px-3 py-1 text-xs font-medium ${minUsd === m.v ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>{m.label}</Link>
+          <Link key={m.v} href={qs({ min: m.v })} className={`inline-flex min-h-9 items-center rounded-full px-3 py-1 text-xs font-medium sm:min-h-0 ${minUsd === m.v ? "bg-primary text-primary-foreground" : "border border-border hover:bg-secondary"}`}>{m.label}</Link>
         ))}
-        <span className="ml-auto text-xs text-muted-foreground">{o.totalScored} DCI évaluées · {o.totalEligible} éligibles · {o.totalImportSub} substitution import</span>
+        <span className="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto">{o.totalScored} DCI évaluées · {o.totalEligible} éligibles · {o.totalImportSub} substitution import</span>
       </div>
 
       <Card>
         <CardContent className="overflow-x-auto p-0 sm:p-2">
-          <Table>
+          <Table mobileCards>
             <TableHeader>
               <TableRow>
                 <TableHead className="text-right">Score</TableHead><TableHead>DCI</TableHead>
@@ -85,7 +85,7 @@ export default async function MarketOpportunitiesPage({ searchParams }: { search
             </TableHeader>
             <TableBody>
               {o.rows.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">Aucune opportunité pour ce filtre.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} data-sans-etiquette className="py-8 text-center text-sm text-muted-foreground">Aucune opportunité pour ce filtre.</TableCell></TableRow>
               ) : o.rows.map((r) => (
                 <TableRow key={r.key}>
                   <TableCell className="text-right"><Badge tone={scoreTone(r.opportunityScore)} dot={false}>{r.opportunityScore.toFixed(1)}</Badge></TableCell>

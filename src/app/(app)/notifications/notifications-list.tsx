@@ -38,8 +38,8 @@ export function NotificationsList({ items }: { items: NotificationItem[] }) {
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <form action={markAllNotificationsRead}>
-          <Button type="submit" variant="outline" size="sm" disabled={!hasUnread}>
+        <form action={markAllNotificationsRead} className="w-full sm:w-auto">
+          <Button type="submit" variant="outline" size="sm" disabled={!hasUnread} className="w-full sm:w-auto">
             <CheckCheck className="h-4 w-4" /> Tout marquer comme lu
           </Button>
         </form>
@@ -52,15 +52,15 @@ export function NotificationsList({ items }: { items: NotificationItem[] }) {
           {items.map((n) => {
             const read = isRead(n);
             const content = (
-              <div className="flex items-start gap-3 px-4 py-3">
-                <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", read ? "bg-transparent" : "bg-primary")} />
+              <div className="flex items-start gap-3 px-3 py-3 sm:px-4">
+                <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", read ? "bg-transparent" : "bg-primary")} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <StatusBadge map={NOTIFICATION_TYPE} value={n.type} dot={false} />
                     <span className="text-xs text-muted-foreground">{formatDateTime(n.createdAt)}</span>
                   </div>
-                  <p className={cn("mt-0.5 text-sm", read ? "font-normal" : "font-medium")}>{n.title}</p>
-                  {n.body && <p className="text-sm text-muted-foreground">{n.body}</p>}
+                  <p className={cn("mt-0.5 break-words text-sm", read ? "font-normal" : "font-medium")}>{n.title}</p>
+                  {n.body && <p className="line-clamp-3 break-words text-sm text-muted-foreground sm:line-clamp-none">{n.body}</p>}
                 </div>
               </div>
             );

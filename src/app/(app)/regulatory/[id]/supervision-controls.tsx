@@ -58,17 +58,17 @@ export function SupervisionControls({
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1">
           <Label className="text-xs">Date cible de dépôt</Label>
-          <Input type="date" value={sub} onChange={(e) => setSub(e.target.value)} onBlur={saveDates} className="h-8 text-xs" />
+          <Input type="date" value={sub} onChange={(e) => setSub(e.target.value)} onBlur={saveDates} className="h-9 text-xs sm:h-8" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Date cible d&apos;enregistrement</Label>
-          <Input type="date" value={reg} onChange={(e) => setReg(e.target.value)} onBlur={saveDates} className="h-8 text-xs" />
+          <Input type="date" value={reg} onChange={(e) => setReg(e.target.value)} onBlur={saveDates} className="h-9 text-xs sm:h-8" />
         </div>
       </div>
       <div className="flex flex-wrap items-end gap-2 border-t border-border pt-2">
-        <div className="min-w-[180px] flex-1 space-y-1">
+        <div className="min-w-0 flex-1 basis-[180px] space-y-1">
           <Label className="text-xs">Demander une mise à jour de statut</Label>
-          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optionnel)…" className="h-8 text-xs" />
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optionnel)…" className="h-9 text-xs sm:h-8" />
         </div>
         <Button type="button" size="sm" variant="outline" onClick={requestUpdate} disabled={requesting}>
           {requesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : sent ? <Check className="h-3.5 w-3.5 text-success" /> : <BellRing className="h-3.5 w-3.5" />}

@@ -62,7 +62,7 @@ export default async function MarketOverviewPage() {
           <CardContent className="space-y-1.5">
             {o.growers.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : o.growers.map((c) => (
               <div key={c.cls} className="flex items-center justify-between gap-2 text-sm">
-                <span className="truncate">{c.cls}</span>
+                <span className="min-w-0 truncate">{c.cls}</span>
                 <span className="shrink-0 font-semibold text-success">{fmtPct(c.growth)}</span>
               </div>
             ))}
@@ -73,7 +73,7 @@ export default async function MarketOverviewPage() {
           <CardContent className="space-y-1.5">
             {o.decliners.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : o.decliners.map((c) => (
               <div key={c.cls} className="flex items-center justify-between gap-2 text-sm">
-                <span className="truncate">{c.cls}</span>
+                <span className="min-w-0 truncate">{c.cls}</span>
                 <span className="shrink-0 font-semibold text-destructive">{fmtPct(c.growth)}</span>
               </div>
             ))}
@@ -85,7 +85,7 @@ export default async function MarketOverviewPage() {
       <Card>
         <CardHeader><CardTitle>Classes thérapeutiques porteuses</CardTitle><CardDescription>Top 40 par valeur de marché (MAT, ville)</CardDescription></CardHeader>
         <CardContent className="overflow-x-auto p-0 sm:p-2">
-          <Table>
+          <Table mobileCards>
             <TableHeader>
               <TableRow>
                 <TableHead>Classe (ATC4)</TableHead><TableHead className="text-right">Valeur</TableHead>
@@ -96,7 +96,7 @@ export default async function MarketOverviewPage() {
             <TableBody>
               {o.classes.map((c) => (
                 <TableRow key={c.cls}>
-                  <TableCell className="font-medium">{c.cls}</TableCell>
+                  <TableCell data-sans-etiquette className="font-medium [overflow-wrap:anywhere]">{c.cls}</TableCell>
                   <TableCell className="text-right">{fmtDzd(c.valueDzd)}</TableCell>
                   <TableCell className="text-right">{(c.share * 100).toFixed(1)} %</TableCell>
                   <TableCell className={`text-right font-medium ${pctTone(c.growth)}`}>{fmtPct(c.growth)}</TableCell>
@@ -113,7 +113,7 @@ export default async function MarketOverviewPage() {
       <Card>
         <CardHeader><CardTitle>Laboratoires leaders</CardTitle><CardDescription>Top 40 par valeur (ville)</CardDescription></CardHeader>
         <CardContent className="overflow-x-auto p-0 sm:p-2">
-          <Table>
+          <Table mobileCards>
             <TableHeader>
               <TableRow>
                 <TableHead className="text-right">#</TableHead><TableHead>Laboratoire</TableHead>
@@ -125,7 +125,7 @@ export default async function MarketOverviewPage() {
               {o.labs.map((l) => (
                 <TableRow key={`${l.rank}-${l.lab}`}>
                   <TableCell className="text-right text-muted-foreground">{l.rank}</TableCell>
-                  <TableCell className="font-medium">{l.lab}{l.rank <= 3 && <Badge tone="info" dot={false} className="ml-2">Top {l.rank}</Badge>}</TableCell>
+                  <TableCell className="font-medium [overflow-wrap:anywhere]">{l.lab}{l.rank <= 3 && <Badge tone="info" dot={false} className="ml-2">Top {l.rank}</Badge>}</TableCell>
                   <TableCell className="text-right">{fmtDzd(l.valueDzd)}</TableCell>
                   <TableCell className="text-right">{(l.share * 100).toFixed(2)} %</TableCell>
                   <TableCell className={`text-right font-medium ${pctTone(l.growth)}`}>{fmtPct(l.growth)}</TableCell>

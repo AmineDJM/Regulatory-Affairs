@@ -4,6 +4,7 @@ import * as React from "react";
 import { History, Loader2, RotateCcw } from "lucide-react";
 import { rollbackWorkflowDefinition } from "@/lib/actions/workflow-actions";
 import { Button } from "@/components/ui/button";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 
 export interface WorkflowVersionRow {
   category: string;
@@ -69,47 +70,46 @@ export function WorkflowVersionHistory({ rows }: { rows: WorkflowVersionRow[] })
         <h2 className="text-sm font-semibold">Historique des circuits (restaurable)</h2>
       </div>
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
-              <th className="py-1.5 pr-3 font-medium">Circuit</th>
-              <th className="py-1.5 pr-3 font-medium">Version</th>
-              <th className="py-1.5 pr-3 font-medium">Nom</th>
-              <th className="py-1.5 pr-3 font-medium">Étapes</th>
-              <th className="py-1.5 pr-3 font-medium">Enregistrée</th>
-              <th className="py-1.5 font-medium" />
-            </tr>
-          </thead>
-          <tbody>
+      <Table mobileCards>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Circuit</TableHead>
+              <TableHead>Version</TableHead>
+              <TableHead>Nom</TableHead>
+              <TableHead>Étapes</TableHead>
+              <TableHead>Enregistrée</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((r) => {
               const key = `${r.category}:${r.version}`;
               return (
-                <tr key={key} className="border-b border-border/40">
-                  <td className="py-1.5 pr-3">{r.categoryLabel}</td>
-                  <td className="py-1.5 pr-3 font-medium">v{r.version}</td>
-                  <td className="max-w-[220px] truncate py-1.5 pr-3">{r.name}</td>
-                  <td className="py-1.5 pr-3">{r.stepCount}</td>
-                  <td className="whitespace-nowrap py-1.5 pr-3 text-muted-foreground">
+                <TableRow key={key}>
+                  <TableCell data-sans-etiquette className="py-1.5 font-medium max-sm:!justify-start sm:font-normal">{r.categoryLabel}</TableCell>
+                  <TableCell className="py-1.5 font-medium">v{r.version}</TableCell>
+                  <TableCell className="py-1.5 sm:max-w-[220px] sm:truncate">{r.name}</TableCell>
+                  <TableCell className="py-1.5">{r.stepCount}</TableCell>
+                  <TableCell className="py-1.5 text-muted-foreground sm:whitespace-nowrap">
                     {r.savedAt}{r.savedBy ? ` — ${r.savedBy}` : ""}
-                  </td>
-                  <td className="py-1.5 text-right">
+                  </TableCell>
+                  <TableCell className="py-1.5 text-right">
                     <Button
                       size="sm"
                       variant={armed === key ? "destructive" : "outline"}
                       disabled={busy !== null}
                       onClick={() => restore(r.category, r.version)}
+                      className="w-full sm:w-auto"
                     >
                       {busy === key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                       {done === key ? "Restaurée" : armed === key ? "Confirmer la restauration" : "Restaurer"}
                     </Button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+      </Table>
       <p className="text-xs text-muted-foreground">
         Restaurer rejoue l&apos;instantané par le même chemin validé que l&apos;enregistrement — et crée une nouvelle version (rien ne s&apos;efface).
       </p>

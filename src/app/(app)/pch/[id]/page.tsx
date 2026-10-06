@@ -183,7 +183,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
         </Card>
 
         <Card>
-          <CardHeader className="flex-row items-center justify-between">
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
             <CardTitle>Caution</CardTitle>
             <Badge tone={t.cautionDeposited ? (cautionExpired ? "danger" : "success") : "warning"} dot={false}>
               {t.cautionDeposited ? (cautionExpired ? "Expirée" : "Déposée") : "Non déposée"}
@@ -199,7 +199,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
       </div>
 
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-3 sm:p-4">
           <SubmissionPanel tenderId={t.id} soumissions={market.soumissions} canEdit={canEdit} />
         </CardContent>
       </Card>
@@ -217,7 +217,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
       </Card>
 
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-3 sm:p-4">
           <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} reserves={reserves} lectures={lectures} />
         </CardContent>
       </Card>
@@ -226,7 +226,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
           Placé JUSTE APRÈS les produits : c'est en lisant la liste des lots qu'on se demande à
           qui les confier, pas trois écrans plus bas. */}
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-3 sm:p-4">
           <AllocationsPanel
             tenderId={t.id}
             businessUnits={businessUnits}
@@ -242,7 +242,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
       </Card>
 
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-3 sm:p-4">
           <ContractPanel
             tenderId={t.id}
             contrats={market.contrats}
@@ -258,7 +258,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
 
       {t.orders.length > 0 && (
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-3 sm:p-4">
             <TenderLogistics tenderId={t.id} orders={t.orders} canEdit={canEdit} />
           </CardContent>
         </Card>
@@ -266,7 +266,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
 
       {(market.courriers.length > 0 || canMail) && (
         <Card>
-          <CardHeader className="flex-row items-center justify-between">
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
             <CardTitle>Courriers du marché</CardTitle>
             {canMail && (
               <CreateRecordButton
@@ -312,5 +312,5 @@ export default async function PchTenderPage({ params }: { params: { id: string }
 }
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium">{value || "—"}</p></div>;
+  return <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium [overflow-wrap:anywhere]">{value || "—"}</p></div>;
 }

@@ -80,7 +80,8 @@ export default async function SalesPage() {
         )}
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {/* Des montants en DZD : une colonne au téléphone, pour qu'aucun chiffre ne soit coupé. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="CA mensuel" value={formatCurrency(caMonth)} icon="TrendingUp" tone="success" />
         <KpiCard label="CA annuel" value={formatCurrency(caYear)} icon="Coins" />
         <KpiCard label="Ventes PCH" value={formatCurrency(pchRevenue)} icon="Building2" tone="info" />

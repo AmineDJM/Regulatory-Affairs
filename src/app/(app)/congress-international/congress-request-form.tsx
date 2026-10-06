@@ -117,8 +117,11 @@ export function CongressRequestForm({
 
   return (
     <form ref={formRef} action={submit} className="space-y-5">
-        {/* Infos générales */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Infos générales — même cadre que les deux sections suivantes, pour que le formulaire se
+            lise en trois blocs au téléphone ; une colonne au téléphone, deux au-delà. */}
+        <div className="space-y-3 rounded-lg border border-border p-3">
+        <p className="text-sm font-medium">L&apos;événement</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
           {/* LA GAMME QUI PORTE LA DEMANDE — le champ MANQUAIT sur ce formulaire, alors que
               l'action le lisait déjà : les deux prises en charge sortaient donc sans gamme, et
               leur dépense n'était rattachable à aucune équipe (§118.108, §118.140). La décision
@@ -172,7 +175,8 @@ export function CongressRequestForm({
               <Field label="Date de fin" required><Input name="endDate" type="date" required /></Field>
             </>
           )}
-          <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
+          <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" inputMode="decimal" placeholder="Estimation du demandeur" /></Field>
+        </div>
         </div>
 
         {/* LES PROFESSIONNELS PROPOSÉS POUR LA PRISE EN CHARGE — un menu AVEC RECHERCHE dans
@@ -189,9 +193,11 @@ export function CongressRequestForm({
             {trouves.length === 0 ? (
               <p className="px-1 text-xs text-muted-foreground">Aucun praticien ne correspond — créez son profil ci-dessous.</p>
             ) : trouves.map((d) => (
-              <label key={d.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
-                <input type="checkbox" checked={pickedDoctors.has(d.id)} onChange={() => toggle(pickedDoctors, d.id, setPickedDoctors)} className="h-4 w-4 rounded border-input" />
-                <span>{d.name}</span>{(d.specialty || d.city) && <span className="text-xs text-muted-foreground">· {[d.specialty, d.city].filter(Boolean).join(" · ")}</span>}
+              <label key={d.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-2 text-sm hover:bg-secondary sm:py-1">
+                <input type="checkbox" checked={pickedDoctors.has(d.id)} onChange={() => toggle(pickedDoctors, d.id, setPickedDoctors)} className="h-4 w-4 shrink-0 rounded border-input" />
+                <span className="min-w-0 break-words">
+                  <span>{d.name}</span>{(d.specialty || d.city) && <span className="text-xs text-muted-foreground"> · {[d.specialty, d.city].filter(Boolean).join(" · ")}</span>}
+                </span>
               </label>
             ))}
             {trouves.length >= PLAFOND_MENU && <p className="px-1 text-[0.6875rem] text-muted-foreground">Les {PLAFOND_MENU} premiers seulement — précisez la recherche.</p>}
@@ -221,9 +227,11 @@ export function CongressRequestForm({
           </div>
           <div className="max-h-40 space-y-1 overflow-auto rounded-md bg-muted/30 p-2">
             {filteredUsers.map((u) => (
-              <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
-                <input type="checkbox" checked={pickedUsers.has(u.id)} onChange={() => toggle(pickedUsers, u.id, setPickedUsers)} className="h-4 w-4 rounded border-input" />
-                <span>{u.name}</span><span className="text-xs text-muted-foreground">· {ROLE_LABELS[u.role] ?? u.role}</span>
+              <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-2 text-sm hover:bg-secondary sm:py-1">
+                <input type="checkbox" checked={pickedUsers.has(u.id)} onChange={() => toggle(pickedUsers, u.id, setPickedUsers)} className="h-4 w-4 shrink-0 rounded border-input" />
+                <span className="min-w-0 break-words">
+                  <span>{u.name}</span><span className="text-xs text-muted-foreground"> · {ROLE_LABELS[u.role] ?? u.role}</span>
+                </span>
               </label>
             ))}
           </div>
@@ -236,10 +244,10 @@ export function CongressRequestForm({
           )}
         </div>
 
-        {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onCancel}>{cancelLabel}</Button>
-          <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Envoyer la demande</Button>
+        {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0 break-words">{err}</span></div>}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto">{cancelLabel}</Button>
+          <Button type="submit" disabled={saving} className="w-full sm:w-auto">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Envoyer la demande</Button>
         </div>
       </form>
   );
@@ -334,7 +342,7 @@ function NouveauProfil({ scope, onCree }: { scope: "NATIONAL" | "INTERNATIONAL";
         </Select>
       </div>
       {erreur && <p className="text-xs text-destructive sm:col-span-2">{erreur}</p>}
-      <div className="flex gap-2 sm:col-span-2">
+      <div className="flex flex-wrap gap-2 sm:col-span-2">
         <Button type="button" size="sm" onClick={() => void creer()} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Créer et proposer</Button>
         <Button type="button" size="sm" variant="outline" onClick={() => setOuvert(false)}>Annuler</Button>
       </div>
@@ -356,9 +364,10 @@ function Field({ label, full, required, children }: { label: string; full?: bool
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
-      {label}
-      <button type="button" onClick={onRemove} className="rounded-full hover:bg-primary/20"><X className="h-3 w-3" /></button>
+    <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-primary/10 py-0.5 pl-2 pr-0.5 text-xs text-primary">
+      <span className="min-w-0 truncate">{label}</span>
+      {/* Croix assez grande pour le doigt au téléphone, compacte au bureau. */}
+      <button type="button" onClick={onRemove} aria-label={`Retirer ${label}`} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-primary/20 sm:h-5 sm:w-5"><X className="h-3 w-3" /></button>
     </span>
   );
 }

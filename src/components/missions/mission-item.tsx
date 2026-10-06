@@ -54,17 +54,19 @@ export function MissionItem({
         <Avatar name={m.userName} size="sm" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-sm font-medium">{m.userName}</span>
+            <span className="min-w-0 truncate text-sm font-medium">{m.userName}</span>
             <StatusBadge map={MISSION_ROLE} value={m.role} dot={false} />
+            {/* Au téléphone, l'état de l'ordre rejoint la ligne du nom : à droite, il écrasait le nom. */}
+            <span className="sm:hidden"><StatusBadge map={MISSION_ORDER_STATUS} value={m.orderStatus} dot={false} /></span>
           </div>
           {showParent ? (
-            <a href={m.parentPath} className="truncate text-xs text-primary hover:underline">{m.parentLabel}</a>
+            <a href={m.parentPath} className="block truncate py-0.5 text-xs text-primary hover:underline">{m.parentLabel}</a>
           ) : (
             m.note && <p className="truncate text-xs text-muted-foreground">{m.note}</p>
           )}
         </div>
-        <StatusBadge map={MISSION_ORDER_STATUS} value={m.orderStatus} dot={false} />
-        <button onClick={() => setOpen((o) => !o)} className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-secondary" aria-label="Détails">
+        <span className="hidden shrink-0 sm:inline-flex"><StatusBadge map={MISSION_ORDER_STATUS} value={m.orderStatus} dot={false} /></span>
+        <button onClick={() => setOpen((o) => !o)} className="shrink-0 rounded-md p-2.5 text-muted-foreground hover:bg-secondary sm:p-1" aria-label="Détails" aria-expanded={open}>
           {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
       </div>
@@ -80,7 +82,7 @@ export function MissionItem({
             ) : (
               <span>Aucun ordre de mission pour l'instant.</span>
             )}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
               {isAssignee && m.orderStatus === "NONE" && (
                 <Button size="sm" variant="outline" onClick={() => run("request")} disabled={busy !== null}>
                   {busy === "request" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Demander un ordre de mission
@@ -98,7 +100,7 @@ export function MissionItem({
                 </Button>
               )}
               {canManage && (
-                <button onClick={() => run("remove")} disabled={busy !== null} title="Retirer" className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                <button onClick={() => run("remove")} disabled={busy !== null} title="Retirer" aria-label="Retirer" className="rounded-md p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5">
                   {busy === "remove" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                 </button>
               )}

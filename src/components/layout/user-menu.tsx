@@ -31,7 +31,7 @@ export function UserMenu({ name, email, role, enVue = false }: UserMenuProps) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-lg p-1 pr-2 transition-colors hover:bg-secondary"
+        className="flex items-center gap-2 rounded-lg p-1 transition-colors hover:bg-secondary sm:pr-2"
       >
         <Avatar name={name} size="sm" />
         <div className="hidden text-left sm:block">
@@ -40,7 +40,7 @@ export function UserMenu({ name, email, role, enVue = false }: UserMenuProps) {
             {ROLE_LABELS[role] ?? role}
           </p>
         </div>
-        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        <ChevronDown className="hidden h-4 w-4 text-muted-foreground sm:block" />
       </button>
 
       {open && (

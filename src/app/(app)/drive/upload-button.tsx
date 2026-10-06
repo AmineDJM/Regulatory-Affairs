@@ -169,7 +169,8 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
         {menu && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-xl border border-border bg-popover p-1 shadow-xl">
+            {/* Au téléphone, le bouton peut se retrouver à gauche après repli : le menu se pose en bas, pleine largeur. */}
+            <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-xl border border-border bg-popover p-1 shadow-xl max-sm:fixed max-sm:inset-x-4 max-sm:bottom-[calc(1rem+env(safe-area-inset-bottom))] max-sm:top-auto max-sm:mt-0 max-sm:w-auto">
               <button type="button" onClick={() => { setMenu(false); setOpen(true); }}
                 className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary">
                 <FileUp className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -192,7 +193,7 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
         description="Choisissez le classement et qui peut le voir ou le modifier. L'envoi se fait en arrière-plan."
         width="lg"
         footer={
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground">{files.length} fichier·s · partagé avec {shared}</span>
             <div className="flex gap-2">
               <Button variant="outline" type="button" onClick={() => setOpen(false)}>Annuler</Button>
@@ -213,7 +214,7 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
               className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
             />
             {files.length > 0 && (
-              <p className="text-xs text-muted-foreground">{files.map((f) => f.name).join(", ")}</p>
+              <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{files.map((f) => f.name).join(", ")}</p>
             )}
           </div>
 
@@ -224,7 +225,7 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
               <Label>Qui peut accéder ?</Label>
               <span className="text-xs text-muted-foreground">Par défaut, vous seul (propriétaire).</span>
             </div>
@@ -264,7 +265,7 @@ function PermBtn({ active, onClick, children }: { active: boolean; onClick: () =
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1 px-2 py-1 text-xs font-medium transition-colors",
+        "flex items-center gap-1 px-2 py-2 text-xs font-medium transition-colors sm:py-1",
         active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary",
       )}
     >

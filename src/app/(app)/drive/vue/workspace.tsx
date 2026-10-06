@@ -145,7 +145,7 @@ export function DocumentWorkspace({ docs, officeEnabled }: { docs: OpenDoc[]; of
 
   if (live.length === 0) {
     return (
-      <div className="surface p-10 text-center">
+      <div className="surface p-6 text-center sm:p-10">
         <p className="text-sm text-muted-foreground">Tous les documents sont fermés.</p>
         <Link href="/drive" className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
           <ArrowLeft className="h-4 w-4" /> Retour au Drive
@@ -161,7 +161,7 @@ export function DocumentWorkspace({ docs, officeEnabled }: { docs: OpenDoc[]; of
         {doc.canEdit && doc.editable && officeEnabled && (
           <button
             type="button" onClick={() => toggleEdit(doc.id)}
-            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-xs font-medium transition-colors md:py-1 ${
               editing.has(doc.id) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary"
             }`}
           >
@@ -171,20 +171,21 @@ export function DocumentWorkspace({ docs, officeEnabled }: { docs: OpenDoc[]; of
         <BoutonTelecharger
           href={`/api/drive/${doc.id}/raw?dl=1`}
           nom={doc.name}
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary md:py-1"
         >
           <Download className="h-3.5 w-3.5" /> Télécharger
         </BoutonTelecharger>
         <Link
           href={`/drive/${doc.id}`}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-xs md:py-1 font-medium text-muted-foreground hover:bg-secondary"
         >
           <ExternalLink className="h-3.5 w-3.5" /> Fiche
         </Link>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {editing.has(doc.id) ? (
-          <iframe src={`/office-embed/${doc.id}`} title={`Édition — ${doc.name}`} className="h-full min-h-[24rem] w-full bg-white" />
+          // Sous 768 px (documents empilés, sans hauteur imposée), l'éditeur prend la hauteur de l'écran.
+          <iframe src={`/office-embed/${doc.id}`} title={`Édition — ${doc.name}`} className="h-full min-h-[24rem] w-full bg-white max-md:h-[75dvh]" />
         ) : (
           <FileViewer id={doc.id} name={doc.name} kind={doc.kind} />
         )}
@@ -204,7 +205,7 @@ export function DocumentWorkspace({ docs, officeEnabled }: { docs: OpenDoc[]; of
               <header className="flex items-center gap-2 border-b border-border px-2 py-1.5">
                 <FileGlyph name={doc.name} isFile />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{doc.name}</span>
-                <button type="button" onClick={() => close(w.id)} aria-label={`Fermer ${doc.name}`} className="rounded p-1 text-muted-foreground hover:bg-secondary">
+                <button type="button" onClick={() => close(w.id)} aria-label={`Fermer ${doc.name}`} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary">
                   <X className="h-4 w-4" />
                 </button>
               </header>

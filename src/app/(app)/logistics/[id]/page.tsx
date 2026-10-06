@@ -55,9 +55,9 @@ export default async function LogisticsDetailPage({ params }: { params: { id: st
       </BackLink>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <span className="font-mono text-xs text-muted-foreground">{order.reference}</span>
-          <h1 className="text-2xl font-semibold tracking-tight">{order.product}</h1>
+          <h1 className="text-xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-2xl">{order.product}</h1>
           <p className="text-muted-foreground">{order.supplier} · {order.country}</p>
         </div>
         <StatusBadge map={LOGISTICS_STATUS} value={order.status} />
@@ -73,13 +73,13 @@ export default async function LogisticsDetailPage({ params }: { params: { id: st
                   const done = Boolean(m.real);
                   return (
                     <li key={i} className="relative flex items-start gap-3 pl-1">
-                      <span className={cn("mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-xs",
+                      <span className={cn("mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs",
                         done ? "bg-success text-success-foreground" : "bg-secondary text-muted-foreground")}>
                         {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
                       </span>
-                      <div className="flex-1">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">{m.label}</p>
-                        <div className="flex gap-4 text-xs text-muted-foreground">
+                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                           {m.planned && <span>Estimé : {formatDate(m.planned)}</span>}
                           <span className={done ? "text-success" : ""}>Réel : {m.real ? formatDate(m.real) : "—"}</span>
                         </div>
@@ -93,7 +93,7 @@ export default async function LogisticsDetailPage({ params }: { params: { id: st
 
           <Card>
             <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6">
               <Info label="Transporteur" value={order.carrier} />
               <Info label="Incoterm" value={order.incoterm} />
               <Info label="N° facture" value={order.invoiceNumber} />
@@ -141,9 +141,9 @@ export default async function LogisticsDetailPage({ params }: { params: { id: st
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium">{value || "—"}</p>
+      <p className="font-medium tabular-nums [overflow-wrap:anywhere]">{value || "—"}</p>
     </div>
   );
 }

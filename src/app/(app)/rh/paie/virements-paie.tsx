@@ -64,9 +64,9 @@ export function VirementsPaie({
   const libelleMois = moisDeLaPaie(year, mois);
 
   return (
-    <section className="surface space-y-3 p-4" aria-labelledby="virements-paie-titre">
+    <section className="surface space-y-3 p-3 sm:p-4" aria-labelledby="virements-paie-titre">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           <h2 id="virements-paie-titre" className="flex items-center gap-2 text-sm font-semibold">
             <Send className="h-4 w-4 text-primary" /> Virement de la paie — centre de paiement
           </h2>
@@ -143,7 +143,7 @@ function CarteVirement({
   return (
     <div className="space-y-2 rounded-xl border border-border p-3" data-entite={carte.label}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold">{carte.label}</p>
+        <p className="min-w-0 text-sm font-semibold [overflow-wrap:anywhere]">{carte.label}</p>
         {etat.enCours ? (
           <Badge tone={TON[etat.enCours.etat]} dot={false}>{ETAT_VIREMENT_LABEL[etat.enCours.etat]}</Badge>
         ) : etat.aEnvoyer > 0 ? (
@@ -169,8 +169,8 @@ function CarteVirement({
             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
               <Badge tone={TON[v.etat]} dot={false}>{ICONE[v.etat]} {ETAT_VIREMENT_LABEL[v.etat]}</Badge>
               <span className="tabular-nums">{formatCurrency(v.montant)}</span>
-              <span className="text-muted-foreground">
-                {v.reference ? `${v.reference} · ` : ""}envoyée le {formatDate(v.envoyeLe)}{v.vireLe ? ` · virée le ${formatDate(v.vireLe)}` : ""}
+              <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">
+                {v.reference ?`${v.reference} · ` : ""}envoyée le {formatDate(v.envoyeLe)}{v.vireLe ? ` · virée le ${formatDate(v.vireLe)}` : ""}
               </span>
             </li>
           ))}
@@ -204,7 +204,7 @@ function CarteVirement({
               </Select>
             </div>
           </div>
-          <BoutonDecisif type="submit" size="sm" disabled={busy || enCours}>
+          <BoutonDecisif type="submit" size="sm" disabled={busy || enCours} className="h-auto min-h-9 max-w-full whitespace-normal py-1.5 text-left [&_svg]:shrink-0">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {etat.complement ? `Envoyer un complément — ${carte.label}` : `Envoyer la paie au centre — ${carte.label}`}
           </BoutonDecisif>

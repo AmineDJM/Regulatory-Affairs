@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -37,10 +38,20 @@ export function ModuleTabs({ tabs, arrows = false }: { tabs: ModuleTab[]; arrows
   const prev = index > 0 ? visible[index - 1] : null;
   const next = index >= 0 && index < visible.length - 1 ? visible[index + 1] : null;
 
-  const arrowCls = "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors";
+  const arrowCls = "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors";
+
+  // AU TÉLÉPHONE, UNE SEULE LIGNE QUI GLISSE — six onglets repliés sur trois lignes mangeaient le tiers de l'écran et
+  // cassaient le repère « où suis-je ». L'onglet actif est ramené dans le champ à l'arrivée : on ne le cherche pas.
+  const barre = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    // Le défilement de la BARRE seule — `scrollIntoView` ferait aussi bouger la page.
+    const bar = barre.current;
+    const el = bar?.querySelector<HTMLElement>("[aria-current=page]");
+    if (bar && el && bar.scrollWidth > bar.clientWidth) bar.scrollLeft = el.offsetLeft - (bar.clientWidth - el.offsetWidth) / 2;
+  }, [actif]);
 
   return (
-    <div className="flex flex-wrap items-center gap-1 border-b border-border">
+    <div ref={barre} className="no-scrollbar relative -mx-3 flex snap-x items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border px-3 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
       {arrows && (
         prev ? (
           <Link href={prev.href} aria-label={`Sous-module précédent : ${prev.label}`} title={prev.label} className={cn(arrowCls, "hover:bg-secondary hover:text-foreground")}>
@@ -57,7 +68,7 @@ export function ModuleTabs({ tabs, arrows = false }: { tabs: ModuleTab[]; arrows
           // L'onglet actif se DIT aussi aux lecteurs d'écran : la couleur seule ne se lit pas.
           aria-current={isActive(t.href) ? "page" : undefined}
           className={cn(
-            "border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
+            "shrink-0 snap-start whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors sm:py-2",
             isActive(t.href)
               ? "border-primary text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground",

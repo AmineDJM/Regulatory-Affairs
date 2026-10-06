@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Mail, Phone } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { praticienVisible, segmentationDuPraticien } from "@/lib/queries/vue-360";
@@ -37,7 +38,18 @@ export default async function Praticien360Page({ params }: { params: { id: strin
   return (
     <div className="space-y-5">
       <PageHeader title={d.name} description={[d.title !== "AUTRE" ? d.title : null, d.specialtyRef?.name ?? d.specialty, d.institutionRef?.name ?? d.institution, d.serviceRef?.name, d.wilaya ?? d.region].filter(Boolean).join(" · ")}>
-        <Link href="/medical/annuaire" className="text-sm text-primary underline">Annuaire</Link>
+        {/* Au terrain, la fiche s'ouvre au téléphone : appeler ou écrire se fait d'un pouce. */}
+        {d.phone && (
+          <a href={`tel:${d.phone.replace(/[^\d+]/g, "")}`} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-input px-3 text-sm font-medium text-primary hover:bg-secondary sm:min-h-9">
+            <Phone className="h-4 w-4" /> {d.phone}
+          </a>
+        )}
+        {d.email && (
+          <a href={`mailto:${d.email}`} className="inline-flex min-h-10 min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-input px-3 text-sm font-medium text-primary hover:bg-secondary sm:min-h-9">
+            <Mail className="h-4 w-4 shrink-0" /> <span className="truncate">{d.email}</span>
+          </a>
+        )}
+        <Link href="/medical/annuaire" className="inline-flex min-h-10 items-center text-sm text-primary underline sm:min-h-9">Annuaire</Link>
       </PageHeader>
       {d.archivedAt && <p className="text-sm text-warning">Fiche archivée dans l&apos;annuaire.</p>}
 
@@ -47,9 +59,9 @@ export default async function Praticien360Page({ params }: { params: { id: strin
         const fige = cycle ? (cycle.instantane as { praticiens?: { doctorId: string; visites: number; priorite: string | null; affichage: string }[] }).praticiens?.find((p) => p.doctorId === d.id) : undefined;
         const faites = cycle ? await visitesDuCycle(cycle.debut, cycle.fin) : null;
         return (
-          <section key={s.strategieId} className="surface space-y-2 p-4">
+          <section key={s.strategieId} className="surface min-w-0 space-y-2 p-3 sm:p-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Link href={`/segmentation?s=${s.strategieId}`} className="text-sm font-semibold text-primary hover:underline">{s.strategie}</Link>
+              <Link href={`/segmentation?s=${s.strategieId}`} className="min-w-0 text-sm font-semibold text-primary [overflow-wrap:anywhere] hover:underline">{s.strategie}</Link>
               <span className="text-xs text-muted-foreground">BU {s.businessUnit}</span>
               {s.ligne?.statut && <Badge>{STATUT_LABELS[s.ligne.statut]}</Badge>}
               {r?.h && <Badge tone="purple">H — décideur</Badge>}
@@ -59,7 +71,7 @@ export default async function Praticien360Page({ params }: { params: { id: strin
                 <p className="text-lg font-semibold">{r.cible ? (r.priorite ? `Priorité ${r.priorite.replace(/^P/, "")}` : "Ciblé — priorité en attente de données") : "Non ciblé"}</p>
                 <div className="flex flex-wrap gap-3 text-sm">{r.produits.map((p) => <span key={p.productId}>{s.produits.find((x) => x.productId === p.productId)?.nom} — <b>{ETAT_LABELS[p.etat]}</b>{p.derogation ? " (dérogation)" : ""}</span>)}</div>
                 <p className="text-sm">Visites requises ce cycle : <b>{fige?.visites ?? r.visites}</b>{faites !== null ? ` · réalisées : ${faites}` : ""}{cycle ? ` (${cycle.libelle})` : ""} · objectif principal : {s.produits[0]?.nom ?? "—"}</p>
-                <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Pourquoi ?</summary>
+                <details className="text-xs text-muted-foreground [overflow-wrap:anywhere]"><summary className="inline-flex min-h-9 cursor-pointer items-center sm:min-h-0">Pourquoi ?</summary>
                   {r.produits.map((p) => <p key={p.productId}>{s.produits.find((x) => x.productId === p.productId)?.nom} : {p.pourquoi.join(" ")}{p.affinite !== null ? ` (affinité ${pct(p.affinite)})` : ""}</p>)}
                   <p>{r.pourquoiPriorite}</p><p>{r.pourquoiVisites}</p>
                 </details>
@@ -69,13 +81,13 @@ export default async function Praticien360Page({ params }: { params: { id: strin
         );
       }))}
 
-      <section className="surface space-y-1 p-4 text-sm">
+      <section className="surface space-y-1 p-3 text-sm [overflow-wrap:anywhere] sm:p-4">
         <h2 className="font-semibold">Potentiel (historique)</h2>
         {d.segmentationObservations.length === 0 && <p className="text-muted-foreground">Aucune donnée terrain.</p>}
         {d.segmentationObservations.map((o, i) => <p key={i} className="text-xs">{o.observeLe.toLocaleDateString("fr-FR")} · {o.potentiel === null ? "—" : Number(o.potentiel)} patients · {o.prescriptionsSur10 === null ? "—" : Number(o.prescriptionsSur10)}/10 · {o.source.toLowerCase()}{o.commentaire ? ` · ${o.commentaire}` : ""}</p>)}
       </section>
 
-      <section className="surface space-y-1 p-4 text-sm">
+      <section className="surface space-y-1 p-3 text-sm [overflow-wrap:anywhere] sm:p-4">
         <h2 className="font-semibold">Visites</h2>
         {d.visits.length === 0 && <p className="text-muted-foreground">Aucune visite.</p>}
         {d.visits.map((v) => <p key={v.id} className="text-xs">{v.date.toLocaleDateString("fr-FR")} · {v.status} · {v.delegate?.name ?? "—"}{v.productLinks.length ? ` · ${v.productLinks.map((l) => l.product.canonicalName).join(", ")}` : ""}{v.objective ? ` · ${v.objective}` : ""}</p>)}

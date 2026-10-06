@@ -107,8 +107,8 @@ export default async function AdminUserPage({ params }: { params: { id: string }
       <div className="flex flex-wrap items-center gap-3">
         <Avatar name={target.name} color={target.avatarColor} size="lg" />
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{target.name}</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{target.name}</h1>
+          <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
             {target.email} · {ROLE_LABELS[target.role] ?? target.role}
             {target.isActive ? (
               <Badge tone="success" dot={false} className="ml-2">Actif</Badge>
@@ -123,7 +123,7 @@ export default async function AdminUserPage({ params }: { params: { id: string }
       </div>
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle>Accès par onglet, action et lignes</CardTitle>
         </CardHeader>
         <CardContent>
@@ -152,7 +152,7 @@ export default async function AdminUserPage({ params }: { params: { id: string }
           <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <ResetPasswordForm userId={target.id} />
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-medium">Sessions actives ({sessionItems.length})</p>
                 <RevokeAllButton userId={target.id} />
               </div>
@@ -182,12 +182,12 @@ export default async function AdminUserPage({ params }: { params: { id: string }
           ) : (
             <ul className="divide-y divide-border text-sm">
               {activity.map((a) => (
-                <li key={a.id} className="flex items-center justify-between py-2">
-                  <span>
+                <li key={a.id} className="flex flex-col gap-1 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">
                     <Badge tone={a.type === "LOGIN" ? "success" : "info"} dot={false}>{a.type}</Badge>
                     <span className="ml-2 text-muted-foreground">{a.path ?? a.module ?? "—"}</span>
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="shrink-0 text-xs text-muted-foreground">
                     {[a.browser, a.os].filter(Boolean).join(" · ")}
                     {a.durationMs ? ` · ${Math.round(a.durationMs / 1000)}s` : ""} · {formatDateTime(a.createdAt)}
                   </span>

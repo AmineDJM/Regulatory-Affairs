@@ -127,7 +127,7 @@ export function BoutonTelecharger({
         aria-expanded={ouvert}
         aria-label="Choisir la qualité du téléchargement"
         title="Qualité maximale ou taille réduite"
-        className={classeChevron ?? "ml-0.5 inline-flex min-h-[28px] min-w-[24px] items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"}
+        className={classeChevron ?? "ml-0.5 inline-flex min-h-9 min-w-9 items-center sm:min-h-[28px] sm:min-w-[24px] justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"}
       >
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${ouvert ? "rotate-180" : ""}`} aria-hidden />
       </button>

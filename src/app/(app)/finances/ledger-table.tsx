@@ -56,12 +56,12 @@ export function LedgerTable({ rows, canUpdate = false, canDelete = false }: { ro
       render: (r) => (
         <div className="flex items-center justify-end gap-0.5">
           {canUpdate && (
-            <button title="Modifier l'écriture" onClick={() => setEdit(r)} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground">
+            <button title="Modifier l'écriture" onClick={() => setEdit(r)} className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5">
               <Pencil className="h-4 w-4" />
             </button>
           )}
           {canDelete && (
-            <button title="Supprimer l'écriture" onClick={() => onDelete(r)} disabled={busyId === r.id} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+            <button title="Supprimer l'écriture" onClick={() => onDelete(r)} disabled={busyId === r.id} className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:p-1.5">
               {busyId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             </button>
           )}
@@ -93,20 +93,20 @@ function EditTransactionSheet({ row, onClose }: { row: LedgerRow; onClose: () =>
   };
   return (
     <Sheet open onClose={onClose} title={`Modifier l'écriture ${row.reference}`} description="Livre comptable — la trésorerie est recalculée automatiquement." width="md">
-      <form action={submit} className="grid grid-cols-2 gap-3">
+      <form action={submit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5"><Label>Date</Label><Input type="date" name="date" defaultValue={row.date.slice(0, 10)} /></div>
         <div className="space-y-1.5"><Label>Sens</Label>
           <Select name="direction" defaultValue={row.direction}>
             {Object.entries(FINANCE_DIRECTION).map(([v, o]) => <option key={v} value={v}>{o.label}</option>)}
           </Select>
         </div>
-        <div className="col-span-2 space-y-1.5"><Label>Libellé</Label><Input name="label" defaultValue={row.label} required /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Libellé</Label><Input name="label" defaultValue={row.label} required /></div>
         <div className="space-y-1.5"><Label>Catégorie</Label>
           <Select name="category" defaultValue={row.category}>
             {Object.entries(FINANCE_CATEGORY).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </Select>
         </div>
-        <div className="space-y-1.5"><Label>Montant (DZD)</Label><Input type="number" step="any" name="amount" defaultValue={row.amount} required /></div>
+        <div className="space-y-1.5"><Label>Montant (DZD)</Label><Input type="number" inputMode="decimal" step="any" name="amount" defaultValue={row.amount} required /></div>
         <div className="space-y-1.5"><Label>Moyen de paiement</Label>
           <Select name="method" defaultValue={row.method}>
             {Object.entries(FINANCE_METHOD).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -120,11 +120,11 @@ function EditTransactionSheet({ row, onClose }: { row: LedgerRow; onClose: () =>
             {Object.entries(FINANCE_STATUS).map(([v, o]) => <option key={v} value={v}>{typeof o === "string" ? o : o.label}</option>)}
           </Select>
         </div>
-        <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea name="notes" defaultValue={row.notes} rows={2} /></div>
-        {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
-        <div className="col-span-2 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
-          <Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea name="notes" defaultValue={row.notes} rows={2} /></div>
+        {err && <p className="text-sm text-destructive sm:col-span-2">{err}</p>}
+        <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={onClose}>Annuler</Button>
+          <Button type="submit" className="w-full sm:w-auto" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button>
         </div>
       </form>
     </Sheet>

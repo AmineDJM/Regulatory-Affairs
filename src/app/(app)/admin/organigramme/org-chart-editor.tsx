@@ -108,10 +108,10 @@ function OrgBranch({
   }
 
   return (
-    <div style={{ marginLeft: depth === 0 ? 0 : 16 }} className={depth === 0 ? "" : "border-l border-border pl-3"}>
+    <div className={depth === 0 ? "" : "ml-2 border-l border-border pl-2 sm:ml-4 sm:pl-3"}>
       <div className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2">
         {kids.length > 0 ? (
-          <button type="button" onClick={() => setOpen((o) => !o)} className="mt-0.5 text-muted-foreground hover:text-foreground">
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={open ? "Replier" : "Déplier"} className="-m-1.5 mt-[-0.25rem] rounded p-1.5 text-muted-foreground hover:text-foreground">
             <ChevronRight className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         ) : <span className="w-4" />}
@@ -124,21 +124,21 @@ function OrgBranch({
             )}
             {kids.length > 0 && <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground"><Users className="h-3 w-3" /> {kids.length}</span>}
           </div>
-          <p className="truncate text-xs text-muted-foreground">{node.position || "Poste non défini"}{node.department ? ` · ${node.department}` : ""}</p>
+          <p className="line-clamp-2 break-words text-xs text-muted-foreground sm:truncate">{node.position || "Poste non défini"}{node.department ? ` · ${node.department}` : ""}</p>
 
           {editing && (
             <div className="mt-2 space-y-2 rounded-lg bg-secondary/40 p-2">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label className="text-xs">Rattaché à (N+1)</Label>
-                  <Select value={managerId} onChange={(e) => setManagerId(e.target.value)} className="h-8 text-xs">
+                  <Select value={managerId} onChange={(e) => setManagerId(e.target.value)} className="h-10 text-xs sm:h-8">
                     <option value="">— Racine (aucun N+1) —</option>
                     {managerOptions.map((m) => <option key={m.id} value={m.id}>{m.fullName}{m.position ? ` — ${m.position}` : ""}</option>)}
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Poste</Label>
-                  <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Intitulé du poste" className="h-8 text-xs" />
+                  <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Intitulé du poste" className="h-10 text-xs sm:h-8" />
                 </div>
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}
@@ -154,7 +154,7 @@ function OrgBranch({
           )}
         </div>
         {canEdit && !editing && (
-          <button type="button" onClick={() => setEditing(true)} className="mt-0.5 text-muted-foreground hover:text-foreground" title="Éditer le rattachement / le poste">
+          <button type="button" onClick={() => setEditing(true)} className="-m-1.5 rounded p-2 text-muted-foreground hover:text-foreground sm:m-0 sm:mt-0.5 sm:p-0" title="Éditer le rattachement / le poste" aria-label="Éditer le rattachement / le poste">
             <Pencil className="h-3.5 w-3.5" />
           </button>
         )}

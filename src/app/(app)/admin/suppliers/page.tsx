@@ -59,7 +59,7 @@ export default async function AdminSuppliersPage() {
             fields={[
               { type: "select", name: "supplierId", label: "Fournisseur", options: supplierOptions, required: true, full: true },
               { type: "text", name: "name", label: "Nom du contact", required: true, full: true },
-              { type: "text", name: "email", label: "Email", required: true },
+              { type: "text", name: "email", label: "Email", required: true, inputMode: "email", autoComplete: "off" },
               { type: "text", name: "password", label: "Mot de passe (min. 8)", required: true },
             ]}
           />
@@ -79,9 +79,9 @@ export default async function AdminSuppliersPage() {
           {suppliers.map((s) => (
             <Card key={s.id}>
               <CardHeader className="flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">{s.name} <ActiveToggle kind="supplier" id={s.id} active={s.active} /></CardTitle>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
+                <div className="min-w-0">
+                  <CardTitle className="flex flex-wrap items-center gap-2">{s.name} <ActiveToggle kind="supplier" id={s.id} active={s.active} /></CardTitle>
+                  <p className="mt-0.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">
                     {[s.country, s.contactEmail].filter(Boolean).join(" · ")} · {s._count.products} produit{s._count.products > 1 ? "s" : ""} associé{s._count.products > 1 ? "s" : ""}
                   </p>
                 </div>
@@ -92,10 +92,10 @@ export default async function AdminSuppliersPage() {
                 ) : (
                   <ul className="divide-y divide-border">
                     {s.users.map((u) => (
-                      <li key={u.id} className="flex items-center justify-between py-2 text-sm">
-                        <div>
+                      <li key={u.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                        <div className="min-w-0">
                           <p className="font-medium">{u.name}</p>
-                          <p className="text-xs text-muted-foreground">{u.email} · {u.lastLoginAt ? `dernière connexion ${formatDateTime(u.lastLoginAt)}` : "jamais connecté"}</p>
+                          <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{u.email} · {u.lastLoginAt ? `dernière connexion ${formatDateTime(u.lastLoginAt)}` : "jamais connecté"}</p>
                         </div>
                         <ActiveToggle kind="user" id={u.id} active={u.active} />
                       </li>

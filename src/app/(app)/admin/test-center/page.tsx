@@ -5,6 +5,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { ADMIN_TABS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { getTestCenterDashboard } from "@/lib/queries/test-center";
@@ -108,7 +109,7 @@ export default async function TestCenterPage() {
                 {last.certification && sum.certificationReasons && sum.certificationReasons.length > 0 && (
                   <p className="text-xs text-muted-foreground">{sum.certificationReasons.join(" ")}</p>
                 )}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-x-4 gap-y-1 min-[400px]:grid-cols-2 sm:grid-cols-3">
                   <Kv k="Score santé" v={last.score != null ? `${last.score}/100` : "—"} />
                   <Kv k="Constats" v={String(last.findingsCount)} />
                   <Kv k="Critiques" v={String(last.criticalCount)} />
@@ -145,8 +146,8 @@ export default async function TestCenterPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium">{f.title}</span>
-                    <Badge tone="neutral" dot={false} className="text-[0.625rem]">{f.category}</Badge>
-                    {f.module && <Badge tone="neutral" dot={false} className="text-[0.625rem]">{f.module}</Badge>}
+                    <Badge tone="neutral" dot={false} className="text-[0.6875rem]">{f.category}</Badge>
+                    {f.module && <Badge tone="neutral" dot={false} className="text-[0.6875rem]">{f.module}</Badge>}
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{f.detail}</p>
                   {f.suggestion && <p className="mt-1 text-xs text-foreground/80"><span className="font-medium">Piste :</span> {f.suggestion}</p>}
@@ -172,9 +173,9 @@ export default async function TestCenterPage() {
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {d.diffs.filter((x) => x.classification !== "expected").map((x) => (
-                <div key={x.metric} className="flex items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
-                  <span className="text-muted-foreground">{x.metric}</span>
-                  <span className="flex items-center gap-2"><span className="font-mono text-xs">{x.note}</span><Badge tone={cls[x.classification]?.tone ?? "neutral"} dot={false}>{cls[x.classification]?.label ?? x.classification}</Badge></span>
+                <div key={x.metric} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
+                  <span className="min-w-0 text-muted-foreground">{x.metric}</span>
+                  <span className="flex min-w-0 items-center gap-2"><span className="min-w-0 font-mono text-xs [overflow-wrap:anywhere]">{x.note}</span><Badge tone={cls[x.classification]?.tone ?? "neutral"} dot={false}>{cls[x.classification]?.label ?? x.classification}</Badge></span>
                 </div>
               ))}
               {d.diffs.every((x) => x.classification === "expected") && <p className="text-sm text-muted-foreground">Aucun changement par rapport au run précédent.</p>}
@@ -185,30 +186,30 @@ export default async function TestCenterPage() {
 
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">Historique ({runs.length})</CardTitle></CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                <th className="py-1.5 pr-3">Run</th><th className="pr-3">Mode</th><th className="pr-3">Certification</th><th className="pr-3">Statut</th><th className="pr-3">Score</th>
-                <th className="pr-3">Créées/Suppr.</th><th className="pr-3">Nettoyage</th><th className="pr-3">Début</th>
-              </tr>
-            </thead>
-            <tbody>
+        <CardContent>
+          <Table mobileCards>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Run</TableHead><TableHead>Mode</TableHead><TableHead>Certification</TableHead><TableHead>Statut</TableHead><TableHead>Score</TableHead>
+                <TableHead>Créées/Suppr.</TableHead><TableHead>Nettoyage</TableHead><TableHead>Début</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {runs.map((r) => (
-                <tr key={r.id} className="border-b border-border/50">
-                  <td className="py-1.5 pr-3 font-mono text-xs">{r.id.slice(0, 8)}</td>
-                  <td className="pr-3">{r.mode}</td>
-                  <td className="pr-3">{r.certification ? <Badge tone={CERT[r.certification].tone} dot={false}>{CERT[r.certification].label}</Badge> : "—"}</td>
-                  <td className="pr-3"><Badge tone={STATUS[r.status].tone} dot={false}>{STATUS[r.status].label}</Badge></td>
-                  <td className="pr-3 tabular-nums">{r.score ?? "—"}</td>
-                  <td className="pr-3 tabular-nums">{r.resourcesCreated}/{r.resourcesDeleted}</td>
-                  <td className="pr-3">{CLEANUP[r.cleanupStatus]}</td>
-                  <td className="pr-3 text-muted-foreground">{fmt(r.startedAt)}</td>
-                </tr>
+                <TableRow key={r.id}>
+                  <TableCell className="py-1.5 font-mono text-xs">{r.id.slice(0, 8)}</TableCell>
+                  <TableCell className="py-1.5">{r.mode}</TableCell>
+                  <TableCell className="py-1.5">{r.certification ? <Badge tone={CERT[r.certification].tone} dot={false}>{CERT[r.certification].label}</Badge> : "—"}</TableCell>
+                  <TableCell className="py-1.5"><Badge tone={STATUS[r.status].tone} dot={false}>{STATUS[r.status].label}</Badge></TableCell>
+                  <TableCell className="py-1.5 tabular-nums">{r.score ?? "—"}</TableCell>
+                  <TableCell className="py-1.5 tabular-nums">{r.resourcesCreated}/{r.resourcesDeleted}</TableCell>
+                  <TableCell className="py-1.5">{CLEANUP[r.cleanupStatus]}</TableCell>
+                  <TableCell className="py-1.5 text-muted-foreground">{fmt(r.startedAt)}</TableCell>
+                </TableRow>
               ))}
-              {runs.length === 0 && <tr><td colSpan={8} className="py-3 text-center text-muted-foreground">Aucun run.</td></tr>}
-            </tbody>
-          </table>
+              {runs.length === 0 && <TableRow><TableCell colSpan={8} data-sans-etiquette className="py-3 text-center text-muted-foreground max-sm:!justify-center">Aucun run.</TableCell></TableRow>}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

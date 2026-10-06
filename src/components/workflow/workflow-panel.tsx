@@ -110,8 +110,8 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium text-muted-foreground">{view.definitionName}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="min-w-0 text-sm font-medium text-muted-foreground">{view.definitionName}</p>
         <Badge tone={st.tone} dot={false}>{st.label}</Badge>
       </div>
 
@@ -144,18 +144,19 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                 {view.isSuperAdmin && s.description && <p className="mt-0.5 text-xs text-muted-foreground">{s.description}</p>}
                 {view.isSuperAdmin && (
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {s.powers.map((p) => <span key={p} className="rounded bg-secondary px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground">{POWER_LABELS[p]}</span>)}
-                    {s.emitExpenseOrder && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">→ dépense</span>}
+                    {s.powers.map((p) => <span key={p} className="rounded bg-secondary px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">{POWER_LABELS[p]}</span>)}
+                    {s.emitExpenseOrder && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-primary">→ dépense</span>}
                   </div>
                 )}
 
                 {/* Action disponible à l'étape courante */}
                 {a && a.slug === s.slug && (
-                  <div className="mt-3 rounded-lg border border-border bg-secondary/30 p-3">
+                  <div className="mt-3 rounded-lg border border-border bg-secondary/30 p-2.5 sm:p-3">
                     {!mode ? (
-                      <div className="flex flex-wrap gap-2">
-                        {canApprove && <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Approuver</Button>}
-                        {canReject && <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> {actionIsLast ? "Refuser" : "Avis défavorable"}</Button>}
+                      // Au téléphone : une issue par ligne, pleine largeur, à hauteur de pouce — rien ne déborde à droite.
+                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                        {canApprove && <Button size="sm" variant="success" className="h-11 text-sm sm:h-8 sm:text-xs" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Approuver</Button>}
+                        {canReject && <Button size="sm" variant="destructive" className="h-11 text-sm sm:h-8 sm:text-xs" onClick={() => setMode("reject")}><X className="h-4 w-4" /> {actionIsLast ? "Refuser" : "Avis défavorable"}</Button>}
                         {/* RENVOYER POUR CORRECTION (§118.186) — ouvert là où le refus l'est : la troisième
                             issue, entre laisser passer une demande fausse et la tuer. */}
                         {canReject && <Button size="sm" variant="outline" onClick={() => setMode("return")}><Undo2 className="h-4 w-4" /> Renvoyer pour correction</Button>}
@@ -199,7 +200,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                               {mode === "approve" && a.requireAmount && <span className="text-destructive"> *</span>}
                               {mode === "reject" && <span className="font-normal text-muted-foreground"> — optionnel (montant révisé)</span>}
                             </Label>
-                            <Input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={mode === "reject" ? "Montant révisé (optionnel)" : "Montant"} />
+                            <Input type="number" inputMode="decimal" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={mode === "reject" ? "Montant révisé (optionnel)" : "Montant"} />
                           </div>
                         )}
                         {mode === "approve" && needsCategory && (
@@ -231,35 +232,35 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                             className="block w-full cursor-pointer rounded-lg border border-border bg-background text-xs file:mr-3 file:cursor-pointer file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-xs file:font-medium"
                           />
                           {files.length > 0 && (
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                               {files.length} fichier(s) : {files.map((f) => f.name).join(", ")}
                             </p>
                           )}
                         </div>
                         {err && <p className="text-xs text-destructive">{err}</p>}
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                           {mode === "approve" && (
-                            <BoutonDecisif size="sm" disabled={approveDisabled} onClick={() => submit("APPROVE")}>
+                            <BoutonDecisif size="sm" className="h-11 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" disabled={approveDisabled} onClick={() => submit("APPROVE")}>
                               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Confirmer
                             </BoutonDecisif>
                           )}
                           {mode === "reject" && (
-                            <BoutonDecisif size="sm" variant="destructive" disabled={pending || !note.trim() || (!actionIsLast && needsAssign && !assignee)} onClick={() => submit("REJECT")}>
+                            <BoutonDecisif size="sm" variant="destructive" className="h-11 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" disabled={pending || !note.trim() || (!actionIsLast && needsAssign && !assignee)} onClick={() => submit("REJECT")}>
                               {pending && <Loader2 className="h-4 w-4 animate-spin" />} {actionIsLast ? "Refuser" : "Émettre l'avis défavorable"}
                             </BoutonDecisif>
                           )}
                           {mode === "return" && (
-                            <BoutonDecisif size="sm" variant="outline" disabled={pending || !note.trim()} onClick={() => submit("RETURN")}>
+                            <BoutonDecisif size="sm" variant="outline" className="h-11 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" disabled={pending || !note.trim()} onClick={() => submit("RETURN")}>
                               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Renvoyer au demandeur
                             </BoutonDecisif>
                           )}
                           {mode === "skip" && (
-                            <BoutonDecisif size="sm" variant="outline" disabled={pending || !note.trim()} onClick={() => submit("SKIP")}>
+                            <BoutonDecisif size="sm" variant="outline" className="h-11 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" disabled={pending || !note.trim()} onClick={() => submit("SKIP")}>
                               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SkipForward className="h-4 w-4" />} Confirmer le saut
                             </BoutonDecisif>
                           )}
                           {mode === "comment" && (
-                            <Button size="sm" disabled={pending || !note.trim()} onClick={() => submit("COMMENT")}>
+                            <Button size="sm" className="h-11 text-sm sm:h-8 sm:text-xs" disabled={pending || !note.trim()} onClick={() => submit("COMMENT")}>
                               {pending && <Loader2 className="h-4 w-4 animate-spin" />} Publier
                             </Button>
                           )}
@@ -283,7 +284,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
             {view.motif.nature === "RENVOI" ? "À corriger" : "Demande refusée"} — {view.motif.etape}
             {view.motif.auteur ? `, par ${view.motif.auteur}` : ""} <span className="font-normal text-muted-foreground">({formatDateTime(view.motif.le)})</span>
           </p>
-          {view.motif.motif && <p className="mt-1 whitespace-pre-line">{view.motif.motif}</p>}
+          {view.motif.motif && <p className="mt-1 whitespace-pre-line [overflow-wrap:anywhere]">{view.motif.motif}</p>}
           {view.motif.nature === "RENVOI" && (
             <p className="mt-1 text-xs text-muted-foreground">
               Corrigez la demande (« Modifier la demande »), puis resoumettez-la : elle reviendra à cette étape.
@@ -323,8 +324,8 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
             <p className="mt-1 flex flex-wrap items-center gap-2">
               Ordre de dépense <span className="font-mono text-xs">{view.outcome.expenseOrder.reference}</span>
               <StatusBadge map={EXPENSE_ORDER_STATUS} value={view.outcome.expenseOrder.status} dot={false} />
-              <span>{formatCurrency(view.outcome.expenseOrder.amount)}</span>
-              <Link href="/finances/paiements-a-faire" className="text-primary hover:underline">Voir</Link>
+              <span className="tabular-nums">{formatCurrency(view.outcome.expenseOrder.amount)}</span>
+              <Link href="/finances/paiements-a-faire" className="inline-flex min-h-9 items-center px-1 text-primary hover:underline sm:min-h-0 sm:px-0">Voir</Link>
             </p>
           ) : view.status === "APPROVED" ? (
             <p className="mt-1 text-xs text-muted-foreground">En cours de traitement (information médicale / Finances).</p>
@@ -343,7 +344,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Historique</p>
           <ul className="space-y-1.5">
             {view.events.map((e, i) => (
-              <li key={i} className="text-xs text-muted-foreground">
+              <li key={i} className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                 <span className="font-medium text-foreground">{e.actorName ?? "—"}</span> · {e.stepTitle} ·{" "}
                 {LIBELLE_ACTION[e.action] ?? "commenté"}
                 {e.amount != null ? ` · ${formatCurrency(e.amount)}` : ""}
@@ -400,7 +401,7 @@ function ResubmitForm({ entityType, entityId }: { entityType: EntityType; entity
       <Label>Ce que vous avez corrigé — facultatif</Label>
       <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex. montant ramené à 300 000 DZD, devis joint…" className="min-h-[56px]" />
       {err && <p className="text-xs text-destructive">{err}</p>}
-      <Button size="sm" disabled={pending} onClick={envoyer}>
+      <Button size="sm" className="w-full sm:w-auto" disabled={pending} onClick={envoyer}>
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Resoumettre la demande
       </Button>
     </div>
@@ -446,7 +447,7 @@ function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entity
       </p>
       <Textarea value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Pourquoi retirer la demande (obligatoire)…" className="min-h-[56px]" />
       {err && <p className="text-xs text-destructive">{err}</p>}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <BoutonDecisif size="sm" variant="destructive" disabled={pending || !motif.trim()} onClick={retirer}>
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />} Retirer
         </BoutonDecisif>

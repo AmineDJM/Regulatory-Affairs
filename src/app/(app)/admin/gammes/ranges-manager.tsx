@@ -162,7 +162,7 @@ export function RangesManager({
                                     type="button" onClick={() => removeOne(p.id)}
                                     aria-label={`Retirer ${p.label} de la gamme`}
                                     title="Retirer de la gamme (le dossier reste)"
-                                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-destructive"
+                                    className="shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary hover:text-destructive sm:p-1"
                                   >
                                     <X className="h-3.5 w-3.5" />
                                   </button>
@@ -422,10 +422,10 @@ function ProductPicker({
             const other = p.rangeId && p.rangeId !== range.id;
             return (
               <li key={p.id}>
-                <label className="flex cursor-pointer items-start gap-2 px-3 py-2 text-sm hover:bg-secondary/40">
+                <label className="flex cursor-pointer items-start gap-2 px-3 py-2.5 text-sm hover:bg-secondary/40 sm:py-2">
                   <input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} className="mt-0.5 h-4 w-4 shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate">{p.label}</span>
+                    <span className="block break-words line-clamp-2 sm:truncate">{p.label}</span>
                     {other && <span className="block text-[0.6875rem] text-warning">Déjà dans une autre gamme — le cocher le déplacera.</span>}
                     {!p.companyId && <span className="block text-[0.6875rem] text-muted-foreground">Sans entité — le ranger lui donnera celle de la gamme.</span>}
                   </span>

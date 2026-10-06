@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, ExternalLink, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { cn } from "@/lib/utils";
 import { FAMILLES, FAMILLE_LABEL, type PromoFamille } from "@/lib/promo/catalogue";
@@ -70,9 +71,10 @@ function CarteReception({ t, ctx }: { t: TransfertVue; ctx: Ctx }) {
           {t.note && <p className="mt-1 break-words text-sm text-foreground">« {t.note} »</p>}
         </div>
         {peut ? (
-          <div className="flex flex-wrap gap-2">
+          // Au téléphone, trois gros boutons empilés : la réception se confirme au pouce, debout.
+          <div className="grid shrink-0 grid-cols-1 gap-2 sm:flex sm:flex-wrap">
             <Button
-              size="sm" variant="success" disabled={ctx.occupe}
+              size="sm" variant="success" disabled={ctx.occupe} className="h-10 sm:h-8"
               onClick={() => ctx.executer(() => confirmerReception(fd({ transfertId: t.id })), `${nombre(t.quantite)} reçues.`)}
             >
               J&apos;ai tout reçu
@@ -174,7 +176,7 @@ function GestesDuDetenteur({ a, detenteurId, ctx }: { a: ArticleVue; detenteurId
     boutons.push(<Button key="corr" size="sm" variant="ghost" onClick={() => ctx.ouvrir({ type: "corriger", article: a, detenteurId })}>Corriger</Button>);
   }
   if (!boutons.length) return null;
-  return <div className="flex flex-wrap gap-1.5">{boutons}</div>;
+  return <div className="flex flex-wrap gap-2 sm:gap-1.5">{boutons}</div>;
 }
 
 /**
@@ -206,7 +208,7 @@ function ListeSupports({ supports, ctx }: { supports: SupportVue[]; ctx: Ctx }) 
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {s.lien ? (
-              <a href={s.lien} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+              <a href={s.lien} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1 px-1 text-sm text-primary hover:underline sm:min-h-0 sm:px-0">
                 Ouvrir <ExternalLink className="h-3.5 w-3.5" />
               </a>
             ) : <span className="text-xs text-muted-foreground">Pas de lien</span>}
@@ -260,41 +262,42 @@ function BarreFiltre({ fl, setFl, articles }: { fl: Filtre; setFl: (f: Filtre) =
 function JournalArticle({ a, mouvements, ctx }: { a: ArticleVue; mouvements: MouvementVue[]; ctx: Ctx }) {
   const { page } = ctx;
   if (!mouvements.length) return <p className="text-xs text-muted-foreground">Aucun mouvement.</p>;
+  // Une ligne = un mouvement : au téléphone, une carte par mouvement plutôt qu'un tableau à faire glisser.
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm">
-        <thead className="text-left text-xs text-muted-foreground">
-          <tr>
-            <th className="py-1 pr-2 font-medium">Date</th>
-            <th className="py-1 pr-2 font-medium">Mouvement</th>
-            <th className="py-1 pr-2 font-medium">Chez</th>
-            <th className="py-1 pr-2 text-right font-medium">Quantité</th>
-            <th className="py-1 pr-2 font-medium">Motif</th>
-            <th className="py-1 font-medium" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {mouvements.map((m) => (
-            <tr key={m.id} className={cn(m.annule && "text-muted-foreground line-through decoration-muted-foreground/60")}>
-              <td className="whitespace-nowrap py-1.5 pr-2">{date(m.occurredAt)}</td>
-              <td className="py-1.5 pr-2">{MOVEMENT_LABEL[m.kind]} <span className="text-xs text-muted-foreground">· lot {m.lotNumero}</span></td>
-              <td className="py-1.5 pr-2">{nomDe(page, m.detenteurId)}</td>
-              <td className={cn("whitespace-nowrap py-1.5 pr-2 text-right tabular-nums", m.delta > 0 ? "text-success" : "text-destructive")}>
-                {m.delta > 0 ? "+" : ""}{nombre(m.delta)}
-              </td>
-              <td className="py-1.5 pr-2 text-xs text-muted-foreground">
-                {m.motif ?? "—"}{m.par ? ` · par ${nomDe(page, m.par)}` : ""}
-              </td>
-              <td className="py-1.5 text-right">
-                {m.annulable && (
-                  <Button size="sm" variant="ghost" onClick={() => ctx.ouvrir({ type: "annulerMouvement", article: a, mouvement: m })}>Annuler</Button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table mobileCards className="sm:min-w-[640px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Date</TableHead>
+          <TableHead>Mouvement</TableHead>
+          <TableHead>Chez</TableHead>
+          <TableHead className="text-right">Quantité</TableHead>
+          <TableHead>Motif</TableHead>
+          <TableHead />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {mouvements.map((m) => (
+          <TableRow key={m.id} className={cn(m.annule && "text-muted-foreground line-through decoration-muted-foreground/60")}>
+            {/* Intitulés écrits en toutes lettres : ce journal s'affiche aussi DANS le tableau de la vue
+                générale, dont le témoin d'intitulés poserait sinon les siens sur ces cellules. */}
+            <TableCell label="Date" className="whitespace-nowrap sm:py-1.5">{date(m.occurredAt)}</TableCell>
+            <TableCell label="Mouvement" className="sm:py-1.5"><span>{MOVEMENT_LABEL[m.kind]} <span className="text-xs text-muted-foreground">· lot {m.lotNumero}</span></span></TableCell>
+            <TableCell label="Chez" className="sm:py-1.5">{nomDe(page, m.detenteurId)}</TableCell>
+            <TableCell label="Quantité" className={cn("whitespace-nowrap text-right tabular-nums sm:py-1.5", m.delta > 0 ? "text-success" : "text-destructive")}>
+              {m.delta > 0 ? "+" : ""}{nombre(m.delta)}
+            </TableCell>
+            <TableCell label="Motif" className="text-xs text-muted-foreground sm:py-1.5">
+              {m.motif ?? "—"}{m.par ? ` · par ${nomDe(page, m.par)}` : ""}
+            </TableCell>
+            <TableCell data-sans-etiquette className="text-right sm:py-1.5">
+              {m.annulable && (
+                <Button size="sm" variant="ghost" onClick={() => ctx.ouvrir({ type: "annulerMouvement", article: a, mouvement: m })}>Annuler</Button>
+              )}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -439,18 +442,18 @@ function CarteMembre({ membre, ctx }: { membre: { id: string; nom: string }; ctx
   return (
     <div className="surface">
       <button type="button" onClick={() => setOuvert(!ouvert)} aria-expanded={ouvert}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
-        <span className="flex min-w-0 items-center gap-2">
+        className="flex w-full flex-col items-start gap-1 px-3 py-3 text-left sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
+        <span className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
           {ouvert ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
           <span className="truncate font-medium text-foreground">{membre.nom}</span>
         </span>
-        <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 text-xs text-muted-foreground">
+        <span className="flex flex-wrap items-center gap-1.5 pl-6 text-xs text-muted-foreground sm:shrink-0 sm:justify-end sm:pl-0">
           <span>{articles.length} article(s) · {nombre(unites)} unité(s)</span>
           {enAttente > 0 && <Badge tone="info">{enAttente} en cours</Badge>}
         </span>
       </button>
       {ouvert && (
-        <div className="space-y-3 border-t border-border px-4 py-3">
+        <div className="space-y-3 border-t border-border px-3 py-3 sm:px-4">
           {articles.length === 0 ? <Vide>Aucun matériel en main.</Vide> : (
             <ul className="space-y-2">
               {articles.map((a) => (
@@ -565,7 +568,7 @@ export function VueMagasin({ ctx }: { ctx: Ctx }) {
                   <strong className="tabular-nums">{nombre(h.quantite)}</strong> {h.libelle}
                   {h.depuis && <span className="text-xs text-muted-foreground"> · depuis le {date(h.depuis)}</span>}
                 </span>
-                <a href={h.lien} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
+                <a href={h.lien} className="inline-flex min-h-9 shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline sm:min-h-0">
                   {h.demande} <ExternalLink className="h-3 w-3" aria-hidden />
                 </a>
               </li>
@@ -577,7 +580,7 @@ export function VueMagasin({ ctx }: { ctx: Ctx }) {
       <Section
         titre="Articles au magasin"
         actions={archivesListe.length > 0 ? (
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <label className="flex min-h-9 items-center gap-2 text-xs text-muted-foreground sm:min-h-0">
             <input type="checkbox" checked={archives} onChange={(e) => setArchives(e.target.checked)} className="h-4 w-4 rounded border-input" />
             Afficher les archivés ({archivesListe.length})
           </label>
@@ -636,34 +639,32 @@ function DetailArticle({ a, ctx, detenteurId }: { a: ArticleVue; ctx: Ctx; deten
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted-foreground">Lots</p>
         {a.lots.length === 0 ? <p className="text-xs text-muted-foreground">Aucun lot.</p> : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] text-sm">
-              <thead className="text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="py-1 pr-2 font-medium">Lot</th>
-                  <th className="py-1 pr-2 font-medium">Reçu le</th>
-                  <th className="py-1 pr-2 font-medium">Coût unitaire</th>
-                  <th className="py-1 pr-2 font-medium">Validité</th>
-                  <th className="py-1 pr-2 text-right font-medium">Au magasin</th>
-                  <th className="py-1 font-medium" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {a.lots.map((l) => (
-                  <tr key={l.id}>
-                    <td className="py-1.5 pr-2">{l.numero}{l.libelle ? <span className="text-xs text-muted-foreground"> · {l.libelle}</span> : null}</td>
-                    <td className="whitespace-nowrap py-1.5 pr-2">{jour(l.recuLe)}</td>
-                    <td className="whitespace-nowrap py-1.5 pr-2 tabular-nums">{l.coutUnitaire == null ? "—" : `${nombre(l.coutUnitaire)} DZD`}</td>
-                    <td className="py-1.5 pr-2">{l.etat === "SANS_DATE" ? "—" : <BadgeValidite etat={l.etat} fin={l.valableJusquau} />}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">{nombre(auLot.get(l.id) ?? 0)}</td>
-                    <td className="py-1.5 text-right">
-                      {peutGererArticles(f) && <Button size="sm" variant="ghost" onClick={() => ctx.ouvrir({ type: "lot", article: a, lot: l })}>Modifier</Button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table mobileCards className="sm:min-w-[600px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Lot</TableHead>
+                <TableHead>Reçu le</TableHead>
+                <TableHead>Coût unitaire</TableHead>
+                <TableHead>Validité</TableHead>
+                <TableHead className="text-right">Au magasin</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {a.lots.map((l) => (
+                <TableRow key={l.id}>
+                  <TableCell className="sm:py-1.5"><span>{l.numero}{l.libelle ? <span className="text-xs text-muted-foreground"> · {l.libelle}</span> : null}</span></TableCell>
+                  <TableCell className="whitespace-nowrap sm:py-1.5">{jour(l.recuLe)}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums sm:py-1.5">{l.coutUnitaire == null ? "—" : `${nombre(l.coutUnitaire)} DZD`}</TableCell>
+                  <TableCell className="sm:py-1.5">{l.etat === "SANS_DATE" ? "—" : <BadgeValidite etat={l.etat} fin={l.valableJusquau} />}</TableCell>
+                  <TableCell className="text-right tabular-nums sm:py-1.5">{nombre(auLot.get(l.id) ?? 0)}</TableCell>
+                  <TableCell className="text-right sm:py-1.5">
+                    {peutGererArticles(f) && <Button size="sm" variant="ghost" onClick={() => ctx.ouvrir({ type: "lot", article: a, lot: l })}>Modifier</Button>}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </div>
       <div className="space-y-1.5">
@@ -704,50 +705,51 @@ export function VueGenerale({ ctx }: { ctx: Ctx }) {
       </div>
       <BarreFiltre fl={fl} setFl={setFl} articles={actifs} />
       {liste.length === 0 ? <Vide>Aucun article ne correspond.</Vide> : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="py-2 pr-2 font-medium">Article</th>
-                <th className="py-2 pr-2 text-right font-medium">Parc</th>
-                <th className="py-2 pr-2 text-right font-medium">Magasin</th>
-                <th className="py-2 pr-2 text-right font-medium">Personnes</th>
-                <th className="py-2 pr-2 text-right font-medium">En route</th>
-                <th className="py-2 font-medium">État au magasin</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {liste.map((a) => {
-                const chezPersonnes = a.soldes.filter((s) => s.detenteurId !== null && s.quantite !== 0);
-                const deplie = ouvert === a.id;
-                return (
-                  <React.Fragment key={a.id}>
-                    <tr className="align-top">
-                      <td className="py-2 pr-2">
-                        <button type="button" onClick={() => setOuvert(deplie ? null : a.id)} aria-expanded={deplie} className="flex min-w-0 items-start gap-2 text-left">
-                          {deplie ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0" />}
-                          <TitreArticle a={a} />
-                        </button>
-                      </td>
-                      <td className="py-2 pr-2 text-right font-semibold tabular-nums">{nombre(total(a))}</td>
-                      <td className="py-2 pr-2 text-right tabular-nums">{nombre(quantiteDe(a, null))}</td>
-                      <td className="py-2 pr-2 text-right tabular-nums">{nombre(chezPersonnes.reduce((t, s) => t + s.quantite, 0))} <span className="text-xs text-muted-foreground">({chezPersonnes.length})</span></td>
-                      <td className="py-2 pr-2 text-right tabular-nums">{nombre(a.enRoute)}</td>
-                      <td className="py-2"><BadgeNiveau quantite={quantiteDe(a, null)} seuil={a.alertThreshold} /></td>
-                    </tr>
-                    {deplie && (
-                      <tr>
-                        <td colSpan={6} className="pb-3">
+        // Une ligne = un article : une carte au téléphone ; le détail déplié suit la carte de son article.
+        <Table mobileCards className="sm:min-w-[760px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Article</TableHead>
+              <TableHead className="text-right">Parc</TableHead>
+              <TableHead className="text-right">Magasin</TableHead>
+              <TableHead className="text-right">Personnes</TableHead>
+              <TableHead className="text-right">En route</TableHead>
+              <TableHead>État au magasin</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {liste.map((a) => {
+              const chezPersonnes = a.soldes.filter((s) => s.detenteurId !== null && s.quantite !== 0);
+              const deplie = ouvert === a.id;
+              return (
+                <React.Fragment key={a.id}>
+                  <TableRow className="align-top">
+                    <TableCell data-sans-etiquette className="align-top sm:py-2">
+                      <button type="button" onClick={() => setOuvert(deplie ? null : a.id)} aria-expanded={deplie} className="flex w-full min-w-0 items-start gap-2 text-left">
+                        {deplie ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0" />}
+                        <TitreArticle a={a} />
+                      </button>
+                    </TableCell>
+                    <TableCell className="align-top text-right font-semibold tabular-nums sm:py-2">{nombre(total(a))}</TableCell>
+                    <TableCell className="align-top text-right tabular-nums sm:py-2">{nombre(quantiteDe(a, null))}</TableCell>
+                    <TableCell className="align-top text-right tabular-nums sm:py-2"><span>{nombre(chezPersonnes.reduce((t, s) => t + s.quantite, 0))} <span className="text-xs text-muted-foreground">({chezPersonnes.length})</span></span></TableCell>
+                    <TableCell className="align-top text-right tabular-nums sm:py-2">{nombre(a.enRoute)}</TableCell>
+                    <TableCell className="align-top sm:py-2"><BadgeNiveau quantite={quantiteDe(a, null)} seuil={a.alertThreshold} /></TableCell>
+                  </TableRow>
+                  {deplie && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={6} data-sans-etiquette className="sm:pb-3 sm:pt-0">
+                        <div className="w-full min-w-0">
                           <RepartitionArticle a={a} ctx={ctx} />
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
     </div>
   );

@@ -39,6 +39,9 @@ export type FieldDef =
       /** Ce que le champ attend quand le libellé ne suffit pas — ou POURQUOI il est libre ici
        *  alors qu'il se choisit ailleurs (référentiel vide). */
       hint?: string;
+      /** Le CLAVIER du téléphone (« email », « tel », « numeric »…) — sans la validation stricte d'un `type="email"`. */
+      inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+      autoComplete?: string;
     }
   | {
       type: "textarea";
@@ -251,7 +254,7 @@ export function MultiSelectField({ field }: {
             onChange={(e) => setQuery(e.target.value)}
             placeholder={field.searchPlaceholder ?? "Rechercher…"}
             aria-label={`Rechercher dans ${field.label}`}
-            className="h-8 flex-1"
+            className="h-9 min-w-0 flex-1 sm:h-8"
           />
           <span className="text-xs text-muted-foreground">
             {picked.length > 0 ? `${picked.length} sélectionné(s)` : `${field.options.length} au choix`}
@@ -268,7 +271,7 @@ export function MultiSelectField({ field }: {
         {visible.length === 0 ? (
           <p className="px-1.5 py-1 text-xs text-muted-foreground">Aucun résultat pour « {query} ».</p>
         ) : visible.map((o) => (
-          <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+          <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-2 text-sm hover:bg-secondary sm:py-1">
             <input
               type="checkbox" name={field.name} value={o.value}
               checked={picked.includes(o.value)}
@@ -505,7 +508,7 @@ export function RecordForm({
               ) : field.type === "checkbox" ? (
                 <>
                   {field.temoin && <input type="hidden" name={field.name} value="off" />}
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex items-center gap-2 py-1 text-sm">
                     <input type="checkbox" name={field.name} defaultChecked={field.defaultChecked} className="h-4 w-4 rounded border-input" />
                     {field.label}
                   </label>
@@ -531,6 +534,8 @@ export function RecordForm({
                     placeholder={field.placeholder}
                     defaultValue={dv(field)}
                     step={field.type === "number" ? "any" : undefined}
+                    inputMode={field.inputMode ?? (field.type === "number" ? "decimal" : undefined)}
+                    autoComplete={field.autoComplete}
                   />
                   {"hint" in field && field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
                 </>
@@ -540,8 +545,8 @@ export function RecordForm({
         </div>
 
         {state?.error && (
-          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4" />
+          <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             {state.error}
           </div>
         )}
@@ -557,7 +562,7 @@ export function RecordForm({
           </div>
         )}
 
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onCancel}>
             {cancelLabel}
           </Button>

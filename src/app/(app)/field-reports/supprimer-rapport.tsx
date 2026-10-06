@@ -59,7 +59,7 @@ export function SupprimerRapport({
           title={libelle}
           aria-label={`${libelle} — ${name}`}
           data-testid="supprimer-rapport"
-          className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+          className="shrink-0 rounded-lg p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:rounded sm:p-1.5"
         >
           <Trash2 className="h-4 w-4" />
         </button>

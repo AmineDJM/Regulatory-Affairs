@@ -35,7 +35,7 @@ export function DecisionConge({ conge }: { conge: CongeADecider }) {
   return (
     <div className="basis-full space-y-2 text-xs">
       {conge.trace.length > 0 && (
-        <ol className="space-y-0.5 rounded-md bg-secondary/40 px-2 py-1.5 text-muted-foreground">
+        <ol className="space-y-0.5 rounded-md bg-secondary/40 px-2 py-1.5 text-muted-foreground [overflow-wrap:anywhere]">
           {conge.trace.map((t, i) => (
             <li key={i}>
               <ArrowUp className="mr-1 inline h-3 w-3" /> {t.de} a demandé l&apos;avis de <b className="text-foreground">{t.a}</b>{t.note ? ` — « ${t.note} »` : ""}
@@ -52,28 +52,30 @@ export function DecisionConge({ conge }: { conge: CongeADecider }) {
         <p className="text-muted-foreground">En attente de l&apos;avis de {conge.attendDe} — la demande vous reviendra avec sa décision.</p>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2">
-            <BoutonDecisif size="sm" onClick={() => void agir("APPROVED")} disabled={occupe || mode !== null}>
+          {/* Au pouce : une décision par ligne, pleine largeur et 40 px de haut. Pas de `w-full` sur
+              le bouton décisif — il élargirait aussi son enveloppe sur ordinateur. */}
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <BoutonDecisif size="sm" className="min-h-10 max-sm:flex-1 max-sm:text-sm sm:min-h-0" onClick={() => void agir("APPROVED")} disabled={occupe || mode !== null}>
               {occupe ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Valider
             </BoutonDecisif>
-            <Button size="sm" variant="outline" onClick={() => setMode(mode === "REFUSER" ? null : "REFUSER")} disabled={occupe}>
+            <Button size="sm" variant="outline" className="min-h-10 max-sm:text-sm sm:min-h-0" onClick={() => setMode(mode === "REFUSER" ? null : "REFUSER")} disabled={occupe}>
               <XCircle className="h-3.5 w-3.5" /> Refuser
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setMode(mode === "REMONTER" ? null : "REMONTER")} disabled={occupe}>
+            <Button size="sm" variant="outline" className="min-h-10 max-sm:text-sm sm:min-h-0" onClick={() => setMode(mode === "REMONTER" ? null : "REMONTER")} disabled={occupe}>
               <ArrowUp className="h-3.5 w-3.5" /> Demander à mon N+1
             </Button>
           </div>
           {mode && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
                 value={note} onChange={(e) => setNote(e.target.value)} aria-label={mode === "REFUSER" ? "Motif du refus" : "Message à votre N+1"}
                 placeholder={mode === "REFUSER" ? "Motif du refus (conseillé)" : "Ce que vous attendez de votre N+1 (facultatif)"}
-                className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1"
+                className="min-h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 sm:min-h-0 sm:flex-1 sm:px-2 sm:py-1"
               />
               {mode === "REFUSER" ? (
-                <BoutonDecisif size="sm" variant="secondary" onClick={() => void agir("REJECTED")} disabled={occupe}>Confirmer le refus</BoutonDecisif>
+                <BoutonDecisif size="sm" variant="secondary" className="min-h-10 max-sm:flex-1 max-sm:text-sm sm:min-h-0" onClick={() => void agir("REJECTED")} disabled={occupe}>Confirmer le refus</BoutonDecisif>
               ) : (
-                <Button size="sm" onClick={() => void agir("REMONTER")} disabled={occupe}>Envoyer à mon N+1</Button>
+                <Button size="sm" className="min-h-10 max-sm:text-sm sm:min-h-0" onClick={() => void agir("REMONTER")} disabled={occupe}>Envoyer à mon N+1</Button>
               )}
             </div>
           )}

@@ -23,6 +23,17 @@ import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
+/**
+ * Au téléphone, les deux gestes de la barre se partagent la largeur à hauteur de pouce, et leur
+ * libellé passe à la ligne plutôt que de déborder ; au bureau, ils reprennent leur taille.
+ */
+const BOUTON_BARRE =
+  "h-auto min-h-12 min-w-0 flex-1 basis-32 whitespace-normal py-2 leading-tight sm:h-10 sm:min-h-0 sm:flex-none sm:basis-auto sm:whitespace-nowrap sm:py-0";
+
+/** La barre d'action collée au bas d'une feuille (même principe que les feuilles de « Ma journée »). */
+const BARRE_FEUILLE =
+  "sticky bottom-0 z-10 -mx-4 flex gap-2 border-t border-border bg-card px-4 py-3 shadow-[0_3rem_0_0_hsl(var(--card))] sm:-mx-5 sm:justify-end sm:px-5";
+
 export interface PraticienVue {
   id: string; name: string; specialty: string | null; institution: string | null;
   wilaya: string | null; potential: string | null; secteur: string | null;
@@ -261,7 +272,7 @@ export function Planificateur({
         <span className="text-muted-foreground">
           {repName} · {new Date(periodStart).toLocaleDateString("fr-FR")} → {new Date(periodEnd).toLocaleDateString("fr-FR")}
         </span>
-        <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="flex w-full items-center gap-1.5 text-xs text-muted-foreground sm:ml-auto sm:w-auto">
           <Clock className="h-3.5 w-3.5" aria-hidden />
           {/* UN PLAN OUVERT (brouillon, rejeté) montre son échéance — ou son RETARD. Un plan rejeté
               porte encore la date de sa première soumission : la montrer ici dirait « soumis »
@@ -342,9 +353,9 @@ export function Planificateur({
               <p className="text-xs text-muted-foreground">
                 Le plan repassera « En révision » : vous le modifiez, puis vous le resoumettez (48 h). Les visites déjà passées restent au plan.
               </p>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="ghost" size="sm" disabled={occupe} onClick={() => { setRevision(false); setMotifRevision(""); }}>Annuler</Button>
-                <BoutonDecisif type="submit" size="sm" disabled={occupe || motifRevision.trim().length === 0}>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="ghost" size="sm" className="h-11 flex-1 sm:h-8 sm:flex-none" disabled={occupe} onClick={() => { setRevision(false); setMotifRevision(""); }}>Annuler</Button>
+                <BoutonDecisif type="submit" size="sm" className="h-11 flex-1 sm:h-8" disabled={occupe || motifRevision.trim().length === 0}>
                   {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Rouvrir pour révision
                 </BoutonDecisif>
               </div>
@@ -397,7 +408,7 @@ export function Planificateur({
           {/* LE RAPPORT TERRAIN, AU-DESSUS DE L'EMPLOI DU TEMPS (Direction, 06/10) : une visite du plan à rapporter, ou une
               rencontre hors plan — les deux portes de « Ma journée », jamais une troisième. */}
           {peutRapporter && (
-            <Button size="sm" onClick={() => { setErr(null); setNouveauRapport(true); }} disabled={occupe}>
+            <Button size="sm" className="h-12 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" onClick={() => { setErr(null); setNouveauRapport(true); }} disabled={occupe}>
               <FilePlus2 className="h-4 w-4" /> Nouveau rapport terrain
             </Button>
           )}
@@ -435,12 +446,13 @@ export function Planificateur({
             sale && "sticky bottom-2 z-10 border-warning/50 shadow-md",
           )}>
             {sale
-              ? <span className="mr-auto text-xs text-warning">Modifications non enregistrées.</span>
-              : <span className="mr-auto text-xs text-muted-foreground"><strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s) au plan</span>}
-            <Button variant="outline" onClick={() => void enregistrer()} disabled={occupe || !sale}>
+              ? <span className="w-full text-xs text-warning sm:mr-auto sm:w-auto">Modifications non enregistrées.</span>
+              : <span className="w-full text-xs text-muted-foreground sm:mr-auto sm:w-auto"><strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s) au plan</span>}
+            <Button variant="outline" className={BOUTON_BARRE} onClick={() => void enregistrer()} disabled={occupe || !sale}>
               {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer le plan
             </Button>
             <Button
+              className={BOUTON_BARRE}
               disabled={occupe || sale || paires.size === 0}
               onClick={() => { const fd = new FormData(); fd.set("planId", planId); void run(soumettrePlanTournee, fd); }}
             >
@@ -489,7 +501,7 @@ export function Planificateur({
                     key={j} type="button" onClick={() => setJour(j)}
                     aria-current={j === jour ? "true" : undefined}
                     className={cn(
-                      "rounded-lg px-2 py-1.5 text-xs tabular-nums",
+                      "min-h-10 rounded-lg px-2.5 py-2 text-xs tabular-nums sm:min-h-0 sm:px-2 sm:py-1.5",
                       j === jour ? "bg-primary text-primary-foreground" : "border border-input hover:bg-secondary",
                     )}
                   >
@@ -502,8 +514,8 @@ export function Planificateur({
           </div>
 
           {/* LE CADRE : la wilaya où il sera, ou son secteur. */}
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-40 flex-1">
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-end">
+            <div className="min-w-0 sm:min-w-40 sm:flex-1">
               <Label htmlFor="plan-wilaya">Wilaya où je serai</Label>
               {/* Le menu se nourrit du panel : vide, il le DIT au lieu d'un « Toutes les wilayas » sans rien. */}
               <Select id="plan-wilaya" value={wilaya} onChange={(e) => setWilaya(e.target.value)} disabled={praticiens.length === 0}>
@@ -512,7 +524,7 @@ export function Planificateur({
               </Select>
             </div>
             {secteurs.length > 0 && (
-              <div className="min-w-40 flex-1">
+              <div className="min-w-0 sm:min-w-40 sm:flex-1">
                 <Label htmlFor="plan-secteur">Secteur</Label>
                 <Select id="plan-secteur" value={secteur} onChange={(e) => setSecteur(e.target.value)}>
                   <option value="">Tous mes secteurs</option>
@@ -520,15 +532,15 @@ export function Planificateur({
                 </Select>
               </div>
             )}
-            <div className="min-w-48 flex-[2]">
+            <div className="min-w-0 sm:min-w-48 sm:flex-[2]">
               <Label htmlFor="plan-q">Chercher un praticien</Label>
-              <Input id="plan-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nom, spécialité, établissement" />
+              <Input id="plan-q" type="search" enterKeyHint="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nom, spécialité, établissement" />
             </div>
           </div>
 
           {/* LES PRATICIENS DU CADRE, à cocher pour le jour choisi. */}
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
               <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <Users className="h-3.5 w-3.5" aria-hidden /> Praticiens à voir le {jour ? jourLisible(jour) : "—"}
               </p>
@@ -554,20 +566,20 @@ export function Planificateur({
                   return (
                     <label
                       key={p.id}
-                      className={cn("flex cursor-pointer items-start gap-2 px-3 py-2.5 text-sm hover:bg-secondary", fige && "cursor-not-allowed opacity-70")}
+                      className={cn("flex cursor-pointer items-start gap-3 px-3 py-3 text-sm hover:bg-secondary has-[:checked]:bg-primary/5 sm:gap-2 sm:py-2.5", fige && "cursor-not-allowed opacity-70")}
                     >
                       <input
                         type="checkbox" checked={paires.has(k)} disabled={fige || !jour}
                         onChange={() => basculer(jour, p.id)}
-                        className="mt-0.5 h-4 w-4 rounded border-input"
+                        className="mt-0.5 h-5 w-5 shrink-0 rounded border-input sm:h-4 sm:w-4"
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="font-medium">{p.name}</span>
+                        <span className="font-medium [overflow-wrap:anywhere]">{p.name}</span>
                         <span className="block text-xs text-muted-foreground">
                           {[p.specialty, p.institution].filter(Boolean).join(" · ") || "—"}
                         </span>
                       </span>
-                      <span className="flex shrink-0 flex-col items-end gap-0.5">
+                      <span className="flex max-w-[40%] shrink-0 flex-col items-end gap-0.5 text-right [overflow-wrap:anywhere]">
                         {p.wilaya && (
                           <span className="flex items-center gap-1 text-xs text-muted-foreground">
                             <MapPin className="h-3 w-3" aria-hidden /> {p.wilaya}
@@ -585,8 +597,8 @@ export function Planificateur({
               </div>
             )}
           </div>
-          <div className="flex justify-end">
-            <Button type="button" onClick={() => setChoixOuvert(false)}>
+          <div className={BARRE_FEUILLE}>
+            <Button type="button" className="h-12 w-full sm:h-10 sm:w-auto" onClick={() => setChoixOuvert(false)}>
               <Check className="h-4 w-4" /> Terminé — {compteDuJour(jour)} praticien(s) ce jour
             </Button>
           </div>
@@ -619,7 +631,7 @@ export function Planificateur({
                     <button
                       type="button" disabled={occupe}
                       onClick={() => { setNouveauRapport(false); setARapporter(l); }}
-                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-secondary focus-ring"
+                      className="flex w-full items-center gap-2 px-3 py-3 text-left text-sm hover:bg-secondary active:bg-secondary focus-ring sm:py-2.5"
                     >
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium">{l.doctorName}</span>
@@ -639,12 +651,12 @@ export function Planificateur({
           </div>
           <div className="space-y-1.5 border-t border-border pt-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Une rencontre hors plan</p>
-            <Button type="button" variant="outline" disabled={occupe} onClick={() => { setNouveauRapport(false); setImprevue(true); }}>
+            <Button type="button" variant="outline" className="h-12 w-full sm:h-10 sm:w-auto" disabled={occupe} onClick={() => { setNouveauRapport(false); setImprevue(true); }}>
               <FilePlus2 className="h-4 w-4" /> Visite imprévue
             </Button>
           </div>
           {voirRapportsTerrain && (
-            <Link href="/field-reports" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+            <Link href="/field-reports" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-0">
               Mes rapports terrain <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           )}
@@ -680,9 +692,9 @@ export function Planificateur({
               placeholder="Trop de libéraux la première semaine, pas assez de CHU ; revoir le mardi 20." />
           </div>
           {err && <p className="text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setRejet(false)} disabled={occupe}>Annuler</Button>
-            <BoutonDecisif type="submit" variant="destructive" disabled={occupe}>
+          <div className={BARRE_FEUILLE}>
+            <Button type="button" variant="outline" className="h-12 flex-1 sm:h-10 sm:flex-none" onClick={() => setRejet(false)} disabled={occupe}>Annuler</Button>
+            <BoutonDecisif type="submit" variant="destructive" className="h-12 flex-1 sm:h-10" disabled={occupe}>
               {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Rejeter
             </BoutonDecisif>
           </div>

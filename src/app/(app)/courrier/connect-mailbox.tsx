@@ -16,8 +16,8 @@ export function ConnectMailbox({ defaultEmail, defaultName }: { defaultEmail: st
   return (
     <div className="mx-auto max-w-lg">
       <div className="surface overflow-hidden">
-        <div className="flex items-center gap-3 bg-gradient-to-br from-primary to-purple-500 px-6 py-5 text-primary-foreground">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15"><Mail className="h-6 w-6" /></div>
+        <div className="flex items-center gap-3 bg-gradient-to-br from-primary to-purple-500 px-4 py-4 text-primary-foreground sm:px-6 sm:py-5">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15"><Mail className="h-6 w-6" /></div>
           <div><p className="text-lg font-semibold">Connectez votre boîte Infomaniak</p><p className="text-sm opacity-90">Lisez et envoyez vos e-mails sans quitter la plateforme.</p></div>
         </div>
         <form
@@ -27,9 +27,9 @@ export function ConnectMailbox({ defaultEmail, defaultName }: { defaultEmail: st
             setSaving(false);
             if (r.ok) router.refresh(); else setErr(r.error ?? "Connexion impossible.");
           }}
-          className="space-y-4 p-6"
+          className="space-y-4 p-4 sm:p-6"
         >
-          <div className="space-y-1.5"><Label>Adresse e-mail</Label><Input name="email" type="email" required defaultValue={defaultEmail} placeholder="prenom.nom@adventum.dz" /></div>
+          <div className="space-y-1.5"><Label>Adresse e-mail</Label><Input name="email" type="email" inputMode="email" autoComplete="email" required defaultValue={defaultEmail} placeholder="prenom.nom@adventum.dz" /></div>
           <div className="space-y-1.5"><Label>Nom affiché (à l'envoi)</Label><Input name="displayName" defaultValue={defaultName} /></div>
           <div className="space-y-1.5">
             <Label>Mot de passe d'application</Label>
@@ -44,18 +44,18 @@ export function ConnectMailbox({ defaultEmail, defaultName }: { defaultEmail: st
             {advanced ? "Masquer" : "Réglages avancés (serveurs)"}
           </button>
           {advanced && (
-            <div className="grid grid-cols-2 gap-3 rounded-lg bg-secondary/40 p-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3 rounded-lg bg-secondary/40 p-3">
               <div className="space-y-1"><Label>IMAP serveur</Label><Input name="imapHost" defaultValue="mail.infomaniak.com" /></div>
-              <div className="space-y-1"><Label>IMAP port</Label><Input name="imapPort" type="number" defaultValue="993" /></div>
+              <div className="space-y-1"><Label>IMAP port</Label><Input name="imapPort" type="number" inputMode="numeric" defaultValue="993" /></div>
               <div className="space-y-1"><Label>SMTP serveur</Label><Input name="smtpHost" defaultValue="mail.infomaniak.com" /></div>
-              <div className="space-y-1"><Label>SMTP port</Label><Input name="smtpPort" type="number" defaultValue="465" /></div>
+              <div className="space-y-1"><Label>SMTP port</Label><Input name="smtpPort" type="number" inputMode="numeric" defaultValue="465" /></div>
             </div>
           )}
 
           {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {err}</div>}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ShieldCheck className="h-3.5 w-3.5 text-success" /> Identifiants chiffrés, jamais exposés.</p>
-            <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Connecter</Button>
+            <Button type="submit" className="w-full sm:w-auto" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Connecter</Button>
           </div>
         </form>
       </div>

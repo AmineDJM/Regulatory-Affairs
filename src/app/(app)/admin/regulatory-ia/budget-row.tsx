@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TableRow, TableCell } from "@/components/ui/table";
 import { setDossierBudget } from "@/lib/regulatory/intelligence/cost/cost-actions";
 
 /**
@@ -53,28 +54,30 @@ export function DossierBudgetRow({ row, canManage }: { row: BudgetRowData; canMa
   };
 
   return (
-    <tr className="border-b border-border/50 last:border-0">
-      <td className="py-2 pr-3">
-        <Link href={`/regulatory/enregistrement/analyse/${row.dossierId}`} className="font-medium hover:underline">
-          {row.reference}
-        </Link>
-        <span className="ml-1.5 text-xs text-muted-foreground">{row.title}</span>
-        {row.exhausted && (
-          <span className="ml-1.5 inline-flex items-center gap-1 text-xs text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5" /> plafond atteint — analyses arrêtées
-          </span>
-        )}
-      </td>
-      <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{row.calls}</td>
-      <td className="py-2 pr-3 text-right font-medium tabular-nums">{row.costUsd.toFixed(2)} $</td>
-      <td className="py-2">
+    <TableRow>
+      <TableCell data-sans-etiquette className="py-2 max-sm:!justify-start">
+        <span className="min-w-0">
+          <Link href={`/regulatory/enregistrement/analyse/${row.dossierId}`} className="font-medium hover:underline">
+            {row.reference}
+          </Link>
+          <span className="ml-1.5 text-xs text-muted-foreground">{row.title}</span>
+          {row.exhausted && (
+            <span className="ml-1.5 inline-flex items-center gap-1 text-xs text-destructive">
+              <AlertTriangle className="h-3.5 w-3.5" /> plafond atteint — analyses arrêtées
+            </span>
+          )}
+        </span>
+      </TableCell>
+      <TableCell className="py-2 text-right tabular-nums text-muted-foreground">{row.calls}</TableCell>
+      <TableCell className="py-2 text-right font-medium tabular-nums">{row.costUsd.toFixed(2)} $</TableCell>
+      <TableCell className="py-2">
         {canManage ? (
           <div className="flex items-center gap-1.5">
             <input
-              type="number" min="0" step="0.5" value={value}
+              type="number" inputMode="decimal" min="0" step="0.5" value={value}
               onChange={(e) => setValue(e.target.value)} placeholder="global"
               aria-label={`Plafond du dossier ${row.reference}`}
-              className="w-24 rounded-lg border border-border bg-background px-2 py-1 text-sm tabular-nums outline-none focus:border-primary/60"
+              className="h-9 w-24 rounded-lg border border-border bg-background px-2 py-1 text-base tabular-nums outline-none focus:border-primary/60 sm:h-auto sm:text-sm"
             />
             <Button size="sm" variant="outline" onClick={save} disabled={busy}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "OK"}
@@ -88,7 +91,7 @@ export function DossierBudgetRow({ row, canManage }: { row: BudgetRowData; canMa
             {row.budgetUsd != null ? `${row.budgetUsd.toFixed(2)} $` : "plafond global"}
           </span>
         )}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }

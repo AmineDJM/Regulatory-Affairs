@@ -67,13 +67,13 @@ export default async function EventsPage() {
           {events.map((e) => (
             <Link key={e.id} href={`/events/${e.id}`} className="surface flex flex-col gap-2 p-4 transition-colors hover:bg-secondary/40">
               <div className="flex items-start justify-between gap-2">
-                <h3 className="font-semibold leading-tight">{e.name}</h3>
+                <h3 className="min-w-0 break-words font-semibold leading-tight">{e.name}</h3>
                 <StatusBadge map={EVENT_STATUS} value={e.status} />
               </div>
               <p className="text-xs text-muted-foreground">{EVENT_TYPE[e.type]} · {EVENT_FORMAT[e.format]}{e.city ? ` · ${e.city}` : ""}</p>
-              <div className="mt-auto flex items-center justify-between pt-2 text-xs text-muted-foreground">
+              <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-2 text-xs text-muted-foreground">
                 <span>{e.startDate ? formatDate(e.startDate) : "Date à définir"}</span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <Badge tone="info" dot={false}>{e.registrations} inscrit{e.registrations > 1 ? "s" : ""}{e.capacity ? `/${e.capacity}` : ""}</Badge>
                   {e.present > 0 && <Badge tone="success" dot={false}>{e.present} présent{e.present > 1 ? "s" : ""}</Badge>}
                 </div>

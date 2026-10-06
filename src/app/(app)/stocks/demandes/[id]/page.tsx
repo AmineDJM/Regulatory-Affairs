@@ -88,7 +88,7 @@ export default async function DemandeStocksPage({ params }: { params: { id: stri
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Avancement</h2>
               <div className="flex flex-wrap items-center gap-2">
-                <a href={`/api/stocks/demandes/${d.id}/export`} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius)] border border-border bg-card px-3 text-xs font-medium hover:bg-secondary">
+                <a href={`/api/stocks/demandes/${d.id}/export`} className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius)] border border-border bg-card px-3 text-xs font-medium hover:bg-secondary sm:h-8">
                   <Download className="h-3.5 w-3.5" /> Exporter (CSV)
                 </a>
                 <GestesDemande demandeId={d.id} ouverte={ouverte} peutSupprimer={d.createdById === user.id || user.role === "SUPER_ADMIN"} />
@@ -137,8 +137,8 @@ export default async function DemandeStocksPage({ params }: { params: { id: stri
                       const total = lignesParHopital.get(h.id) ?? 0;
                       return (
                         <tr key={h.id} className="border-t border-border">
-                          <td className="sticky left-0 z-10 bg-card px-2 py-1.5">
-                            <span className="block font-medium">{h.name}</span>
+                          <td className="sticky left-0 z-10 max-w-[10rem] bg-card px-2 py-1.5 sm:max-w-none">
+                            <span className="block font-medium [overflow-wrap:anywhere]">{h.name}</span>
                             <span className="block text-xs text-muted-foreground">{h.wilaya ?? "—"}{h.note ? ` · « ${h.note} »` : ""}</span>
                           </td>
                           <td className="px-2 py-1.5 text-xs text-muted-foreground">{h.sansKam ? <span className="text-warning">sans KAM</span> : kamsDuHopital(h.id) || "—"}</td>

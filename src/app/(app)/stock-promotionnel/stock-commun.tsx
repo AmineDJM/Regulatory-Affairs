@@ -105,7 +105,7 @@ export function TitreArticle({ a, className }: { a: ArticleVue; className?: stri
   return (
     <div className={cn("min-w-0", className)}>
       <p className="break-words font-medium text-foreground">{a.libelle}</p>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
         {a.catalogue.reference}
         {a.societe ? ` · ${a.societe}` : ""}
         {a.location ? ` · ${a.location}` : ""}
@@ -140,10 +140,10 @@ export function Section({
   titre, aide, compte, actions, children,
 }: { titre: string; aide?: string; compte?: number; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="surface space-y-3 p-4">
+    <section className="surface space-y-3 p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+          <h2 className="flex flex-wrap items-center gap-2 text-base font-semibold text-foreground">
             {titre}
             {compte !== undefined && compte > 0 && <Badge tone="info">{compte}</Badge>}
           </h2>

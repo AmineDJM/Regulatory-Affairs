@@ -66,7 +66,16 @@ type Result = { ok: boolean; error?: string; id?: string };
 const d10 = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
 function W({ label, full, children }: { label: string; full?: boolean; children: React.ReactNode }) {
-  return <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
+  return <div className={full ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
+}
+
+/** Intertitre d'une section du formulaire — le formulaire est long, il se lit par blocs au téléphone. */
+function Section({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="border-t border-border pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground first:border-t-0 first:pt-0 sm:col-span-2">
+      {children}
+    </p>
+  );
 }
 
 function EventFields({ e, responsibles, referentiels = {} }: {
@@ -89,7 +98,8 @@ function EventFields({ e, responsibles, referentiels = {} }: {
   const gammes = referentiels.businessUnits ?? [];
   const deduite = referentiels.businessUnitDeduite ?? null;
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+      <Section>L&apos;événement</Section>
       <W full label="Nom de l'événement"><Input name="name" defaultValue={e?.name} required placeholder="Ex. Symposium Cardiologie 2027" /></W>
       {/* LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé. Quand elle se lit
           sur le demandeur (un KAM rattaché à sa BU, un superviseur d'UNE gamme), le champ n'est PAS
@@ -130,6 +140,7 @@ function EventFields({ e, responsibles, referentiels = {} }: {
       {e && !e.requestStatus && (
         <W label="Statut"><Select name="status" defaultValue={e.status}>{Object.entries(EVENT_STATUS).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}</Select></W>
       )}
+      <Section>Dates et lieu</Section>
       <W label="Début"><Input type="date" name="startDate" defaultValue={d10(e?.startDate ?? null)} required /></W>
       <W label="Fin"><Input type="date" name="endDate" defaultValue={d10(e?.endDate ?? null)} required /></W>
       <W label="Lieu / salle"><Input name="location" defaultValue={e?.location ?? ""} required /></W>
@@ -141,6 +152,7 @@ function EventFields({ e, responsibles, referentiels = {} }: {
         </Select>
       </W>
       <W label="Pays"><Input name="country" defaultValue={e?.country ?? "Algérie"} required /></W>
+      <Section>Public, budget et produits</Section>
       {specialites.length > 0 ? (
         <W label="Spécialité">
           <Select name="specialty" defaultValue={e?.specialty ?? ""} required>
@@ -151,14 +163,14 @@ function EventFields({ e, responsibles, referentiels = {} }: {
       ) : (
         <W label="Spécialité"><Input name="specialty" defaultValue={e?.specialty ?? ""} required placeholder="Le référentiel est vide : saisissez-la." /></W>
       )}
-      <W label="Capacité max."><Input type="number" name="capacity" defaultValue={e?.capacity ?? ""} /></W>
+      <W label="Capacité max."><Input type="number" inputMode="numeric" name="capacity" defaultValue={e?.capacity ?? ""} /></W>
       {/* LE BUDGET EST OBLIGATOIRE, et c'est ce qui ferme la plainte du DG (voir l'en-tête). */}
       <W label="Budget estimé (DZD)">
-        <Input type="number" step="any" min="0" name="estimatedBudget" defaultValue={e?.estimatedBudget ?? ""} required />
+        <Input type="number" step="any" min="0" inputMode="decimal" name="estimatedBudget" defaultValue={e?.estimatedBudget ?? ""} required />
       </W>
       {/* MÉDECINS ET PRODUITS : PLUSIEURS de chaque, choisis dans le réel. Repli en saisie libre
           quand le référentiel est muet — obligatoire, mais libre. */}
-      <div className="col-span-2">
+      <div className="min-w-0 sm:col-span-2">
         {medecins.length > 0 ? (
           <MultiSelectField field={{
             type: "multiselect", name: "doctorIds", label: "Médecin(s) concerné(s)", required: true, full: true,
@@ -177,7 +189,7 @@ function EventFields({ e, responsibles, referentiels = {} }: {
           </W>
         )}
       </div>
-      <div className="col-span-2">
+      <div className="min-w-0 sm:col-span-2">
         {produits.length > 0 ? (
           <MultiSelectField field={{
             type: "multiselect", name: "productIds", label: "Produit(s) concerné(s)", required: true, full: true,
@@ -192,7 +204,8 @@ function EventFields({ e, responsibles, referentiels = {} }: {
           </W>
         )}
       </div>
-      <W full label="Lien Meet / Zoom / Teams (webinar/hybride)"><Input name="meetingLink" defaultValue={e?.meetingLink ?? ""} placeholder="https://meet.google.com/…" /></W>
+      <Section>Organisation</Section>
+      <W full label="Lien Meet / Zoom / Teams (webinar/hybride)"><Input name="meetingLink" inputMode="url" autoComplete="url" defaultValue={e?.meetingLink ?? ""} placeholder="https://meet.google.com/…" /></W>
       <W label="Responsable interne">
         <Select name="responsibleId" defaultValue={e?.responsibleId ?? ""} required>
           <option value="">— Choisir le responsable —</option>
@@ -222,8 +235,8 @@ export function CreateEventForm({ responsibles, referentiels, onDone, onCancel, 
   return (
     <form action={async (fd) => { setSaving(true); setErr(null); const r: Result = await createEvent(fd); setSaving(false); if (r.ok && r.id) { onDone(); router.push(`/events/${r.id}`); } else setErr(r.error ?? "Erreur."); }} className="space-y-4">
       <EventFields responsibles={responsibles} referentiels={referentiels} />
-      {err && <p className="text-sm text-destructive">{err}</p>}
-      <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onCancel}>{cancelLabel}</Button><Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
+      {err && <p className="break-words text-sm text-destructive">{err}</p>}
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto">{cancelLabel}</Button><Button type="submit" disabled={saving} className="w-full sm:w-auto">{saving && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
     </form>
   );
 }
@@ -279,10 +292,10 @@ export function EditEventButton({ event, responsibles, referentiels, canDelete, 
             </p>
           )}
           <EventFields e={event} responsibles={responsibles} referentiels={referentiels} />
-          {err && <p className="text-sm text-destructive">{err}</p>}
-          <div className="flex items-center justify-between">
-            {canDelete ? <Button type="button" variant="ghost" className="text-destructive" onClick={() => { setOpen(false); setSuppression(true); }}><Trash2 className="h-4 w-4" /> Supprimer</Button> : <span />}
-            <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
+          {err && <p className="break-words text-sm text-destructive">{err}</p>}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {canDelete ? <Button type="button" variant="ghost" className="w-full text-destructive sm:w-auto" onClick={() => { setOpen(false); setSuppression(true); }}><Trash2 className="h-4 w-4" /> Supprimer</Button> : <span className="hidden sm:block" />}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={() => setOpen(false)} className="w-full sm:w-auto">Annuler</Button><Button type="submit" disabled={saving} className="w-full sm:w-auto">{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
           </div>
         </form>
       </Sheet>

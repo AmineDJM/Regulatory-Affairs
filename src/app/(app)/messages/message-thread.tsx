@@ -73,9 +73,9 @@ export function MessageThread({
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-background">
       {/* En-tête */}
-      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-card px-3 lg:px-4">
-        <button onClick={onBack} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary md:hidden"><ArrowLeft className="h-5 w-5" /></button>
-        <button onClick={onToggleInfo} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+      <div className="flex h-16 shrink-0 items-center gap-1.5 border-b border-border bg-card px-1.5 sm:gap-3 sm:px-3 lg:px-4">
+        <button onClick={onBack} aria-label="Retour" className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-secondary md:hidden"><ArrowLeft className="h-5 w-5" /></button>
+        <button onClick={onToggleInfo} className="flex min-w-0 flex-1 items-center gap-2.5 text-left sm:gap-3">
           {detail.type === "DIRECT" ? (
             <span className="relative shrink-0">
               <Avatar name={detail.avatarName} color={detail.avatarColor} />
@@ -105,13 +105,13 @@ export function MessageThread({
           </div>
         </button>
         <CallButtons conversationId={detail.id} />
-        <button onClick={onToggleInfo} className="rounded-lg p-2 text-muted-foreground hover:bg-secondary" title="Détails"><Info className="h-5 w-5" /></button>
+        <button onClick={onToggleInfo} className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-secondary" title="Détails" aria-label="Détails"><Info className="h-5 w-5" /></button>
       </div>
 
       {/* Bandeau messages épinglés */}
       {detail.pinnedMessages.length > 0 && (
         <div className="shrink-0 border-b border-border bg-accent/40">
-          <button onClick={() => setShowPinned((v) => !v)} className="flex w-full items-center gap-2 px-4 py-1.5 text-left text-xs text-accent-foreground">
+          <button onClick={() => setShowPinned((v) => !v)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs text-accent-foreground sm:py-1.5">
             <Pin className="h-3.5 w-3.5" />
             <span className="font-medium">{detail.pinnedMessages.length} message{detail.pinnedMessages.length > 1 ? "s" : ""} épinglé{detail.pinnedMessages.length > 1 ? "s" : ""}</span>
             {showPinned ? <ChevronUp className="ml-auto h-3.5 w-3.5" /> : <ChevronDown className="ml-auto h-3.5 w-3.5" />}
@@ -120,11 +120,11 @@ export function MessageThread({
             <div className="max-h-40 space-y-1 overflow-y-auto px-3 pb-2">
               {detail.pinnedMessages.map((m) => (
                 <div key={m.id} className="flex items-center gap-2 rounded-lg bg-card px-2.5 py-1.5 text-xs">
-                  <button onClick={() => jumpToParent(m.id)} className="min-w-0 flex-1 text-left">
+                  <button onClick={() => jumpToParent(m.id)} className="line-clamp-2 min-w-0 flex-1 text-left [overflow-wrap:anywhere]">
                     <span className="font-medium text-foreground">{m.senderName} : </span>
                     <span className="text-muted-foreground">{m.body || "Pièce jointe"}</span>
                   </button>
-                  <button onClick={() => onTogglePin(m.id)} title="Désépingler" className="rounded p-0.5 text-muted-foreground hover:bg-secondary"><X className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => onTogglePin(m.id)} title="Désépingler" aria-label="Désépingler" className="-my-1 shrink-0 rounded p-2 text-muted-foreground hover:bg-secondary sm:my-0 sm:p-0.5"><X className="h-3.5 w-3.5" /></button>
                 </div>
               ))}
             </div>
@@ -133,11 +133,11 @@ export function MessageThread({
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto py-3">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
         {detail.messages.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
             <span className="text-3xl">👋</span>
-            <p>Démarrez la conversation avec <span className="font-medium text-foreground">{detail.title}</span>.</p>
+            <p className="px-6 [overflow-wrap:anywhere]">Démarrez la conversation avec <span className="font-medium text-foreground">{detail.title}</span>.</p>
           </div>
         )}
         {detail.messages.map((m, i) => {
@@ -211,12 +211,12 @@ function CallButtons({ conversationId }: { conversationId: string }) {
   }
 
   return (
-    <div className="flex items-center gap-0.5">
-      <button onClick={() => call(false)} disabled={busy !== null} title="Appel audio"
+    <div className="flex shrink-0 items-center gap-0.5">
+      <button onClick={() => call(false)} disabled={busy !== null} title="Appel audio" aria-label="Appel audio"
         className="rounded-lg p-2 text-muted-foreground hover:bg-secondary disabled:opacity-60">
         {busy === "audio" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Phone className="h-5 w-5" />}
       </button>
-      <button onClick={() => call(true)} disabled={busy !== null} title="Appel vidéo"
+      <button onClick={() => call(true)} disabled={busy !== null} title="Appel vidéo" aria-label="Appel vidéo"
         className="rounded-lg p-2 text-muted-foreground hover:bg-secondary disabled:opacity-60">
         {busy === "video" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Video className="h-5 w-5" />}
       </button>

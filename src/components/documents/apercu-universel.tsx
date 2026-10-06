@@ -47,14 +47,15 @@ function Rendu({ nature, src, name, telechargement, cible }: {
 }) {
   switch (nature) {
     case "image":
+      // `dvh` et non `vh` : au téléphone, la barre d'adresse mobile ne mange plus le bas de l'aperçu.
       // eslint-disable-next-line @next/next/no-img-element
-      return <img src={src} alt={name} className="mx-auto max-h-[78vh] rounded-lg object-contain" />;
+      return <img src={src} alt={name} className="mx-auto max-h-[78dvh] max-w-full rounded-lg object-contain" />;
     case "video":
-      return <video src={src} controls className="mx-auto max-h-[78vh] w-full rounded-lg bg-black" />;
+      return <video src={src} controls className="mx-auto max-h-[78dvh] w-full rounded-lg bg-black" />;
     case "audio":
       return <audio src={src} controls className="w-full" />;
     case "pdf":
-      return <iframe src={src} title={name} className="h-[78vh] w-full rounded-lg border border-border bg-white" />;
+      return <iframe src={src} title={name} className="h-[78dvh] w-full rounded-lg border border-border bg-white" />;
     case "docx":
     case "xlsx":
     case "pptx":
@@ -125,7 +126,7 @@ function VueTexte({ src, name, telechargement }: { src: string; name: string; te
   if (erreur) return <SansApercu nom={name} telechargement={telechargement} raison={erreur} />;
   return (
     <div className="space-y-2">
-      <pre className="max-h-[78vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed">{texte}</pre>
+      <pre className="max-h-[78dvh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed">{texte}</pre>
       {tronque && <p className="text-xs text-muted-foreground">Aperçu limité au premier mégaoctet : téléchargez le fichier pour le lire en entier.</p>}
     </div>
   );
@@ -182,16 +183,16 @@ function EditeurTexte({ cible, name, telechargement }: { cible: { type: "drive" 
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         {charge.modifiable && !edition && (
-          <button type="button" onClick={() => { setBrouillon(charge.texte); setMessage(null); setEdition(true); }} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
+          <button type="button" onClick={() => { setBrouillon(charge.texte); setMessage(null); setEdition(true); }} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs font-medium sm:py-1.5 hover:bg-secondary">
             <Pencil className="h-3.5 w-3.5" /> Modifier
           </button>
         )}
         {edition && (
           <>
-            <button type="button" onClick={enregistrer} disabled={enregistrement || brouillon === charge.texte} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
+            <button type="button" onClick={enregistrer} disabled={enregistrement || brouillon === charge.texte} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-2 text-xs font-medium sm:py-1.5 text-primary-foreground hover:opacity-90 disabled:opacity-50">
               {enregistrement ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Enregistrer
             </button>
-            <button type="button" onClick={() => { setEdition(false); setBrouillon(charge.texte); setMessage(null); }} disabled={enregistrement} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
+            <button type="button" onClick={() => { setEdition(false); setBrouillon(charge.texte); setMessage(null); }} disabled={enregistrement} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs font-medium sm:py-1.5 hover:bg-secondary">
               <X className="h-3.5 w-3.5" /> Annuler
             </button>
           </>
@@ -204,10 +205,10 @@ function EditeurTexte({ cible, name, telechargement }: { cible: { type: "drive" 
       {edition ? (
         <textarea
           value={brouillon} onChange={(e) => setBrouillon(e.target.value)} spellCheck={false} aria-label={`Contenu de ${name}`}
-          className="h-[70vh] w-full resize-y rounded-lg border border-input bg-background p-3 font-mono text-xs leading-relaxed focus-ring"
+          className="h-[70dvh] w-full resize-y rounded-lg border border-input bg-background p-3 font-mono text-base leading-relaxed focus-ring sm:text-xs"
         />
       ) : (
-        <pre className="max-h-[78vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed">{charge.texte}</pre>
+        <pre className="max-h-[78dvh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed">{charge.texte}</pre>
       )}
       {charge.tronque && <p className="text-xs text-muted-foreground">Fichier de plus d&apos;1 Mo : aperçu limité au début, et non modifiable d&apos;ici (enregistrer écraserait la fin). Téléchargez-le pour le modifier.</p>}
     </div>
@@ -221,7 +222,7 @@ function VueHtml({ src, name, telechargement }: { src: string; name: string; tel
   return (
     <div className="space-y-2">
       {/* sandbox="" : aucun script, aucun formulaire, aucune navigation — le HTML d'un tiers ne s'exécute pas ici. */}
-      <iframe sandbox="" srcDoc={texte} title={name} className="h-[78vh] w-full rounded-lg border border-border bg-white" />
+      <iframe sandbox="" srcDoc={texte} title={name} className="h-[78dvh] w-full rounded-lg border border-border bg-white" />
       {tronque && <p className="text-xs text-muted-foreground">Aperçu limité au premier mégaoctet : téléchargez le fichier pour le lire en entier.</p>}
     </div>
   );
@@ -230,7 +231,7 @@ function VueHtml({ src, name, telechargement }: { src: string; name: string; tel
 /** JAMAIS UNE PAGE BLANCHE : la raison est dite, et le téléchargement de l'original reste à un clic. */
 export function SansApercu({ nom, telechargement, raison }: { nom: string; telechargement: string; raison: string }) {
   return (
-    <div className="flex min-h-[30vh] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-8 text-center">
+    <div className="flex min-h-[30vh] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-4 text-center sm:p-8">
       <p className="max-w-xl text-sm text-muted-foreground">{raison}</p>
       <BoutonTelecharger href={telechargement} nom={nom} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
         <Download className="h-4 w-4" /> Télécharger le fichier

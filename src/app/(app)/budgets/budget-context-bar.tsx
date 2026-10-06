@@ -46,7 +46,7 @@ export function BudgetContextBar({
             void rememberBudgetEnvelope(id);
             router.push(`${pathname}?env=${id}`);
           }}
-          className="h-9 w-auto min-w-[14rem] font-medium"
+          className="h-10 w-full font-medium sm:h-9 sm:w-auto sm:min-w-[14rem]"
           aria-label="Enveloppe budgétaire"
         >
           {envelopes.map((en) => (
@@ -59,19 +59,19 @@ export function BudgetContextBar({
 
       <button
         type="button" onClick={() => setOpen((o) => !o)}
-        className="rounded-lg px-2 py-1 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+        className="min-h-9 rounded-lg px-2 py-1 text-muted-foreground tabular-nums transition hover:bg-secondary hover:text-foreground sm:min-h-0"
       >
         {formatDate(from)} → {formatDate(to)}
       </button>
 
       {open && (
-        <div className="flex items-center gap-2">
-          <input type="date" value={f} onChange={(e) => setF(e.target.value)} className="h-9 rounded-lg border border-border bg-background px-2 text-sm" aria-label="Du" />
-          <input type="date" value={t} onChange={(e) => setT(e.target.value)} className="h-9 rounded-lg border border-border bg-background px-2 text-sm" aria-label="Au" />
-          <button type="button" onClick={() => { setOpen(false); go({ from: f, to: t }); }} className="h-9 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <input type="date" value={f} onChange={(e) => setF(e.target.value)} className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-base sm:h-9 sm:flex-none sm:text-sm" aria-label="Du" />
+          <input type="date" value={t} onChange={(e) => setT(e.target.value)} className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-base sm:h-9 sm:flex-none sm:text-sm" aria-label="Au" />
+          <button type="button" onClick={() => { setOpen(false); go({ from: f, to: t }); }} className="h-10 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground sm:h-9">
             Appliquer
           </button>
-          <button type="button" onClick={() => { setOpen(false); go({}); }} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+          <button type="button" onClick={() => { setOpen(false); go({}); }} className="min-h-9 text-xs text-muted-foreground underline-offset-2 hover:underline sm:min-h-0">
             Période de l&apos;enveloppe
           </button>
         </div>

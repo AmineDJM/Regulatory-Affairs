@@ -77,8 +77,8 @@ export default async function PaymentRequestsPage() {
   );
 
   const Rows = ({ rows, who }: { rows: typeof mine; who?: (id: string) => string }) => (
-    <div className="surface overflow-x-auto p-0">
-      <Table>
+    <div className="surface p-0 sm:overflow-x-auto">
+      <Table mobileCards>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>
@@ -96,7 +96,7 @@ export default async function PaymentRequestsPage() {
               <TableCell className="font-mono text-xs">
                 <Link href={`/validations/paiements/${r.id}`} className="hover:underline">{r.reference}</Link>
               </TableCell>
-              <TableCell className="font-medium">
+              <TableCell className="font-medium [overflow-wrap:anywhere]">
                 <Link href={`/validations/paiements/${r.id}`} className="hover:underline">{r.title}</Link>
                 {/* CE DOSSIER VIENT D'AILLEURS — il accompagne un ordre né d'un autre circuit.
                     Le dire évite de chercher un « bon à payer » qui n'existe pas ici. */}
@@ -106,7 +106,7 @@ export default async function PaymentRequestsPage() {
               </TableCell>
               <TableCell className="text-muted-foreground">{r.payee}</TableCell>
               {who && <TableCell className="text-muted-foreground">{who(r.requesterId)}</TableCell>}
-              <TableCell className="text-right tabular-nums">{formatCurrency(toNumber(r.amount))}</TableCell>
+              <TableCell className="whitespace-nowrap text-right font-semibold tabular-nums sm:font-normal">{formatCurrency(toNumber(r.amount))}</TableCell>
               <TableCell className="text-muted-foreground">
                 {deadlineLabel(r, PAYMENT_URGENCY)}
                 {isOverdue(r) && <Badge tone="danger" dot={false} className="ml-1.5">en retard</Badge>}

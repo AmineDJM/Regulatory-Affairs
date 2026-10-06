@@ -85,7 +85,7 @@ export function OtherDecisionPanel({
           <p className="text-xs text-muted-foreground">Dites ce qui a changé depuis le refus ; corrigez la description ou le montant s&apos;il le faut.</p>
           <Input value={correction} onChange={(e) => setCorrection(e.target.value)} aria-label="Ce qui a changé" placeholder="Ce qui a changé (obligatoire)" />
           <Textarea name="description" defaultValue={description} aria-label="Description" rows={3} required />
-          <Input name="amount" type="number" min={0} step="any" defaultValue={amount == null ? "" : String(amount)} aria-label="Montant (DZD)" placeholder="Montant (DZD)" />
+          <Input name="amount" type="number" inputMode="decimal" min={0} step="any" defaultValue={amount == null ? "" : String(amount)} aria-label="Montant (DZD)" placeholder="Montant (DZD)" />
           <Button type="submit" className="w-full" disabled={busy !== null || !correction.trim()}>
             {busy === "resubmit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resoumettre la demande
           </Button>
@@ -96,7 +96,7 @@ export function OtherDecisionPanel({
         <div className="surface space-y-2 p-4">
           <h3 className="text-sm font-semibold">Suite</h3>
           <Input value={motifAnnulation} onChange={(e) => setMotifAnnulation(e.target.value)} aria-label="Motif de l'annulation" placeholder="Motif — obligatoire pour annuler" />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {status === "APPROVED" && (
               <BoutonDecisif variant="outline" className="flex-1" disabled={busy !== null} onClick={() => run("done", closeAdProOtherRequest, { id, cancel: "0" })}>
                 {busy === "done" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleCheckBig className="h-4 w-4" />} Terminée

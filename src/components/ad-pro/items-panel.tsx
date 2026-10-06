@@ -61,6 +61,12 @@ export type { HebergementVue } from "./hebergements-bloc";
 const estPosteStock = (it: { kind: AdProItemKind }) => it.kind === NATURE_MATERIEL_STOCK;
 /** Un poste qui liste les articles du stock se compose tant qu'il n'est ni soumis ni accordé. */
 const POSTE_STOCK_EDITABLE: readonly AdProItemStatus[] = ["DRAFT", "REVISION", "REJECTED"];
+/**
+ * La rangée de boutons au pied d'un petit formulaire : empilée et pleine largeur au téléphone (le pouce
+ * vise une barre, pas un mot), en ligne au-delà. Un `BoutonDecisif` y prend `max-sm:w-full` : son
+ * enveloppe s'étire seule, pas le bouton qu'elle contient.
+ */
+const RANGEE_ACTIONS = "flex flex-col gap-2 sm:flex-row sm:flex-wrap";
 
 export interface ItemRow {
   id: string;
@@ -304,7 +310,7 @@ export function AdProItemsPanel({
   return (
     <div className="space-y-4">
       {/* ── La ventilation, avant la liste : c'est la question qu'on se pose en arrivant. ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <Figure
           label="Enveloppe accordée"
           value={b.envelopeDzd != null ? formatCurrency(b.envelopeDzd) : "—"}
@@ -423,7 +429,7 @@ export function AdProItemsPanel({
             }, "Poste ajouté.")}
           />
         ) : (
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+          <Button size="sm" variant="outline" className="h-10 w-full sm:h-8 sm:w-auto" onClick={() => setAdding(true)}>
             <Plus className="h-4 w-4" /> Ajouter un poste
           </Button>
         )
@@ -658,17 +664,17 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
             <button
               type="button" onClick={() => setMenu((v) => !v)} aria-haspopup="menu" aria-expanded={menu} disabled={busy === RAFRAICHISSEMENT}
               aria-label={`Autres actions — ${item.label}`}
-              className="rounded-lg border border-border p-1 text-muted-foreground hover:bg-secondary"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-secondary sm:h-7 sm:w-7"
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {menu && (
-              <div role="menu" className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+              <div role="menu" className="absolute right-0 z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
                 {entrees.map((e) => e.decisif ? (
                   <BoutonDecisif
                     brut key={e.cle} type="button" role="menuitem" confirmation={e.decisif}
                     onClick={() => { setMenu(false); e.faire(); }}
-                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary ${e.danger ? "text-destructive" : ""}`}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-2.5 text-left hover:bg-secondary sm:py-1.5 ${e.danger ? "text-destructive" : ""}`}
                   >
                     {e.icone} {e.libelle}
                   </BoutonDecisif>
@@ -676,7 +682,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
                   <button
                     key={e.cle} type="button" role="menuitem"
                     onClick={() => { setMenu(false); e.faire(); }}
-                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary ${e.danger ? "text-destructive" : ""}`}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-2.5 text-left hover:bg-secondary sm:py-1.5 ${e.danger ? "text-destructive" : ""}`}
                   >
                     {e.icone} {e.libelle}
                   </button>
@@ -719,7 +725,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
           en bas — le geste ne se répète pas en haut de la carte. */}
       {(pas.geste || pas.attente) && pas.geste?.cle !== "GENERER_BC" && (
         pas.geste ? (
-          <Button size="sm" onClick={() => agir(pas.geste!.cle)} disabled={enCours}>
+          <Button size="sm" className="w-full sm:w-auto" onClick={() => agir(pas.geste!.cle)} disabled={enCours}>
             {enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <IconeGeste cle={pas.geste.cle} />}
             {pas.geste.libelle}
           </Button>
@@ -818,7 +824,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
             value={item.budgetCategoryId ?? ""}
             onChange={(e) => void run(`budget:${item.id}`, () => setAdProItemBudget(undefined, fdOf({ budgetCategoryId: e.target.value })), "Budget choisi.").then(fermer)}
             aria-label="Budget imputé à ce poste"
-            className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-2 text-base outline-none focus:border-primary/60 sm:py-1 sm:text-xs"
           >
             <option value="">Choisir le budget (enveloppe › catégorie)…</option>
             {budgetOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -912,16 +918,16 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
       {panneau === "DEMANDES_SECRETARIAT" && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2 text-xs">
           {item.demandes.map((d) => (
-            <Link key={d.id} href={`/demandes/${d.id}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+            <Link key={d.id} href={`/demandes/${d.id}`} className="inline-flex items-center gap-1 py-1 font-medium text-primary hover:underline">
               {PIECE_SECRETARIAT[d.nature].libelle} {d.reference} <ExternalLink className="h-3 w-3" />
             </Link>
           ))}
           {item.travauxBc.map((d) => (
-            <Link key={d.id} href={`/demandes/${d.id}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+            <Link key={d.id} href={`/demandes/${d.id}`} className="inline-flex items-center gap-1 py-1 font-medium text-primary hover:underline">
               BC à établir {d.reference}{d.status === "CANCELLED" ? " (close)" : d.status === "DONE" ? " (fait)" : ""} <ExternalLink className="h-3 w-3" />
             </Link>
           ))}
-          <button type="button" onClick={fermer} className="ml-auto text-muted-foreground hover:text-foreground">Fermer</button>
+          <button type="button" onClick={fermer} className="ml-auto px-2 py-1.5 text-muted-foreground hover:text-foreground">Fermer</button>
         </div>
       )}
       {panneau === "FICHIERS_DU_POSTE" && (
@@ -930,7 +936,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
             Fichiers joints au poste{item.documentCount > 0 ? ` : ${item.documentCount}` : ""}. Un devis, un BC ou une facture se déposent plutôt dans leurs cases ci-dessous.
           </p>
           {regard.canEdit && <DocumentUpload entityType="AD_PRO_ITEM" entityId={item.id} categories={[...AD_PRO_DOC_CATEGORIES]} compact />}
-          <button type="button" onClick={fermer} className="text-muted-foreground hover:text-foreground">Fermer</button>
+          <button type="button" onClick={fermer} className="py-1.5 text-muted-foreground hover:text-foreground">Fermer</button>
         </div>
       )}
       {panneau === "DEMANDER_A_QUELQU_UN" && regard.canEdit && (
@@ -942,7 +948,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
             subject={`${ITEM_KIND_LABELS[item.kind]} : ${item.label}`}
             moduleLibelle={moduleLibelle}
           />
-          <button type="button" onClick={fermer} className="text-muted-foreground hover:text-foreground">Fermer</button>
+          <button type="button" onClick={fermer} className="py-1.5 text-muted-foreground hover:text-foreground">Fermer</button>
         </div>
       )}
       {panneau === "HISTORIQUE" && item.decisions.length > 0 && (
@@ -956,7 +962,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
               {d.note && <span className="w-full italic">« {d.note} »</span>}
             </li>
           ))}
-          <li><button type="button" onClick={fermer} className="text-muted-foreground hover:text-foreground">Masquer</button></li>
+          <li><button type="button" onClick={fermer} className="py-1.5 text-muted-foreground hover:text-foreground">Masquer</button></li>
         </ul>
       )}
 
@@ -978,7 +984,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
         <div className="rounded-lg border border-border px-2.5 py-2 text-xs">
           {item.promoMaterial ? (
             <div className="flex flex-wrap items-center gap-2">
-              <Link href={`/promo-material/${item.promoMaterialId}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+              <Link href={`/promo-material/${item.promoMaterialId}`} className="inline-flex items-center gap-1 py-1 font-medium text-primary hover:underline">
                 {item.promoMaterial.reference} <ExternalLink className="h-3 w-3" />
               </Link>
               <span className="min-w-0 flex-1 truncate text-muted-foreground">{item.promoMaterial.title}</span>
@@ -994,7 +1000,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
                   void run(`link:${item.id}`, () => linkPromoMaterial(undefined, fdOf({ promoMaterialId: e.target.value })), "Matériel rattaché.");
                 }}
                 aria-label="Rattacher un matériel promotionnel existant"
-                className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-2 text-base outline-none focus:border-primary/60 sm:py-1 sm:text-xs"
               >
                 <option value="">Rattacher un matériel promotionnel existant…</option>
                 {promoOptions.map((p) => <option key={p.id} value={p.id}>{p.reference} — {p.title}</option>)}
@@ -1058,7 +1064,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
                     } : undefined}
                   />
                   {lu && !d.annulee && (
-                    <button type="button" onClick={() => basculer(`LIGNES:${d.id}`)} className="ml-4 text-primary hover:underline" aria-label={`Lignes du devis ${d.reference ?? d.titre}`}>
+                    <button type="button" onClick={() => basculer(`LIGNES:${d.id}`)} className="ml-4 py-1 text-primary hover:underline" aria-label={`Lignes du devis ${d.reference ?? d.titre}`}>
                       {lu.structure ? `Lignes (${lu.nbValidees}/${lu.lignes.length} validées)` : "Lignes à lire"}
                     </button>
                   )}
@@ -1127,10 +1133,14 @@ function CasePiece({ titre, ajouter, children }: { titre: string; ajouter?: () =
   return (
     <div className="min-w-0 space-y-1 rounded-lg bg-secondary/30 px-2.5 py-2 text-xs">
       <div className="flex items-center gap-2">
-        <p className="flex-1 font-medium text-foreground">{titre}</p>
+        <p className="min-w-0 flex-1 font-medium text-foreground">{titre}</p>
+        {/* Au téléphone, une vraie cible (40 px, bordée) : c'est ici qu'on dépose devis et factures. */}
         {ajouter && (
-          <button type="button" onClick={ajouter} className="inline-flex items-center gap-0.5 text-primary hover:underline">
-            <Plus className="h-3 w-3" /> Ajouter
+          <button
+            type="button" onClick={ajouter}
+            className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-primary/40 bg-card px-3 text-sm font-medium text-primary hover:underline sm:h-auto sm:gap-0.5 sm:border-0 sm:bg-transparent sm:px-0 sm:text-xs sm:font-normal"
+          >
+            <Plus className="h-4 w-4 sm:h-3 sm:w-3" /> Ajouter
           </button>
         )}
       </div>
@@ -1163,8 +1173,8 @@ function LignePiece({ piece, retirer }: { piece: PieceDePoste; retirer?: () => v
         {piece.aussiPour.length > 0 && <p className="truncate text-muted-foreground" title={piece.aussiPour.join(", ")}>Couvre aussi : {piece.aussiPour.join(", ")}</p>}
       </div>
       {retirer && (
-        <BoutonDecisif brut type="button" onClick={retirer} aria-label={`Retirer ${piece.titre} du poste`} className="rounded p-0.5 text-muted-foreground hover:text-destructive">
-          <X className="h-3 w-3" />
+        <BoutonDecisif brut type="button" onClick={retirer} aria-label={`Retirer ${piece.titre} du poste`} className="-m-1.5 rounded p-2 text-muted-foreground hover:text-destructive sm:m-0 sm:p-0.5">
+          <X className="h-4 w-4 sm:h-3 sm:w-3" />
         </BoutonDecisif>
       )}
     </div>
@@ -1295,16 +1305,16 @@ function BoiteDecision({ item, mode, budgetOptions, busy, run, fdOf, onCancel, r
           <label className="text-xs">
             Montant accordé (DZD)
             <input
-              type="number" min="0" step="0.01" name="amountGranted" value={montant} onChange={(e) => setMontant(e.target.value)}
+              type="number" inputMode="decimal" min="0" step="0.01" name="amountGranted" value={montant} onChange={(e) => setMontant(e.target.value)}
               aria-label="Montant accordé à ce poste"
-              className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm tabular-nums outline-none focus:border-primary/60"
+              className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base tabular-nums outline-none focus:border-primary/60 sm:py-1.5 sm:text-sm"
             />
           </label>
           <label className="text-xs">
             Budget
             <select
               value={budget} onChange={(e) => setBudget(e.target.value)} aria-label="Budget qui portera ce poste"
-              className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary/60"
+              className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-sm"
             >
               <option value="">Choisir le budget…</option>
               {budgetOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -1316,12 +1326,12 @@ function BoiteDecision({ item, mode, budgetOptions, busy, run, fdOf, onCancel, r
         value={note} onChange={(e) => setNote(e.target.value)}
         placeholder="Motif (obligatoire pour renvoyer ou refuser)"
         aria-label="Motif de la décision sur le poste"
-        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-xs"
       />
-      <div className="flex flex-wrap gap-2">
+      <div className={RANGEE_ACTIONS}>
         {offrir("APPROVED") && (
           <BoutonDecisif
-            size="sm" disabled={occupe || !accordPret}
+            size="sm" className="max-sm:w-full" disabled={occupe || !accordPret}
             title={!accordPret ? "Indiquez le montant accordé et choisissez le budget." : mode === "STOCK" ? "Accorder réserve le matériel au magasin." : undefined}
             onClick={() => decider("APPROVED", mode === "OPERATIONS" ? "Validé — transmis au second temps." : mode === "STOCK" ? "Poste accordé — le matériel est réservé au magasin." : "Poste accordé.")}
           >
@@ -1330,7 +1340,7 @@ function BoiteDecision({ item, mode, budgetOptions, busy, run, fdOf, onCancel, r
         )}
         {offrir("REVISION") && (
           <BoutonDecisif
-            size="sm" variant="outline" disabled={occupe || !note.trim()}
+            size="sm" variant="outline" className="max-sm:w-full" disabled={occupe || !note.trim()}
             title={!note.trim() ? "Indiquez ce qu'il faut revoir" : undefined}
             onClick={() => decider("REVISION", "Renvoyé au demandeur pour correction.")}
           >
@@ -1339,7 +1349,7 @@ function BoiteDecision({ item, mode, budgetOptions, busy, run, fdOf, onCancel, r
         )}
         {offrir("REJECTED") && (
           <BoutonDecisif
-            size="sm" variant="outline" className="text-destructive" disabled={occupe || !note.trim()}
+            size="sm" variant="outline" className="text-destructive max-sm:w-full" disabled={occupe || !note.trim()}
             title={!note.trim() ? "Indiquez le motif du refus" : undefined}
             onClick={() => decider("REJECTED", "Poste refusé.")}
           >
@@ -1371,7 +1381,7 @@ function DemandeBC({ busy, onSend, onCancel, assistantes, initial = "", bouton =
       {choix && (
         <select
           value={assistante} onChange={(e) => setAssistante(e.target.value)} aria-label="Assistante de direction qui établira le bon de commande"
-          className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+          className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-xs"
         >
           <option value="">Assistante de direction…</option>
           {assistantes.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -1381,9 +1391,9 @@ function DemandeBC({ busy, onSend, onCancel, assistantes, initial = "", bouton =
         value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
         placeholder="Contenu du bon de commande, références, coordonnées du fournisseur — ce que l'assistante doit y porter."
         aria-label="Message de la demande d'émission du bon de commande"
-        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-xs"
       />
-      <div className="flex flex-wrap gap-2">
+      <div className={RANGEE_ACTIONS}>
         <Button size="sm" disabled={busy || (choix && !assistante)} title={choix && !assistante ? "Choisissez l'assistante de direction" : undefined} onClick={() => onSend(message, assistante)}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {bouton}
         </Button>
@@ -1400,21 +1410,21 @@ function VerifierBC({ demandeId, busy, onDecide, onCancel }: {
   const [note, setNote] = React.useState("");
   return (
     <div className="space-y-1.5 rounded-lg border border-border bg-background p-2 text-xs">
-      <Link href={`/pieces/${demandeId}`} target="_blank" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+      <Link href={`/pieces/${demandeId}`} target="_blank" className="inline-flex items-center gap-1 py-1 font-medium text-primary hover:underline">
         Ouvrir le bon de commande déposé <ExternalLink className="h-3 w-3" />
       </Link>
       <input
         value={note} onChange={(e) => setNote(e.target.value)}
         placeholder="Ce qui ne va pas (obligatoire pour refuser)"
         aria-label="Remarque sur le bon de commande déposé"
-        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-xs"
       />
-      <div className="flex flex-wrap gap-2">
-        <BoutonDecisif size="sm" disabled={busy} onClick={() => onDecide(true, note.trim())}>
+      <div className={RANGEE_ACTIONS}>
+        <BoutonDecisif size="sm" className="max-sm:w-full" disabled={busy} onClick={() => onDecide(true, note.trim())}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />} Accepter le BC
         </BoutonDecisif>
         <BoutonDecisif
-          size="sm" variant="outline" className="text-destructive" disabled={busy || !note.trim()}
+          size="sm" variant="outline" className="text-destructive max-sm:w-full" disabled={busy || !note.trim()}
           title={note.trim() ? undefined : "Indiquez ce qu'il faut corriger"} onClick={() => onDecide(false, note.trim())}
         >
           <ThumbsDown className="h-4 w-4" /> Refuser
@@ -1448,11 +1458,11 @@ function FormulairePiece({
   /** Les autres postes que la même pièce peut couvrir (devis seulement). */
   freres?: PosteFrere[];
 }) {
-  const champ = "mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary/60";
+  const champ = "mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-sm";
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }}
-      className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5 text-xs"
+      className="space-y-2.5 rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs sm:space-y-2 sm:p-2.5"
     >
       <p className="font-medium text-foreground">{titre}</p>
       <p className="text-muted-foreground">{aide}</p>
@@ -1470,7 +1480,7 @@ function FormulairePiece({
         <label>
           Montant (DZD){montantObligatoire ? "" : " — facultatif"}
           <input
-            type="number" name="montant" min="0" step="0.01" required={montantObligatoire}
+            type="number" inputMode="decimal" name="montant" min="0" step="0.01" required={montantObligatoire}
             max={montantMax ?? undefined} defaultValue={montantInitial ?? ""} className={`${champ} tabular-nums`}
           />
         </label>
@@ -1487,7 +1497,7 @@ function FormulairePiece({
       </div>
       {proforma === "imposee" && <input type="hidden" name="proforma" value="on" />}
       {proforma === "choix" && (
-        <label className="inline-flex items-center gap-1.5">
+        <label className="inline-flex min-h-9 items-center gap-1.5 sm:min-h-0">
           <input type="checkbox" name="proforma" /> C&apos;est une facture pro forma
         </label>
       )}
@@ -1496,7 +1506,7 @@ function FormulairePiece({
           <legend className="px-1 text-muted-foreground">Ce document couvre aussi…</legend>
           <div className="flex flex-col gap-1">
             {freres.map((f) => (
-              <label key={f.id} className="inline-flex items-center gap-1.5">
+              <label key={f.id} className="inline-flex min-h-9 flex-wrap items-center gap-1.5 sm:min-h-0">
                 <input type="checkbox" name="autresPostes" value={f.id} /> {f.label}
                 {f.label.trim().toLocaleLowerCase("fr") !== ITEM_KIND_LABELS[f.kind].toLocaleLowerCase("fr") && (
                   <span className="text-muted-foreground">({ITEM_KIND_LABELS[f.kind]})</span>
@@ -1506,7 +1516,7 @@ function FormulairePiece({
           </div>
         </fieldset>
       )}
-      <div className="flex flex-wrap gap-2">
+      <div className={RANGEE_ACTIONS}>
         <Button size="sm" type="submit" disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck2 className="h-4 w-4" />} {bouton}
         </Button>
@@ -1527,9 +1537,9 @@ function DemandeSecretariat({ nature, busy, onSend, onCancel }: {
         value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
         placeholder={PIECE_SECRETARIAT[nature].aide}
         aria-label={`Message de la demande de ${PIECE_SECRETARIAT[nature].libelle.toLowerCase()}`}
-        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-xs"
       />
-      <div className="flex flex-wrap gap-2">
+      <div className={RANGEE_ACTIONS}>
         <Button size="sm" disabled={busy} onClick={() => onSend(message)}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer à l&apos;assistante
         </Button>
@@ -1560,18 +1570,18 @@ function GesteAvecMotif({ titre, aide, bouton, danger = false, busy, extra, onSe
         value={motif} onChange={(e) => setMotif(e.target.value)} rows={2}
         placeholder="Motif (obligatoire)"
         aria-label={`Motif — ${titre}`}
-        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-xs"
       />
       {extra && (
         <input
-          type="number" min={0} step="any" value={valeur} onChange={(e) => setValeur(e.target.value)}
+          type="number" inputMode="decimal" min={0} step="any" value={valeur} onChange={(e) => setValeur(e.target.value)}
           placeholder={extra.libelle} aria-label={extra.libelle}
-          className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+          className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-xs"
         />
       )}
-      <div className="flex flex-wrap gap-2">
+      <div className={RANGEE_ACTIONS}>
         <BoutonDecisif
-          size="sm" variant={danger ? "outline" : "primary"} className={danger ? "text-destructive" : undefined}
+          size="sm" variant={danger ? "outline" : "primary"} className={danger ? "text-destructive max-sm:w-full" : "max-sm:w-full"}
           disabled={busy || !motif.trim()} title={motif.trim() ? undefined : "Indiquez le motif"}
           onClick={() => onSend(motif.trim(), valeur.trim())}
         >
@@ -1587,12 +1597,12 @@ function GesteAvecMotif({ titre, aide, bouton, danger = false, busy, extra, onSe
 function VisaBC({ busy, onDecide, onCancel }: { busy: boolean; onDecide: (decision: "APPROVE" | "REFUSE", note: string) => void; onCancel: () => void }) {
   const [note, setNote] = React.useState("");
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2">
-      <BoutonDecisif size="sm" disabled={busy} onClick={() => onDecide("APPROVE", note)}>
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-background p-2 sm:flex-row sm:flex-wrap sm:items-center">
+      <BoutonDecisif size="sm" className="max-sm:w-full" disabled={busy} onClick={() => onDecide("APPROVE", note)}>
         <ThumbsUp className="h-4 w-4" /> Valider le BC
       </BoutonDecisif>
       <BoutonDecisif
-        size="sm" variant="outline" className="text-destructive" disabled={busy || !note.trim()}
+        size="sm" variant="outline" className="text-destructive max-sm:w-full" disabled={busy || !note.trim()}
         title={note.trim() ? undefined : "Indiquez le motif du refus dans le champ ci-dessous."}
         onClick={() => onDecide("REFUSE", note)}
       >
@@ -1602,7 +1612,7 @@ function VisaBC({ busy, onDecide, onCancel }: { busy: boolean; onDecide: (decisi
         value={note} onChange={(e) => setNote(e.target.value)}
         placeholder="Motif (obligatoire pour refuser)"
         aria-label="Motif de la décision sur le bon de commande"
-        className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
+        className="order-first min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-2 text-base outline-none focus:border-primary/60 sm:order-none sm:py-1 sm:text-xs"
       />
       <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
     </div>
@@ -1615,14 +1625,14 @@ function AllocateField({ itemId, current, busy, onSave }: { itemId: string; curr
   React.useEffect(() => { setValue(current != null ? String(current) : ""); }, [current]);
 
   return (
-    <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+    <label className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
       Montant accordé :
       <input
-        type="number" min="0" step="0.01" value={value}
+        type="number" inputMode="decimal" min="0" step="0.01" value={value}
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => { if (value !== (current != null ? String(current) : "")) onSave(value); }}
         aria-label={`Montant affecté au poste ${itemId}`}
-        className="w-32 rounded-lg border border-border bg-background px-2 py-1 text-sm tabular-nums outline-none focus:border-primary/60"
+        className="w-36 rounded-lg border border-border bg-background px-2 py-2 text-base tabular-nums outline-none focus:border-primary/60 sm:w-32 sm:py-1 sm:text-sm"
       />
       {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
       <span className="text-xs">DZD</span>
@@ -1647,7 +1657,7 @@ function EditeurRepartition({ origine }: { origine?: number | null }) {
     return s + (Number.isFinite(n) && n > 0 ? n : 0);
   }, 0);
   const maj = (i: number, champ: keyof LigneSaisie, v: string) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, [champ]: v } : l)));
-  const champ = "w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary/60";
+  const champ = "w-full rounded-lg border border-border bg-background px-2 py-2 text-base outline-none focus:border-primary/60 sm:py-1.5 sm:text-sm";
   return (
     <div className="space-y-2">
       <input type="hidden" name="repartition" value={JSON.stringify(lignes)} />
@@ -1668,15 +1678,18 @@ function EditeurRepartition({ origine }: { origine?: number | null }) {
             type="button" disabled={lignes.length <= 1}
             onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))}
             aria-label={`Retirer la ligne ${i + 1}`}
-            className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+            className="inline-flex items-center justify-center justify-self-end rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 sm:justify-self-auto sm:p-1.5"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
       ))}
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <button type="button" onClick={() => setLignes((ls) => [...ls, ligneVide()])} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-          <Plus className="h-3.5 w-3.5" /> Ajouter une nature
+        <button
+          type="button" onClick={() => setLignes((ls) => [...ls, ligneVide()])}
+          className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-lg border border-dashed border-primary/50 px-3 text-sm font-medium text-primary hover:bg-primary/5 sm:h-8 sm:w-auto sm:text-xs"
+        >
+          <Plus className="h-4 w-4 sm:h-3.5 sm:w-3.5" /> Ajouter une nature
         </button>
         <span className="ml-auto text-muted-foreground">
           Total : <strong className="tabular-nums text-foreground">{formatCurrency(total)}</strong>
@@ -1695,7 +1708,7 @@ function FormulaireRepartition({ origine, busy, onSubmit, onCancel }: {
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }} className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
       <EditeurRepartition origine={origine} />
-      <div className="flex gap-2">
+      <div className={RANGEE_ACTIONS}>
         <Button size="sm" type="submit" disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Split className="h-4 w-4" />} Répartir
         </Button>
@@ -1729,7 +1742,7 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
           Nature
           <select
             name="kind" value={nature} onChange={(e) => setNature(e.target.value as AdProItemKind)}
-            className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60"
+            className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm"
           >
             {ITEM_KINDS.map((k) => <option key={k} value={k}>{ITEM_KIND_LABELS[k]}</option>)}
           </select>
@@ -1739,18 +1752,18 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
           <input
             name="label" required
             placeholder={stock ? "Matériel du stand — congrès SAHO" : indirect ? "Sponsoring indirect — congrès SAHO" : "Stand 12 m² — hall B"}
-            className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60"
+            className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm"
           />
         </label>
         {!stock && !indirect && (
           <>
             <label className="text-xs">
               Payé à
-              <input name="supplier" placeholder="Organisateur, agence, association…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+              <input name="supplier" placeholder="Organisateur, agence, association…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm" />
             </label>
             <label className="text-xs">
               Montant estimé (DZD)
-              <input name="amountEstimated" type="number" min="0" step="0.01" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" />
+              <input name="amountEstimated" type="number" inputMode="decimal" min="0" step="0.01" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base tabular-nums outline-none focus:border-primary/60 sm:text-sm" />
             </label>
           </>
         )}
@@ -1770,10 +1783,10 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
         <fieldset className="rounded-lg border border-border p-2.5">
           <legend className="px-1 text-xs text-muted-foreground">Ce poste est-il déjà couvert par le budget accordé ?</legend>
           <div className="flex flex-wrap gap-3 text-sm">
-            <label className="inline-flex items-center gap-1.5">
+            <label className="inline-flex min-h-9 items-center gap-1.5 sm:min-h-0">
               <input type="radio" name="budgetKind" value="INCLUDED" defaultChecked /> Inclus dans le budget accordé
             </label>
-            <label className="inline-flex items-center gap-1.5">
+            <label className="inline-flex min-h-9 items-center gap-1.5 sm:min-h-0">
               <input type="radio" name="budgetKind" value="ADDITIONAL" /> Budget supplémentaire (rallonge)
             </label>
           </div>
@@ -1781,7 +1794,7 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
       )}
       <label className="block text-xs">
         Précisions
-        <input name="notes" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+        <input name="notes" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm" />
       </label>
 
       {decided && !stock && (
@@ -1793,7 +1806,7 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
         </p>
       )}
 
-      <div className="flex gap-2">
+      <div className={RANGEE_ACTIONS}>
         <Button size="sm" type="submit" disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Ajouter
         </Button>
@@ -1815,7 +1828,7 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
   item: ItemRow; busy: boolean; onCancel: () => void; onSave: (fd: FormData) => void;
 }) {
   const budgetLocked = budgetKindLocked(item);
-  const champ = "mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60";
+  const champ = "mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm";
   // UN POSTE « MATÉRIEL DU STOCK » ne se décrit que par son libellé et ses précisions : ni montant,
   // ni fournisseur, ni nature de budget — et sa nature ne change plus hors d'un brouillon vierge
   // (`refusChangementNature`). Son matériel se compose dans son propre bloc.
@@ -1824,7 +1837,7 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
       <form onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }} className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
         <label className="block text-xs">Libellé<input name="label" required defaultValue={item.label} className={champ} /></label>
         <label className="block text-xs">Précisions<input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className={champ} /></label>
-        <div className="flex gap-2">
+        <div className={RANGEE_ACTIONS}>
           <Button size="sm" type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer</Button>
           <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
         </div>
@@ -1844,7 +1857,7 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
         <label className="text-xs">Payé à<input name="supplier" defaultValue={item.supplier ?? ""} placeholder="Organisateur, agence, association…" className={champ} /></label>
         <label className="text-xs">
           Montant estimé (DZD)
-          <input name="amountEstimated" type="number" min="0" step="0.01" defaultValue={item.amountEstimated ?? ""} className={`${champ} tabular-nums`} />
+          <input name="amountEstimated" type="number" inputMode="decimal" min="0" step="0.01" defaultValue={item.amountEstimated ?? ""} className={`${champ} tabular-nums`} />
         </label>
       </div>
       <label className="block text-xs">Précisions<input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className={champ} /></label>
@@ -1858,10 +1871,10 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
         <fieldset className="rounded-lg border border-border p-2.5">
           <legend className="px-1 text-xs text-muted-foreground">Ce poste est-il couvert par le budget accordé ?</legend>
           <div className="flex flex-wrap gap-3 text-sm">
-            <label className="inline-flex items-center gap-1.5">
+            <label className="inline-flex min-h-9 items-center gap-1.5 sm:min-h-0">
               <input type="radio" name="budgetKind" value="INCLUDED" defaultChecked={item.budgetKind === "INCLUDED"} /> Inclus dans le budget accordé
             </label>
-            <label className="inline-flex items-center gap-1.5">
+            <label className="inline-flex min-h-9 items-center gap-1.5 sm:min-h-0">
               <input type="radio" name="budgetKind" value="ADDITIONAL" defaultChecked={item.budgetKind === "ADDITIONAL"} /> Budget supplémentaire (rallonge)
             </label>
           </div>
@@ -1875,7 +1888,7 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
         </p>
       )}
 
-      <div className="flex gap-2">
+      <div className={RANGEE_ACTIONS}>
         <Button size="sm" type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer</Button>
         <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
       </div>
@@ -1886,9 +1899,9 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
 function Figure({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "danger" | "success" }) {
   const cls = tone === "danger" ? "text-destructive" : tone === "success" ? "text-success" : "";
   return (
-    <div className="rounded-lg border border-border px-3 py-2">
+    <div className="min-w-0 rounded-lg border border-border px-2.5 py-2 sm:px-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
+      <p className={`mt-0.5 text-sm font-semibold tabular-nums [overflow-wrap:anywhere] sm:text-base ${cls}`}>{value}</p>
       {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );

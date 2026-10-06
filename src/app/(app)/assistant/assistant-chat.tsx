@@ -128,11 +128,11 @@ export function LinkifiedText({ text }: { text: string }) {
         return (
           <React.Fragment key={i}>
             {isDownload ? (
-              <a href={clean} download className="font-medium text-primary underline underline-offset-2 hover:opacity-80">
+              <a href={clean} download className="font-medium text-primary underline underline-offset-2 [overflow-wrap:anywhere] hover:opacity-80">
                 {clean}
               </a>
             ) : (
-              <Link href={clean} className="font-medium text-primary underline underline-offset-2 hover:opacity-80">
+              <Link href={clean} className="font-medium text-primary underline underline-offset-2 [overflow-wrap:anywhere] hover:opacity-80">
                 {clean}
               </Link>
             )}
@@ -796,21 +796,21 @@ export function AssistantChat({
       {memoryEnabled && histOpen && (
         <div className={`fixed inset-0 z-50 flex ${historyMode === "rail" ? "lg:hidden" : ""}`} role="dialog" aria-modal="true">
           <button type="button" aria-label="Fermer l'historique" className="absolute inset-0 bg-black/40" onClick={() => setHistOpen(false)} />
-          <div className="relative z-10 h-full w-72 max-w-[85vw] p-2">{rail}</div>
+          <div className="relative z-10 h-full w-72 max-w-[85vw] p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))]">{rail}</div>
         </div>
       )}
 
     <div className={surface === "flush" ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card"}>
       {memoryEnabled && surface !== "flush" && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <button type="button" onClick={() => setHistOpen(true)} className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground ${historyMode === "rail" ? "lg:hidden" : ""}`}>
+          <button type="button" onClick={() => setHistOpen(true)} className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground sm:min-h-0 transition hover:bg-secondary hover:text-foreground ${historyMode === "rail" ? "lg:hidden" : ""}`}>
             <History className="h-4 w-4" /> Historique
           </button>
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
             {loadingThread ? "Ouverture…" : threads.find((t) => t.id === threadId)?.title ?? "Nouvelle conversation"}
           </span>
           <button type="button" onClick={newConversation} title="Nouvelle conversation"
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground">
+            className="flex min-h-9 min-w-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground sm:min-h-0 sm:min-w-0">
             <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Nouvelle</span>
           </button>
         </div>
@@ -818,11 +818,11 @@ export function AssistantChat({
       {!configured && (
         <div className="flex items-start gap-2 border-b border-border bg-warning/10 px-4 py-2.5 text-sm text-warning">
           <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{messageIaNonConfiguree}</span>
+          <span className="min-w-0 [overflow-wrap:anywhere]">{messageIaNonConfiguree}</span>
         </div>
       )}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-6">
         {/* LE FLUX PORTE LE PLAN DE TRAVAIL, pas la colonne de lecture (globals.css) : c'est
             chaque CONTENU qui déclare sa mesure — `chat-measure` pour la prose, toute la
             largeur pour l'espace de travail d'un tour. Une borne unique écrasait la donnée. */}
@@ -839,7 +839,7 @@ export function AssistantChat({
               Posez une question sur votre travail, ou demandez-moi de préparer une action.
               Je m'appuie sur vos données (selon vos droits) et chaque action vous est soumise pour confirmation.
             </p>
-            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
@@ -848,8 +848,8 @@ export function AssistantChat({
                   className="group flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-left text-sm transition hover:border-primary/50 hover:bg-secondary/50 disabled:opacity-50"
                 >
                   <Wand2 className="h-4 w-4 shrink-0 text-primary" />
-                  <span className="flex-1">{s}</span>
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
+                  <span className="min-w-0 flex-1">{s}</span>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100" />
                 </button>
               ))}
             </div>
@@ -885,7 +885,7 @@ export function AssistantChat({
                 </ol>
               )}
               {streaming?.text ? (
-                <p className={`whitespace-pre-wrap leading-relaxed ${canvas ? "chief-turn-text" : "text-[0.9375rem]"}`}>
+                <p className={`whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere] ${canvas ? "chief-turn-text" : "text-[0.9375rem]"}`}>
                   <LinkifiedText text={cleanReply(streaming.text)} />
                   <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-foreground align-middle" aria-hidden />
                 </p>
@@ -914,11 +914,11 @@ export function AssistantChat({
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {attachments.map((a) => (
-              <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/60 px-2 py-1 text-xs">
-                <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="max-w-[180px] truncate">{a.name}</span>
-                {a.kind === "drive" && <span className="text-[0.625rem] text-muted-foreground">Drive</span>}
-                <button type="button" onClick={() => removeAttachment(a.id)} className="text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>
+              <span key={a.id} className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border bg-secondary/60 py-0.5 pl-2 pr-0.5 text-xs sm:py-1 sm:pr-2">
+                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 max-w-[180px] truncate">{a.name}</span>
+                {a.kind === "drive" && <span className="shrink-0 text-[0.6875rem] text-muted-foreground">Drive</span>}
+                <button type="button" onClick={() => removeAttachment(a.id)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-destructive sm:h-auto sm:w-auto"><X className="h-3.5 w-3.5 sm:h-3 sm:w-3" /></button>
               </span>
             ))}
           </div>
@@ -928,19 +928,21 @@ export function AssistantChat({
           <div className="mb-2 space-y-1">
             {recording && <p className="flex items-center gap-2 text-xs text-destructive"><span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Enregistrement… parlez, puis cliquez sur le carré pour transcrire.</p>}
             {transcribing && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Transcription en cours…</p>}
-            {voiceMsg && <p className="rounded-lg bg-accent/60 px-3 py-1.5 text-xs text-accent-foreground">{voiceMsg}</p>}
+            {voiceMsg && <p className="rounded-lg bg-accent/60 px-3 py-1.5 text-xs text-accent-foreground [overflow-wrap:anywhere]">{voiceMsg}</p>}
           </div>
         )}
 
+        {/* Au téléphone, les boutons-outils passent sur une seconde ligne : en ligne avec le
+            champ, ils ne lui laissaient qu'environ 80 px sur un écran de 360 px. */}
         <form
           onSubmit={(e) => { e.preventDefault(); send(input); }}
           onDragOver={(e) => { if (configured) { e.preventDefault(); setDragOver(true); } }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => { e.preventDefault(); setDragOver(false); if (configured && e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }}
-          className={`flex items-end gap-2 rounded-xl ${dragOver ? "ring-2 ring-primary/50" : ""}`}
+          className={`flex flex-wrap items-end gap-2 rounded-xl sm:flex-nowrap ${dragOver ? "ring-2 ring-primary/50" : ""}`}
         >
           <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
-          <div className="flex items-center gap-1">
+          <div className="order-last -ml-1 flex w-full items-center gap-1 sm:order-none sm:ml-0 sm:w-auto">
             {/* LE TÉLÉPHONE — « Appeler My Chief of Staff » (conversation temps réel). Distinct
                 de la dictée (icône micro) : appeler ≠ dicter. */}
             {realtimeVoice && (
@@ -948,27 +950,27 @@ export function AssistantChat({
                 title={call.active ? "Reprendre l'appel en cours" : "Appeler My Chief of Staff — conversation vocale temps réel"}
                 onClick={() => (call.active ? call.setMinimized(false) : call.start({ threadId }))}
                 disabled={!configured}
-                className={`flex h-[2.75rem] w-9 items-center justify-center rounded-xl transition disabled:opacity-50 ${call.active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
+                className={`flex h-10 w-10 items-center justify-center rounded-xl sm:h-[2.75rem] sm:w-9 transition disabled:opacity-50 ${call.active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
                 <Phone className="h-4 w-4" />
               </button>
             )}
             {voiceConfigured && (recording ? (
               <button type="button" title="Arrêter et transcrire" onClick={stopRec}
-                className="flex h-[2.75rem] w-9 items-center justify-center rounded-xl text-destructive transition hover:bg-destructive/10">
+                className="flex h-10 w-10 items-center justify-center rounded-xl sm:h-[2.75rem] sm:w-9 text-destructive transition hover:bg-destructive/10">
                 <Square className="h-4 w-4" />
               </button>
             ) : (
               <button type="button" title="Dicter — la voix est transcrite en texte, éditable avant l'envoi" onClick={startRec} disabled={!configured || sending || transcribing}
-                className="flex h-[2.75rem] w-9 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
+                className="flex h-10 w-10 items-center justify-center rounded-xl sm:h-[2.75rem] sm:w-9 text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
                 {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
               </button>
             ))}
             <button type="button" title="Joindre un fichier (glisser-déposer possible)" onClick={() => fileRef.current?.click()} disabled={!configured || sending}
-              className="flex h-[2.75rem] w-9 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
+              className="flex h-10 w-10 items-center justify-center rounded-xl sm:h-[2.75rem] sm:w-9 text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:opacity-50">
               <Paperclip className="h-4 w-4" />
             </button>
             <button type="button" title="Choisir un fichier de mon Drive (sans le re-téléverser)" onClick={() => setPickerOpen((o) => !o)} disabled={!configured || sending}
-              className={`flex h-[2.75rem] w-9 items-center justify-center rounded-xl transition hover:bg-secondary disabled:opacity-50 ${pickerOpen ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+              className={`flex h-10 w-10 items-center justify-center rounded-xl sm:h-[2.75rem] sm:w-9 transition hover:bg-secondary disabled:opacity-50 ${pickerOpen ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
               <FolderOpen className="h-4 w-4" />
             </button>
           </div>
@@ -990,14 +992,15 @@ export function AssistantChat({
             }
             disabled={!configured || sending}
             rows={1}
-            className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+            enterKeyHint="send"
+            className="max-h-[min(10rem,30dvh)] min-h-[2.75rem] min-w-0 flex-1 resize-none rounded-xl border border-border bg-background px-3.5 py-2.5 text-base outline-none lg:text-sm transition placeholder:text-muted-foreground focus:border-primary/60 focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
           />
           {sending ? (
-            <Button type="button" size="lg" variant="outline" onClick={stopStreaming} className="h-[2.75rem] px-4" title="Arrêter la génération">
+            <Button type="button" size="lg" variant="outline" onClick={stopStreaming} className="h-[2.75rem] shrink-0 px-4" title="Arrêter la génération">
               <Square className="h-4 w-4" />
             </Button>
           ) : (
-            <Button type="submit" size="lg" disabled={!configured || (!input.trim() && attachments.length === 0)} className="h-[2.75rem] px-4">
+            <Button type="submit" size="lg" disabled={!configured || (!input.trim() && attachments.length === 0)} className="h-[2.75rem] shrink-0 px-4">
               <Send className="h-4 w-4" />
             </Button>
           )}
@@ -1056,7 +1059,7 @@ function ExecutivePanel({ sources, messages, showShortcuts = true }: {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate" title={s.label}>{s.label}</span>
                     {/* D'OÙ ET DE QUAND (F8) : famille, date propre, fraîcheur, confiance — la provenance se lit sans la demander. */}
-                    {s.detail && <span className="block truncate text-[10px] text-muted-foreground" title={s.detail} data-testid="source-detail">{s.detail}</span>}
+                    {s.detail && <span className="block truncate text-[0.6875rem] text-muted-foreground" title={s.detail} data-testid="source-detail">{s.detail}</span>}
                   </span>
                 </Link>
               ))}
@@ -1168,12 +1171,13 @@ function ThreadRail({
               <div className="space-y-0.5">
                 {g.items.map((t) => (
                   <div key={t.id}
-                    className={`group flex items-center gap-1 rounded-lg px-2 py-2 text-sm transition ${t.id === current ? "bg-secondary font-medium text-foreground" : "hover:bg-secondary/60"}`}>
-                    <button type="button" onClick={() => onOpen(t.id)} className="min-w-0 flex-1 truncate text-left" title={t.title}>
+                    className={`group flex items-center gap-1 rounded-lg px-2 py-0.5 text-sm transition sm:py-2 ${t.id === current ? "bg-secondary font-medium text-foreground" : "hover:bg-secondary/60"}`}>
+                    <button type="button" onClick={() => onOpen(t.id)} className="min-w-0 flex-1 truncate py-2 text-left sm:py-0" title={t.title}>
                       {t.title}
                     </button>
+                    {/* Au doigt, la corbeille reste visible : un bouton qui n'apparaît qu'au survol n'existe pas. */}
                     <button type="button" onClick={() => onDelete(t.id)} title="Supprimer cette conversation"
-                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition hover:text-destructive focus:opacity-100 group-hover:opacity-100">
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:text-destructive sm:h-auto sm:w-auto sm:p-1 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -1190,7 +1194,7 @@ function ThreadRail({
           Mémoire strictement personnelle : personne d&apos;autre — pas même un administrateur — n&apos;y a accès.
         </p>
         {threads.length > 0 && (
-          <button type="button" onClick={onForget} className="mt-1.5 text-[0.6875rem] text-muted-foreground underline-offset-2 transition hover:text-destructive hover:underline">
+          <button type="button" onClick={onForget} className="mt-1 py-1.5 text-[0.6875rem] sm:mt-1.5 sm:py-0 text-muted-foreground underline-offset-2 transition hover:text-destructive hover:underline">
             Tout effacer
           </button>
         )}
@@ -1260,11 +1264,11 @@ function AdamTurn({
       <div className="chat-measure space-y-2">
         {text ? (
           bubble ? (
-            <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-secondary px-4 py-2.5 text-sm leading-relaxed">
+            <div className="min-w-0 whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-secondary px-3.5 py-2.5 text-sm leading-relaxed [overflow-wrap:anywhere] sm:px-4">
               <LinkifiedText text={text} />
             </div>
           ) : (
-            <p className="chief-turn-text whitespace-pre-wrap"><LinkifiedText text={text} /></p>
+            <p className="chief-turn-text whitespace-pre-wrap [overflow-wrap:anywhere]"><LinkifiedText text={text} /></p>
           )
         ) : null}
         {cards(proposals.map((_, i) => i))}
@@ -1280,12 +1284,12 @@ function AdamTurn({
       renderBundle={() => (
         // §10 — UNE MISSION COHÉRENTE, UNE CONFIRMATION. Le bandeau se place APRÈS l'objet de
         // tête : on comprend d'abord CE QU'ON confirme, on confirme ensuite.
-        <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-accent/30 px-3 py-2 text-sm" data-testid="turn-bundle">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-accent/30 px-3 py-2 text-sm" data-testid="turn-bundle">
           <Sparkles className="h-4 w-4 shrink-0 text-primary" />
-          <span className="flex-1">
+          <span className="min-w-0 flex-1 basis-40">
             {turn.pending} actions préparées — elles forment une seule mission.
           </span>
-          <Button size="sm" onClick={() => onConfirmAll(msg)}>
+          <Button size="sm" className="w-full sm:w-auto" onClick={() => onConfirmAll(msg)}>
             <CheckCircle2 className="h-4 w-4" /> Tout confirmer
           </Button>
         </div>
@@ -1321,27 +1325,28 @@ function DriveFilePicker({ onPick, onClose }: { onPick: (f: AssistantFileOption)
 
   return (
     <div className="absolute bottom-full left-3 right-3 z-20 mb-2 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <FolderOpen className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Mes fichiers du Drive</span>
-        <button type="button" onClick={onClose} className="ml-auto text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 sm:py-2">
+        <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate text-sm font-medium">Mes fichiers du Drive</span>
+        <button type="button" onClick={onClose} className="-mr-2 ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground sm:mr-0 sm:h-auto sm:w-auto"><X className="h-4 w-4" /></button>
       </div>
       <div className="p-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Rechercher un fichier…" className="w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:border-primary/60" />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Rechercher un fichier…" className="w-full rounded-lg border border-border bg-background py-2 pl-8 pr-3 text-base outline-none focus:border-primary/60 sm:py-1.5 lg:text-sm" />
         </div>
       </div>
-      <div className="max-h-52 overflow-y-auto px-2 pb-2">
+      {/* Bornée aussi par la hauteur visible : clavier ouvert, il ne reste parfois qu'un tiers d'écran. */}
+      <div className="max-h-[min(13rem,35dvh)] overflow-y-auto overscroll-contain px-2 pb-2">
         {loading ? (
           <p className="px-2 py-3 text-sm text-muted-foreground"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> Chargement…</p>
         ) : files.length === 0 ? (
           <p className="px-2 py-3 text-sm text-muted-foreground">Aucun fichier{q ? " pour cette recherche" : ""}.</p>
         ) : (
           files.map((f) => (
-            <button key={f.id} type="button" onClick={() => { onPick(f); onClose(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-secondary">
+            <button key={f.id} type="button" onClick={() => { onPick(f); onClose(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-2.5 text-left text-sm hover:bg-secondary sm:py-1.5">
               <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="flex-1 truncate">{f.name}</span>
+              <span className="min-w-0 flex-1 truncate">{f.name}</span>
               <span className="shrink-0 text-xs text-muted-foreground">{Math.max(1, Math.round(f.size / 1024))} Ko</span>
             </button>
           ))
@@ -1381,10 +1386,10 @@ function MessageBubble({
     return (
       <div className="chat-measure flex flex-col items-end gap-1">
         {msg.attachmentNames && msg.attachmentNames.length > 0 && (
-          <div className="flex max-w-[80%] flex-wrap justify-end gap-1">
+          <div className="flex max-w-[85%] flex-wrap justify-end gap-1 sm:max-w-[80%]">
             {msg.attachmentNames.map((n, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                <FileText className="h-3 w-3" /> <span className="max-w-[160px] truncate">{n}</span>
+              <span key={i} className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-lg bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                <FileText className="h-3 w-3 shrink-0" /> <span className="min-w-0 max-w-[160px] truncate">{n}</span>
               </span>
             ))}
           </div>
@@ -1393,12 +1398,12 @@ function MessageBubble({
           canvas ? (
             // LA PASTILLE, PAS LE PAVÉ. Un aplat de couleur pleine sur 80 % de la largeur crie
             // plus fort que la réponse qui suit — or c'est la réponse qui porte l'information.
-            <div className="flex max-w-[70%] items-baseline gap-2.5">
-              <div className="chief-user-turn whitespace-pre-wrap">{userDisplay.text}</div>
+            <div className="flex max-w-[85%] items-baseline gap-2.5 sm:max-w-[70%]">
+              <div className="chief-user-turn min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{userDisplay.text}</div>
               {turnTime(msg.at) ? <span className="chief-turn-time shrink-0">{turnTime(msg.at)}</span> : null}
             </div>
           ) : (
-            <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm">
+            <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-3.5 py-2.5 text-sm text-primary-foreground shadow-sm [overflow-wrap:anywhere] sm:max-w-[80%] sm:px-4">
               {userDisplay.text}
             </div>
           )
@@ -1474,9 +1479,9 @@ export function ActionCard({
 
   return (
     <div className={`overflow-hidden rounded-xl border shadow-sm ${critical ? "border-destructive/50 bg-gradient-to-br from-destructive/5 to-card" : proposal.level === "SENSITIVE" ? "border-warning/50 bg-gradient-to-br from-warning/5 to-card" : "border-primary/30 bg-gradient-to-br from-accent/40 to-card"}`}>
-      <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5">
-        {critical ? <ShieldAlert className="h-4 w-4 text-destructive" /> : <Sparkles className="h-4 w-4 text-primary" />}
-        <span className="text-sm font-semibold">{proposal.title}</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 px-3 py-2.5 sm:px-4">
+        {critical ? <ShieldAlert className="h-4 w-4 shrink-0 text-destructive" /> : <Sparkles className="h-4 w-4 shrink-0 text-primary" />}
+        <span className="min-w-0 text-sm font-semibold [overflow-wrap:anywhere]">{proposal.title}</span>
         {critical ? (
           <span className="ml-auto rounded-full bg-destructive/10 px-2 py-0.5 text-[0.6875rem] font-medium text-destructive">Critique</span>
         ) : proposal.level === "SENSITIVE" ? (
@@ -1486,19 +1491,21 @@ export function ActionCard({
         )}
       </div>
 
+      {/* Au téléphone, l'intitulé passe au-dessus de la valeur : une colonne fixe de 7rem ne
+          laissait plus à la valeur que le tiers de la carte. */}
       <dl className="divide-y divide-border/50">
         {proposal.fields.map((f) => (
-          <div key={f.label} className="flex gap-3 px-4 py-2 text-sm">
-            <dt className="w-28 shrink-0 text-muted-foreground">{f.label}</dt>
-            <dd className="min-w-0 flex-1 whitespace-pre-wrap font-medium">{f.value}</dd>
+          <div key={f.label} className="flex flex-col gap-0.5 px-3 py-2 text-sm sm:flex-row sm:gap-3 sm:px-4">
+            <dt className="text-xs text-muted-foreground sm:w-28 sm:shrink-0 sm:text-sm">{f.label}</dt>
+            <dd className="min-w-0 flex-1 whitespace-pre-wrap font-medium [overflow-wrap:anywhere]">{f.value}</dd>
           </div>
         ))}
       </dl>
 
       {proposal.warnings.length > 0 && state === "pending" && (
-        <div className="space-y-1 border-t border-border/60 bg-warning/5 px-4 py-2">
+        <div className="space-y-1 border-t border-border/60 bg-warning/5 px-3 py-2 sm:px-4">
           {proposal.warnings.map((w, i) => (
-            <p key={i} className="flex items-start gap-1.5 text-xs text-warning">
+            <p key={i} className="flex items-start gap-1.5 text-xs text-warning [overflow-wrap:anywhere]">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {w}
             </p>
           ))}
@@ -1506,8 +1513,8 @@ export function ActionCard({
       )}
 
       {critical && state === "pending" && (
-        <div className="border-t border-border/60 bg-destructive/5 px-4 py-2.5">
-          <label className="text-xs font-medium text-destructive">
+        <div className="border-t border-border/60 bg-destructive/5 px-3 py-2.5 sm:px-4">
+          <label className="text-xs font-medium text-destructive [overflow-wrap:anywhere]">
             {confirmIsAmount
               ? `Confirmation renforcée : ressaisissez le montant (${Number(cleanedAmount).toLocaleString("fr-FR")} DZD)`
               : `Confirmation renforcée : ressaisissez « ${proposal.confirmText} » pour confirmer`}
@@ -1517,12 +1524,12 @@ export function ActionCard({
             onChange={(e) => setTyped(e.target.value)}
             inputMode={confirmIsAmount ? "numeric" : "text"}
             placeholder={proposal.confirmText}
-            className={`mt-1 ${confirmIsAmount ? "w-48" : "w-full max-w-md"} rounded-lg border border-destructive/40 bg-background px-3 py-1.5 text-sm outline-none focus:border-destructive focus:ring-2 focus:ring-destructive/20`}
+            className={`mt-1 ${confirmIsAmount ? "w-full sm:w-48" : "w-full max-w-md"} rounded-lg border border-destructive/40 bg-background px-3 py-2 text-base outline-none sm:py-1.5 lg:text-sm focus:border-destructive focus:ring-2 focus:ring-destructive/20`}
           />
         </div>
       )}
 
-      <div className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-3 py-2.5 sm:px-4">
         {state === "pending" && (
           <>
             <Button size="sm" onClick={() => onConfirm(critical ? typed : undefined)} disabled={!armed} variant={critical ? "destructive" : "primary"}>
@@ -1535,13 +1542,13 @@ export function ActionCard({
           <span className="flex items-center gap-1.5 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Exécution…</span>
         )}
         {state === "done" && (
-          <span className="flex flex-wrap items-center gap-2 text-sm text-success">
-            <CheckCircle2 className="h-4 w-4" /> {result ?? "Action effectuée."}
+          <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-success [overflow-wrap:anywhere]">
+            <CheckCircle2 className="h-4 w-4 shrink-0" /> {result ?? "Action effectuée."}
             {link && <Link href={link} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Ouvrir <ArrowRight className="h-3 w-3" /></Link>}
           </span>
         )}
         {state === "cancelled" && <span className="flex items-center gap-1.5 text-sm text-muted-foreground"><X className="h-4 w-4" /> Action annulée.</span>}
-        {state === "error" && <span className="flex items-center gap-1.5 text-sm text-destructive"><AlertTriangle className="h-4 w-4" /> {result ?? "Échec de l'action."}</span>}
+        {state === "error" && <span className="flex min-w-0 items-start gap-1.5 text-sm text-destructive [overflow-wrap:anywhere]"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {result ?? "Échec de l'action."}</span>}
       </div>
     </div>
   );

@@ -81,16 +81,18 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
   const grandBudget = sum(rows, (d) => nOr0(d.budget));
 
   const cell = "border-b border-border px-2 py-1.5 text-sm";
-  const input = "h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+  const input = "h-10 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none sm:h-8";
+  // Matrice produits × indicateurs : elle défile dans son cadre, la colonne « Produit » reste collée à gauche.
+  const sticky = "sticky left-0 z-10 bg-card";
 
   const otherFields: (keyof Draft)[] = ["coverageTargetPct", "plannedVisits", "budget"];
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
       <table className="w-full min-w-[820px] border-collapse">
         <thead>
           <tr className="border-b border-border bg-secondary/40 text-left text-xs font-medium text-muted-foreground">
-            <th className="px-3 py-2">Produit</th>
+            <th className={`${sticky} px-3 py-2`}>Produit</th>
             <th className="px-2 py-2 w-24">FTE cible</th>
             <th className="px-2 py-2 w-24">FTE affecté</th>
             <th className="px-2 py-2 w-24">Couv. %</th>
@@ -123,7 +125,7 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
                   const gapTone = assigned + 0.001 < target ? "text-warning" : assigned > 0 ? "text-success" : "text-muted-foreground";
                   return (
                     <tr key={r.productId} className="hover:bg-secondary/30">
-                      <td className={`${cell} font-medium`}>{r.productName}</td>
+                      <td className={`${cell} ${sticky} min-w-[9rem] max-w-[14rem] font-medium [overflow-wrap:anywhere]`}>{r.productName}</td>
                       <td className={cell}>
                         {canEdit ? (
                           <input inputMode="decimal" className={input} value={d.targetFte} onChange={(e) => set(r.productId, "targetFte", e.target.value)} onBlur={() => save(r.productId)} />
@@ -157,7 +159,7 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
                   );
                 })}
                 <tr className="bg-secondary/30 text-sm font-medium">
-                  <td className="px-3 py-1.5 text-right text-xs text-muted-foreground">Sous-total {g.buName}</td>
+                  <td className={`sticky left-0 z-10 bg-muted px-3 py-1.5 text-right text-xs text-muted-foreground`}>Sous-total {g.buName}</td>
                   <td className="px-2 py-1.5">{subFte.toFixed(2)}</td>
                   <td className="px-2 py-1.5 tabular-nums">{subAssigned.toFixed(2)}</td>
                   <td className="px-2 py-1.5" />
@@ -171,7 +173,7 @@ export function ForecastGrid({ cycleId, rows, canEdit }: { cycleId: string; rows
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-border bg-primary/5 text-sm font-bold">
-            <td className="px-3 py-2 text-right">Total</td>
+            <td className={`${sticky} px-3 py-2 text-right`}>Total</td>
             <td className="px-2 py-2">{grandFte.toFixed(2)}</td>
             <td className="px-2 py-2 tabular-nums">{grandAssigned.toFixed(2)}</td>
             <td className="px-2 py-2" />

@@ -37,8 +37,8 @@ export default async function PiecesPage() {
   const waiting = toMe.filter((r) => isOutstanding(r.status)).length;
 
   const Rows = ({ rows, who, label }: { rows: { id: string; reference: string; label: string; status: string; dueDate: Date | null; entityType: string; createdAt: Date }[]; who: (i: number) => string; label: string }) => (
-    <div className="surface overflow-x-auto p-0">
-      <Table>
+    <div className="surface overflow-hidden p-0">
+      <Table mobileCards>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>
@@ -53,7 +53,7 @@ export default async function PiecesPage() {
           {rows.map((r, i) => (
             <TableRow key={r.id} className="cursor-pointer">
               <TableCell className="font-mono text-xs"><Link href={`/pieces/${r.id}`} className="hover:underline">{r.reference}</Link></TableCell>
-              <TableCell className="font-medium"><Link href={`/pieces/${r.id}`} className="hover:underline">{r.label}</Link></TableCell>
+              <TableCell className="break-words font-medium"><Link href={`/pieces/${r.id}`} className="hover:underline">{r.label}</Link></TableCell>
               <TableCell className="text-muted-foreground">{who(i)}</TableCell>
               <TableCell className="text-muted-foreground">{ENTITY_TYPE_LABELS[r.entityType] ?? r.entityType}</TableCell>
               <TableCell className="text-muted-foreground">
@@ -77,7 +77,7 @@ export default async function PiecesPage() {
       <ModuleTabs tabs={WORKSPACE_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold">
+        <h2 className="flex flex-wrap items-center gap-y-1 text-sm font-semibold">
           On vous demande {waiting > 0 && <Badge tone="warning" dot={false} className="ml-1">{waiting} en attente</Badge>}
         </h2>
         {toMe.length === 0

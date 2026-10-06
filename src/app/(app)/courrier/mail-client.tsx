@@ -184,15 +184,27 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
       <SignatureSheet open={sigOpen} onClose={() => setSigOpen(false)} initial={signature} onSaved={setSignature} />
 
       {/* Liste des messages */}
-      <div className={cn("flex min-h-0 w-full flex-col border-r border-border md:w-80", sel && "hidden md:flex")}>
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <p className="text-sm font-semibold">{folders.find((f) => f.path === mailbox) ? folderLabel(folders.find((f) => f.path === mailbox)!) : mailbox}</p>
-          <div className="flex items-center gap-0.5">
-            <button onClick={() => loadList(mailbox, false, activeSearch)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary" title="Actualiser"><RefreshCw className={cn("h-4 w-4", loadingList && "animate-spin")} /></button>
-            <button onClick={toggleFullscreen} className={cn("rounded-lg p-1.5 hover:bg-secondary", fullscreen ? "text-primary" : "text-muted-foreground")} title={fullscreen ? "Quitter le grand écran (Échap)" : "Grand écran — n'afficher que l'e-mail"}>
+      {/* Au téléphone, un seul panneau à la fois : la liste, OU le message, OU le composeur. */}
+      <div className={cn("flex min-h-0 w-full flex-col border-r border-border md:w-80", (sel || compose) && "hidden md:flex")}>
+        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <p className="min-w-0 truncate text-sm font-semibold">{folders.find((f) => f.path === mailbox) ? folderLabel(folders.find((f) => f.path === mailbox)!) : mailbox}</p>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button onClick={() => loadList(mailbox, false, activeSearch)} className="rounded-lg p-2 text-muted-foreground hover:bg-secondary md:p-1.5" title="Actualiser" aria-label="Actualiser"><RefreshCw className={cn("h-4 w-4", loadingList && "animate-spin")} /></button>
+            <button onClick={toggleFullscreen} className={cn("rounded-lg p-2 hover:bg-secondary md:p-1.5", fullscreen ? "text-primary" : "text-muted-foreground")} title={fullscreen ? "Quitter le grand écran (Échap)" : "Grand écran — n'afficher que l'e-mail"} aria-label={fullscreen ? "Quitter le grand écran" : "Grand écran"}>
               {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </button>
           </div>
+        </div>
+        {/* LE PANNEAU DES DOSSIERS EST MASQUÉ AU TÉLÉPHONE : ses deux gestes essentiels — changer de
+            dossier, écrire un message — reviennent ici, sinon ils n'existaient qu'au bureau. */}
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2 md:hidden">
+          <Select value={mailbox} onChange={(e) => selectFolder(e.target.value)} aria-label="Dossier" className="h-10 min-w-0 flex-1">
+            {folders.length === 0 && <option value={mailbox}>{mailbox}</option>}
+            {folders.map((f) => <option key={f.path} value={f.path}>{folderLabel(f)}{f.unseen > 0 ? ` (${f.unseen})` : ""}</option>)}
+          </Select>
+          <Button size="sm" className="h-10 shrink-0" onClick={() => setCompose({ to: "", cc: "", subject: "", body: sigTop })}>
+            <PenSquare className="h-4 w-4" /> Écrire
+          </Button>
         </div>
         {/* Recherche + filtres */}
         <div className="space-y-2 border-b border-border px-3 py-2">
@@ -203,15 +215,16 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
               placeholder="Rechercher (expéditeur, objet, contenu…)"
-              className="w-full rounded-lg border border-input bg-background py-1.5 pl-8 pr-8 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+              type="search" enterKeyHint="search"
+              className="w-full rounded-lg border border-input bg-background py-2 pl-8 pr-9 text-base outline-none focus:ring-2 focus:ring-primary/30 md:py-1.5 md:pr-8 md:text-sm"
             />
             {(query || activeSearch) && (
-              <button onClick={clearSearch} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-secondary" title="Effacer"><X className="h-3.5 w-3.5" /></button>
+              <button onClick={clearSearch} className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-2 text-muted-foreground hover:bg-secondary md:right-2 md:p-0.5" title="Effacer" aria-label="Effacer la recherche"><X className="h-3.5 w-3.5" /></button>
             )}
           </div>
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => setUnreadOnly(false)} className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium", !unreadOnly ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>Tous</button>
-            <button onClick={() => setUnreadOnly(true)} className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium", unreadOnly ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>Non lus</button>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button onClick={() => setUnreadOnly(false)} className={cn("min-h-8 rounded-full border px-3 py-1 text-xs font-medium md:min-h-0 md:px-2.5 md:py-0.5", !unreadOnly ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>Tous</button>
+            <button onClick={() => setUnreadOnly(true)} className={cn("min-h-8 rounded-full border px-3 py-1 text-xs font-medium md:min-h-0 md:px-2.5 md:py-0.5", unreadOnly ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary")}>Non lus</button>
             {activeSearch && <span className="ml-auto truncate text-[0.6875rem] text-muted-foreground">Recherche : « {activeSearch} »</span>}
           </div>
         </div>
@@ -243,8 +256,8 @@ export function MailClient({ email, signature: initialSignature }: { email: stri
         </div>
       </div>
 
-      {/* Lecteur / composeur */}
-      <div className="flex min-h-0 flex-1 flex-col">
+      {/* Lecteur / composeur — au téléphone, seulement quand il y a quelque chose à lire ou à écrire. */}
+      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", sel || compose ? "flex" : "hidden md:flex")}>
         {compose ? (
           <Composer email={email} initial={compose} onClose={() => setCompose(null)} />
         ) : sel ? (
@@ -273,8 +286,8 @@ function Reader({ msg, mailbox, loading, onBack, onReply, onReplyAll, onForward 
   const hasMultiple = Boolean(msg.cc) || msg.to.split(",").filter((s) => s.trim()).length > 1;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-gradient-to-r from-accent/30 to-transparent px-4 py-3">
-        <button onClick={onBack} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary md:hidden"><ChevronLeft className="h-4 w-4" /></button>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-gradient-to-r from-accent/30 to-transparent px-3 py-3 md:px-4">
+        <button onClick={onBack} aria-label="Retour à la liste" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary md:hidden"><ChevronLeft className="h-5 w-5" /></button>
         <Avatar name={msg.from || msg.fromAddr || "?"} size="md" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">{msg.subject || "(sans objet)"}</p>
@@ -289,8 +302,8 @@ function Reader({ msg, mailbox, loading, onBack, onReply, onReplyAll, onForward 
       {msg.attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 border-b border-border px-4 py-2">
           {msg.attachments.map((a) => (
-            <button key={a.index} type="button" onClick={() => setPreview(a)} title="Aperçu" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 py-1 text-xs hover:bg-secondary">
-              <Paperclip className="h-3.5 w-3.5" /> {a.filename}
+            <button key={a.index} type="button" onClick={() => setPreview(a)} title="Aperçu" className="inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 py-1 text-xs hover:bg-secondary md:min-h-0">
+              <Paperclip className="h-3.5 w-3.5 shrink-0" /> <span className="min-w-0 truncate">{a.filename}</span>
             </button>
           ))}
         </div>
@@ -319,13 +332,13 @@ function AttachmentPreview({ mailbox, uid, att, onClose }: { mailbox: string; ui
   const isText = att.contentType.startsWith("text/") || /\.(txt|csv|log|md)$/.test(lower);
   const canPreview = isImg || isPdf || isText;
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-black/70 p-3 sm:p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black/70 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:p-6" onClick={onClose}>
       <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2.5 sm:px-4">
           <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
           <p className="min-w-0 flex-1 truncate text-sm font-medium">{att.filename}</p>
-          <a href={base} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary"><ExternalLink className="h-3.5 w-3.5" /> Télécharger</a>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button>
+          <a href={base} aria-label="Télécharger" className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary sm:min-h-0"><ExternalLink className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Télécharger</span></a>
+          <button onClick={onClose} aria-label="Fermer l'aperçu" className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-secondary sm:p-1.5"><X className="h-4 w-4" /></button>
         </div>
         <div className="min-h-0 flex-1 bg-muted/20">
           {isImg ? (
@@ -391,7 +404,7 @@ function LinkToDossier({ msg }: { msg: MsgDetail }) {
     <div className="relative">
       <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}><FolderKanban className="h-4 w-4" /> <span className="hidden sm:inline">Lier à un dossier</span></Button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-72 rounded-xl border border-border bg-card p-3 shadow-xl">
+        <div className="absolute right-0 top-full z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-3 shadow-xl">
           {done ? (
             <div className="space-y-2 text-sm">
               <p className="flex items-center gap-1.5 font-medium text-success"><Check className="h-4 w-4" /> E-mail lié{done.reference ? ` à ${done.reference}` : ""}.</p>
@@ -502,9 +515,9 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2.5 md:px-4">
         <p className="font-semibold">Nouveau message</p>
-        <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button>
+        <button onClick={onClose} aria-label="Fermer le message" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary md:p-1.5"><X className="h-4 w-4" /></button>
       </div>
       {sent ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-success">
@@ -512,7 +525,7 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
           <Button size="sm" variant="outline" onClick={onClose}>Fermer</Button>
         </div>
       ) : (
-        <form action={send} className="flex min-h-0 flex-1 flex-col gap-2 p-4">
+        <form action={send} className="flex min-h-0 flex-1 flex-col gap-2 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:p-4">
           <p className="text-xs text-muted-foreground">De : {email}</p>
           <div className="space-y-1">
             <div className="flex items-center justify-between">
@@ -531,15 +544,15 @@ function Composer({ email, initial, onClose }: { email: string; initial: { to: s
                   <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="max-w-[12rem] truncate">{f.name}</span>
                   <span className="text-muted-foreground">{fmtSize(f.size)}</span>
-                  <button type="button" onClick={() => removeFile(i)} className="rounded p-0.5 text-muted-foreground hover:bg-secondary hover:text-destructive" aria-label="Retirer la pièce jointe"><X className="h-3 w-3" /></button>
+                  <button type="button" onClick={() => removeFile(i)} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-destructive md:p-0.5" aria-label="Retirer la pièce jointe"><X className="h-3 w-3" /></button>
                 </span>
               ))}
             </div>
           )}
           <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
           {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {err}</div>}
-          <div className="flex items-center justify-between gap-2">
-            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium hover:bg-secondary"><Paperclip className="h-4 w-4" /> Joindre</button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm font-medium hover:bg-secondary md:min-h-0"><Paperclip className="h-4 w-4" /> Joindre</button>
             <div className="flex gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendIcon className="h-4 w-4" />} Envoyer</Button></div>
           </div>
         </form>

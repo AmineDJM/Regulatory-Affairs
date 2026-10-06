@@ -25,7 +25,7 @@ export function AiHealthCheckButton() {
       <button
         onClick={run}
         disabled={busy}
-        className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50"
+        className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50 sm:min-h-0 sm:w-fit"
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />} Tester maintenant
       </button>

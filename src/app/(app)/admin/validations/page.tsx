@@ -84,8 +84,8 @@ export default async function AdminValidationsPage() {
         {rules.length === 0 ? (
           <EmptyState icon="ShieldCheck" title="Aucune règle définie" description="Créez une règle pour router automatiquement les demandes vers les bons validateurs." />
         ) : (
-          <div className="surface overflow-hidden">
-            <Table>
+          <div className="sm:surface sm:overflow-hidden">
+            <Table mobileCards>
               <TableHeader>
                 <TableRow>
                   <TableHead>Règle</TableHead><TableHead>Module</TableHead><TableHead>Conditions</TableHead>
@@ -95,13 +95,13 @@ export default async function AdminValidationsPage() {
               <TableBody>
                 {rules.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{r.name}</TableCell>
                     <TableCell className="text-muted-foreground">{r.module || "Tous"}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{conditions(r)}</TableCell>
                     <TableCell className="text-sm">{validators(r) || "—"}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{VALIDATION_MODE[r.mode]}</TableCell>
                     <TableCell>{r.active ? <Badge tone="success" dot={false}>Active</Badge> : <Badge tone="neutral" dot={false}>Inactive</Badge>}</TableCell>
-                    <TableCell>
+                    <TableCell data-sans-etiquette>
                       <div className="flex items-center justify-end gap-0.5">
                         <RuleEditor users={userOptions} moduleOptions={moduleOptions} roleOptions={roleOptions} priorityOptions={priorityOptions} rule={toDTO(r)} />
                         <RuleControls id={r.id} active={r.active} />
@@ -120,8 +120,8 @@ export default async function AdminValidationsPage() {
         {requests.length === 0 ? (
           <EmptyState icon="ListChecks" title="Aucune demande" description="Les demandes de validation routées par les règles apparaîtront ici." />
         ) : (
-          <div className="surface overflow-hidden">
-            <Table>
+          <div className="sm:surface sm:overflow-hidden">
+            <Table mobileCards>
               <TableHeader>
                 <TableRow>
                   <TableHead>Référence</TableHead><TableHead>Objet</TableHead><TableHead>Module</TableHead>
@@ -132,10 +132,10 @@ export default async function AdminValidationsPage() {
                 {requests.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="font-mono text-xs">{r.reference}</TableCell>
-                    <TableCell className="font-medium">{r.title}</TableCell>
+                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{r.title}</TableCell>
                     <TableCell className="text-muted-foreground">{r.module}</TableCell>
                     <TableCell className="text-muted-foreground">{r.requester?.name ?? "—"}</TableCell>
-                    <TableCell>{r.amount === null ? "—" : formatCurrency(Number(r.amount))}</TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">{r.amount === null ? "—" : formatCurrency(Number(r.amount))}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{r.steps.map((s) => `${s.validator?.name ?? "?"} (${s.status === "APPROVED" ? "✓" : s.status === "REJECTED" ? "✗" : "…"})`).join(r.mode === "PARALLEL" ? " + " : " → ")}</TableCell>
                     <TableCell><StatusBadge map={VALIDATION_STATUS} value={r.status} /></TableCell>
                     <TableCell className="text-xs text-muted-foreground">{formatDateTime(r.createdAt)}</TableCell>

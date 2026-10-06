@@ -75,7 +75,7 @@ export function PulseStrip({ pulse }: { pulse: PulseView }) {
           </div>
         </div>
 
-        <div className="grid flex-1 grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-5">
+        <div className="grid min-w-0 flex-1 basis-full grid-cols-3 gap-x-4 gap-y-2 sm:basis-auto sm:grid-cols-5">
           <Metric label="Risques suivis" value={current.riskTotal} delta={delta?.riskTotal} />
           <Metric label="Critiques" value={current.riskCritical} delta={delta?.riskCritical} tone={current.riskCritical > 0 ? "text-destructive" : undefined} />
           <Metric label="Bloqués >14 j" value={current.stuck} delta={delta?.stuck} />

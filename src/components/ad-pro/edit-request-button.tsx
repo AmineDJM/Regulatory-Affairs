@@ -107,7 +107,7 @@ export function AdProEditButton({
                       defaultValue={defaultValue}
                       type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
                       required={Boolean(f.requis)}
-                      {...(f.type === "number" ? { step: "any", min: "0" } : {})}
+                      {...(f.type === "number" ? { step: "any", min: "0", inputMode: "decimal" as const } : {})}
                     />
                   )}
                 </div>
@@ -118,15 +118,15 @@ export function AdProEditButton({
           {msg && (
             <p className={`flex items-start gap-2 rounded-xl px-3 py-2 text-sm ${msg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
               {msg.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />}
-              {msg.text}
+              <span className="min-w-0 [overflow-wrap:anywhere]">{msg.text}</span>
             </p>
           )}
 
-          <div className="flex gap-2">
-            <Button size="sm" type="submit" disabled={busy}>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button size="sm" type="submit" disabled={busy} className="h-10 w-full sm:h-8 sm:w-auto">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />} Enregistrer
             </Button>
-            <Button size="sm" type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+            <Button size="sm" type="button" variant="outline" onClick={() => setOpen(false)} className="h-10 w-full sm:h-8 sm:w-auto">Annuler</Button>
           </div>
         </form>
       </Sheet>

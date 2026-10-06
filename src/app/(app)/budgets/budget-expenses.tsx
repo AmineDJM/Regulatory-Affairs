@@ -59,7 +59,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
     <div className="space-y-5">
       {/* 1. À RANGER — la seule tâche de cet écran. */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Inbox className="h-4 w-4 text-warning" />
           <h2 className="text-sm font-semibold">À imputer</h2>
           {overview.unattributed.total > 0 && <Badge tone="warning" dot={false}>{formatCurrency(overview.unattributed.total)}</Badge>}
@@ -96,18 +96,18 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                     className="h-4 w-4 shrink-0 rounded border-input"
                   />
                 )}
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-[12rem]">
                   <p className="truncate font-medium">{tx.label}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                     {tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}
                     {" · "}<span className={tx.societe ? "" : "text-warning"}>{tx.societe ?? "sans société"}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">{tx.paiement}</p>
                 </div>
-                <span className="shrink-0 font-semibold tabular-nums">{formatCurrency(tx.amount)}</span>
+                <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">{formatCurrency(tx.amount)}</span>
                 <button
                   type="button" onClick={() => setOuverte(ouverte === tx.id ? null : tx.id)} aria-expanded={ouverte === tx.id}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-secondary"
+                  className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary sm:min-h-0 sm:px-2"
                 >
                   <Paperclip className="h-3.5 w-3.5" /> Pièces ({tx.pieces.length + tx.liens.length})
                 </button>
@@ -117,7 +117,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                   href="/budgets/depenses" noteInitiale={`Bonjour, cette dépense (${tx.reference} — ${tx.label}, ${formatCurrency(tx.amount)}${tx.counterparty ? `, ${tx.counterparty}` : ""}) est-elle toujours d'actualité ? A-t-elle été payée ?`}
                 />
                 {canAttribute ? (
-                  <Select defaultValue="" onChange={(e) => assign(tx.id, e.target.value)} className="h-9 w-48 text-xs" aria-label={`Imputer ${tx.label}`}>
+                  <Select defaultValue="" onChange={(e) => assign(tx.id, e.target.value)} className="h-10 w-full sm:h-9 sm:w-48 sm:text-xs" aria-label={`Imputer ${tx.label}`}>
                     <option value="">Imputer à…</option>
                     {cats.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
                   </Select>
@@ -149,10 +149,10 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                     )}
                     {/* CETTE DÉPENSE CONCERNE UNE AUTRE SOCIÉTÉ : la déplacer. */}
                     {canAttribute && societes.length > 0 && (
-                      <label className="flex flex-wrap items-center gap-2">
+                      <label className="flex w-full flex-wrap items-center gap-2">
                         <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                         <span>Société de la dépense :</span>
-                        <Select defaultValue={tx.companyId ?? ""} onChange={(e) => deplacer(tx.id, e.target.value)} className="h-8 w-56 text-xs" aria-label={`Société de ${tx.label}`}>
+                        <Select defaultValue={tx.companyId ?? ""} onChange={(e) => deplacer(tx.id, e.target.value)} className="h-10 w-full sm:h-8 sm:w-56 sm:text-xs" aria-label={`Société de ${tx.label}`}>
                           {!tx.companyId && <option value="">— Aucune —</option>}
                           {societes.map((s) => <option key={s.id} value={s.id}>{s.nom}</option>)}
                         </Select>
@@ -183,7 +183,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
           <ul className="surface divide-y divide-border">
             {overview.attributed.transactions.map((tx) => (
               <li key={`${tx.kind}-${tx.id}`} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-[12rem]">
                   <p className="truncate font-medium">{tx.label}</p>
                   <p className="truncate text-xs text-muted-foreground">
                     {tx.categoryName} · {tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}
@@ -191,7 +191,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                 </div>
                 {tx.kind === "BUDGET" && <Badge tone="neutral" dot={false}>Budgétaire</Badge>}
                 {tx.kind === "GENERAL_MEANS" && <Badge tone="info" dot={false}>Moyens généraux</Badge>}
-                <span className="shrink-0 font-semibold tabular-nums">{formatCurrency(tx.amount)}</span>
+                <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">{formatCurrency(tx.amount)}</span>
                 {tx.kind === "GENERAL_MEANS" ? (
                   // Un achat des moyens généraux se corrige LÀ-BAS, avec son justificatif. Le
                   // modifier depuis le budget donnerait deux endroits pour changer un même
@@ -205,7 +205,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                   ) : null
                 ) : !canAttribute ? null : tx.kind === "FINANCE" ? (
                   // Dépense de trésorerie : ré-imputable ici, mais elle se supprime dans les Finances.
-                  <Select defaultValue={tx.categoryId} onChange={(e) => assign(tx.id, e.target.value)} className="h-9 w-48 text-xs" aria-label={`Ré-imputer ${tx.label}`}>
+                  <Select defaultValue={tx.categoryId} onChange={(e) => assign(tx.id, e.target.value)} className="h-10 w-full sm:h-9 sm:w-48 sm:text-xs" aria-label={`Ré-imputer ${tx.label}`}>
                     <option value="">— Retirer l&apos;imputation —</option>
                     {cats.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
                   </Select>
@@ -213,7 +213,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                   <div className="flex items-center gap-0.5">
                     <button
                       title="Modifier cette ligne budgétaire" onClick={() => setEditExpense(tx)}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
@@ -224,7 +224,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                           const fd = new FormData(); fd.set("id", tx.id); run(() => deleteBudgetExpense(fd));
                         }
                       }}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

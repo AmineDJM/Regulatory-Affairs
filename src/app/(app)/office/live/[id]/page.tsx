@@ -43,11 +43,11 @@ export default async function OfficeLivePage({ params }: { params: { id: string 
     // Un document illisible ou interdit ne doit pas rendre une page à moitié : on le dit.
     if (!r.motif) notFound();
     return (
-      <div className="p-6">
-        <Link href="/office" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700">
+      <div className="p-4 sm:p-6">
+        <Link href="/office" className="inline-flex items-center gap-2 py-1 text-sm text-slate-500 hover:text-slate-700">
           <ArrowLeft size={15} /> Bureautique
         </Link>
-        <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{r.motif}</p>
+        <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 [overflow-wrap:anywhere]">{r.motif}</p>
       </div>
     );
   }

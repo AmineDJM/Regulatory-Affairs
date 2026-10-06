@@ -143,10 +143,10 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
       </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2">
-            <ShieldPlus className="h-5 w-5 text-primary" />
-            <h1 className="text-xl font-semibold tracking-tight">{decl.label}</h1>
+            <ShieldPlus className="h-5 w-5 shrink-0 text-primary" />
+            <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight">{decl.label}</h1>
           </div>
           <p className="text-sm text-muted-foreground">
             <span className="font-mono">{decl.reference}</span> · {CIRCUIT_LABEL[etat.circuit]}
@@ -230,7 +230,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
           {/* Documents joints à l'événement source (congrès / sponsoring) */}
           {sourceDocItems.length > 0 && (
             <Card>
-              <CardHeader className="flex-row items-center justify-between">
+              <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
                 <CardTitle>{promoSource ? "Pièces du dossier (support, facture)" : "Documents de l'événement"}</CardTitle>
                 <span className="text-xs text-muted-foreground">{sourceLabel}</span>
               </CardHeader>
@@ -420,9 +420,9 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium">{value}</span>
+    <div className="flex items-start justify-between gap-3">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-words text-right font-medium">{value}</span>
     </div>
   );
 }

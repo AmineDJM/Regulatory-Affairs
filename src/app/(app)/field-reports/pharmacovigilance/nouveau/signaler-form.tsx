@@ -65,7 +65,7 @@ export function SignalerCasForm({ produits, etablissements, aujourdhui }: {
     <form onSubmit={envoyer} className="surface space-y-5 p-4 sm:p-5">
       <div className={champ}>
         <label className={libelle} htmlFor="pv-produit">Produit concerné *</label>
-        <Input value={qProduit} onChange={(e) => setQProduit(e.target.value)} placeholder="Rechercher un produit…" aria-label="Rechercher un produit" />
+        <Input type="search" enterKeyHint="search" autoComplete="off" value={qProduit} onChange={(e) => setQProduit(e.target.value)} placeholder="Rechercher un produit…" aria-label="Rechercher un produit" />
         <Select id="pv-produit" name="promoProductId" value={produit} onChange={(e) => setProduit(e.target.value)} required>
           <option value="">— Choisir le produit —</option>
           {miens.length > 0 && (
@@ -85,7 +85,7 @@ export function SignalerCasForm({ produits, etablissements, aujourdhui }: {
 
       <div className={champ}>
         <label className={libelle} htmlFor="pv-etab">Hôpital / établissement *</label>
-        <Input value={qEtab} onChange={(e) => setQEtab(e.target.value)} placeholder="Rechercher dans l'annuaire (nom, ville, wilaya)…" aria-label="Rechercher un établissement" />
+        <Input type="search" enterKeyHint="search" autoComplete="off" value={qEtab} onChange={(e) => setQEtab(e.target.value)} placeholder="Rechercher dans l'annuaire (nom, ville, wilaya)…" aria-label="Rechercher un établissement" />
         <Select id="pv-etab" name="institutionId" value={etab} onChange={(e) => setEtab(e.target.value)} required>
           <option value="">— Choisir l&apos;établissement —</option>
           {etabsFiltres.map((x) => <option key={x.id} value={x.id}>{x.nom}{x.lieu ? ` — ${x.lieu}` : ""}</option>)}
@@ -116,10 +116,11 @@ export function SignalerCasForm({ produits, etablissements, aujourdhui }: {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className={champ}>
+      {/* Au téléphone, l'âge et le sexe se partagent une ligne : deux petits champs, un seul coup d'œil. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+        <div className={`${champ} col-span-2 sm:col-span-1`}>
           <label className={libelle} htmlFor="pv-medecin">Médecin (facultatif)</label>
-          <Input id="pv-medecin" name="doctorName" placeholder="Dr …" />
+          <Input id="pv-medecin" name="doctorName" autoComplete="off" placeholder="Dr …" />
         </div>
         <div className={champ}>
           <label className={libelle} htmlFor="pv-age">Âge du patient</label>
@@ -141,15 +142,18 @@ export function SignalerCasForm({ produits, etablissements, aujourdhui }: {
         <input
           id="pv-pieces" name="files" type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
           onChange={(e) => setNbFichiers(e.target.files?.length ?? 0)}
-          className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-sm file:font-medium"
+          className="block w-full min-w-0 text-sm file:mr-3 file:min-h-11 file:rounded-md file:border-0 file:bg-secondary file:px-4 file:py-2.5 file:text-sm file:font-medium sm:file:min-h-0 sm:file:px-3 sm:file:py-2"
         />
         {nbFichiers > 0 && <p className="text-xs text-muted-foreground">{nbFichiers} fichier{nbFichiers > 1 ? "s" : ""} sélectionné{nbFichiers > 1 ? "s" : ""}.</p>}
       </div>
 
-      {err && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-      <Button type="submit" disabled={busy} className="w-full sm:w-auto">
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />} Signaler à Regulatory
-      </Button>
+      {err && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+      {/* TÉLÉPHONE : l'envoi colle au bas de l'écran pendant toute la saisie, sous le pouce. */}
+      <div className="sticky bottom-2 z-10 -mx-2 rounded-xl border border-border bg-card/95 p-2 shadow-md backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none">
+        <Button type="submit" disabled={busy} className="h-12 w-full sm:h-10 sm:w-auto">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />} Signaler à Regulatory
+        </Button>
+      </div>
     </form>
   );
 }

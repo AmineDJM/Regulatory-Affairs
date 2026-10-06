@@ -105,7 +105,7 @@ function NudgePanel({ id, onDone }: { id: string; onDone: () => void }) {
   };
 
   return (
-    <section className="surface space-y-3 p-4">
+    <section className="surface space-y-3 p-3 sm:p-4">
       <div>
         <h2 className="text-sm font-semibold">Votre demande est chez les Finances</h2>
         <p className="text-xs text-muted-foreground">
@@ -117,7 +117,7 @@ function NudgePanel({ id, onDone }: { id: string; onDone: () => void }) {
         <Button variant={kind === "REMINDER" ? "primary" : "outline"} onClick={() => { setKind("REMINDER"); setDone(null); setErr(null); }}>
           <BellRing className="h-4 w-4" /> Relancer
         </Button>
-        <Button variant={kind === "URGENT" ? "primary" : "outline"} className={kind === "URGENT" ? "" : "text-destructive"} onClick={() => { setKind("URGENT"); setDone(null); setErr(null); }}>
+        <Button variant={kind === "URGENT" ? "primary" : "outline"} className={kind === "URGENT" ? "h-auto min-h-10 max-w-full whitespace-normal py-2" : "h-auto min-h-10 max-w-full whitespace-normal py-2 text-destructive"} onClick={() => { setKind("URGENT"); setDone(null); setErr(null); }}>
           <Siren className="h-4 w-4" /> Signaler une urgence de paiement
         </Button>
       </div>
@@ -138,9 +138,9 @@ function NudgePanel({ id, onDone }: { id: string; onDone: () => void }) {
               qu&apos;elles liront pour arbitrer entre deux paiements pressants.
             </p>
           )}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled={busy} onClick={() => { setKind(null); setComment(""); }}>Annuler</Button>
-            <Button disabled={busy || (kind === "URGENT" && comment.trim().length === 0)} onClick={() => void envoyer()}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" className="w-full sm:w-auto" disabled={busy} onClick={() => { setKind(null); setComment(""); }}>Annuler</Button>
+            <Button className="w-full sm:w-auto" disabled={busy || (kind === "URGENT" && comment.trim().length === 0)} onClick={() => void envoyer()}>
               {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer
             </Button>
           </div>
@@ -309,16 +309,16 @@ export function PaymentDossier({
               <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-muted-foreground">{e.actor ?? "Système"} · {e.at} · {EVENT_LABEL[e.kind] ?? e.kind}</p>
-                {e.message && <p className="whitespace-pre-wrap">{e.message}</p>}
+                {e.message && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{e.message}</p>}
               </div>
             </li>
           ))}
         </ol>
         {open && (
           <div className="flex gap-2">
-            <Input value={message} onChange={(ev) => setMessage(ev.target.value)} placeholder="Écrire un message…" />
+            <Input value={message} onChange={(ev) => setMessage(ev.target.value)} placeholder="Écrire un message…" className="min-w-0" />
             <Button
-              variant="outline" disabled={busy !== null || !message.trim()}
+              variant="outline" className="shrink-0" aria-label="Envoyer le message" disabled={busy !== null || !message.trim()}
               onClick={() => void run("msg", addPaymentComment, { requestId: id, message })}
             >
               {busy === "msg" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -342,7 +342,7 @@ export function PaymentDossier({
           <h2 className="text-sm font-semibold">Retirer la demande</h2>
           <p className="text-xs text-muted-foreground">Le paiement n&apos;est pas encore réglé : le retirer annule l&apos;ordre de dépense, et les Finances sont prévenues.</p>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Motif (facultatif)" />
-          <BoutonDecisif variant="outline" className="text-muted-foreground" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
+          <BoutonDecisif variant="outline" className="w-full text-muted-foreground sm:w-auto" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
             Retirer la demande
           </BoutonDecisif>
         </section>
@@ -350,11 +350,12 @@ export function PaymentDossier({
 
       {/* ───────────── Les gestes ───────────── */}
       {open && !isCompanion && (isRequester || isFinance) && (
-        <section className="surface space-y-3 p-4">
+        <section className="surface space-y-3 p-3 sm:p-4">
           <h2 className="text-sm font-semibold">Que faire de ce dossier ?</h2>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Motif / commentaire — obligatoire pour une mise en attente ou un refus." />
 
-          <div className="flex flex-wrap gap-2">
+          {/* Au téléphone, chaque geste occupe toute la largeur : aucun ne se cache au bout d'une rangée. */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             {/* CORRIGER LA DEMANDE (§118.191, audit R04) — offert quand l'action l'accepterait, et
                 seulement alors : la règle est la même des deux côtés (`refusDeCorrection`). */}
             {isRequester && correction.refus === null && (
@@ -386,25 +387,26 @@ export function PaymentDossier({
               </Button>
             )}
             {isFinance && status !== "CHANGES_REQUESTED" && (
-              <BoutonDecisif variant="outline" disabled={busy !== null} onClick={() => void run("back", decidePaymentRequest, { id, move: "REQUEST_CHANGES", note })}>
+              <BoutonDecisif variant="outline" className="w-full sm:w-auto" disabled={busy !== null} onClick={() => void run("back", decidePaymentRequest, { id, move: "REQUEST_CHANGES", note })}>
                 {busy === "back" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Renvoyer au demandeur
               </BoutonDecisif>
             )}
             {isFinance && (
               <>
                 <BoutonDecisif
+                  className="h-11 w-full sm:h-10 sm:w-auto"
                   disabled={busy !== null || !canApproveNow} title={approveBlocker ?? undefined}
                   onClick={() => void run("ok", decidePaymentRequest, { id, move: "APPROVE", note })}
                 >
                   {busy === "ok" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Bon à payer
                 </BoutonDecisif>
-                <BoutonDecisif variant="outline" className="text-destructive" disabled={busy !== null} onClick={() => void run("no", decidePaymentRequest, { id, move: "REJECT", note })}>
+                <BoutonDecisif variant="outline" className="h-11 w-full text-destructive sm:h-10 sm:w-auto" disabled={busy !== null} onClick={() => void run("no", decidePaymentRequest, { id, move: "REJECT", note })}>
                   {busy === "no" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
                 </BoutonDecisif>
               </>
             )}
             {isRequester && refusRetrait === null && (
-              <BoutonDecisif variant="outline" className="text-muted-foreground" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
+              <BoutonDecisif variant="outline" className="w-full text-muted-foreground sm:w-auto" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
                 Retirer la demande
               </BoutonDecisif>
             )}
@@ -467,7 +469,7 @@ function CorrigerDemande({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="cd-amount">Montant (DZD)</Label>
-                <Input id="cd-amount" name="amount" type="number" min="0.01" step="0.01" defaultValue={String(v.amount)} required />
+                <Input id="cd-amount" name="amount" type="number" inputMode="decimal" min="0.01" step="0.01" defaultValue={String(v.amount)} required />
               </div>
             </div>
             {correction.centreAutorise && (
@@ -517,9 +519,9 @@ function CorrigerDemande({
                 <Textarea id="cd-note" name="note" rows={2} required placeholder="Ex. : la facture définitive porte 450 000 DZD, pas 500 000." />
               </div>
             )}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" disabled={busy !== null} onClick={() => setOuvert(false)}>Fermer</Button>
-              <Button type="submit" disabled={busy !== null}>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" disabled={busy !== null} onClick={() => setOuvert(false)}>Fermer</Button>
+              <Button type="submit" className="w-full sm:w-auto" disabled={busy !== null}>
                 {busy === "corriger" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la correction
               </Button>
             </div>
@@ -599,13 +601,13 @@ function DossierRequirements({
         <Label>Contact chez le bénéficiaire <span className="text-xs font-normal text-muted-foreground">— facultatif</span></Label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom" />
-          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Téléphone" />
-          <Input value={email} type="email" onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" />
+          <Input value={phone} type="tel" inputMode="tel" onChange={(e) => setPhone(e.target.value)} placeholder="Téléphone" />
+          <Input value={email} type="email" inputMode="email" onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" />
         </div>
       </div>
 
       <div className="flex justify-end">
-        <Button size="sm" variant="outline" disabled={busy !== null || !modifie} onClick={enregistrer}>
+        <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled={busy !== null || !modifie} onClick={enregistrer}>
           {busy === "details" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer
         </Button>
       </div>
@@ -655,13 +657,13 @@ function PieceCard({
     <li className={`surface space-y-2 p-3 ${superseded ? "opacity-60" : ""}`}>
       <div className="flex flex-wrap items-center gap-2">
         <FileGlyph name={piece.name} isFile />
-        <a href={`/api/documents/${piece.documentId}?dl=1`} className="min-w-0 flex-1 truncate text-sm font-medium hover:underline">
+        <a href={`/api/documents/${piece.documentId}?dl=1`} className="min-w-0 flex-1 basis-[10rem] truncate text-sm font-medium hover:underline">
           {piece.name}
         </a>
         <Badge tone="neutral" dot={false}>{PAYMENT_PIECE_KIND[piece.kind] ?? piece.kind}</Badge>
         <StatusBadge map={PAYMENT_PIECE_STATUS} value={piece.status} dot={false} />
         {superseded && <Badge tone="neutral" dot={false}>remplacée</Badge>}
-        <BoutonTelecharger href={`/api/documents/${piece.documentId}?dl=1`} nom={piece.name} className="rounded p-1 text-muted-foreground hover:bg-secondary" ariaLabel="Télécharger">
+        <BoutonTelecharger href={`/api/documents/${piece.documentId}?dl=1`} nom={piece.name} className="rounded p-2 text-muted-foreground hover:bg-secondary sm:p-1" ariaLabel="Télécharger">
           <Download className="h-3.5 w-3.5" />
         </BoutonTelecharger>
       </div>
@@ -679,9 +681,9 @@ function PieceCard({
         </p>
       )}
 
-      {piece.note && <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-sm"><strong>Demandeur :</strong> {piece.note}</p>}
+      {piece.note && <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-sm [overflow-wrap:anywhere]"><strong>Demandeur :</strong> {piece.note}</p>}
       {piece.reviewNote && (
-        <p className={`rounded-lg px-2.5 py-1.5 text-sm ${inCause ? "bg-warning/10" : "bg-secondary/40"}`}>
+        <p className={`rounded-lg px-2.5 py-1.5 text-sm [overflow-wrap:anywhere] ${inCause ? "bg-warning/10" : "bg-secondary/40"}`}>
           <strong>Finances{piece.reviewedBy ? ` (${piece.reviewedBy})` : ""} :</strong> {piece.reviewNote}
         </p>
       )}
@@ -689,8 +691,8 @@ function PieceCard({
       {open && !superseded && isRequester && (
         <div className="space-y-2">
           <div className="flex gap-2">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Commenter cette pièce…" />
-            <Button variant="outline" disabled={busy !== null} onClick={() => void run(`note-${piece.id}`, commentPaymentPiece, { pieceId: piece.id, note })}>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Commenter cette pièce…" className="min-w-0" />
+            <Button variant="outline" className="shrink-0" disabled={busy !== null} onClick={() => void run(`note-${piece.id}`, commentPaymentPiece, { pieceId: piece.id, note })}>
               {busy === `note-${piece.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enregistrer"}
             </Button>
           </div>
@@ -722,14 +724,14 @@ function PieceCard({
       {open && !superseded && isFinance && dossierStatus !== "DRAFT" && (
         <div className="space-y-2 border-t border-border pt-2">
           <Input value={review} onChange={(e) => setReview(e.target.value)} placeholder="Ce qui ne va pas (obligatoire pour « à revoir » ou « refusée »)" />
-          <div className="flex flex-wrap gap-2">
-            <BoutonDecisif size="sm" variant="outline" disabled={busy !== null} onClick={() => void run(`ok-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "ACCEPTED", note: review })}>
+          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-3 sm:flex sm:flex-wrap">
+            <BoutonDecisif size="sm" variant="outline" className="w-full sm:w-auto" disabled={busy !== null} onClick={() => void run(`ok-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "ACCEPTED", note: review })}>
               <Check className="h-3.5 w-3.5" /> Accepter
             </BoutonDecisif>
-            <BoutonDecisif size="sm" variant="outline" disabled={busy !== null} onClick={() => void run(`fix-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "CHANGES_REQUESTED", note: review })}>
+            <BoutonDecisif size="sm" variant="outline" className="w-full sm:w-auto" disabled={busy !== null} onClick={() => void run(`fix-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "CHANGES_REQUESTED", note: review })}>
               <RotateCcw className="h-3.5 w-3.5" /> À revoir
             </BoutonDecisif>
-            <BoutonDecisif size="sm" variant="outline" className="text-destructive" disabled={busy !== null} onClick={() => void run(`no-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "REJECTED", note: review })}>
+            <BoutonDecisif size="sm" variant="outline" className="w-full text-destructive sm:w-auto" disabled={busy !== null} onClick={() => void run(`no-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "REJECTED", note: review })}>
               <X className="h-3.5 w-3.5" /> Refuser
             </BoutonDecisif>
             {/* PLUS DE « FAIRE VALIDER » ICI.
@@ -824,10 +826,10 @@ function AskPiece({
               Demande envoyée ({done}). Elle apparaît dans « Pièces demandées » de la personne.
             </p>
           )}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={sending}>Fermer</Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)} disabled={sending}>Fermer</Button>
             <Button
-              type="button" disabled={sending || !who || !label.trim()}
+              type="button" className="w-full sm:w-auto" disabled={sending || !who || !label.trim()}
               onClick={async () => {
                 setSending(true); setErr(null);
                 const fd = new FormData();

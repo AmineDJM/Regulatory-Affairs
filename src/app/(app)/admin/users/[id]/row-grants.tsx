@@ -57,16 +57,16 @@ export function RowGrants({ userId, entityType, title, options, selected }: RowG
           </div>
           <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
             {filtered.map((o) => (
-              <label key={o.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+              <label key={o.id} className="flex items-start gap-2 rounded px-1.5 py-2 text-sm hover:bg-secondary sm:items-center sm:py-1">
                 <input
                   type="checkbox"
                   name="rowId"
                   value={o.id}
                   checked={picked.has(o.id)}
                   onChange={() => toggle(o.id)}
-                  className="h-4 w-4 rounded border-input"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-input sm:mt-0"
                 />
-                {o.label}
+                <span className="min-w-0 break-words">{o.label}</span>
               </label>
             ))}
             {filtered.length === 0 && <p className="px-1 py-2 text-xs text-muted-foreground">Aucun résultat.</p>}

@@ -39,7 +39,11 @@ export function AdoptionTable({ scores }: { scores: AdoptionScore[] }) {
               <Avatar name={s.name} size="sm" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{s.name}</p>
-                <p className="truncate text-xs text-muted-foreground">{ROLE_LABELS[s.role] ?? s.role}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {ROLE_LABELS[s.role] ?? s.role}
+                  {/* Le libellé du palier n'a sa pastille qu'en grand écran : on le garde lisible ailleurs. */}
+                  <span className={cn("lg:hidden", TONE_TEXT[s.tone])}> · {s.label}</span>
+                </p>
               </div>
 
               {/* Tendance (jours actifs vs période précédente) */}
@@ -71,7 +75,7 @@ export function AdoptionTable({ scores }: { scores: AdoptionScore[] }) {
                 <div className="grid grid-cols-1 gap-x-6 gap-y-2.5 sm:grid-cols-2">
                   {s.components.map((c) => (
                     <div key={c.key}>
-                      <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center justify-between gap-2 text-xs">
                         <span className="font-medium">{c.label} <span className="text-muted-foreground">· pds {c.weight}</span></span>
                         <span className="tabular-nums text-muted-foreground">{c.score}/100</span>
                       </div>

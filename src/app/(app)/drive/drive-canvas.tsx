@@ -105,7 +105,7 @@ export function DriveCanvas({
           <div
             role="menu"
             style={{ top: menu.y, left: menu.x }}
-            className="fixed z-50 w-64 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
+            className="fixed z-50 w-64 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
           >
             {naming ? (
               <div className="space-y-2 p-2">
@@ -120,14 +120,14 @@ export function DriveCanvas({
                     if (e.key === "Enter") { e.preventDefault(); void submit(); }
                     if (e.key === "Escape") { e.preventDefault(); close(); }
                   }}
-                  className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+                  className="w-full rounded-lg border border-input bg-background px-2 py-2 text-base outline-none focus:border-primary sm:py-1.5 sm:text-sm"
                 />
                 {err && <p className="px-1 text-xs text-destructive">{err}</p>}
                 <div className="flex justify-end gap-2 px-1 pb-1">
-                  <button type="button" onClick={close} className="text-xs text-muted-foreground hover:text-foreground">Annuler</button>
+                  <button type="button" onClick={close} className="px-1 py-2 text-xs text-muted-foreground hover:text-foreground sm:py-0">Annuler</button>
                   <button
                     type="button" onClick={() => void submit()} disabled={busy}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-2 text-xs sm:py-1 font-medium text-primary-foreground disabled:opacity-60"
                   >
                     {busy && <Loader2 className="h-3 w-3 animate-spin" />} Créer
                   </button>
@@ -139,7 +139,7 @@ export function DriveCanvas({
                 {ITEMS.map((it) => (
                   <button
                     key={it.kind} type="button" role="menuitem" onClick={() => start(it.kind)}
-                    className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm hover:bg-secondary"
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-secondary sm:py-1.5"
                   >
                     <it.icon className="h-4 w-4 shrink-0 text-muted-foreground" /> {it.label}
                   </button>
@@ -147,7 +147,7 @@ export function DriveCanvas({
                 <div className="my-1 border-t border-border" />
                 <button
                   type="button" role="menuitem" onClick={() => { close(); router.refresh(); }}
-                  className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm hover:bg-secondary"
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-secondary sm:py-1.5"
                 >
                   <RefreshCw className="h-4 w-4 shrink-0 text-muted-foreground" /> Actualiser
                 </button>

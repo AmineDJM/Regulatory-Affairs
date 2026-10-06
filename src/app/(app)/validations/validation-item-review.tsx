@@ -19,7 +19,7 @@ function pill(active: boolean, tone: "success" | "warning" | "destructive") {
     destructive: "border-destructive bg-destructive/10 text-destructive",
   };
   return cn(
-    "inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-xs transition-colors",
+    "inline-flex min-h-9 items-center gap-1 rounded-md border px-2.5 py-1 text-xs transition-colors sm:min-h-0 sm:px-1.5",
     active ? on[tone] : "border-border text-muted-foreground hover:bg-secondary",
   );
 }
@@ -73,8 +73,8 @@ export function ItemReview({
       <div className="mt-1 space-y-1.5">
         <Textarea autoFocus value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Commentaire (optionnel)…" className="min-h-[46px] text-sm" />
         {err && <p className="text-xs text-destructive">{err}</p>}
-        <div className="flex gap-1.5">
-          <Button size="sm" disabled={pending} onClick={submit}>{pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Enregistrer « {LABEL[open]} »</Button>
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5 sm:min-h-8" disabled={pending} onClick={submit}>{pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Enregistrer « {LABEL[open]} »</Button>
           <Button size="sm" variant="ghost" disabled={pending} onClick={() => setOpen(null)}>Annuler</Button>
         </div>
       </div>
@@ -95,8 +95,8 @@ export function ItemReview({
       </button>
       {cur && (
         <>
-          <span className={cn("text-xs font-medium", TONE[cur])}>{LABEL[cur]}{currentComment ? ` — ${currentComment}` : ""}</span>
-          <button type="button" onClick={clear} disabled={pending} className="text-muted-foreground hover:text-foreground" title="Effacer mon avis sur cet élément">
+          <span className={cn("min-w-0 text-xs font-medium [overflow-wrap:anywhere]", TONE[cur])}>{LABEL[cur]}{currentComment ? ` — ${currentComment}` : ""}</span>
+          <button type="button" onClick={clear} disabled={pending} className="rounded-md p-2 text-muted-foreground hover:text-foreground sm:p-0.5" title="Effacer mon avis sur cet élément" aria-label="Effacer mon avis sur cet élément">
             {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
           </button>
         </>

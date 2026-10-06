@@ -54,7 +54,7 @@ export function ResearchMeta({
   if (!canEdit) {
     return (
       <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-        <div><p className="text-xs text-muted-foreground">Sources de données</p><p>{research.sources || "—"}</p></div>
+        <div className="min-w-0"><p className="text-xs text-muted-foreground">Sources de données</p><p className="[overflow-wrap:anywhere]">{research.sources || "—"}</p></div>
         <div><p className="text-xs text-muted-foreground">Participants</p><p>{research.participants.map((p) => p.name).join(", ") || "—"}</p></div>
         {research.notes && <div className="sm:col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p className="whitespace-pre-wrap">{research.notes}</p></div>}
       </div>
@@ -86,12 +86,12 @@ export function ResearchMeta({
           {pIds.map((id) => (
             <span key={id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
               {nameById.get(id) ?? id}
-              <button type="button" onClick={() => saveParticipants(pIds.filter((x) => x !== id))} className="rounded-full hover:bg-primary/20"><X className="h-3 w-3" /></button>
+              <button type="button" aria-label={`Retirer ${nameById.get(id) ?? id}`} onClick={() => saveParticipants(pIds.filter((x) => x !== id))} className="-my-1 -mr-1.5 rounded-full p-2 hover:bg-primary/20 sm:m-0 sm:p-0"><X className="h-3.5 w-3.5 sm:h-3 sm:w-3" /></button>
             </span>
           ))}
         </div>
         <div className="flex items-center gap-1.5">
-          <UserPlus className="h-4 w-4 text-muted-foreground" />
+          <UserPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
           <Select value="" onChange={(e) => { if (e.target.value) saveParticipants([...pIds, e.target.value]); }} disabled={available.length === 0}>
             <option value="">{available.length ? "+ Ajouter un collaborateur…" : "Tout le monde est déjà participant"}</option>
             {available.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}

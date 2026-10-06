@@ -66,7 +66,7 @@ export default async function DiagnosticPage() {
                 <Icon name={p.ok ? "CircleCheck" : "CircleX"} className={cn("h-4 w-4 shrink-0", p.ok ? "text-emerald-600" : "text-destructive")} />
                 <div className="min-w-0">
                   <p className="truncate text-xs font-medium">{p.label}</p>
-                  <p className="truncate text-[0.6875rem] text-muted-foreground">{p.value}</p>
+                  <p className="line-clamp-2 break-words text-[0.6875rem] text-muted-foreground">{p.value}</p>
                 </div>
               </div>
             ))}
@@ -93,7 +93,7 @@ export default async function DiagnosticPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold">{f.title}</span>
-                    <Badge tone="neutral" dot={false} className="text-[0.625rem]">{f.area}</Badge>
+                    <Badge tone="neutral" dot={false} className="text-[0.6875rem]">{f.area}</Badge>
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{f.detail}</p>
                   {f.suggestion && <p className="mt-1 text-xs text-foreground/80"><span className="font-medium">Piste :</span> {f.suggestion}</p>}
@@ -142,7 +142,7 @@ export default async function DiagnosticPage() {
 
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-base">Volumétrie (données réelles)</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+          <CardContent className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
             {d.moduleStats.map((s) => (
               <div key={s.key} className="flex items-center justify-between gap-2 text-sm">
                 <span className="truncate text-muted-foreground">{s.label}</span>

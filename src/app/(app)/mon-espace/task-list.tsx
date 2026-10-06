@@ -77,7 +77,7 @@ function ActionForm({ action, fields, children, className }: { action: (fd: Form
     <form action={async (fd) => { setSaving(true); await action(fd); setSaving(false); }} className="inline">
       {Object.entries(fields).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       <button type="submit" disabled={saving}
-        className={className ?? "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"}>
+        className={className ?? "inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"}>
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : children}
       </button>
     </form>
@@ -108,7 +108,7 @@ function RelanceButton({ t, userId }: { t: TaskItem; userId: string }) {
         setBusy(false);
         if (r.ok) router.refresh(); else window.alert(r.error ?? "Relance impossible.");
       }}
-      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
+      className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BellRing className="h-3.5 w-3.5" />}
       {rang > 0 ? `Relancer (${rang})` : "Relancer"}
     </button>
@@ -121,7 +121,7 @@ function CreateDossierButton({ id }: { id: string }) {
   return (
     <button type="button" disabled={busy} title="Ouvrir un sujet à partir de cette tâche"
       onClick={async () => { setBusy(true); const r = await createDossierFromTask(id); if (r.ok && r.dossierId) router.push(`/dossiers/${r.dossierId}`); else setBusy(false); }}
-      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
+      className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderKanban className="h-3.5 w-3.5" />} Sujet
     </button>
   );
@@ -144,7 +144,7 @@ function CancelRequestButton({ id, title }: { id: string; title: string }) {
         const r = await annulerDemandeTache(fd);
         if (r.ok) router.refresh(); else { setBusy(false); window.alert(r.error ?? "Annulation impossible."); }
       }}
-      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+      className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} Annuler la demande
     </button>
   );
@@ -163,7 +163,7 @@ function DeleteTaskButton({ id, title }: { id: string; title: string }) {
         const r = await deleteTask(fd);
         if (r.ok) router.refresh(); else { setBusy(false); window.alert(r.error ?? "Suppression impossible."); }
       }}
-      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+      className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
     </button>
   );
@@ -206,7 +206,7 @@ export function TaskList({
           <li key={t.id} className={cn("surface flex flex-col gap-2 p-3.5 sm:flex-row sm:items-center sm:justify-between", requested && "border-l-2 border-l-primary")}>
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-foreground">{t.title}</span>
+                <span className="min-w-0 break-words font-medium text-foreground">{t.title}</span>
                 <Badge tone={PRIORITY[t.priority]?.tone ?? "neutral"} dot={false}>{PRIORITY[t.priority]?.label ?? t.priority}</Badge>
                 <StatusBadge map={TASK_STATUS} value={t.status} />
                 {showAssignee && t.assignee && <span className="text-xs text-muted-foreground">→ {t.assignee}</span>}
@@ -216,8 +216,8 @@ export function TaskList({
               {t.description && <p className="line-clamp-2 text-sm text-muted-foreground">{t.description}</p>}
               {t.address && (
                 <a href={mapsUrl(t.address)} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                  <MapPin className="h-3.5 w-3.5" /> {t.address}
+                  className="inline-flex max-w-full items-start gap-1 text-xs font-medium text-primary [overflow-wrap:anywhere] hover:underline">
+                  <MapPin className="mt-px h-3.5 w-3.5 shrink-0" /> {t.address}
                 </a>
               )}
               <div className="flex flex-wrap items-center gap-3">
@@ -229,8 +229,8 @@ export function TaskList({
                 <CourseDuration t={t} />
               </div>
               {t.involved && (
-                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Users className="h-3.5 w-3.5 shrink-0" /> {t.involved}
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <Users className="mt-px h-3.5 w-3.5 shrink-0" /> {t.involved}
                 </p>
               )}
               {/* Un refus muet fait rappeler le demandeur pour savoir pourquoi : on l'affiche ici. */}
@@ -248,19 +248,19 @@ export function TaskList({
               {show("respond") && (
                 <>
                   <ActionForm action={respondTaskRequest} fields={{ id: t.id, accept: "1" }}
-                    className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                    className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
                     <Check className="h-3.5 w-3.5" /> Accepter
                   </ActionForm>
                   {/* Refuser passe par le dossier : le motif s'y écrit, et il est facultatif. */}
                   <Link href={`/mon-espace/taches/${t.id}`}
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                     <X className="h-3.5 w-3.5" /> Refuser
                   </Link>
                 </>
               )}
               {show("open") && (
                 <Link href={`/mon-espace/taches/${t.id}`}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground">
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs sm:px-2 sm:py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground">
                   {requested ? "Voir" : "Ouvrir"} <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               )}

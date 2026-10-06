@@ -66,7 +66,7 @@ export function MissionHorizon({ horizon }: { horizon: NonNullable<VueMission["h
           return (
             <li key={j.ordre} className="flex items-start gap-2 text-sm" data-testid="mission-jalon">
               <Icone className={`mt-0.5 h-4 w-4 shrink-0 ${COULEUR[j.etat]}`} aria-hidden />
-              <div className="min-w-0">
+              <div className="min-w-0 break-words">
                 <p className="text-slate-800">
                   <span className="text-slate-400">{j.ordre}.</span> {j.titre}
                 </p>
@@ -104,7 +104,7 @@ export function MissionPause(
       <p className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
         <Pause className="h-4 w-4" aria-hidden /> Suspendue {depuis(pause.depuis, maintenant)}
       </p>
-      {pause.motif ? <p className="mt-1 text-sm text-slate-600">{pause.motif}</p> : null}
+      {pause.motif ? <p className="mt-1 break-words text-sm text-slate-600">{pause.motif}</p> : null}
       <p className="mt-1 text-xs text-slate-500">
         {attendait
           ? "Elle attendait quand vous l'avez suspendue — la reprise la remettra en attente, sans rien perdre."

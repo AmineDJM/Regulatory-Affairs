@@ -58,8 +58,8 @@ export function StepTimeline({ steps, canUpdate }: { steps: StepItem[]; canUpdat
           </span>
 
           <div className="rounded-lg border border-transparent px-2 py-1.5 hover:border-border hover:bg-muted/30">
-            <div className="flex items-center justify-between gap-2">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
                 <p className="text-sm font-medium">
                   <span className="mr-1.5 text-xs text-muted-foreground">{step.order}.</span>
                   {REGULATORY_STEP_TYPE[step.type] ?? step.type}
@@ -79,7 +79,7 @@ export function StepTimeline({ steps, canUpdate }: { steps: StepItem[]; canUpdat
                 {canUpdate && (
                   <button
                     onClick={() => setEditing(editing === step.id ? null : step.id)}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary"
+                    className="rounded-md p-2.5 text-muted-foreground hover:bg-secondary sm:p-1.5"
                     title="Modifier l'étape"
                   >
                     <Pencil className="h-3.5 w-3.5" />
@@ -144,7 +144,7 @@ export function StepTimeline({ steps, canUpdate }: { steps: StepItem[]; canUpdat
                     className="min-h-[60px]"
                   />
                 </div>
-                <div className="sm:col-span-2 flex justify-end gap-2">
+                <div className="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(null)}>
                     Annuler
                   </Button>

@@ -70,7 +70,7 @@ export function TrainingRequestButton({ managerName }: { managerName: string | n
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="tr-amount">Coût annoncé (DZD)</Label>
-              <Input id="tr-amount" name="amount" type="number" step="any" min="0" placeholder="0" />
+              <Input id="tr-amount" name="amount" type="number" inputMode="decimal" step="any" min="0" placeholder="0" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="tr-start">Début</Label>
@@ -98,7 +98,7 @@ export function TrainingRequestButton({ managerName }: { managerName: string | n
               {msg.text}
             </p>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={busy}>Annuler</Button>
             <Button type="submit" disabled={busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande

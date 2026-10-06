@@ -154,7 +154,7 @@ export function OffreForm({
 
   const occupe = enCours !== null;
   const bouton = (intention: Intention, libelle: string, o: { variante?: "primary" | "outline"; desactive?: boolean; titre?: string } = {}) => (
-    <Button type="button" variant={o.variante ?? "primary"} onClick={() => void agir(intention)} disabled={occupe || Boolean(o.desactive)} title={o.titre}>
+    <Button type="button" variant={o.variante ?? "primary"} onClick={() => void agir(intention)} disabled={occupe || Boolean(o.desactive)} title={o.titre} className="flex-1 sm:flex-none">
       {enCours === intention ? <Loader2 className="h-4 w-4 animate-spin" /> : intention === "publier" ? <Send className="h-4 w-4" /> : intention === "retirer" ? <EyeOff className="h-4 w-4" /> : <Save className="h-4 w-4" />}
       {libelle}
     </Button>
@@ -289,7 +289,7 @@ export function OffreForm({
       </div>
 
       {peutEcrire && (
-        <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-2 border-t border-border bg-background/95 px-1 py-3 backdrop-blur">
+        <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-2 border-t border-border bg-background/95 px-1 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
           {v.published ? (
             <>
               {bouton("enregistrer", "Enregistrer les modifications", { desactive: bloque, titre: pourquoiBloque })}

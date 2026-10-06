@@ -60,11 +60,11 @@ export default async function SupportPage() {
         <Card>
           <div className="divide-y divide-border">
             {requests.map((r) => (
-              <Link key={r.id} href={`/support/${r.id}`} className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-secondary/50">
+              <Link key={r.id} href={`/support/${r.id}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-secondary/50 sm:flex-nowrap">
                 <LifeBuoy className="h-5 w-5 shrink-0 text-primary" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-muted-foreground">{r.reference}</span>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">{r.reference}</span>
                     <span className="truncate font-medium">{r.subject}</span>
                   </div>
                   <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
@@ -74,8 +74,11 @@ export default async function SupportPage() {
                     {r._count.messages > 0 && <span className="inline-flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {r._count.messages}</span>}
                   </p>
                 </div>
-                <StatusBadge map={SUPPORT_CATEGORY} value={r.category} dot={false} />
-                <StatusBadge map={SUPPORT_STATUS} value={r.status} />
+                {/* Au téléphone, les pastilles passent sous le sujet au lieu de l'écraser. */}
+                <span className="flex shrink-0 flex-wrap items-center gap-2 max-sm:order-last max-sm:basis-full max-sm:pl-9">
+                  <StatusBadge map={SUPPORT_CATEGORY} value={r.category} dot={false} />
+                  <StatusBadge map={SUPPORT_STATUS} value={r.status} />
+                </span>
                 <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               </Link>
             ))}

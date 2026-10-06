@@ -54,7 +54,7 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
     <div className="space-y-3 rounded-lg bg-secondary/40 p-3">
       {/* ── Les lignes du bon ─────────────────────────────────────────────────────────────── */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Lignes du bon</p>
           {canEdit && (
             <Button size="sm" variant="ghost" onClick={() => { setErr(null); setAddingLine(true); }}>
@@ -68,7 +68,7 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
           <ul className="space-y-1">
             {bon.lignes.map((l) => (
               <li key={l.id} className="flex flex-wrap items-center gap-2 rounded-md bg-card px-2.5 py-1.5 text-sm">
-                <span className="min-w-0 flex-1 truncate">{l.designation}</span>
+                <span className="min-w-0 flex-1 [overflow-wrap:anywhere] sm:truncate">{l.designation}</span>
                 <span className="tabular-nums">{formatNumber(l.quantityUnits)} u.</span>
                 {/* LA QUANTITÉ EN BOÎTES, calculée — jamais stockée : un chiffre dérivé qu'on
                     enregistre devient faux le jour où l'on corrige la quantité sans y penser. */}
@@ -91,9 +91,9 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
                       if (!window.confirm(`Retirer la ligne « ${l.designation} » ?`)) return;
                       void run(() => { const fd = new FormData(); fd.set("id", l.id); return deleteOrderLine(fd); });
                     }}
-                    className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                   </button>
                 )}
               </li>
@@ -104,7 +104,7 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
 
       {/* ── Les livraisons ────────────────────────────────────────────────────────────────── */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Livraisons</p>
           {canEdit && bon.lignes.length > 0 && (
             <Button size="sm" variant="ghost" onClick={() => { setErr(null); setDelivering(true); }}>
@@ -137,9 +137,9 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
                         if (!window.confirm("Supprimer cette livraison ? Les mouvements de stock liés sont CONSERVÉS.")) return;
                         void run(() => { const fd = new FormData(); fd.set("id", d.id); return deleteDelivery(fd); });
                       }}
-                      className="ml-auto rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      className="ml-auto rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                     </button>
                   )}
                 </div>
@@ -161,7 +161,7 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
           simplement DÉJÀ rattachée (sourceType=PCH_ORDER) — le seul moment où le lien se fait. */}
       {(bon.factures.length > 0 || canInvoice) && (
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Factures</p>
             {canInvoice && (
               <AttachToSourceButtons entityType="PCH_ORDER" entityId={bon.id} reference={bon.reference} kinds={["invoice"]} />
@@ -173,7 +173,7 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
           <ul className="space-y-1">
             {bon.factures.map((f) => (
               <li key={f.id} className="flex flex-wrap items-center gap-2 rounded-md bg-card px-2.5 py-1.5 text-sm">
-                <Link href={`/legal/${f.id}`} className="min-w-0 flex-1 truncate text-primary hover:underline">
+                <Link href={`/legal/${f.id}`} className="min-w-0 flex-1 text-primary [overflow-wrap:anywhere] hover:underline sm:truncate">
                   {f.number ? `${f.number} — ` : ""}{f.title}
                 </Link>
                 {f.amount !== null && <span className="tabular-nums">{formatNumber(f.amount)} DZD</span>}
@@ -235,7 +235,7 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field full label="Ligne contractuelle">
               <Select name="contractLineId" defaultValue="">
                 <option value="">— Hors contrat —</option>
@@ -248,10 +248,10 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
                 réellement livré. Le prix de la BOÎTE fait foi quand il est saisi ; le prix
                 unitaire, dont vit le contrôle du restant contractuel, s'en déduit au serveur
                 (`lib/pch/box-economics.ts`). */}
-            <Field label="Quantité (unités)"><Input name="quantityUnits" type="number" min={1} required /></Field>
-            <Field label="Boîte de N unités"><Input name="unitsPerBox" type="number" min={1} placeholder="ex. 30" /></Field>
-            <Field label="Prix / boîte (DZD)"><Input name="boxPriceDzd" type="number" step="any" /></Field>
-            <Field label="Prix unitaire (DZD)"><Input name="unitPriceDzd" type="number" step="any" placeholder="déduit du prix / boîte" /></Field>
+            <Field label="Quantité (unités)"><Input name="quantityUnits" type="number" min={1} inputMode="numeric" required /></Field>
+            <Field label="Boîte de N unités"><Input name="unitsPerBox" type="number" min={1} inputMode="numeric" placeholder="ex. 30" /></Field>
+            <Field label="Prix / boîte (DZD)"><Input name="boxPriceDzd" type="number" step="any" inputMode="decimal" /></Field>
+            <Field label="Prix unitaire (DZD)"><Input name="unitPriceDzd" type="number" step="any" inputMode="decimal" placeholder="déduit du prix / boîte" /></Field>
           </div>
           <FormFooter busy={busy} onCancel={() => setAddingLine(false)} submitLabel="Ajouter" />
         </form>
@@ -265,9 +265,10 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
             Passer outre enregistre la ligne ET trace le dépassement dans l&apos;audit — l&apos;écart
             reste visible au lieu de disparaître dans une saisie hors ERP.
           </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setDepassement(null)}>Annuler</Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={() => setDepassement(null)} className="w-full sm:w-auto">Annuler</Button>
             <Button
+              className="w-full sm:w-auto"
               disabled={busy}
               onClick={() => {
                 const fd = depassement!.fd;
@@ -284,7 +285,7 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
       {/* ── Enregistrer une livraison ─────────────────────────────────────────────────────── */}
       <Sheet open={delivering} onClose={() => setDelivering(false)} title="Enregistrer une livraison" description="Les quantités se saisissent ligne par ligne ; lot pharmaceutique et péremption quand le BL les donne." width="md">
         <form action={(fd) => { fd.set("orderId", bon.id); void run(() => createDelivery(fd), () => setDelivering(false)); }} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="N° de BL"><Input name="reference" /></Field>
             <Field label="Livrée le — vide = planifiée"><Input name="deliveredAt" type="date" /></Field>
             <Field label="Attendue le"><Input name="expectedAt" type="date" /></Field>
@@ -295,8 +296,8 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Quantités livrées</p>
             {bon.lignes.map((l) => (
               <div key={l.id} className="grid grid-cols-2 items-center gap-2 sm:grid-cols-4">
-                <span className="col-span-2 truncate text-sm sm:col-span-2" title={l.designation}>{l.designation}</span>
-                <Input name={`qty_${l.id}`} type="number" min={0} placeholder={`sur ${l.quantityUnits}`} aria-label={`Quantité livrée — ${l.designation}`} />
+                <span className="col-span-2 text-sm [overflow-wrap:anywhere] sm:col-span-2 sm:truncate" title={l.designation}>{l.designation}</span>
+                <Input name={`qty_${l.id}`} type="number" min={0} inputMode="numeric" placeholder={`sur ${l.quantityUnits}`} aria-label={`Quantité livrée — ${l.designation}`} />
                 <Input name={`batch_${l.id}`} placeholder="Lot pharma" aria-label={`Lot pharmaceutique — ${l.designation}`} />
               </div>
             ))}
@@ -313,14 +314,14 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
 }
 
 function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
-  return <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
+  return <div className={full ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
 }
 
 function FormFooter({ busy, onCancel, submitLabel }: { busy: boolean; onCancel: () => void; submitLabel: string }) {
   return (
-    <div className="flex justify-end gap-2 pt-1">
-      <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
-      <Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} {submitLabel}</Button>
+    <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+      <Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto">Annuler</Button>
+      <Button type="submit" disabled={busy} className="w-full sm:w-auto">{busy && <Loader2 className="h-4 w-4 animate-spin" />} {submitLabel}</Button>
     </div>
   );
 }

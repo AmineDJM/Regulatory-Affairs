@@ -109,11 +109,11 @@ function Stat({ label, value, sub, icon, tone }: { label: string; value: string;
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">{label}</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="min-w-0 text-xs text-muted-foreground">{label}</p>
           <span className="text-muted-foreground">{icon}</span>
         </div>
-        <p className={"mt-1 text-2xl font-bold " + (tone ?? "")}>{value} <span className="text-sm font-normal text-muted-foreground">{sub}</span></p>
+        <p className={"mt-1 text-xl font-bold sm:text-2xl " + (tone ?? "")}>{value} <span className="text-sm font-normal text-muted-foreground">{sub}</span></p>
       </CardContent>
     </Card>
   );

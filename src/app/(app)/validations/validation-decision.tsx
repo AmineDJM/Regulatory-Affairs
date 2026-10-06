@@ -52,26 +52,28 @@ export function ValidationDecision({ stepId }: { stepId: string }) {
       <div className="space-y-2">
         <Textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder={cfg.ph} className="min-h-[60px]" />
         {err && <p className="text-xs text-destructive">{err}</p>}
-        <div className="flex gap-2">
-          <BoutonDecisif size="sm" variant={cfg.variant} disabled={pending || (cfg.motif && !reason.trim())} onClick={confirm}>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <BoutonDecisif size="sm" variant={cfg.variant} className="h-11 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" disabled={pending || (cfg.motif && !reason.trim())} onClick={confirm}>
             {pending && <Loader2 className="h-4 w-4 animate-spin" />} {cfg.label}
           </BoutonDecisif>
-          <Button size="sm" variant="ghost" disabled={pending} onClick={() => { setMode(null); setReason(""); setErr(null); }}>Annuler</Button>
+          <Button size="sm" variant="ghost" className="w-full sm:w-auto" disabled={pending} onClick={() => { setMode(null); setReason(""); setErr(null); }}>Annuler</Button>
         </div>
       </div>
     );
   }
 
+  // Au téléphone : Valider et Refuser côte à côte, pleine largeur, à hauteur de pouce ; le renvoi
+  // pour correction dessous. Au bureau, la rangée d'origine.
   return (
     <div className="space-y-1.5">
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="success" disabled={pending} onClick={() => open("APPROVED")}>
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        <Button size="sm" variant="success" className="h-11 text-sm sm:h-8 sm:text-xs" disabled={pending} onClick={() => open("APPROVED")}>
           <Check className="h-4 w-4" /> Valider
         </Button>
-        <Button size="sm" variant="outline" disabled={pending} onClick={() => open("CHANGES_REQUESTED")}>
+        <Button size="sm" variant="outline" className="order-last col-span-2 h-11 text-sm sm:order-none sm:h-8 sm:text-xs" disabled={pending} onClick={() => open("CHANGES_REQUESTED")}>
           <MessageSquareWarning className="h-4 w-4" /> Renvoyer pour correction
         </Button>
-        <Button size="sm" variant="destructive" disabled={pending} onClick={() => open("REJECTED")}>
+        <Button size="sm" variant="destructive" className="h-11 text-sm sm:h-8 sm:text-xs" disabled={pending} onClick={() => open("REJECTED")}>
           <X className="h-4 w-4" /> Refuser
         </Button>
       </div>

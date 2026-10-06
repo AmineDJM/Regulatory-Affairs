@@ -55,8 +55,8 @@ export function ComptaCockpit({ d, resultat, periode }: { d: ComptaData; resulta
 
 function ItemTable({ items, thirdLabel, href }: { items: ComptaItem[]; thirdLabel: string; href: string }) {
   return (
-    <div className="surface overflow-x-auto">
-      <Table>
+    <div className="surface sm:overflow-x-auto">
+      <Table mobileCards>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>
@@ -73,8 +73,8 @@ function ItemTable({ items, thirdLabel, href }: { items: ComptaItem[]; thirdLabe
               <TableCell className="font-mono text-xs">
                 <Link href={href} className="hover:underline">{it.reference}</Link>
               </TableCell>
-              <TableCell className="font-medium">{it.label}</TableCell>
-              <TableCell className="text-muted-foreground">{it.counterparty || "—"}</TableCell>
+              <TableCell className="font-medium [overflow-wrap:anywhere]">{it.label}</TableCell>
+              <TableCell className="text-muted-foreground [overflow-wrap:anywhere]">{it.counterparty || "—"}</TableCell>
               <TableCell className="text-muted-foreground">{FINANCE_CATEGORY[it.category] ?? it.category}</TableCell>
               <TableCell>
                 {it.date ? (
@@ -87,7 +87,7 @@ function ItemTable({ items, thirdLabel, href }: { items: ComptaItem[]; thirdLabe
                   <span className="text-muted-foreground">—</span>
                 )}
               </TableCell>
-              <TableCell className="text-right font-semibold">{formatCurrency(it.amount)}</TableCell>
+              <TableCell className="whitespace-nowrap text-right font-semibold tabular-nums">{formatCurrency(it.amount)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -116,7 +116,7 @@ function ResultatMensuel({ resultat, periode }: { resultat: ResultatPeriode; per
             <Link
               key={c.valeur} href={lien(c.valeur)}
               aria-current={periode.choix === c.valeur ? "page" : undefined}
-              className={`rounded-full border px-3 py-1 text-xs ${periode.choix === c.valeur ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-muted"}`}
+              className={`inline-flex min-h-9 items-center rounded-full border px-3 py-1 text-xs sm:min-h-0 ${periode.choix === c.valeur ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-muted"}`}
             >
               {c.libelle}
             </Link>
@@ -125,16 +125,16 @@ function ResultatMensuel({ resultat, periode }: { resultat: ResultatPeriode; per
             <input type="hidden" name="periode" value="perso" />
             <label className="flex flex-col gap-0.5 text-xs">
               <span className="text-muted-foreground">Du</span>
-              <input type="month" name="du" defaultValue={periode.choix === "perso" ? periode.debut : ""} required className="h-8 rounded-md border border-border bg-background px-2 text-xs" />
+              <input type="month" name="du" defaultValue={periode.choix === "perso" ? periode.debut : ""} required className="h-10 rounded-md border border-border bg-background px-2 text-base sm:h-8 sm:text-xs" />
             </label>
             <label className="flex flex-col gap-0.5 text-xs">
               <span className="text-muted-foreground">Au</span>
-              <input type="month" name="au" defaultValue={periode.choix === "perso" ? periode.fin : ""} required className="h-8 rounded-md border border-border bg-background px-2 text-xs" />
+              <input type="month" name="au" defaultValue={periode.choix === "perso" ? periode.fin : ""} required className="h-10 rounded-md border border-border bg-background px-2 text-base sm:h-8 sm:text-xs" />
             </label>
             <button
               type="submit"
               aria-current={periode.choix === "perso" ? "page" : undefined}
-              className={`h-8 rounded-md border px-3 text-xs ${periode.choix === "perso" ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-muted"}`}
+              className={`h-10 rounded-md border px-3 text-xs sm:h-8 ${periode.choix === "perso" ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-muted"}`}
             >
               Période donnée
             </button>
@@ -143,10 +143,11 @@ function ResultatMensuel({ resultat, periode }: { resultat: ResultatPeriode; per
         {periode.avertissement && <p role="status" className="text-xs text-warning">{periode.avertissement}</p>}
       </CardHeader>
       <CardContent className="p-0">
-        <Table>
+        {/* Un tableau croisé mois × mesures : il défile dans son cadre, la colonne des mois reste en place. */}
+        <Table className="tabular-nums [&_td]:whitespace-nowrap">
           <TableHeader>
             <TableRow>
-              <TableHead>Mois</TableHead>
+              <TableHead className="sticky left-0 z-10 bg-card">Mois</TableHead>
               <TableHead className="text-right">Recettes</TableHead>
               <TableHead className="text-right">Dépenses</TableHead>
               <TableHead className="text-right">dont paie</TableHead>
@@ -156,7 +157,7 @@ function ResultatMensuel({ resultat, periode }: { resultat: ResultatPeriode; per
           <TableBody>
             {resultat.lignes.map((m) => (
               <TableRow key={m.mois}>
-                <TableCell className="font-medium">{m.libelle}</TableCell>
+                <TableCell className="sticky left-0 z-10 bg-card font-medium">{m.libelle}</TableCell>
                 <TableCell className="text-right text-success">{formatCurrency(m.recettes)}</TableCell>
                 <TableCell className="text-right text-destructive">{formatCurrency(m.depenses)}</TableCell>
                 <TableCell className="text-right text-muted-foreground">{formatCurrency(m.dontPaie)}</TableCell>
@@ -166,7 +167,7 @@ function ResultatMensuel({ resultat, periode }: { resultat: ResultatPeriode; per
               </TableRow>
             ))}
             <TableRow className="border-t-2 border-border font-semibold" data-total-periode>
-              <TableCell>Total — {periode.libelle}</TableCell>
+              <TableCell className="sticky left-0 z-10 bg-card">Total — {periode.libelle}</TableCell>
               <TableCell className="text-right text-success">{formatCurrency(resultat.total.recettes)}</TableCell>
               <TableCell className="text-right text-destructive">{formatCurrency(resultat.total.depenses)}</TableCell>
               <TableCell className="text-right text-muted-foreground">{formatCurrency(resultat.total.dontPaie)}</TableCell>

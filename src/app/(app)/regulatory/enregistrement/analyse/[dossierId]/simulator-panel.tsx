@@ -50,7 +50,7 @@ export function SimulatorPanel({ dossierId, last }: { dossierId: string; last: S
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {result.perspectives.map((p, i) => (
               <div key={i} className="rounded-lg border border-border/60 p-2.5 text-xs">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{p.perspective}</span>
                   <span className={`rounded px-1.5 py-0.5 ${VERDICT[p.verdict] ?? "bg-muted text-muted-foreground"}`}>{p.verdict} (simulé)</span>
                 </div>

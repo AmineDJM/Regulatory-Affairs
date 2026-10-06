@@ -464,8 +464,9 @@ function UploadWidget() {
   if (list.length === 0) return null;
   const active = list.filter((j) => j.phase === "uploading" || j.phase === "processing").length;
 
+  // Au téléphone, EN HAUT : en bas, il recouvrait exactement la pastille des envois en arrière-plan (`background-upload`).
   return (
-    <div className="fixed bottom-24 right-4 z-40 w-[min(92vw,22rem)]">
+    <div className="fixed right-4 top-[calc(4.5rem+env(safe-area-inset-top))] z-40 w-[min(92vw,22rem)] sm:bottom-24 sm:top-auto">
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-lg">
         <button
           type="button"
@@ -495,12 +496,12 @@ function UploadWidget() {
                       laisserait une version à moitié constituée — on ne le propose donc pas. */}
                   {j.phase === "uploading" && (
                     <button type="button" onClick={() => cancel(j.dossierId)}
-                      className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive">
+                      className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-destructive sm:px-2 sm:py-0.5">
                       Annuler
                     </button>
                   )}
                   {(j.phase === "done" || j.phase === "error" || j.phase === "cancelled") && (
-                    <button type="button" onClick={() => dismiss(j.dossierId)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted" aria-label="Masquer">
+                    <button type="button" onClick={() => dismiss(j.dossierId)} className="shrink-0 rounded p-2 text-muted-foreground hover:bg-muted sm:p-0.5" aria-label="Masquer">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}

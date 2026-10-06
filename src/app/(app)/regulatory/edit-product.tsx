@@ -114,7 +114,7 @@ export function EditProductButton({ product, users, suppliers, companies, canSet
           className="space-y-4"
         >
           <input type="hidden" name="id" value={product.id} />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* L'entité était fixée à la création et n'apparaissait plus : un produit créé sans
                 entité ne pouvait donc JAMAIS en recevoir une. */}
             {/* TROIS CHAMPS DÉCIDENT DE CE QUE LE DOSSIER ENGAGE — l'entité (qui le voit), le
@@ -129,7 +129,7 @@ export function EditProductButton({ product, users, suppliers, companies, canSet
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue={product.category} />
             <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue={product.channel} />
             <DciAssociationField defaultMolecules={product.molecules} />
-            <TextField label="Nom commercial" name="brandName" placeholder="Ex. Adventor" defaultValue={product.brandName ?? undefined} className="col-span-2" />
+            <TextField label="Nom commercial" name="brandName" placeholder="Ex. Adventor" defaultValue={product.brandName ?? undefined} className="sm:col-span-2" />
             <TextField label="Dosage" name="dosage" placeholder="20" defaultValue={product.dosage ?? undefined} />
             <SelectField label="Unité" name="dosageUnit" options={optionsFromMap(DOSAGE_UNIT)} placeholder="—" defaultValue={product.dosageUnit ?? ""} />
             <SelectField label="Forme pharmaceutique" name="pharmaceuticalForm" options={optionsFromMap(PHARMA_FORM)} placeholder="—" defaultValue={product.pharmaceuticalForm ?? ""} />
@@ -154,11 +154,11 @@ export function EditProductButton({ product, users, suppliers, companies, canSet
               <LockedField label="Chargé du dossier" value={users.find((u) => u.id === product.responsibleId)?.name ?? "—"} />
             )}
             <SelectField label="Assistante assignée" name="assistantId" options={userOptions} placeholder="—" defaultValue={product.assistantId ?? ""} />
-            <TextField label="Date cible d'enregistrement" name="targetDate" type="date" defaultValue={product.targetDate ?? undefined} className="col-span-2" />
+            <TextField label="Date cible d'enregistrement" name="targetDate" type="date" defaultValue={product.targetDate ?? undefined} className="sm:col-span-2" />
 
             {/* Décision d'enregistrement (les variations de fabrication se gèrent sur la fiche). */}
-            <TextField label="Détenteur de DE" name="deHolder" placeholder="Titulaire de la décision d'enregistrement" defaultValue={product.deHolder ?? undefined} className="col-span-2" />
-            <TextField label="Fabricant" name="manufacturer" placeholder="Site de fabrication" defaultValue={product.manufacturer ?? undefined} className="col-span-2" />
+            <TextField label="Détenteur de DE" name="deHolder" placeholder="Titulaire de la décision d'enregistrement" defaultValue={product.deHolder ?? undefined} className="sm:col-span-2" />
+            <TextField label="Fabricant" name="manufacturer" placeholder="Site de fabrication" defaultValue={product.manufacturer ?? undefined} className="sm:col-span-2" />
           </div>
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" defaultValue={product.comments ?? undefined} />
 
@@ -176,7 +176,7 @@ export function EditProductButton({ product, users, suppliers, companies, canSet
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Annuler
             </Button>

@@ -82,7 +82,7 @@ export function NewMeetingButton({ users }: { users: UserOption[] }) {
           ) : (
             <div className="space-y-1.5">
               <Label htmlFor="meetLink">Lien de la réunion (Google Meet, Teams, Zoom…)</Label>
-              <Input id="meetLink" name="meetLink" type="url" placeholder="https://meet.google.com/xxx-xxxx-xxx" />
+              <Input id="meetLink" name="meetLink" type="url" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="https://meet.google.com/xxx-xxxx-xxx" />
               <p className="text-xs text-muted-foreground">Collez le lien de la réunion. Les participants cliqueront simplement dessus pour rejoindre.</p>
             </div>
           )}
@@ -111,23 +111,23 @@ export function NewMeetingButton({ users }: { users: UserOption[] }) {
 
           <div className="space-y-1.5">
             <Label>Participants {picked.size > 0 && <span className="text-muted-foreground">({picked.size})</span>}</Label>
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un collègue…" />
-            <div className="max-h-52 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1">
+            <Input value={q} onChange={(e) => setQ(e.target.value)} type="search" placeholder="Rechercher un collègue…" />
+            <div className="max-h-[40dvh] space-y-0.5 overflow-y-auto rounded-lg border border-border p-1 sm:max-h-52">
               {filtered.length === 0 && <p className="px-2 py-3 text-sm text-muted-foreground">Aucun collègue.</p>}
               {filtered.map((u) => (
-                <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-secondary">
-                  <input type="checkbox" checked={picked.has(u.id)} onChange={() => toggle(u.id)} className="h-4 w-4" />
-                  <span className="font-medium">{u.name}</span>
-                  {u.title && <span className="text-xs text-muted-foreground">· {u.title}</span>}
+                <label key={u.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-2.5 text-sm hover:bg-secondary sm:py-1.5">
+                  <input type="checkbox" checked={picked.has(u.id)} onChange={() => toggle(u.id)} className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 truncate font-medium">{u.name}</span>
+                  {u.title && <span className="min-w-0 truncate text-xs text-muted-foreground">· {u.title}</span>}
                 </label>
               ))}
             </div>
           </div>
 
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Annuler</Button>
-            <Button type="submit" disabled={saving}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving} className="w-full sm:w-auto">Annuler</Button>
+            <Button type="submit" disabled={saving} className="w-full sm:w-auto">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Créer la réunion
             </Button>
           </div>

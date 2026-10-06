@@ -115,7 +115,7 @@ export default async function ReserveLibraryPage() {
 
           {stats.recurring.length > 0 && (
             <section className="surface space-y-3 p-4">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-warning" />
                 <h2 className="text-sm font-semibold">Réserves récurrentes</h2>
                 <span className="text-xs text-muted-foreground">le même reproche, plusieurs fois</span>

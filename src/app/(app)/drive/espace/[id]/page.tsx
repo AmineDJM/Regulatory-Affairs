@@ -115,13 +115,13 @@ export default async function DriveSpacePage({ params, searchParams }: { params:
       {/* Fil d'Ariane : racine de la catégorie → dossiers. Masqué à la racine — le titre le dit déjà. */}
       {!trash && listing.breadcrumb.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 text-sm">
-          <Link href={base} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-            <FolderOpen className="h-4 w-4" /> {space.name}
+          <Link href={base} className="inline-flex min-w-0 max-w-full items-center gap-1 py-1 text-muted-foreground hover:text-foreground">
+            <FolderOpen className="h-4 w-4 shrink-0" /> <span className="truncate">{space.name}</span>
           </Link>
           {listing.breadcrumb.map((c) => (
-            <span key={c.id} className="inline-flex items-center gap-1">
-              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-              <Link href={`${base}?folder=${c.id}`} className="text-muted-foreground hover:text-foreground">{c.name}</Link>
+            <span key={c.id} className="inline-flex min-w-0 max-w-full items-center gap-1">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <Link href={`${base}?folder=${c.id}`} title={c.name} className="truncate py-1 text-muted-foreground hover:text-foreground">{c.name}</Link>
             </span>
           ))}
         </div>

@@ -137,9 +137,9 @@ export function DciDuplicateBanner({ dci, check, onPartirDuProduit }: {
               <span className="font-medium">{e.libelle}</span>
               <span className="text-amber-800">{e.detail}</span>
               {e.nature === "DOSSIER" ? (
-                <Link href={`/regulatory/${e.id}`} className="inline-flex items-center gap-1 underline"><ExternalLink className="h-3 w-3" /> Ouvrir ce dossier</Link>
+                <Link href={`/regulatory/${e.id}`} className="inline-flex items-center gap-1 py-1.5 underline sm:py-0"><ExternalLink className="h-3 w-3" /> Ouvrir ce dossier</Link>
               ) : e.identite && onPartirDuProduit ? (
-                <button type="button" className="underline" onClick={() => { onPartirDuProduit(e.identite!); check.acknowledge(); }}>Partir de ce produit</button>
+                <button type="button" className="py-1.5 underline sm:py-0" onClick={() => { onPartirDuProduit(e.identite!); check.acknowledge(); }}>Partir de ce produit</button>
               ) : null}
             </li>
           ))}

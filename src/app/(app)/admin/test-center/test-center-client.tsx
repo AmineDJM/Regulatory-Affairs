@@ -52,7 +52,7 @@ export function LaunchPanel({ environment }: { environment: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid gap-2 sm:max-w-md">
+        <div className="grid grid-cols-1 gap-2 sm:max-w-md">
           <Label>Mode</Label>
           <Select value={mode} onChange={(e) => setMode(e.target.value)}>
             {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -71,8 +71,8 @@ export function LaunchPanel({ environment }: { environment: string }) {
               <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-border" />
               <span>Je confirme l'exécution en production (aucune donnée préexistante ne sera touchée).</span>
             </label>
-            <div className="grid gap-1.5">
-              <Label className="text-xs">Phrase de sécurité — saisir exactement : <span className="font-mono text-foreground/80">{PRODUCTION_SAFETY_PHRASE}</span></Label>
+            <div className="grid grid-cols-1 gap-1.5">
+              <Label className="text-xs">Phrase de sécurité — saisir exactement : <span className="font-mono text-foreground/80 [overflow-wrap:anywhere]">{PRODUCTION_SAFETY_PHRASE}</span></Label>
               <Input value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder={PRODUCTION_SAFETY_PHRASE} spellCheck={false} />
             </div>
           </div>
@@ -102,7 +102,7 @@ export function ResumeCleanupButton({ runId }: { runId: string }) {
       router.refresh();
     });
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Button size="sm" variant="outline" onClick={resume} disabled={pending}>
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Reprendre le nettoyage
       </Button>

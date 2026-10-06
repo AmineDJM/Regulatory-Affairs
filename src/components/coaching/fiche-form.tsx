@@ -106,14 +106,15 @@ export function FicheCoachingForm({
     router.refresh();
   };
 
-  const champ = "h-10 w-full rounded-[var(--radius)] border border-border bg-card px-3 text-sm focus-ring";
-  const zone = "min-h-[7rem] w-full rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-sm leading-relaxed focus-ring";
+  // 16 px au téléphone : en dessous, iOS zoome sur le champ touché.
+  const champ = "h-10 w-full min-w-0 rounded-[var(--radius)] border border-border bg-card px-3 text-base focus-ring sm:text-sm";
+  const zone = "min-h-[7rem] w-full rounded-[var(--radius)] border border-border bg-card px-3 py-2 text-base leading-relaxed focus-ring sm:text-sm";
 
   return (
     <div className="space-y-6">
       <section className="surface space-y-4 p-4 sm:p-5" aria-label="En-tête de la fiche">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <label className="space-y-1.5">
+          <label className="min-w-0 space-y-1.5">
             <span className="text-sm font-medium text-foreground">Collaborateur <span className="text-destructive">*</span></span>
             <select className={champ} value={collaboratorId} onChange={(e) => choisirCollaborateur(e.target.value)} disabled={finalisee && mode === "modification"}>
               <option value="">— Choisir —</option>
@@ -127,7 +128,7 @@ export function FicheCoachingForm({
                 {managers.map((m) => <option key={m.id} value={m.id}>{m.nom}</option>)}
               </select>
             ) : (
-              <p className="flex h-10 items-center rounded-[var(--radius)] border border-border bg-muted/40 px-3 text-sm text-foreground">{nomManagerParDefaut}</p>
+              <p className="flex h-10 min-w-0 items-center truncate rounded-[var(--radius)] border border-border bg-muted/40 px-3 text-sm text-foreground">{nomManagerParDefaut}</p>
             )}
           </label>
           <label className="space-y-1.5">

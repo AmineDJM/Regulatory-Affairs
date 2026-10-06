@@ -52,7 +52,7 @@ export function BudgetSettings({
   return (
     <div className="space-y-5">
       {/* L'enveloppe elle-même */}
-      <section className="surface space-y-3 p-4">
+      <section className="surface space-y-3 p-3 sm:p-4">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold">L&apos;enveloppe</h2>
           <Badge tone={overview.envelope.isActive ? "success" : "neutral"} dot={false}>
@@ -69,12 +69,12 @@ export function BudgetSettings({
           <div><dt className="text-xs text-muted-foreground">Période</dt><dd className="font-medium">{formatDate(overview.envelope.periodStart)} → {formatDate(overview.envelope.periodEnd)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Accès ouverts</dt><dd className="font-medium">{overview.envelope.accessRoles.length + overview.envelope.accessUserIds.length || "—"}</dd></div>
         </dl>
-        {overview.envelope.notes && <p className="border-t border-border pt-2 text-sm text-muted-foreground">{overview.envelope.notes}</p>}
+        {overview.envelope.notes && <p className="border-t border-border pt-2 text-sm text-muted-foreground [overflow-wrap:anywhere]">{overview.envelope.notes}</p>}
       </section>
 
       {/* Budget total au-dessus des enveloppes — réglage rare, donc discret. */}
       {canManageAccess && (
-        <section className="surface flex flex-wrap items-center gap-3 p-4">
+        <section className="surface flex flex-wrap items-center gap-3 p-3 sm:p-4">
           <div>
             <p className="text-xs text-muted-foreground">Budget total, toutes enveloppes confondues</p>
             <p className="text-lg font-semibold tabular-nums">{formatCurrency(budgetTotal.value)}</p>
@@ -90,7 +90,7 @@ export function BudgetSettings({
 
       {/* Répartition en catégories */}
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">Catégories <span className="font-normal text-muted-foreground">({overview.categories.length})</span></h2>
           {canManage && <Button size="sm" onClick={() => setCatSheet({})}><Plus className="h-4 w-4" /> Nouvelle catégorie</Button>}
         </div>

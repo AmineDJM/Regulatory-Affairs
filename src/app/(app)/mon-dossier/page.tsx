@@ -74,7 +74,7 @@ export default async function MonDossierPage() {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card>
           <CardHeader><CardTitle>Mes informations</CardTitle></CardHeader>
-          <CardContent className="space-y-2.5 text-sm">
+          <CardContent className="grid grid-cols-1 gap-2.5 text-sm sm:grid-cols-2 lg:grid-cols-1">
             <Info label="Nom" value={e.fullName} />
             <Info label="Poste" value={e.position} />
             <Info label="Département" value={e.department} />
@@ -97,8 +97,8 @@ export default async function MonDossierPage() {
               // on cherche SON CONTRAT, ou SA fiche de paie de juillet. Avec vingt lignes, un nom de
               // fichier ne se trie pas, ne se compare pas, et deux dépôts nommés pareil sont
               // indiscernables. La nature, la période et la date sont les trois colonnes qu'on lit.
-              <div className="overflow-x-auto">
-                <Table>
+              <div className="p-3 sm:p-0">
+                <Table mobileCards>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nature</TableHead>
@@ -111,11 +111,11 @@ export default async function MonDossierPage() {
                   <TableBody>
                     {dossier.documents.map((d) => (
                       <TableRow key={d.id}>
-                        <TableCell className="whitespace-nowrap font-medium">
+                        <TableCell className="font-medium sm:whitespace-nowrap">
                           {HR_DOCUMENT_CATEGORY[d.category] ?? d.category}
                         </TableCell>
-                        <TableCell className="max-w-[260px]">
-                          <span className="flex items-center gap-2">
+                        <TableCell className="sm:max-w-[260px]">
+                          <span className="flex min-w-0 items-center gap-2">
                             <FileText className="h-4 w-4 shrink-0 text-primary" />
                             <span className="truncate" title={d.name}>{d.name}</span>
                           </span>
@@ -125,8 +125,8 @@ export default async function MonDossierPage() {
                             lit comme une donnée manquante. */}
                         <TableCell className="whitespace-nowrap text-muted-foreground">{d.period || "—"}</TableCell>
                         <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(d.createdAt)}</TableCell>
-                        <TableCell className="text-right">
-                          <a href={`/api/rh/document/${d.id}?dl=1`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
+                        <TableCell className="text-right" data-sans-etiquette>
+                          <a href={`/api/rh/document/${d.id}?dl=1`} className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary sm:min-h-0 sm:w-auto sm:px-2.5 sm:py-1.5 sm:text-xs">
                             <Download className="h-4 w-4" /> Télécharger
                           </a>
                         </TableCell>
@@ -144,7 +144,7 @@ export default async function MonDossierPage() {
         <CardHeader>
           <CardTitle>Mes congés et absences</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 p-4 pt-0">
+        <CardContent className="space-y-2 p-3 pt-0 sm:p-4 sm:pt-0">
           <p className="text-xs text-muted-foreground">
             La même demande que dans « Mon espace ». Elle suit le circuit
             <strong> responsable (N+1) → ressources humaines → direction générale</strong> ;
@@ -168,15 +168,15 @@ export default async function MonDossierPage() {
           ) : (
             <ul className="divide-y divide-border">
               {dossier.requests.map((r) => (
-                <li key={r.id} className="space-y-2 px-4 py-3">
+                <li key={r.id} className="space-y-2 px-3 py-3 sm:px-4">
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="text-sm font-medium">{HR_REQUEST_TYPE[r.type]}</span>
                         <StatusBadge map={HR_REQUEST_STATUS} value={r.status} />
                       </div>
-                      {r.details && <p className="text-xs text-muted-foreground">{r.details}</p>}
-                      {r.hrNote && <p className="text-xs text-muted-foreground">RH : {r.hrNote}</p>}
+                      {r.details && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{r.details}</p>}
+                      {r.hrNote && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">RH : {r.hrNote}</p>}
                       {(r.periodStart || r.periodEnd) && (
                         <p className="mt-1 text-xs text-muted-foreground">
                           Période : <span className="font-medium text-foreground">{r.periodStart ? formatDate(r.periodStart) : "?"}{r.periodEnd ? ` → ${formatDate(r.periodEnd)}` : ""}</span>
@@ -216,7 +216,7 @@ export default async function MonDossierPage() {
                       <p className="text-[0.6875rem] text-muted-foreground">Demandée le {formatDateTime(r.createdAt)}</p>
                     </div>
                     {r.fulfilmentDocId && (
-                      <a href={`/api/rh/document/${r.fulfilmentDocId}?dl=1`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
+                      <a href={`/api/rh/document/${r.fulfilmentDocId}?dl=1`} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary sm:min-h-0 sm:px-2.5">
                         <Download className="h-4 w-4" /> Document
                       </a>
                     )}
@@ -244,5 +244,5 @@ export default async function MonDossierPage() {
 }
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium">{value || "—"}</p></div>;
+  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium [overflow-wrap:anywhere]">{value || "—"}</p></div>;
 }

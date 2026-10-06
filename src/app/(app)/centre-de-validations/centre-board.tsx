@@ -94,7 +94,7 @@ export function ValidationCentreBoard({ rows }: { rows: CentreRow[] }) {
             key={f.id}
             type="button"
             onClick={() => setFiltre(f.id)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            className={`min-h-9 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 sm:py-1 ${
               filtre === f.id
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border hover:bg-secondary"
@@ -139,13 +139,13 @@ function CentreCard({ r, now }: { r: CentreRow; now: number }) {
 
   return (
     <Card className={enRetard ? "border-destructive/40" : undefined}>
-      <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between">
+      <CardContent className="flex flex-col gap-3 p-3 sm:p-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs text-muted-foreground">{r.reference}</span>
+            <span className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">{r.reference}</span>
             {r.objectType && <Badge tone="neutral" dot={false}>{r.objectType}</Badge>}
             <StatusBadge map={PRIORITY} value={r.priority} dot={false} />
-            {r.amount !== null && <span className="text-sm font-semibold">{formatCurrency(r.amount)}</span>}
+            {r.amount !== null && <span className="whitespace-nowrap text-sm font-semibold tabular-nums">{formatCurrency(r.amount)}</span>}
             {enRetard && (
               <Badge tone="danger" dot={false}>
                 <AlarmClock className="mr-1 inline h-3 w-3" />
@@ -155,8 +155,8 @@ function CentreCard({ r, now }: { r: CentreRow; now: number }) {
             {!enRetard && dort && <Badge tone="warning" dot={false}>Sans décision depuis 7 j</Badge>}
           </div>
 
-          <p className="font-medium">{r.title}</p>
-          {r.description && <p className="text-sm text-muted-foreground">{r.description}</p>}
+          <p className="font-medium [overflow-wrap:anywhere]">{r.title}</p>
+          {r.description && <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{r.description}</p>}
 
           <p className="text-xs text-muted-foreground">
             Demandé par {r.requester || "—"} · {formatDateTime(r.createdAt)}
@@ -164,15 +164,15 @@ function CentreCard({ r, now }: { r: CentreRow; now: number }) {
           </p>
 
           {/* LA DEMANDE SOURCE — le module d'où elle vient, avec son contexte complet. */}
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <Link
               href={`/validations/${r.requestId}`}
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              className="inline-flex min-h-9 items-center gap-1 text-xs text-primary hover:underline sm:min-h-0"
             >
               <ExternalLink className="h-3.5 w-3.5" /> Ouvrir la demande
             </Link>
             {r.link && (
-              <Link href={r.link} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+              <Link href={r.link} className="inline-flex min-h-9 items-center gap-1 text-xs text-primary hover:underline sm:min-h-0">
                 <ExternalLink className="h-3.5 w-3.5" /> Ouvrir l&apos;objet concerné
               </Link>
             )}
@@ -199,7 +199,7 @@ function CentreCard({ r, now }: { r: CentreRow; now: number }) {
           )}
         </div>
 
-        <div className="shrink-0">
+        <div className="w-full shrink-0 border-t border-border/60 pt-3 lg:w-auto lg:border-0 lg:pt-0">
           {r.actionable ? (
             <ValidationDecision stepId={r.stepId} />
           ) : (

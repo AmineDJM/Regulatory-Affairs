@@ -94,7 +94,7 @@ export function AliasProduit({ id, aliases }: { id: string; aliases: { id: strin
             <li key={a.id} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs">
               {a.label}
               <button type="button" aria-label={`Retirer l'alias ${a.label}`} disabled={occupe}
-                className="rounded-full p-0.5 text-muted-foreground hover:text-destructive disabled:opacity-50"
+                className="-my-1 rounded-full p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-50 sm:my-0 sm:p-0.5"
                 onClick={() => retirer(a.id, a.label)}>
                 <X className="h-3 w-3" />
               </button>

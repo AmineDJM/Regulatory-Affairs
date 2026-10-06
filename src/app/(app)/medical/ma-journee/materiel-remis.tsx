@@ -77,7 +77,7 @@ export function BlocMaterielRemis({
             const deja = dejaRemis.get(a.itemId)?.quantite ?? 0;
             const pertinent = a.produitIds.some((id) => produitsCoches.has(id));
             return (
-              <li key={a.itemId} className="flex items-center gap-2 px-2.5 py-1.5">
+              <li key={a.itemId} className="flex items-center gap-2 px-2.5 py-2 sm:py-1.5">
                 <div className="min-w-0 flex-1">
                   <p className={cn("truncate text-sm", pertinent && "font-medium")}>{a.libelle}</p>
                   <p className="text-xs text-muted-foreground">
@@ -91,7 +91,8 @@ export function BlocMaterielRemis({
                 <input
                   id={`remis-${a.itemId}`} name="materielQuantite" type="number" inputMode="decimal" min={0} step="any"
                   defaultValue={deja > 0 ? String(deja) : ""} placeholder="0"
-                  className="h-9 w-20 rounded-md border border-input bg-background px-2 text-right text-sm tabular-nums"
+                  // Au pouce : un champ de 44 px, et 16 px de texte pour qu'iOS ne zoome pas sur la saisie.
+                  className="h-11 w-24 shrink-0 rounded-md border border-input bg-background px-2 text-right text-base tabular-nums sm:h-9 sm:w-20 sm:text-sm"
                 />
               </li>
             );
@@ -103,8 +104,8 @@ export function BlocMaterielRemis({
           <p className="text-xs text-muted-foreground">Supports numériques présentés (sans quantité : ils se montrent, ils ne se donnent pas)</p>
           <div className="flex flex-wrap gap-2">
             {supports.map((s) => (
-              <label key={s.itemId} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2 py-1 text-sm">
-                <input type="checkbox" name="numeriqueItemId" value={s.itemId} defaultChecked={dejaPresentes.has(s.itemId)} className="h-4 w-4 rounded border-input" />
+              <label key={s.itemId} className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-lg border border-input px-3 py-2 text-sm [overflow-wrap:anywhere] sm:min-h-0 sm:gap-1.5 sm:px-2 sm:py-1">
+                <input type="checkbox" name="numeriqueItemId" value={s.itemId} defaultChecked={dejaPresentes.has(s.itemId)} className="h-5 w-5 shrink-0 rounded border-input sm:h-4 sm:w-4" />
                 {s.libelle}
               </label>
             ))}
@@ -120,7 +121,7 @@ export function BlocMaterielRemis({
   if (compact) {
     return (
       <details className="rounded-lg border border-border px-3 py-2" open={dejaRemis.size > 0 || dejaPresentes.size > 0}>
-        <summary className="flex cursor-pointer items-center gap-1.5 text-sm font-medium">
+        <summary className="flex min-h-10 cursor-pointer items-center gap-1.5 text-sm font-medium sm:min-h-0">
           <Package className="h-4 w-4" aria-hidden /> Matériel remis <span className="font-normal text-muted-foreground">(facultatif)</span>
         </summary>
         <div className="pt-2">{contenu}</div>

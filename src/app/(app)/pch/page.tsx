@@ -138,7 +138,7 @@ export default async function PchPage({ searchParams }: { searchParams?: { nivea
                   ? new Date(t.submissionDeadline).getTime() - now : null;
                 return (
                   <TableRow key={t.id}>
-                    <TableCell label="Référence" className="font-mono text-xs"><Link href={`/pch/${t.id}`} className="hover:underline">{t.reference}</Link></TableCell>
+                    <TableCell label="Référence" className="font-mono text-xs [overflow-wrap:anywhere]"><Link href={`/pch/${t.id}`} className="hover:underline">{t.reference}</Link></TableCell>
                     <TableCell label="Intitulé" className="font-medium">{t.title || "—"}{t.products && <p className="text-xs text-muted-foreground">{t.products}</p>}</TableCell>
                     <TableCell label="Fournisseur" className="text-muted-foreground">{[t.supplier, t.supplierCountry].filter(Boolean).join(" · ") || "—"}</TableCell>
                     <TableCell label="Qté" className="text-right">{formatNumber(t.quantity)}</TableCell>
@@ -179,7 +179,7 @@ function FiltreChip({ href, actif, label }: { href: string; actif: boolean; labe
     <Link
       href={href}
       aria-current={actif ? "true" : undefined}
-      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+      className={`inline-flex min-h-9 items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors sm:min-h-0 ${
         actif
           ? "border-primary bg-primary text-primary-foreground"
           : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground"

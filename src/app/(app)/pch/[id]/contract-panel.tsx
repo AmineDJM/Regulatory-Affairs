@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import type { Market360 } from "@/lib/queries/market-360";
 
@@ -58,7 +59,7 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Contrat &amp; avenants
         </h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {canPch && contrats.length > 0 === false && (
             <Button size="sm" variant="outline" onClick={() => { setErr(null); setLinking(true); }}>
               Rattacher un contrat existant
@@ -81,10 +82,10 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
       )}
 
       {contrats.map((c) => (
-        <div key={c.id} className="surface space-y-3 p-4">
+        <div key={c.id} className="surface space-y-3 p-3 sm:p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{c.title}</span>
-            {c.reference && <span className="font-mono text-xs text-muted-foreground">{c.reference}</span>}
+            <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{c.title}</span>
+            {c.reference && <span className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">{c.reference}</span>}
             <Badge tone={c.status === "ACTIVE" ? "success" : c.status === "CANCELLED" ? "danger" : "neutral"} dot={false}>
               {c.status === "ACTIVE" ? "En vigueur" : c.status === "EXPIRED" ? "Échu" : c.status === "CANCELLED" ? "Annulé" : c.status}
             </Badge>
@@ -105,31 +106,30 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
           </div>
 
           {c.lignes.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="py-1.5 pr-3 font-medium">Ligne contractuelle</th>
-                    <th className="py-1.5 pr-3 text-right font-medium">Quantité</th>
-                    <th className="py-1.5 pr-3 text-right font-medium">Prix (DZD)</th>
-                    <th className="py-1.5 pr-3 font-medium">Portée par</th>
-                    {canLegal && <th className="py-1.5" />}
-                  </tr>
-                </thead>
-                <tbody>
+            <Table mobileCards>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ligne contractuelle</TableHead>
+                    <TableHead className="text-right">Quantité</TableHead>
+                    <TableHead className="text-right">Prix (DZD)</TableHead>
+                    <TableHead>Portée par</TableHead>
+                    {canLegal && <TableHead />}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {c.lignes.map((l) => (
-                    <tr key={l.id} className="border-b border-border/50 last:border-0">
-                      <td className="py-1.5 pr-3">
+                    <TableRow key={l.id}>
+                      <TableCell data-sans-etiquette className="font-medium [overflow-wrap:anywhere]">
                         {l.designation}
                         {l.produit && <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] text-primary">{l.produit.code}</span>}
-                      </td>
-                      <td className={`py-1.5 pr-3 text-right tabular-nums ${l.quantityUnits < 0 ? "text-destructive" : ""}`}>
+                      </TableCell>
+                      <TableCell className={`text-right tabular-nums ${l.quantityUnits < 0 ? "text-destructive" : ""}`}>
                         {l.surAvenant && l.quantityUnits > 0 ? "+" : ""}{formatNumber(l.quantityUnits)}
-                      </td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums">{l.unitPriceDzd !== null ? formatNumber(l.unitPriceDzd) : "—"}</td>
-                      <td className="py-1.5 pr-3 text-xs text-muted-foreground">{l.surAvenant ? "avenant" : "contrat"}</td>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{l.unitPriceDzd !== null ? formatNumber(l.unitPriceDzd) : "—"}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{l.surAvenant ? "avenant" : "contrat"}</TableCell>
                       {canLegal && (
-                        <td className="py-1.5 text-right">
+                        <TableCell className="text-right">
                           <button
                             type="button"
                             disabled={busy}
@@ -138,17 +138,16 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
                               if (!window.confirm(`Retirer la ligne « ${l.designation} » (${l.quantityUnits} u.) ?`)) return;
                               void run(() => { const fd = new FormData(); fd.set("id", l.id); return deleteContractLine(fd); });
                             }}
-                            className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                           </button>
-                        </td>
+                        </TableCell>
                       )}
-                    </tr>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+            </Table>
           )}
 
           {c.avenants.length > 0 && (
@@ -156,7 +155,7 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Avenants</p>
               {c.avenants.map((a, i) => (
                 <div key={a.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
-                  <span className="font-medium">{a.title || `Avenant n° ${i + 1}`}</span>
+                  <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{a.title || `Avenant n° ${i + 1}`}</span>
                   {a.reference && <span className="font-mono text-xs text-muted-foreground">{a.reference}</span>}
                   {a.amountDelta !== null && (
                     <span className={`tabular-nums ${a.amountDelta < 0 ? "text-destructive" : "text-success"}`}>
@@ -179,7 +178,7 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
                         Rendre effectif
                       </Button>
                     )}
-                    <Link href={`/legal/${a.id}`} className="text-xs text-primary hover:underline">Legal</Link>
+                    <Link href={`/legal/${a.id}`} className="inline-flex min-h-9 items-center px-1 text-xs text-primary hover:underline sm:min-h-0">Legal</Link>
                   </span>
                 </div>
               ))}
@@ -202,9 +201,9 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
       {/* ── Créer le contrat depuis l'attribution ─────────────────────────────────────────── */}
       <Sheet open={creating} onClose={() => setCreating(false)} title="Créer le contrat depuis l'attribution" description="Une pièce Legal naît avec une ligne par lot gagné (quantités et prix d'attribution). Le montant proposé se corrige : le contrat signé fait foi." width="md">
         <form action={(fd) => { fd.set("tenderId", tenderId); void run(() => createContractFromAward(fd), () => setCreating(false)); }} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Référence du contrat"><Input name="reference" placeholder="174/2026" /></Field>
-            <Field label="Montant (DZD) — vide = calculé"><Input name="amount" type="number" step="any" /></Field>
+            <Field label="Montant (DZD) — vide = calculé"><Input name="amount" type="number" step="any" inputMode="decimal" /></Field>
             <Field full label="Intitulé"><Input name="title" placeholder="Contrat PCH — …" /></Field>
             <Field label="Date d'effet"><Input name="startDate" type="date" /></Field>
             <Field label="Échéance"><Input name="endDate" type="date" /></Field>
@@ -219,7 +218,7 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
       {/* ── Nouvel avenant ─────────────────────────────────────────────────────────────────── */}
       <Sheet open={amendingId !== null} onClose={() => setAmendingId(null)} title="Nouvel avenant" description="L'avenant est une pièce Legal. Ses montants et quantités sont des DELTAS : le contrat initial n'est jamais réécrit, la valeur courante se calcule." width="md">
         <form action={(fd) => { fd.set("contractId", amendingId ?? ""); void run(() => createAmendment(fd), () => setAmendingId(null)); }} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field full label="Intitulé"><Input name="title" placeholder="Avenant n° 1 — extension Pembrolizumab" /></Field>
             <Field label="Référence"><Input name="reference" /></Field>
             <Field label="Impact financier (± DZD)"><Input name="amountDelta" type="number" step="any" placeholder="180000 ou -50000" /></Field>
@@ -266,7 +265,7 @@ function AddLineForm({ contract, lignesAo, busy, run }: {
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field full label="Portée par">
               <Select name="documentId" defaultValue={contract.id}>
                 <option value={contract.id}>Contrat de base</option>
@@ -281,7 +280,7 @@ function AddLineForm({ contract, lignesAo, busy, run }: {
             </Field>
             <Field full label="Désignation (telle que la pièce l'écrit)"><Input name="designation" required /></Field>
             <Field label="Quantité (unités, ± sur avenant)"><Input name="quantityUnits" type="number" required /></Field>
-            <Field label="Prix unitaire (DZD)"><Input name="unitPriceDzd" type="number" step="any" /></Field>
+            <Field label="Prix unitaire (DZD)"><Input name="unitPriceDzd" type="number" step="any" inputMode="decimal" /></Field>
           </div>
           <FormFooter busy={busy} onCancel={() => setOpen(false)} submitLabel="Ajouter" />
         </form>
@@ -292,22 +291,22 @@ function AddLineForm({ contract, lignesAo, busy, run }: {
 
 function Fact({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`font-medium tabular-nums ${accent ? "text-primary" : ""}`}>{value}</p>
+      <p className={`font-medium tabular-nums [overflow-wrap:anywhere] ${accent ? "text-primary" : ""}`}>{value}</p>
     </div>
   );
 }
 
 function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
-  return <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
+  return <div className={full ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
 }
 
 function FormFooter({ busy, onCancel, submitLabel }: { busy: boolean; onCancel: () => void; submitLabel: string }) {
   return (
-    <div className="flex justify-end gap-2 pt-1">
-      <Button type="button" variant="outline" onClick={onCancel}>Annuler</Button>
-      <Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} {submitLabel}</Button>
+    <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+      <Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto">Annuler</Button>
+      <Button type="submit" disabled={busy} className="w-full sm:w-auto">{busy && <Loader2 className="h-4 w-4 animate-spin" />} {submitLabel}</Button>
     </div>
   );
 }

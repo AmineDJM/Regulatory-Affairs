@@ -42,19 +42,19 @@ export function ImportClasseur({ strategieId, aDesRegles }: { strategieId: strin
 
   return (
     <div className="space-y-4">
-      <div className="surface flex flex-wrap items-end gap-3 p-4">
-        <Input type="file" accept=".xlsx,.xls,.xlsm,.csv" onChange={(e) => { setFichier(e.target.files?.[0] ?? null); setApercu(null); setBilan(null); }} className="w-80" />
+      <div className="surface flex flex-col gap-3 p-3 sm:flex-row sm:flex-wrap sm:items-end sm:p-4">
+        <Input type="file" accept=".xlsx,.xls,.xlsm,.csv" onChange={(e) => { setFichier(e.target.files?.[0] ?? null); setApercu(null); setBilan(null); }} className="w-full sm:w-80" />
         {!apercu && <Button type="button" disabled={!fichier || envoi} onClick={analyser}>{envoi ? "Lecture…" : "Analyser le fichier"}</Button>}
         {apercu && !apercu.dejaImporte && <Button type="button" disabled={envoi || enCours || reglesBloquent} onClick={importer}>{envoi ? "Import…" : `Importer ${apercu.lignes - apercu.ambigus.length - apercu.doublons.length} praticien(s)`}</Button>}
       </div>
       {erreur && <p className="text-sm text-destructive">{erreur}</p>}
       {bilan && (
-        <p className="rounded-md border border-success/30 bg-success/5 p-3 text-sm">
+        <p className="rounded-md border border-success/30 bg-success/5 p-3 text-sm [overflow-wrap:anywhere]">
           Import terminé : {bilan.crees} praticien(s) créé(s) dans l&apos;annuaire, {bilan.misAJour} fiche(s) existante(s) complétée(s), {bilan.observations} potentiel(s) historisé(s){bilan.etablissementsCrees ? `, ${bilan.etablissementsCrees} établissement(s) créé(s)` : ""}{bilan.specialitesCreees ? `, ${bilan.specialitesCreees} spécialité(s) créée(s)` : ""}{bilan.reglePubliee ? `, règles v${bilan.reglePubliee} publiées` : ""}.
         </p>
       )}
       {apercu && (
-        <div className="surface space-y-3 p-4 text-sm">
+        <div className="surface space-y-3 p-3 text-sm [overflow-wrap:anywhere] sm:p-4">
           {apercu.dejaImporte && <p className="font-medium text-destructive">Ce fichier a déjà été importé dans cette stratégie : rien ne sera ajouté une seconde fois.</p>}
           <p>Feuille « {apercu.feuille} » · {apercu.lignes} ligne(s) · <b>{apercu.existants}</b> praticien(s) déjà dans l&apos;annuaire (complétés, jamais écrasés) · <b>{apercu.nouveaux}</b> à créer · {apercu.observations} potentiel(s) · {apercu.nonCiblesDuFichier} classé(s) NA.</p>
           <p className="text-xs text-muted-foreground">Colonnes : {apercu.colonnes.map((c) => `${c.texte.split("\n")[0].slice(0, 40)} → ${c.champ ?? "ignorée"}`).join(" · ")}</p>

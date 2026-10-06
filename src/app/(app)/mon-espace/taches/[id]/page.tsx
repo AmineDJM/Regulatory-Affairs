@@ -129,7 +129,7 @@ export default async function TaskDossierPage({ params }: { params: { id: string
               {task.description && (
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Détails</p>
-                  <p className="whitespace-pre-wrap">{task.description}</p>
+                  <p className="whitespace-pre-wrap break-words">{task.description}</p>
                 </div>
               )}
               {task.address && (
@@ -138,9 +138,9 @@ export default async function TaskDossierPage({ params }: { params: { id: string
                   <a
                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(task.address)}`}
                     target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                    className="inline-flex max-w-full items-start gap-1 font-medium text-primary [overflow-wrap:anywhere] hover:underline"
                   >
-                    <MapPin className="h-3.5 w-3.5" /> {task.address}
+                    <MapPin className="mt-1 h-3.5 w-3.5 shrink-0" /> {task.address}
                   </a>
                 </div>
               )}
@@ -212,7 +212,7 @@ function Field({ label, children, icon }: { label: string; children: React.React
   return (
     <div className="min-w-0">
       <p className="flex items-center gap-1 text-xs text-muted-foreground">{icon}{label}</p>
-      <p className="truncate font-medium">{children}</p>
+      <p className="break-words font-medium">{children}</p>
     </div>
   );
 }

@@ -279,9 +279,10 @@ export function Messenger({
   return (
     // Hauteur mesurée (cf. chrome-metrics.tsx) : le `7.5rem` écrit en dur ne correspondait à
     // aucune barre réelle et faisait passer le composeur sous la barre d'onglets sur téléphone.
-    <div className="app-viewport relative flex overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+    // Au téléphone, bord à bord (comme une application de messagerie) : la marge latérale de <main> est annulée.
+    <div className="app-viewport relative -mx-3 flex overflow-hidden border-y border-border bg-card sm:mx-0 sm:rounded-2xl sm:border sm:shadow-sm">
       {/* Liste */}
-      <div className={mobileThread && activeId ? "hidden md:flex" : "flex w-full md:w-auto"}>
+      <div className={mobileThread && activeId ? "hidden md:flex" : "flex w-full min-w-0 md:w-auto"}>
         <ConversationList
           conversations={convs}
           activeId={activeId}
@@ -349,13 +350,13 @@ export function Messenger({
                 onClick={() => { setBookmarksOpen(false); openConversation(b.conversationId); }}
                 className="block w-full rounded-xl border border-border p-3 text-left hover:bg-secondary"
               >
-                <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-                  <Bookmark className="h-3.5 w-3.5 text-primary" />
-                  <span className="font-medium text-foreground">{b.conversationTitle}</span>
-                  <span>· {b.message.senderName}</span>
-                  <span className="ml-auto">{relativeTime(b.message.createdAt)}</span>
+                <div className="mb-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                  <Bookmark className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span className="min-w-0 truncate font-medium text-foreground">{b.conversationTitle}</span>
+                  <span className="min-w-0 truncate">· {b.message.senderName}</span>
+                  <span className="ml-auto shrink-0">{relativeTime(b.message.createdAt)}</span>
                 </div>
-                <p className="line-clamp-3 text-sm">{b.message.body || "📎 Pièce jointe"}</p>
+                <p className="line-clamp-3 text-sm [overflow-wrap:anywhere]">{b.message.body || "📎 Pièce jointe"}</p>
               </button>
             ))}
           </div>

@@ -59,7 +59,7 @@ export function BarreSelection({
       </span>
 
       {peutColorer && (
-        <span className="flex items-center gap-1" aria-label="Couleur de fond">
+        <span className="flex flex-wrap items-center gap-1.5 sm:gap-1" aria-label="Couleur de fond">
           {COULEURS_CELLULE.map((c) => (
             <button
               key={c.cle}
@@ -69,7 +69,7 @@ export function BarreSelection({
               title={c.label}
               aria-label={`Colorer en ${c.label.toLowerCase()}`}
               className={cn(
-                "h-6 w-6 rounded-full border border-black/10 transition hover:scale-110 disabled:opacity-50",
+                "h-8 w-8 rounded-full border border-black/10 transition hover:scale-110 disabled:opacity-50 sm:h-6 sm:w-6",
                 CLASSES_COULEUR[c.cle].pastille,
               )}
             />
@@ -78,7 +78,7 @@ export function BarreSelection({
             type="button"
             disabled={busy}
             onClick={onEffacer}
-            className="ml-1 inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-secondary disabled:opacity-50"
+            className="ml-1 inline-flex items-center gap-1 rounded-md border border-input px-2 py-2 text-xs hover:bg-secondary disabled:opacity-50 sm:py-1"
           >
             <Eraser className="h-3.5 w-3.5" aria-hidden /> Effacer la couleur
           </button>
@@ -88,7 +88,7 @@ export function BarreSelection({
       <button
         type="button"
         onClick={() => { void onCopier().then((ok) => setCopie(ok ? "ok" : "err")); }}
-        className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-secondary"
+        className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-2 text-xs hover:bg-secondary sm:py-1"
       >
         {copie === "ok" ? <Check className="h-3.5 w-3.5 text-success" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
         {copie === "ok" ? "Copié" : copie === "err" ? "Copie refusée par le navigateur" : "Copier"}
@@ -102,7 +102,7 @@ export function BarreSelection({
       <button
         type="button"
         onClick={onFermer}
-        className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+        className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-2 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground sm:py-1"
       >
         <X className="h-3.5 w-3.5" aria-hidden /> Désélectionner
       </button>

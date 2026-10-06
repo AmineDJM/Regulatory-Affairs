@@ -80,22 +80,22 @@ export function MailPieces({ entryId, pieces, canEdit }: { entryId: string; piec
                   <UserRound className="h-3 w-3 shrink-0" />
                   {p.recipient || <span className="italic">sans destinataire</span>}
                 </p>
-                {p.notes && <p className="truncate text-xs text-muted-foreground">{p.notes}</p>}
+                {p.notes && <p className="line-clamp-2 text-xs text-muted-foreground sm:line-clamp-none sm:truncate">{p.notes}</p>}
               </div>
 
               {/* Le lien mène au FICHIER EXACT — la page du nœud, pas la racine du Drive. */}
               {p.driveNodeId && (
-                <Link href={`/drive/${p.driveNodeId}`} className="inline-flex shrink-0 items-center gap-1 text-xs text-primary hover:underline">
+                <Link href={`/drive/${p.driveNodeId}`} className="inline-flex min-h-9 shrink-0 items-center gap-1 text-xs text-primary hover:underline sm:min-h-0">
                   Ouvrir <ExternalLink className="h-3 w-3" />
                 </Link>
               )}
 
               {canEdit && (
-                <span className="hidden shrink-0 items-center gap-0.5 group-hover:inline-flex">
-                  <button type="button" title="Modifier" onClick={() => { setErr(null); setEditing(p); }} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                <span className="inline-flex shrink-0 items-center gap-0.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover:inline-flex">
+                  <button type="button" title="Modifier" onClick={() => { setErr(null); setEditing(p); }} aria-label="Modifier" className="rounded p-2 text-muted-foreground hover:text-foreground sm:p-0.5">
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
-                  <button type="button" title="Retirer" disabled={busy} onClick={() => void remove(p)} className="rounded p-0.5 text-muted-foreground hover:text-destructive">
+                  <button type="button" title="Retirer" disabled={busy} onClick={() => void remove(p)} aria-label="Retirer" className="rounded p-2 text-muted-foreground hover:text-destructive sm:p-0.5">
                     {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
                 </span>

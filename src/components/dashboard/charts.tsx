@@ -90,7 +90,7 @@ interface DonutSlice {
 export function DonutChart({ data, total }: { data: DonutSlice[]; total?: number }) {
   const sum = total ?? data.reduce((acc, d) => acc + d.value, 0);
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex flex-col items-center gap-4 min-[400px]:flex-row">
       <div className="relative h-[150px] w-[150px] shrink-0">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -114,14 +114,14 @@ export function DonutChart({ data, total }: { data: DonutSlice[]; total?: number
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-xl font-semibold">{sum}</span>
-          <span className="text-[0.625rem] text-muted-foreground">total</span>
+          <span className="text-[0.6875rem] text-muted-foreground">total</span>
         </div>
       </div>
-      <ul className="flex-1 space-y-1.5">
+      <ul className="w-full min-w-0 flex-1 space-y-1.5">
         {data.map((slice) => (
-          <li key={slice.label} className="flex items-center justify-between text-sm">
-            <span className="flex items-center gap-2 text-muted-foreground">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: slice.color }} />
+          <li key={slice.label} className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
               {slice.label}
             </span>
             <span className="font-medium">{slice.value}</span>

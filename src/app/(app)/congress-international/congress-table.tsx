@@ -11,8 +11,8 @@ export function CongressTable({ rows, basePath, showType }: { rows: CongressList
     return <EmptyState icon="CalendarDays" title="Aucune demande" description="Les demandes de prise en charge apparaîtront ici." />;
   }
   return (
-    <div className="surface overflow-x-auto">
-      <Table>
+    <div className="surface overflow-hidden">
+      <Table mobileCards>
         <TableHeader>
           <TableRow>
             <TableHead>Événement</TableHead>
@@ -28,11 +28,13 @@ export function CongressTable({ rows, basePath, showType }: { rows: CongressList
         <TableBody>
           {rows.map((r) => (
             <TableRow key={r.id}>
-              <TableCell className="font-medium">
-                <Link href={`${basePath}/${r.id}`} className="hover:underline">{r.name}</Link>
-                {(r.specialty || r.doctorCount > 0) && (
-                  <p className="text-xs text-muted-foreground">{[r.specialty, r.doctorCount > 0 ? `${r.doctorCount} médecin·s` : ""].filter(Boolean).join(" · ")}</p>
-                )}
+              <TableCell data-sans-etiquette className="font-medium">
+                <div className="min-w-0 w-full">
+                  <Link href={`${basePath}/${r.id}`} className="break-words hover:underline">{r.name}</Link>
+                  {(r.specialty || r.doctorCount > 0) && (
+                    <p className="text-xs text-muted-foreground">{[r.specialty, r.doctorCount > 0 ? `${r.doctorCount} médecin·s` : ""].filter(Boolean).join(" · ")}</p>
+                  )}
+                </div>
               </TableCell>
               {showType && <TableCell className="text-muted-foreground">{r.eventType ? NATIONAL_EVENT_TYPE[r.eventType] ?? r.eventType : "—"}</TableCell>}
               <TableCell className="text-muted-foreground">{r.location || "—"}</TableCell>

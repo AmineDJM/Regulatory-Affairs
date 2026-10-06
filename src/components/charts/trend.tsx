@@ -74,7 +74,9 @@ export function Trend({
 
         {points.map((p, i) =>
           i % step === 0 || i === points.length - 1 ? (
-            <text key={`t-${p.label}`} x={x(i)} y={H - 8} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fill={INK.muted} className="text-[0.625rem]">
+            // L'axe est dessiné dans un repère de 640 unités réduit à la largeur de l'écran : au
+            // téléphone (≈ 330 px), 10 unités ne font plus que 5 px. La taille compense la réduction.
+            <text key={`t-${p.label}`} x={x(i)} y={H - 8} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fill={INK.muted} className="text-[1.25rem] sm:text-[0.8125rem] lg:text-[0.625rem]">
               {p.label}
             </text>
           ) : null,

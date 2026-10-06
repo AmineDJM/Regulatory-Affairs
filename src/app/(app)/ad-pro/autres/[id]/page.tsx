@@ -29,9 +29,9 @@ export const dynamic = "force-dynamic";
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null;
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium">{value}</p>
+      <p className="font-medium [overflow-wrap:anywhere]">{value}</p>
     </div>
   );
 }
@@ -93,7 +93,7 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>La demande</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6">
               <Info label="Pour qui / avec qui" value={req.beneficiary} />
               <Info label="Montant estimé" value={req.amount != null ? formatCurrency(toNumber(req.amount)) : null} />
               <Info label="Entité" value={req.company?.name} />
@@ -103,13 +103,13 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
               {req.description && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Description</p>
-                  <p className="whitespace-pre-wrap">{req.description}</p>
+                  <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{req.description}</p>
                 </div>
               )}
               {req.decisionNote && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Motif de la décision</p>
-                  <p className="whitespace-pre-wrap">{req.decisionNote}</p>
+                  <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{req.decisionNote}</p>
                 </div>
               )}
             </CardContent>

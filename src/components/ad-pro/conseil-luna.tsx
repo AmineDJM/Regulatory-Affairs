@@ -69,7 +69,7 @@ export function ConseilLuna({ entityType, entityId, fichierId, emplacement }: Co
     <div className="text-xs" aria-live="polite">
       <button
         type="button"
-        className={`text-left underline-offset-2 hover:underline ${couleur}`}
+        className={`min-h-9 py-1.5 text-left underline-offset-2 [overflow-wrap:anywhere] hover:underline sm:min-h-0 sm:py-0 ${couleur}`}
         aria-expanded={ouvert}
         onClick={() => setOuvert((o) => !o)}
       >

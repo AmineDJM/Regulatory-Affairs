@@ -44,9 +44,9 @@ export function TrashList({ items, peutDetruire = true }: {
       {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
       <div className="surface divide-y divide-border">
         {items.map((it) => (
-          <div key={it.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">
+          <div key={it.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 sm:px-4">
+            <div className="min-w-0 flex-1 basis-56">
+              <p className="text-sm font-medium [overflow-wrap:anywhere]">
                 {it.name}
                 {it.documents > 0 && <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><Paperclip className="h-3.5 w-3.5" /> {it.documents}</span>}
               </p>
@@ -60,7 +60,7 @@ export function TrashList({ items, peutDetruire = true }: {
             {it.restoredAt ? (
               <Badge tone="success" dot={false}>Restauré le {formatDateTime(it.restoredAt)}</Badge>
             ) : (
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 <BoutonDecisif size="sm" variant="outline" disabled={busyId !== null} onClick={() => run(it, "restore")} confirmation={`restaurer ${it.label} « ${it.name} »${it.emportes.length ? ` avec ${it.emportes.join(", ")}` : ""}`}>
                   {busyId === it.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Restaurer
                 </BoutonDecisif>

@@ -106,7 +106,7 @@ function MiniBtn({ tone = "default", decisif = false, children }: { tone?: "succ
     purple: "border-purple-400/40 text-purple-600 hover:bg-purple-500/10",
     default: "border-border text-foreground hover:bg-secondary",
   }[tone];
-  const classes = `inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${cls}`;
+  const classes = `inline-flex min-h-10 items-center gap-1 rounded-md border px-3 py-1 text-sm font-medium sm:min-h-0 sm:px-2 sm:text-xs ${cls}`;
   if (decisif) return <BoutonDecisif brut type="submit" className={classes}>{children}</BoutonDecisif>;
   return <button type="submit" className={classes}>{children}</button>;
 }
@@ -129,7 +129,7 @@ function DeferControl({ row }: { row: OrderRow }) {
     <>
       <button
         type="button" onClick={() => { setErr(null); setOpen(true); }}
-        className="inline-flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-xs font-medium text-warning hover:bg-warning/10"
+        className="inline-flex min-h-10 items-center gap-1 rounded-md border border-warning/50 px-3 py-1 text-sm font-medium text-warning hover:bg-warning/10 sm:min-h-0 sm:px-2 sm:text-xs"
       >
         <CalendarClock className="h-3.5 w-3.5" /> Reporter
       </button>
@@ -166,9 +166,9 @@ function DeferControl({ row }: { row: OrderRow }) {
             <Textarea name="reason" required={motifRequis} defaultValue={row.deferredReason ?? ""} className="min-h-[60px]" placeholder="Ex. trésorerie insuffisante avant le 25." />
           </div>
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Annuler</Button>
-            <Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Reporter le paiement</Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" disabled={saving} onClick={() => setOpen(false)}>Annuler</Button>
+            <Button type="submit" className="w-full sm:w-auto" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Reporter le paiement</Button>
           </div>
         </form>
       </Sheet>
@@ -206,7 +206,7 @@ function SettleControl({ row, budgets, comptes }: { row: OrderRow; budgets: Budg
     <>
       <button
         type="button" onClick={() => { setErr(null); setOpen(true); }}
-        className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10"
+        className="inline-flex min-h-10 items-center gap-1 rounded-md border border-success/30 px-3 py-1 text-sm font-medium text-success hover:bg-success/10 sm:min-h-0 sm:px-2 sm:text-xs"
       >
         <Banknote className="h-3.5 w-3.5" /> Payé
       </button>
@@ -255,9 +255,9 @@ function SettleControl({ row, budgets, comptes }: { row: OrderRow; budgets: Budg
             </div>
           )}
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Annuler</Button>
-            <BoutonDecisif type="submit" disabled={saving || (row.needsBudget && !categoryId)}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} {row.needsBudget ? "Classer et régler" : "Régler"}</BoutonDecisif>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" disabled={saving} onClick={() => setOpen(false)}>Annuler</Button>
+            <BoutonDecisif type="submit" className="h-11 w-full sm:h-10 sm:w-auto" disabled={saving || (row.needsBudget && !categoryId)}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} {row.needsBudget ? "Classer et régler" : "Régler"}</BoutonDecisif>
           </div>
         </form>
       </Sheet>
@@ -299,8 +299,10 @@ export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null, budge
     return <EmptyState icon="ReceiptText" title={emptyLabel ?? "Aucun ordre de dépense"} description="Les ordres autorisés par le centre de paiement apparaîtront ici." />;
   }
   return (
-    <div className="surface overflow-hidden">
-      <Table>
+    <div className="surface sm:overflow-hidden">
+      {/* Au téléphone, chaque ordre devient une carte : montant, échéance et gestes de décaissement
+          se lisent sans tirer le tableau vers la gauche. */}
+      <Table mobileCards>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>
@@ -327,49 +329,54 @@ export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null, budge
               >
                 <TableCell className="font-mono text-xs">{r.reference}</TableCell>
                 <TableCell>{formatDate(r.createdAt)}</TableCell>
-                <TableCell className="max-w-[220px]">
+                <TableCell className="sm:max-w-[220px]">
                   {/* LE LIBELLÉ EST LE LIEN vers le dossier — ses pièces, ses demandes de pièces,
                       son fil. Tout ordre en porte un désormais, quelle que soit sa provenance :
                       la moitié des lignes étaient du texte mort parce que seule la demande de
                       paiement ouvrait un dossier. Le bouton séparé qui vivait dans « Action »
                       disait la même chose une seconde fois, au milieu des gestes de décaissement
                       — alors qu'ouvrir n'est pas décider. */}
-                  {r.dossierHref ? (
-                    <Link href={r.dossierHref} className="flex items-center gap-1 font-medium text-primary hover:underline" title="Ouvrir le dossier : pièces, demandes de pièces, discussion">
-                      <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{r.label}</span>
-                    </Link>
-                  ) : (
-                    <p className="truncate font-medium">{r.label}</p>
-                  )}
-                  {note && <p className="truncate text-xs text-warning" title={note}>{note}</p>}
+                  <div className="min-w-0">
+                    {r.dossierHref ? (
+                      <Link href={r.dossierHref} className="flex items-center gap-1 font-medium text-primary hover:underline" title="Ouvrir le dossier : pièces, demandes de pièces, discussion">
+                        <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                        <span className="min-w-0 truncate">{r.label}</span>
+                      </Link>
+                    ) : (
+                      <p className="truncate font-medium">{r.label}</p>
+                    )}
+                    {/* Le motif du report s'écrit en entier au téléphone : le survol qui le révélait n'y existe pas. */}
+                    {note && <p className="text-xs text-warning sm:truncate" title={note}>{note}</p>}
+                  </div>
                 </TableCell>
                 <TableCell>{r.beneficiary || "—"}</TableCell>
                 <TableCell>{FINANCE_CATEGORY[r.category] ?? r.category}</TableCell>
                 <TableCell className="whitespace-nowrap text-xs">
                   {r.dueDate ? (
-                    <>
+                    <div>
                       {formatDate(r.dueDate)}
                       {/* LA NATURE SE LIT AVEC LA DATE, jamais ailleurs : « le 15 » ne dit rien
                           sans savoir si ce 15 est un engagement ou un repère. */}
                       <span className={deadlineNatureOf(r.deadlineNature) === "FIXED" ? "block font-semibold text-destructive" : "block text-muted-foreground"}>
                         {deadlineNatureLabel(r.deadlineNature)}
                       </span>
-                    </>
+                    </div>
                   ) : <span className="text-muted-foreground">—</span>}
                 </TableCell>
-                <TableCell className="text-right font-semibold">{formatCurrency(r.amount)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right text-base font-semibold tabular-nums sm:text-sm">{formatCurrency(r.amount)}</TableCell>
                 <TableCell>{r.requestedBy || "—"}</TableCell>
                 <TableCell>
-                  <Badge tone={TONE[etat]} dot={false}>{SETTLEMENT_LABEL[etat]}</Badge>
-                  {/* La facture est un ÉTAT du règlement, pas un geste : elle se joint et se
-                      réclame dans le dossier, que le libellé ouvre. */}
-                  {r.requiresInvoice && <span className="mt-0.5 block"><InvoiceState hasInvoice={r.hasInvoice} /></span>}
+                  <div>
+                    <Badge tone={TONE[etat]} dot={false}>{SETTLEMENT_LABEL[etat]}</Badge>
+                    {/* La facture est un ÉTAT du règlement, pas un geste : elle se joint et se
+                        réclame dans le dossier, que le libellé ouvre. */}
+                    {r.requiresInvoice && <span className="mt-0.5 block"><InvoiceState hasInvoice={r.hasInvoice} /></span>}
+                  </div>
                 </TableCell>
                 {canSettle && (
-                  <TableCell className="text-right">
+                  <TableCell className="text-right" data-sans-etiquette>
                     {r.status === "PENDING" ? (
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-1.5">
                         <SettleControl row={r} budgets={budgets} comptes={comptes} />
                         <DeferControl row={r} />
                         {/* LEVER LE REPORT, c'est revenir à « non payé » — le premier des trois

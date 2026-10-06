@@ -222,15 +222,15 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
       </Link>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-muted-foreground">{product.reference}</span>
             <StatusBadge map={REGULATORY_CATEGORY} value={product.category} dot={false} />
             <StatusBadge map={PRODUCT_CHANNEL} value={product.channel} dot={false} />
             <StatusBadge map={PRIORITY} value={product.priority} />
             {associationLabel && <Badge tone="info" dot={false}>{associationLabel}</Badge>}
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">{product.dci}</h1>
+          <h1 className="break-words text-xl font-semibold tracking-tight sm:text-2xl">{product.dci}</h1>
           {product.brandName && <p className="text-muted-foreground">{product.brandName}</p>}
           {/* LE PRODUIT CANONIQUE — ou ce qui manque pour l'identifier. Un dossier sans produit
               n'entre dans aucune Business Unit : le dire ici évite de le découvrir au terrain. */}
@@ -252,9 +252,9 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
             </div>
           )}
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex flex-col items-start gap-2 sm:items-end">
           {canUpdate ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <EditProductButton
                 canSetStructural={canSetStructural(user)}
                 companies={companies}
@@ -295,7 +295,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
           )}
           {/* LE DÉPÔT EST EN TÊTE : poser le CTD initial est le geste le plus fréquent du
               module, il ne doit pas se chercher au fond de la colonne de droite. */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <PartagerButton
               refType="REGULATORY_PRODUCT" refId={product.id}
               refLabel={`${product.reference} — ${product.dci}${product.brandName ? ` (${product.brandName})` : ""}`}
@@ -330,7 +330,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
             <CardHeader>
               <CardTitle>Informations du dossier</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6">
               {molecules.length > 1 && (
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Molécules de l'association</p>
@@ -396,9 +396,9 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
               l'ANPP y sont DANS l'étape à laquelle ils appartiennent : on ne quitte plus le
               parcours pour faire ce que le parcours demande. */}
           <Card>
-            <CardHeader className="flex-row items-center justify-between">
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
               <CardTitle>Processus d'enregistrement ANPP</CardTitle>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={clProgress.pct === 100 ? "success" : "neutral"} dot={false}>{clProgress.checked}/{clProgress.total} documents</Badge>
                 <Badge tone={wfProgress.pct === 100 ? "success" : "info"} dot={false}>{wfProgress.done}/{wfProgress.total} étapes</Badge>
               </div>
@@ -563,9 +563,9 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium">{value || "—"}</p>
+      <p className="break-words font-medium">{value || "—"}</p>
     </div>
   );
 }

@@ -49,10 +49,12 @@ export default async function FieldReportsPage() {
             {reports.map((r) => (
               // La ligne n'est plus UN lien : une icône dans un lien est un bouton dans un lien (deux
               // gestes pour un clic). Le lien porte le contenu, la corbeille est sa SŒUR (§118.212).
-              <div key={r.id} className="flex items-center gap-1 pr-2 hover:bg-secondary/40">
-                <Link href={`/field-reports/${r.id}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-3 px-4 py-3">
+              <div key={r.id} className="flex items-center gap-1 pr-1 hover:bg-secondary/40 sm:pr-2">
+                <Link href={`/field-reports/${r.id}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-3 sm:px-4">
                   <StatusBadge map={FIELD_REPORT_STATUS} value={r.status} />
-                  <div className="min-w-0 flex-1">
+                  {/* Au téléphone, le médecin et la synthèse passent en tête, sur toute la largeur ;
+                      statut, délégué, pièces et date se rangent en dessous. */}
+                  <div className="order-first min-w-0 flex-1 basis-full sm:order-none sm:basis-0">
                     <p className="truncate text-sm font-medium">{r.doctorName || "Médecin non précisé"}{r.specialty ? ` · ${r.specialty}` : ""}</p>
                     <p className="truncate text-xs text-muted-foreground">{r.summary || r.products || "Brouillon en cours…"}</p>
                   </div>

@@ -77,7 +77,7 @@ export default async function OffresPage() {
                 <span className="font-mono text-xs text-muted-foreground">{r.reference}</span>
                 <span className="font-medium">{r.position}</span>
                 {r.department && <span className="text-muted-foreground">· {r.department.name}</span>}
-                <Link href={`/site-web/offres/nouvelle?demande=${r.id}`} className="ml-auto inline-flex items-center gap-1 text-primary hover:underline">
+                <Link href={`/site-web/offres/nouvelle?demande=${r.id}`} className="ml-auto inline-flex min-h-9 items-center gap-1 text-primary hover:underline sm:min-h-0">
                   Préparer l&apos;offre <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </li>
@@ -95,7 +95,7 @@ export default async function OffresPage() {
             : "Les offres publiées par les RH apparaîtront ici."}
         />
       ) : (
-        <div className="surface overflow-hidden">
+        <div className="sm:surface sm:overflow-hidden">
           <Table mobileCards>
             <TableHeader>
               <TableRow>
@@ -112,10 +112,12 @@ export default async function OffresPage() {
                 const etape = o.recruitmentRequest?.stage as RecruitmentStage | undefined;
                 return (
                   <TableRow key={o.id}>
-                    <TableCell label="Poste" className="max-w-[24rem] font-medium">
-                      <Link href={`/site-web/offres/${o.id}`} className="break-words hover:underline">{o.title}</Link>
-                      <RepriseBadge origine={o.reprise?.origine} />
-                      {o.department && <span className="block text-xs font-normal text-muted-foreground">{o.department}</span>}
+                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start sm:max-w-[24rem]">
+                      <span className="min-w-0">
+                        <Link href={`/site-web/offres/${o.id}`} className="break-words hover:underline">{o.title}</Link>
+                        <RepriseBadge origine={o.reprise?.origine} />
+                        {o.department && <span className="block text-xs font-normal text-muted-foreground">{o.department}</span>}
+                      </span>
                     </TableCell>
                     <TableCell label="Contrat · lieu" className="text-sm">
                       {[o.contractLabel, o.location].filter(Boolean).join(" · ") || <span className="text-muted-foreground">—</span>}

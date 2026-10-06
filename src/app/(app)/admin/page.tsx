@@ -164,7 +164,7 @@ export default async function AdminPage() {
             redirectBase="/admin/users"
             fields={[
               { type: "text", name: "name", label: "Nom complet", required: true, full: true },
-              { type: "text", name: "email", label: "Email", required: true },
+              { type: "text", name: "email", label: "Email", required: true, inputMode: "email", autoComplete: "off" },
               { type: "text", name: "password", label: "Mot de passe temporaire (min. 8)", required: true },
               { type: "select", name: "role", label: "Rôle par défaut", options: optionsFromMap(ROLE_LABELS), required: true },
               { type: "text", name: "title", label: "Fonction" },
@@ -204,7 +204,7 @@ export default async function AdminPage() {
       <Card>
         <CardHeader><CardTitle>Comptes & accès</CardTitle></CardHeader>
         <CardContent className="p-0">
-          <Table>
+          <Table mobileCards className="max-sm:p-3">
             <TableHeader>
               <TableRow>
                 <TableHead>Utilisateur</TableHead>
@@ -218,10 +218,10 @@ export default async function AdminPage() {
             <TableBody>
               {users.map((u) => (
                 <TableRow key={u.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2.5">
+                  <TableCell data-sans-etiquette className="max-sm:!justify-start">
+                    <div className="flex min-w-0 items-center gap-2.5">
                       <Avatar name={u.name} color={u.avatarColor} size="sm" />
-                      <div><p className="font-medium">{u.name}</p><p className="text-xs text-muted-foreground">{u.email}</p></div>
+                      <div className="min-w-0 text-left"><p className="font-medium">{u.name}</p><p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{u.email}</p></div>
                     </div>
                   </TableCell>
                   <TableCell><Badge tone="neutral" dot={false}>{ROLE_LABELS[u.role] ?? u.role}</Badge></TableCell>
@@ -232,7 +232,7 @@ export default async function AdminPage() {
                   <TableCell>{u.isActive ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="danger" dot={false}>Inactif</Badge>}</TableCell>
                   <TableCell className="text-right">
                     {canManage ? (
-                      <Link href={`/admin/users/${u.id}`} className="text-sm font-medium text-primary hover:underline">Gérer</Link>
+                      <Link href={`/admin/users/${u.id}`} className="inline-flex min-h-9 items-center text-sm font-medium text-primary hover:underline sm:min-h-0">Gérer</Link>
                     ) : <span className="text-xs text-muted-foreground">—</span>}
                   </TableCell>
                 </TableRow>
@@ -275,8 +275,8 @@ export default async function AdminPage() {
             </div>
 
 
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="sm:overflow-x-auto">
+              <Table mobileCards>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Utilisateur</TableHead>
@@ -293,11 +293,11 @@ export default async function AdminPage() {
                       const pct = Math.min(100, (usage.bytes / quotaBytes) * 100);
                       return (
                         <TableRow key={u.id}>
-                          <TableCell className="font-medium">{u.name}</TableCell>
+                          <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{u.name}</TableCell>
                           <TableCell className="text-right text-muted-foreground">{usage.files}</TableCell>
                           <TableCell className="text-right font-medium">{fmtBytes(usage.bytes)}</TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-2">
+                            <div className="flex w-40 items-center gap-2 sm:w-auto">
                               <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
                                 <div className={`h-full ${pct > 90 ? "bg-destructive" : pct > 70 ? "bg-amber-500" : "bg-primary"}`} style={{ width: `${pct}%` }} />
                               </div>
@@ -342,8 +342,8 @@ export default async function AdminPage() {
             {[["Société", "Adventum Pharma"], ["Devise", "DZD"], ["Création de comptes", "Admin uniquement"],
               ["Mot de passe", "Changement forcé 1ʳᵉ connexion"], ["Politique d’accès", "RBAC + overrides + lignes"],
               ["Sessions", "Révocables"], ["Connexion", "Verrouillage anti-bruteforce"], ["IA", "Pilotée (Contrôle IA)"]].map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between border-b border-border pb-2 last:border-0">
-                <span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span>
+              <div key={k} className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-0">
+                <span className="text-muted-foreground">{k}</span><span className="text-right font-medium">{v}</span>
               </div>
             ))}
           </CardContent>

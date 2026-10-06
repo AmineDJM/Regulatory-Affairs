@@ -391,7 +391,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           demande de visa (ou de déclaration) qui part avec chaque paiement. */}
       {enExecution && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><PackageCheck className="h-4 w-4" /> Exécution — bons de commande, factures, réception, paiements</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><PackageCheck className="h-4 w-4 shrink-0" /> Exécution — bons de commande, factures, réception, paiements</CardTitle></CardHeader>
           <CardContent>
             <PromoExecutionCard
               id={pm.id} executions={executions} canPilot={piloteLExecution(acteur, pm)} canReceive={canReceive}
@@ -405,7 +405,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6">
               {/* Au circuit 2, les références de BC, de facture et de visa vivent dans la carte
                   « Exécution », une par fournisseur : les champs uniques de l'ancien parcours
                   n'y ont plus de sens, et les afficher vides ferait croire qu'il manque quelque chose. */}
@@ -422,7 +422,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               {!v2 && <Info label="BC validé le" value={pm.bcValidatedAt ? formatDate(pm.bcValidatedAt.toISOString()) : null} />}
               {!v2 && <Info label="Paiement le" value={pm.paymentDoneAt ? formatDate(pm.paymentDoneAt.toISOString()) : null} />}
               {!v2 && pm.financeReminderCount > 0 && <Info label="Relances finances" value={`${pm.financeReminderCount}${pm.financeReminderAt ? ` · ${formatDateTime(pm.financeReminderAt.toISOString())}` : ""}`} />}
-              {pm.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Brief</p><p className="whitespace-pre-wrap">{pm.description}</p></div>}
+              {pm.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Brief</p><p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{pm.description}</p></div>}
             </CardContent>
           </Card>
 
@@ -499,5 +499,5 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
 }
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium">{value || "—"}</p></div>;
+  return <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium [overflow-wrap:anywhere]">{value || "—"}</p></div>;
 }

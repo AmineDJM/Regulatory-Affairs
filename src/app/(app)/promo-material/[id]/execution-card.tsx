@@ -131,7 +131,9 @@ const Erreur = ({ msg }: { msg: string | null }) =>
 const Info = ({ msg }: { msg: string | null }) =>
   msg ? <div className="flex items-start gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{msg}</span></div> : null;
 
-const lien = "inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs hover:bg-secondary";
+const lien = "inline-flex min-h-9 items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs hover:bg-secondary sm:min-h-0";
+/** Un bouton au libellé long passe à la ligne au lieu de sortir de l'écran (le bouton est `nowrap` par défaut). */
+const aLaLigne = "h-auto min-h-9 whitespace-normal py-1.5 sm:h-auto sm:min-h-8";
 const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 const lire = (s: string): number => (s.trim() === "" ? 0 : Number(s.replace(/\s/g, "").replace(",", ".")));
 const TON_ETAT: Record<EtatReception, "neutral" | "success" | "warning" | "danger"> = {
@@ -141,7 +143,7 @@ const TON_ETAT: Record<EtatReception, "neutral" | "success" | "warning" | "dange
 /** Choix de la formalité qui accompagne un paiement — visa publicitaire ou déclaration au ministère. */
 function ChoixFormalite({ name }: { name: string }) {
   return (
-    <select name={name} required defaultValue="" className="h-9 rounded-md border border-input bg-background px-2 text-sm" aria-label="Formalité à l'information médicale">
+    <select name={name} required defaultValue="" className="h-10 w-full rounded-md border border-input bg-background px-2 text-base sm:h-9 sm:w-auto sm:text-sm" aria-label="Formalité à l'information médicale">
       <option value="" disabled>Formalité…</option>
       <option value="AD_VISA">Demande de visa publicitaire</option>
       <option value="MIP">Déclaration au ministère</option>
@@ -224,8 +226,10 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
           <label className="flex items-center gap-2"><input type="checkbox" name="totalVerifie" value="on" /> Total vérifié contre le papier</label>
         </div>
       )}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[620px] text-sm">
+      {/* Au téléphone, chaque ligne du BC devient une carte (classe `mobile-cards`, intitulés en `data-label`) :
+          saisir quantité et prix dans un tableau qui glisse de côté se fait mal au pouce. */}
+      <div className="sm:overflow-x-auto">
+        <table className="mobile-cards w-full text-sm sm:min-w-[620px]">
           <thead>
             <tr className="text-left text-xs text-muted-foreground">
               <th className="py-1 pr-2 font-medium">Ligne du BC</th>
@@ -244,31 +248,37 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
               const trop = Number.isFinite(q) && q > l.reste + 0.0005;
               return (
                 <tr key={l.quoteLineId} className="border-t border-border align-top">
-                  <td className="py-1 pr-2">
+                  <td className="py-1 pr-2 font-medium sm:font-normal">
                     <input type="hidden" name="ligneQuoteLineId" value={l.quoteLineId} />
                     <input type="hidden" name="ligneDesignation" value={l.designation} />
                     <input type="hidden" name="ligneLue" value={s.lue ?? ""} />
                     <input type="hidden" name="ligneVerifiee" value={s.verifiee ? "1" : "0"} />
-                    {designationAvecAction(l.designation, l.action)}
-                    {s.lue !== null && (
-                      <label className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                        <input type="checkbox" checked={s.verifiee} onChange={(ev) => maj(i, "verifiee", ev.target.checked)} /> lue par Luna — vérifiée
-                      </label>
-                    )}
+                    <div className="w-full">
+                      {designationAvecAction(l.designation, l.action)}
+                      {s.lue !== null && (
+                        <label className="mt-1 flex min-h-9 items-center gap-2 text-xs font-normal text-muted-foreground sm:min-h-0 sm:gap-1">
+                          <input type="checkbox" className="h-4 w-4 sm:h-auto sm:w-auto" checked={s.verifiee} onChange={(ev) => maj(i, "verifiee", ev.target.checked)} /> lue par Luna — vérifiée
+                        </label>
+                      )}
+                    </div>
                   </td>
-                  <td className="py-1 pr-2 text-right tabular-nums text-muted-foreground">{nombre(l.reste)}{l.unite ? ` ${l.unite}` : ""}</td>
-                  <td className="py-1 pr-2">
-                    <Input name="ligneQuantite" value={s.quantite} onChange={(ev) => maj(i, "quantite", ev.target.value)} inputMode="decimal" aria-label={`Quantité facturée — ${l.designation}`}
-                      className={`w-28 ${trop ? "border-destructive" : ecartQ ? "border-amber-500" : ""}`} />
-                    {trop && <span className="block text-xs text-destructive">plus que le reste au BC</span>}
-                    {!trop && ecartQ && <span className="block text-xs text-amber-700 dark:text-amber-400">≠ reste au BC</span>}
+                  <td data-label="Reste au BC" className="py-1 pr-2 text-right tabular-nums text-muted-foreground">{nombre(l.reste)}{l.unite ? ` ${l.unite}` : ""}</td>
+                  <td data-label="Qté facturée" className="py-1 pr-2">
+                    <div className="min-w-0 flex-1">
+                      <Input name="ligneQuantite" value={s.quantite} onChange={(ev) => maj(i, "quantite", ev.target.value)} inputMode="decimal" aria-label={`Quantité facturée — ${l.designation}`}
+                        className={`w-full sm:w-28 ${trop ? "border-destructive" : ecartQ ? "border-amber-500" : ""}`} />
+                      {trop && <span className="block text-xs text-destructive">plus que le reste au BC</span>}
+                      {!trop && ecartQ && <span className="block text-xs text-amber-700 dark:text-amber-400">≠ reste au BC</span>}
+                    </div>
                   </td>
-                  <td className="py-1 pr-2">
-                    <Input name="lignePrix" value={s.prix} onChange={(ev) => maj(i, "prix", ev.target.value)} inputMode="decimal" aria-label={`Prix unitaire — ${l.designation}`}
-                      className={`w-32 ${ecartP ? "border-amber-500" : ""}`} />
-                    {ecartP && <span className="block text-xs text-amber-700 dark:text-amber-400">BC : {formatDzd(l.prixUnitaire)}</span>}
+                  <td data-label="PU HT" className="py-1 pr-2">
+                    <div className="min-w-0 flex-1">
+                      <Input name="lignePrix" value={s.prix} onChange={(ev) => maj(i, "prix", ev.target.value)} inputMode="decimal" aria-label={`Prix unitaire — ${l.designation}`}
+                        className={`w-full sm:w-32 ${ecartP ? "border-amber-500" : ""}`} />
+                      {ecartP && <span className="block text-xs text-amber-700 dark:text-amber-400">BC : {formatDzd(l.prixUnitaire)}</span>}
+                    </div>
                   </td>
-                  <td className="py-1 text-right tabular-nums">{Number.isFinite(q * p) ? formatDzd(Math.round(q * p * 100) / 100) : "—"}</td>
+                  <td data-label="Total HT" className="py-1 text-right tabular-nums">{Number.isFinite(q * p) ? formatDzd(Math.round(q * p * 100) / 100) : "—"}</td>
                 </tr>
               );
             })}
@@ -284,13 +294,13 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
           <Input id={`fa-mt-${e.quoteId}`} name="amount" inputMode="decimal" required placeholder={formatDzd(totaux.ttc)} value={montant} onChange={(ev) => setMontant(ev.target.value)} />
         </div>
       </div>
-      <p className="text-sm">
+      <p className="text-sm [overflow-wrap:anywhere]">
         Calculé : HT <strong className="tabular-nums">{formatDzd(totaux.ht)}</strong> · TVA {formatDzd(totaux.tva)}
         {totaux.taxe ? ` · ${e.taxes.extraTaxLabel ?? "Taxe"} ${formatDzd(totaux.taxe)}` : ""} · <strong className="tabular-nums">{formatDzd(totaux.ttc)} TTC</strong>
         <span className="text-muted-foreground"> — le total imprimé doit tomber dessus à un dinar près.</span>
       </p>
       <Erreur msg={err} />
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enregistrer la facture</Button>
         <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={saving}>Annuler</Button>
       </div>
@@ -330,7 +340,7 @@ function ReceptionLigne({ id, l, options, run, saving }: {
           <div>
             <Label htmlFor={`rc-cat-${l.id}`}>{l.nature.obligatoire ? "Article du catalogue qui reçoit *" : "Article du catalogue (vide = prestation)"}</Label>
             <select id={`rc-cat-${l.id}`} name="catalogueId" value={catalogueId} onChange={(ev) => setCatalogueId(ev.target.value)} required={l.nature.obligatoire}
-              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+              className="h-10 w-full rounded-md border border-input bg-background px-2 text-base sm:h-9 sm:text-sm">
               <option value="">{l.nature.obligatoire ? "Choisir…" : "Aucun — c'est une prestation"}</option>
               {(options?.catalogue ?? []).map((c) => <option key={c.id} value={c.id}>{c.reference} — {c.nom}</option>)}
             </select>
@@ -338,7 +348,7 @@ function ReceptionLigne({ id, l, options, run, saving }: {
           {catalogueId && (
             <div>
               <Label htmlFor={`rc-prod-${l.id}`}>Produit(s){choisi?.exigeProduit ? " *" : ""}</Label>
-              <select id={`rc-prod-${l.id}`} name="produitIds" multiple className="h-20 w-full rounded-md border border-input bg-background px-2 text-sm">
+              <select id={`rc-prod-${l.id}`} name="produitIds" multiple className="h-20 w-full rounded-md border border-input bg-background px-2 text-base sm:text-sm">
                 {(options?.produits ?? []).map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
               </select>
             </div>
@@ -357,12 +367,12 @@ function ReceptionLigne({ id, l, options, run, saving }: {
         )}
         {numerique && (
           <>
-            <div><Label htmlFor={`rc-l-${l.id}`}>Lien du support</Label><Input id={`rc-l-${l.id}`} name="lien" placeholder="https://…" /></div>
+            <div><Label htmlFor={`rc-l-${l.id}`}>Lien du support</Label><Input id={`rc-l-${l.id}`} name="lien" inputMode="url" placeholder="https://…" /></div>
             <div><Label htmlFor={`rc-v-${l.id}`}>Valable jusqu&apos;au</Label><Input id={`rc-v-${l.id}`} name="valableJusquau" type="date" /></div>
           </>
         )}
         <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Confirmer</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setOuvert(false)} disabled={saving}><X className="h-4 w-4" /></Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setOuvert(false)} disabled={saving} aria-label="Fermer"><X className="h-4 w-4" /></Button>
       </div>
       <p className="text-xs text-muted-foreground">
         {prestation
@@ -401,7 +411,7 @@ function Facture({ id, f, agir, canReceive, options }: {
     <div className="space-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-medium">Facture {f.reference ?? "sans numéro"}{f.montant != null ? ` — ${formatDzd(f.montant)} TTC` : ""}</p>
+          <p className="font-medium [overflow-wrap:anywhere]">Facture {f.reference ?? "sans numéro"}{f.montant != null ? ` — ${formatDzd(f.montant)} TTC` : ""}</p>
           <p className="text-xs text-muted-foreground">
             {f.date ? `du ${new Date(f.date).toLocaleDateString("fr-FR")} · ` : ""}{f.etatReglement}
             {f.demandeInfoMedicale ? ` · ${f.demandeInfoMedicale.nature} ${f.demandeInfoMedicale.reference}` : ""}
@@ -417,8 +427,8 @@ function Facture({ id, f, agir, canReceive, options }: {
       </div>
 
       {detail && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-xs">
+        <div className="sm:overflow-x-auto">
+          <table className="mobile-cards w-full text-xs sm:min-w-[560px]">
             <thead>
               <tr className="text-left text-muted-foreground">
                 <th className="py-1 pr-2 font-medium">Ligne</th>
@@ -430,29 +440,34 @@ function Facture({ id, f, agir, canReceive, options }: {
             <tbody>
               {detail.lignes.map((l) => (
                 <tr key={l.id} className="border-t border-border align-top">
-                  <td className="py-1 pr-2">
-                    {designationAvecAction(l.designation, l.action)}
-                    {l.entree && <span className="block text-muted-foreground">Entré au magasin : {l.entree}</span>}
+                  <td className="py-1 pr-2 font-medium sm:font-normal">
+                    <div className="w-full">
+                      {designationAvecAction(l.designation, l.action)}
+                      {l.entree && <span className="block font-normal text-muted-foreground">Entré au magasin : {l.entree}</span>}
+                    </div>
                   </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{nombre(l.quantite)}{l.unite ? ` ${l.unite}` : ""}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{formatDzd(l.prixUnitaire)}</td>
+                  <td data-label="Facturé" className="py-1 pr-2 text-right tabular-nums">{nombre(l.quantite)}{l.unite ? ` ${l.unite}` : ""}</td>
+                  <td data-label="PU HT" className="py-1 pr-2 text-right tabular-nums">{formatDzd(l.prixUnitaire)}</td>
+                  {/* Sans intitulé au téléphone : la réception (et son formulaire) prend toute la largeur de la carte. */}
                   <td className="py-1 pr-2">
-                    <Badge tone={TON_ETAT[l.etat]}>{l.nature.type === "PRESTATION" && l.etat === "RECUE" ? "Faite" : ETAT_RECEPTION_LABEL[l.etat]}</Badge>
-                    {l.quantiteRecue != null && l.etat !== "RECUE" && <span className="ml-1 tabular-nums text-muted-foreground">{nombre(l.quantiteRecue)} reçue(s)</span>}
-                    {receptionOuverte && l.etat === "EN_ATTENTE" && <div className="mt-1"><ReceptionLigne id={id} l={l} options={options} run={run} saving={saving} /></div>}
-                    {receptionOuverte && l.quantiteRecue != null && (
-                      <Button size="sm" variant="ghost" className="mt-1" disabled={saving}
-                        onClick={() => {
-                          // UN MOTIF, pas une simple confirmation (audit 360°, R17) : le journal doit dire si
-                          // c'était une erreur de saisie ou une marchandise renvoyée. Abandonner la boîte ne fait rien.
-                          const motif = window.prompt(`Pourquoi annuler la réception de « ${l.designation} » ?${l.entree ? " Son entrée au magasin sera contre-passée." : ""} (obligatoire)`);
-                          if (motif === null || !motif.trim()) return;
-                          const fd = new FormData(); fd.set("promoMaterialId", id); fd.set("ligneId", l.id); fd.set("motif", motif.trim());
-                          run(() => annulerReceptionLigneFacturePromo(fd));
-                        }}>
-                        <Undo2 className="h-3.5 w-3.5" /> Annuler la réception
-                      </Button>
-                    )}
+                    <div className="w-full">
+                      <Badge tone={TON_ETAT[l.etat]}>{l.nature.type === "PRESTATION" && l.etat === "RECUE" ? "Faite" : ETAT_RECEPTION_LABEL[l.etat]}</Badge>
+                      {l.quantiteRecue != null && l.etat !== "RECUE" && <span className="ml-1 tabular-nums text-muted-foreground">{nombre(l.quantiteRecue)} reçue(s)</span>}
+                      {receptionOuverte && l.etat === "EN_ATTENTE" && <div className="mt-1"><ReceptionLigne id={id} l={l} options={options} run={run} saving={saving} /></div>}
+                      {receptionOuverte && l.quantiteRecue != null && (
+                        <Button size="sm" variant="ghost" className="mt-1" disabled={saving}
+                          onClick={() => {
+                            // UN MOTIF, pas une simple confirmation (audit 360°, R17) : le journal doit dire si
+                            // c'était une erreur de saisie ou une marchandise renvoyée. Abandonner la boîte ne fait rien.
+                            const motif = window.prompt(`Pourquoi annuler la réception de « ${l.designation} » ?${l.entree ? " Son entrée au magasin sera contre-passée." : ""} (obligatoire)`);
+                            if (motif === null || !motif.trim()) return;
+                            const fd = new FormData(); fd.set("promoMaterialId", id); fd.set("ligneId", l.id); fd.set("motif", motif.trim());
+                            run(() => annulerReceptionLigneFacturePromo(fd));
+                          }}>
+                          <Undo2 className="h-3.5 w-3.5" /> Annuler la réception
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -469,7 +484,7 @@ function Facture({ id, f, agir, canReceive, options }: {
         <form className="space-y-2 rounded-md border border-destructive/30 p-2" action={(fd: FormData) => { fd.set("promoMaterialId", id); fd.set("invoiceId", f.id); run(() => annulerFacturePromo(fd), () => setAnnulation(false)); }}>
           <Label htmlFor={`fa-ann-${f.id}`}>Pourquoi annuler cette facture ?</Label>
           <Textarea id={`fa-ann-${f.id}`} name="motif" required className="min-h-[50px]" placeholder="Doublon, facture erronée, rien n'a été livré… Elle reste au registre (annulée), avec ce motif." />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving}>Annuler la facture</BoutonDecisif>
             <Button type="button" size="sm" variant="ghost" onClick={() => setAnnulation(false)} disabled={saving}>Garder</Button>
           </div>
@@ -479,8 +494,8 @@ function Facture({ id, f, agir, canReceive, options }: {
       {agir && !f.paiementDemande && (
         <form className="flex flex-wrap items-center gap-2" action={demanderPaiement}>
           <ChoixFormalite name="formalite" />
-          {enAttente.length > 0 && <Input name="motifRenoncement" required aria-label="Motif du renoncement" placeholder="Motif (obligatoire) — ligne non livrée" className="w-64" />}
-          <BoutonDecisif type="submit" size="sm" variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}
+          {enAttente.length > 0 && <Input name="motifRenoncement" required aria-label="Motif du renoncement" placeholder="Motif (obligatoire) — ligne non livrée" className="w-full sm:w-64" />}
+          <BoutonDecisif type="submit" size="sm" className={aLaLigne} variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}
             confirmation={enAttente.length > 0 ? `renoncer à ${enAttente.map((l) => `« ${l.designation} »`).join(", ")} et demander le paiement` : undefined}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {enAttente.length > 0 ? " Demander le paiement malgré tout" : " Demander le paiement"}
@@ -495,7 +510,7 @@ function Facture({ id, f, agir, canReceive, options }: {
       {agir && f.paiementDemande && !f.demandeInfoMedicale && (
         <form className="flex flex-wrap items-center gap-2" action={(fd: FormData) => { fd.set("promoMaterialId", id); fd.set("invoiceId", f.id); run(() => adresserInfoMedicaleFacturePromo(fd)); }}>
           <ChoixFormalite name="formalite" />
-          <Button type="submit" size="sm" variant="outline" disabled={saving}><Stethoscope className="h-4 w-4" /> Adresser à l&apos;information médicale</Button>
+          <Button type="submit" size="sm" variant="outline" className={aLaLigne} disabled={saving}><Stethoscope className="h-4 w-4" /> Adresser à l&apos;information médicale</Button>
         </form>
       )}
       <Erreur msg={err} />
@@ -541,7 +556,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
           {e.envoyeLe
             ? <Badge tone="success">Envoyé le {new Date(e.envoyeLe).toLocaleDateString("fr-FR")}</Badge>
             : signe
-              ? (agir && <Button size="sm" variant="outline" disabled={saving} onClick={() => run(() => marquerBonDeCommandeEnvoye(form({})))}><Send className="h-4 w-4" /> Marquer envoyé au fournisseur</Button>)
+              ? (agir && <Button size="sm" variant="outline" className={aLaLigne} disabled={saving} onClick={() => run(() => marquerBonDeCommandeEnvoye(form({})))}><Send className="h-4 w-4" /> Marquer envoyé au fournisseur</Button>)
               : <span className="text-xs text-muted-foreground">Il part chez le fournisseur une fois signé par les Finances.</span>}
           {agir && !fige && mode === null && (
             <>
@@ -559,7 +574,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
             <div><Label htmlFor={`bc-adr-${e.quoteId}`}>Adresse de livraison</Label><Input id={`bc-adr-${e.quoteId}`} name="livraisonAdresse" /></div>
             <div><Label htmlFor={`bc-del-${e.quoteId}`}>Délai de livraison</Label><Input id={`bc-del-${e.quoteId}`} name="livraisonDelai" placeholder="15 jours" /></div>
             <div><Label htmlFor={`bc-cn-${e.quoteId}`}>Interlocuteur</Label><Input id={`bc-cn-${e.quoteId}`} name="contactNom" /></div>
-            <div><Label htmlFor={`bc-ct-${e.quoteId}`}>Téléphone</Label><Input id={`bc-ct-${e.quoteId}`} name="contactTelephone" /></div>
+            <div><Label htmlFor={`bc-ct-${e.quoteId}`}>Téléphone</Label><Input id={`bc-ct-${e.quoteId}`} name="contactTelephone" type="tel" /></div>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div><Label htmlFor={`bc-taxe-${e.quoteId}`}>Taxe supplémentaire (libellé)</Label><Input id={`bc-taxe-${e.quoteId}`} name="extraTaxLabel" placeholder="Taxe Pub" /></div>
@@ -567,7 +582,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
           </div>
           <div><Label htmlFor={`bc-notes-${e.quoteId}`}>Notes</Label><Textarea id={`bc-notes-${e.quoteId}`} name="notes" className="min-h-[50px]" /></div>
           <div><Label htmlFor={`bc-motif-${e.quoteId}`}>Motif de la modification</Label><Input id={`bc-motif-${e.quoteId}`} name="motif" /></div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer</Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
           </div>
@@ -578,7 +593,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
         <form className="space-y-2 rounded-lg border border-destructive/30 p-3" action={(f: FormData) => { f.set("promoMaterialId", id); f.set("quoteId", e.quoteId); run(() => annulerBonDeCommandePromo(f), () => setMode(null)); }}>
           <Label htmlFor={`bc-sup-${e.quoteId}`}>Pourquoi supprimer ce bon de commande ?</Label>
           <Textarea id={`bc-sup-${e.quoteId}`} name="motif" required className="min-h-[50px]" placeholder="Son numéro reste au registre (annulé), avec ce motif." />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Supprimer le BC</BoutonDecisif>
             <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
           </div>
@@ -590,7 +605,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
         <div className="space-y-2">
           {e.factures.map((f) => <Facture key={f.id} id={id} f={f} agir={agir} canReceive={canReceive && ouvert} options={options} />)}
           {agir && signe && resteAFacturer && mode !== "facture" && (
-            <Button size="sm" variant="outline" disabled={saving} onClick={() => setMode("facture")}><Upload className="h-4 w-4" /> Déposer une facture</Button>
+            <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled={saving} onClick={() => setMode("facture")}><Upload className="h-4 w-4" /> Déposer une facture</Button>
           )}
           {mode === "facture" && <DepotFacture id={id} e={e} onDone={() => setMode(null)} onCancel={() => setMode(null)} />}
         </div>
@@ -633,7 +648,7 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              <BoutonDecisif type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande manquants</BoutonDecisif>
+              <BoutonDecisif type="submit" size="sm" className={aLaLigne} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande manquants</BoutonDecisif>
               {!options && <Button type="button" size="sm" variant="ghost" onClick={() => setOptions(true)}>Livraison et notes…</Button>}
             </div>
           </form>

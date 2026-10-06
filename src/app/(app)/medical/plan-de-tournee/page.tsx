@@ -143,7 +143,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
 
       {plan ? (
         <>
-          <Link href="/medical/plan-de-tournee" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+          <Link href="/medical/plan-de-tournee" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-0">
             ← Tous les plans
           </Link>
           <Planificateur
@@ -207,7 +207,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
                     </span>
                     <Badge tone="warning">{STATUT_PLAN_LABELS[p.status as StatutPlan]}</Badge>
                     <span className="text-xs text-muted-foreground">{p._count.visits} visite(s)</span>
-                    <Link href={`/medical/plan-de-tournee?plan=${p.id}`} className="ml-auto inline-flex items-center gap-1 text-primary hover:underline">
+                    <Link href={`/medical/plan-de-tournee?plan=${p.id}`} className="ml-auto inline-flex min-h-10 items-center gap-1 text-primary hover:underline sm:min-h-0">
                       Ouvrir <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                   </li>
@@ -260,7 +260,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
                         </span>
                       );
                     })()}
-                    <Link href={`/medical/plan-de-tournee?plan=${p.id}`} className="ml-auto inline-flex items-center gap-1 text-primary hover:underline">
+                    <Link href={`/medical/plan-de-tournee?plan=${p.id}`} className="ml-auto inline-flex min-h-10 items-center gap-1 text-primary hover:underline sm:min-h-0">
                       Ouvrir <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                   </li>

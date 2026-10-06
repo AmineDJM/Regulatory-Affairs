@@ -45,6 +45,11 @@ interface Props {
   settlementOrder?: { reference: string; etat: string; regle: boolean } | null;
 }
 
+/** Les libellés d'étape sont longs : au téléphone, le bouton prend la largeur et passe à la ligne au lieu de sortir de l'écran. */
+const bouton = "h-auto min-h-10 w-full whitespace-normal py-2 sm:w-auto";
+/** Le bouton décisif, sans `w-full` : il en déduirait une pleine largeur à toutes les tailles. */
+const boutonDecisif = "h-auto min-h-10 whitespace-normal py-2";
+
 const Err = ({ msg }: { msg: string | null }) =>
   msg ? <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4 shrink-0" /> {msg}</div> : null;
 
@@ -74,7 +79,7 @@ export function PromoActionPanel(props: Props) {
     panels.push(
       <Step key="quotes" title="Devis des agences" hint="Déposez les devis reçus (ci-dessus), puis confirmez.">
         <Err msg={err} />
-        <Button onClick={() => run(() => submitQuotes(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Devis déposés</Button>
+        <Button className={bouton} onClick={() => run(() => submitQuotes(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Devis déposés</Button>
       </Step>,
     );
   }
@@ -103,7 +108,7 @@ export function PromoActionPanel(props: Props) {
       panels.push(
         <Step key="vbc" title="Validation du bon de commande (centre Ad & Pro)" hint="Vérifiez le BC déposé, puis validez. Tout bon de commande né d'Ad & Pro passe par le centre de validation Ad & Pro.">
           <Err msg={err} />
-          <BoutonDecisif onClick={() => run(() => validateBc(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Valider le bon de commande</BoutonDecisif>
+          <BoutonDecisif className={boutonDecisif} onClick={() => run(() => validateBc(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Valider le bon de commande</BoutonDecisif>
         </Step>,
       );
     }
@@ -111,7 +116,7 @@ export function PromoActionPanel(props: Props) {
       panels.push(
         <Step key="relance" title="Relancer le centre de validation" hint={`Bon de commande en attente de validation au centre de validation Ad & Pro.${props.reminderCount > 0 ? ` ${props.reminderCount} relance(s) envoyée(s).` : ""}`}>
           <Err msg={err} />
-          <Button variant="outline" onClick={() => run(() => remindFinance(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />} Relancer le centre</Button>
+          <Button variant="outline" className={bouton} onClick={() => run(() => remindFinance(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />} Relancer le centre</Button>
         </Step>,
       );
     }
@@ -120,7 +125,7 @@ export function PromoActionPanel(props: Props) {
     panels.push(
       <Step key="sent" title="Transmission à l'agence" hint="Le BC est validé. Confirmez sa transmission à l'agence (contact hors plateforme).">
         <Err msg={err} />
-        <BoutonDecisif onClick={() => run(() => confirmBcSent(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} BC validé & transmis à l'agence</BoutonDecisif>
+        <BoutonDecisif className={boutonDecisif} onClick={() => run(() => confirmBcSent(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} BC validé & transmis à l'agence</BoutonDecisif>
       </Step>,
     );
   }
@@ -162,7 +167,7 @@ export function PromoActionPanel(props: Props) {
     panels.push(
       <Step key="mat" title="Matériel réalisé" hint="Déposez le matériel réalisé par l'agence (ci-dessus), puis confirmez.">
         <Err msg={err} />
-        <Button onClick={() => run(() => submitMaterial(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Matériel réalisé déposé</Button>
+        <Button className={bouton} onClick={() => run(() => submitMaterial(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Matériel réalisé déposé</Button>
       </Step>,
     );
   }
@@ -187,7 +192,7 @@ export function PromoActionPanel(props: Props) {
     panels.push(
       <Step key="bat" title="BAT / impression" hint="Le visa publicitaire est obtenu. Lancez le BAT / l'impression.">
         <Err msg={err} />
-        <Button onClick={() => run(() => startBat(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Lancer le BAT / impression</Button>
+        <Button className={bouton} onClick={() => run(() => startBat(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Lancer le BAT / impression</Button>
       </Step>,
     );
   }
@@ -195,7 +200,7 @@ export function PromoActionPanel(props: Props) {
     panels.push(
       <Step key="final" title="Matériel final" hint="Déposez le matériel final imprimé (ci-dessus), puis confirmez.">
         <Err msg={err} />
-        <Button onClick={() => run(() => submitFinalMaterial(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Matériel final déposé</Button>
+        <Button className={bouton} onClick={() => run(() => submitFinalMaterial(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Matériel final déposé</Button>
       </Step>,
     );
   }
@@ -203,7 +208,7 @@ export function PromoActionPanel(props: Props) {
     panels.push(
       <Step key="inv" title="Facture de l'agence" hint="Enregistrez la facture finale + le bon de livraison (ci-dessus), puis transmettez aux finances.">
         <Err msg={err} />
-        <BoutonDecisif onClick={() => run(() => recordInvoice(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Facture reçue — transmettre aux finances</BoutonDecisif>
+        <BoutonDecisif className={boutonDecisif} onClick={() => run(() => recordInvoice(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Facture reçue — transmettre aux finances</BoutonDecisif>
       </Step>,
     );
   }
@@ -218,7 +223,7 @@ export function PromoActionPanel(props: Props) {
       ) : o.regle ? (
         <Step key="settle" title="Règlement" hint={`L'ordre ${o.reference} est réglé : le dossier peut être clôturé.`}>
           <Err msg={err} />
-          <BoutonDecisif onClick={() => run(() => settle(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Clôturer le dossier (réglé)</BoutonDecisif>
+          <BoutonDecisif className={boutonDecisif} onClick={() => run(() => settle(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Clôturer le dossier (réglé)</BoutonDecisif>
         </Step>
       ) : (
         <Step key="settle" title="Règlement" hint={`L'ordre ${o.reference} est ${o.etat}. Le dossier se clôturera une fois l'ordre réglé depuis Finances › Paiements à faire.`}>
@@ -251,13 +256,13 @@ function CancelButton({ id }: { id: string }) {
     <div className="space-y-2">
       <Err msg={err} />
       {!confirm ? (
-        <button onClick={() => setConfirm(true)} className="text-xs text-muted-foreground hover:text-destructive">Annuler ce dossier</button>
+        <button onClick={() => setConfirm(true)} className="inline-flex min-h-9 items-center text-xs text-muted-foreground hover:text-destructive sm:min-h-0">Annuler ce dossier</button>
       ) : (
         // Le MOTIF est exigé (audit 360°, R17/R18) : l'annulation est définitive, et le demandeur doit
         // pouvoir lire pourquoi — sans lui, il croyait à un refus.
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">Annuler le dossier ?</span>
-          <Input value={motif} onChange={(e) => setMotif(e.target.value)} aria-label="Motif de l'annulation" placeholder="Pourquoi (obligatoire)" className="min-w-0 flex-1" />
+          <Input value={motif} onChange={(e) => setMotif(e.target.value)} aria-label="Motif de l'annulation" placeholder="Pourquoi (obligatoire)" className="min-w-0 flex-1 basis-full sm:basis-0" />
           <BoutonDecisif size="sm" variant="destructive" onClick={() => { const f = new FormData(); f.set("id", id); f.set("motif", motif.trim()); run(() => cancelPromoMaterial(f)); }} disabled={saving || !motif.trim()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer</BoutonDecisif>
           <Button size="sm" variant="ghost" onClick={() => setConfirm(false)} disabled={saving}>Non</Button>
         </div>
@@ -287,7 +292,7 @@ function StepForm({ title, hint, children, onSubmit, saving, err, submit }: { ti
           <p className="text-xs text-muted-foreground">{hint}</p>
           {children}
           <Err msg={err} />
-          <Button type="submit" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} {submit}</Button>
+          <Button type="submit" className={bouton} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} {submit}</Button>
         </form>
       </CardContent>
     </Card>
@@ -298,7 +303,7 @@ function Field({ name, label, type = "text", required, defaultValue }: { name: s
   return (
     <div className="space-y-1">
       <Label htmlFor={name}>{label}{required && <span className="ml-0.5 text-destructive">*</span>}</Label>
-      <Input id={name} name={name} type={type} required={required} defaultValue={defaultValue} step={type === "number" ? "any" : undefined} />
+      <Input id={name} name={name} type={type} required={required} defaultValue={defaultValue} step={type === "number" ? "any" : undefined} inputMode={type === "number" ? "decimal" : undefined} />
     </div>
   );
 }

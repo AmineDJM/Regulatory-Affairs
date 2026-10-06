@@ -43,7 +43,7 @@ export default async function CentreAdProPage() {
         description="Toute demande de promotion dont le budget total dépasse le seuil s'arrête ici, quelle que soit sa nature — sponsoring, prises en charge, événements, matériel promotionnel, consulting, autres demandes. Et tout bon de commande né d'Ad & Pro au-dessus du seuil des bons de commande y est validé avant de passer à la signature des Finances. La plus ancienne en tête : c'est elle qui bloque quelqu'un. Les deux seuils se règlent sur cet écran."
       />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           label="En attente d'arbitrage" value={String(c.enAttente)} icon="Scale" tone={c.enAttente > 0 ? "warning" : "default"}
           hint={c.bonsDeCommande > 0 ? `Dont ${c.bonsDeCommande} bon(s) de commande à valider.` : undefined}

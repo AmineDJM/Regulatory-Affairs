@@ -40,8 +40,8 @@ export function VueMedecins({ page }: { page: PageStock }) {
           <Vide>Aucune remise à un médecin dans votre périmètre. Elles s&apos;enregistrent dans le rapport de visite, bloc « Matériel remis ».</Vide>
         ) : (
           <>
-            <div className="relative max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Médecin ou établissement…" className="pl-8" aria-label="Chercher un médecin" />
             </div>
             {liste.length === 0 ? (
@@ -52,7 +52,7 @@ export function VueMedecins({ page }: { page: PageStock }) {
                   <li key={m.doctorId} className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <p className="break-words font-medium text-foreground">{m.medecin}</p>
-                      {m.institution && <p className="text-xs text-muted-foreground">{m.institution}</p>}
+                      {m.institution && <p className="break-words text-xs text-muted-foreground">{m.institution}</p>}
                       <p className="mt-0.5 break-words text-sm text-foreground">
                         {m.articles.map((a) => `${nombre(a.quantite)} ${a.libelle}`).join(" · ")}
                       </p>

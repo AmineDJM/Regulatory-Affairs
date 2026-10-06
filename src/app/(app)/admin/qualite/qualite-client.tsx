@@ -43,7 +43,7 @@ export function BoutonBalayage() {
   const [pending, start] = React.useTransition();
   const [message, setMessage] = React.useState<string | null>(null);
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Button variant="outline" disabled={pending} data-testid="qualite-balayer" onClick={() => start(async () => {
         const r = await lancerBalayageQualite("FULL");
         setMessage(r.message);

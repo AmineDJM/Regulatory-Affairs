@@ -57,20 +57,20 @@ export function MyPurchaseRequests({ rows }: { rows: MyPurchaseRow[] }) {
     <ul className="divide-y divide-border rounded-xl border border-border">
       {rows.map((r) => (
         <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-sm">
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium">{r.title}</span>
-            <span className="block truncate text-xs text-muted-foreground">{r.summary}</span>
+          <span className="min-w-0 flex-1 basis-[12rem]">
+            <span className="block font-medium [overflow-wrap:anywhere]">{r.title}</span>
+            <span className="line-clamp-2 text-xs text-muted-foreground sm:line-clamp-none sm:truncate">{r.summary}</span>
             <span className="block text-[0.6875rem] text-muted-foreground">
               {r.reference} · {formatDate(r.createdAt)}
               {r.validatorName ? ` · ${r.validatorName}` : ""}
               {r.estimated != null ? ` · ~${formatCurrency(r.estimated)}` : ""}
             </span>
-            {r.decisionNote && <span className="block text-xs text-muted-foreground">{r.decisionNote}</span>}
+            {r.decisionNote && <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{r.decisionNote}</span>}
           </span>
           <Badge tone={STAGE_TONE[r.stage]} dot={false}>{STAGE_LABEL[r.stage]}</Badge>
           <Link
             href={`/demandes/${r.id}`}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+            className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground sm:min-h-0 sm:px-2"
           >
             Suivre <ExternalLink className="h-3 w-3" />
           </Link>
@@ -78,7 +78,7 @@ export function MyPurchaseRequests({ rows }: { rows: MyPurchaseRow[] }) {
             <button
               type="button" disabled={busy === r.id} onClick={() => void withdraw(r.id)}
               title="Retirer la demande"
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
             >
               {busy === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
             </button>

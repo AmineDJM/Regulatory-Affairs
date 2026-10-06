@@ -79,7 +79,7 @@ export function ExpenseRowActions({
           onClick={() => { setMode(mode === "edit" ? "idle" : "edit"); setError(null); }}
           aria-label="Modifier la dépense"
           title="Modifier"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
@@ -88,7 +88,7 @@ export function ExpenseRowActions({
           onClick={() => { setMode(mode === "confirm" ? "idle" : "confirm"); setError(null); }}
           aria-label="Supprimer la dépense"
           title="Supprimer"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -104,7 +104,7 @@ export function ExpenseRowActions({
             {expense.fromPettyCash ? " et au solde de la caisse" : ""}, et le justificatif est
             supprimé avec la ligne. L&apos;opération est tracée dans le journal.
           </p>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             <BoutonDecisif size="sm" variant="destructive" onClick={() => void remove()} disabled={busy}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Supprimer
             </BoutonDecisif>
@@ -139,7 +139,7 @@ export function ExpenseRowActions({
             </label>
             <label className="text-xs">
               Budget imputé
-              <select name="kind" defaultValue={expense.kind} className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
+              <select name="kind" defaultValue={expense.kind} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-base sm:h-9 sm:text-sm">
                 <option value="OPERATING">{DEPT_BUDGET_LABEL.OPERATING}</option>
                 <option value="ACTIVITY">{DEPT_BUDGET_LABEL.ACTIVITY}</option>
               </select>
@@ -185,7 +185,7 @@ export function ExpenseRowActions({
             </p>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" type="submit" disabled={busy}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Enregistrer
             </Button>

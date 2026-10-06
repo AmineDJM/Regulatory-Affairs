@@ -35,7 +35,7 @@ import {
  */
 export type LegalRow = LegalListRow;
 
-const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
+const cellInput = "h-9 w-full rounded-md border border-input bg-card px-2 text-base sm:h-8 sm:text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
 
 const URGENT = URGENT_EXPIRY;
 
@@ -125,7 +125,7 @@ export function LegalTable({
         <span>{shown.length} / {rows.length} document{rows.length > 1 ? "s" : ""}</span>
         <button
           type="button" onClick={() => setWatchOnly((v) => !v)}
-          className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium",
+          className={cn("inline-flex min-h-9 items-center gap-1 rounded-md border px-2.5 py-1 font-medium sm:min-h-0 sm:px-2",
             watchOnly ? "border-warning/60 bg-warning/10 text-warning" : "border-input hover:bg-secondary")}
         >
           À surveiller ({watchCount})
@@ -136,20 +136,20 @@ export function LegalTable({
         {unpaidCount > 0 && (
           <button
             type="button" onClick={() => setUnpaidOnly((v) => !v)}
-            className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium",
+            className={cn("inline-flex min-h-9 items-center gap-1 rounded-md border px-2.5 py-1 font-medium sm:min-h-0 sm:px-2",
               unpaidOnly ? "border-warning/60 bg-warning/10 text-warning" : "border-input hover:bg-secondary")}
           >
             Factures à régler ({unpaidCount})
           </button>
         )}
         {shownInvoiceTotal > 0 && (
-          <span className="font-semibold text-foreground">Reste à payer affiché&nbsp;: {formatCurrency(shownInvoiceTotal)}</span>
+          <span className="font-semibold text-foreground tabular-nums">Reste à payer affiché&nbsp;: {formatCurrency(shownInvoiceTotal)}</span>
         )}
         {active && (
           <button
             type="button"
             onClick={() => setState((p) => ({ ...p, filters: { ...EMPTY_FILTERS }, watchOnly: false, unpaidOnly: false }))}
-            className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary"
+            className="inline-flex min-h-9 items-center gap-1 rounded-md border border-input px-2.5 py-1 font-medium hover:bg-secondary sm:min-h-0 sm:px-2"
           >
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser
           </button>
@@ -173,7 +173,7 @@ export function LegalTable({
                 if (target !== "none") fd.set("folderId", target);
                 void run("move", () => moveLegalDocuments(fd));
               }}
-              className="rounded-md border border-input bg-background px-2 py-1 text-xs font-medium"
+              className="h-9 max-w-full rounded-md border border-input bg-background px-2 py-1 text-base font-medium sm:h-auto sm:text-xs"
               aria-label="Ranger les documents affichés dans un dossier"
             >
               <option value="">Ranger les {shown.length} affichés…</option>
@@ -188,7 +188,7 @@ export function LegalTable({
         <table className="w-full min-w-[64rem] border-collapse text-sm">
           <thead className="border-b border-border">
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 pt-2 text-left font-medium">Référence</th>
+              <th className="sticky left-0 z-10 bg-card px-3 pt-2 text-left font-medium">Référence</th>
               <th className="px-3 pt-2 text-left font-medium">Titre exact</th>
               <th className="px-3 pt-2 text-left font-medium">Nature</th>
               <th className="px-3 pt-2 text-left font-medium">Partie</th>
@@ -200,7 +200,7 @@ export function LegalTable({
               {canEdit && <th className="px-3 pt-2 text-left font-medium">Actions</th>}
             </tr>
             <tr>
-              <th className="px-2 pb-2 pt-1"><input value={f.reference} onChange={set("reference")} placeholder="Filtrer" className={cellInput} /></th>
+              <th className="sticky left-0 z-10 bg-card px-2 pb-2 pt-1"><input value={f.reference} onChange={set("reference")} placeholder="Filtrer" className={cellInput} /></th>
               <th className="px-2 pb-2 pt-1"><input value={f.title} onChange={set("title")} placeholder="Filtrer" className={cellInput} /></th>
               <th className="px-2 pb-2 pt-1">
                 <select value={f.kind} onChange={set("kind")} className={cellInput}>
@@ -255,7 +255,7 @@ export function LegalTable({
               const reglement = INVOICE_SETTLEMENT[etatReglement];
               return (
                 <tr key={r.id} className="align-middle hover:bg-secondary/30">
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference || "—"}</td>
+                  <td className="sticky left-0 z-10 bg-card px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference || "—"}</td>
                   <td className="px-3 py-2">
                     <Link href={`/legal/${r.id}`} className="font-medium hover:underline">{r.title}</Link>
                     {r.restricted && (
@@ -283,7 +283,7 @@ export function LegalTable({
                       <span className="text-xs text-muted-foreground">sans échéance</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{r.amount !== null ? formatCurrency(r.amount) : "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{r.amount !== null ? formatCurrency(r.amount) : "—"}</td>
                   <td className="px-3 py-2">
                     <span className="flex flex-wrap items-center gap-1">
                       <Badge tone={st?.tone ?? "neutral"} dot={false}>{st?.label ?? r.status}</Badge>
@@ -316,7 +316,7 @@ export function LegalTable({
                   </td>
                   {canEdit && (
                     <td className="px-3 py-2">
-                      <span className="flex items-center gap-1">
+                      <span className="flex flex-wrap items-center gap-1">
                         {/* LE GESTE LE PLUS FRÉQUENT d'une facture : dire qu'elle est réglée. Il
                             se fait DANS LA LIGNE — rouvrir une fiche pour cocher une date est ce
                             qui faisait tenir les règlements dans un tableur à côté. Une facture

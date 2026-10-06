@@ -76,7 +76,7 @@ export function BarreSpecialites({
               <Stethoscope className="h-4 w-4 text-primary" /> Par spécialité
             </h2>
             {gerer?.creer && ajout === null && (
-              <button type="button" onClick={() => { setErreur(null); setAjout(""); }} className="ml-auto inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary">
+              <button type="button" onClick={() => { setErreur(null); setAjout(""); }} className="ml-auto inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary sm:py-1">
                 <Plus className="h-3.5 w-3.5" /> Nouvelle spécialité
               </button>
             )}
@@ -89,7 +89,7 @@ export function BarreSpecialites({
             >
               <input
                 autoFocus value={ajout} onChange={(e) => setAjout(e.target.value)} placeholder="Nom de la spécialité (ex. Néphrologie)"
-                className="min-w-0 flex-1 rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm focus-ring sm:max-w-xs" aria-label="Nom de la nouvelle spécialité"
+                className="min-w-0 flex-1 basis-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-base focus-ring sm:max-w-xs sm:basis-auto sm:text-sm" aria-label="Nom de la nouvelle spécialité"
               />
               <button type="submit" disabled={!ajout.trim() || enCours === "ajout"} className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
                 {enCours === "ajout" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Ajouter
@@ -100,7 +100,8 @@ export function BarreSpecialites({
             </form>
           )}
 
-          <div className="flex flex-wrap gap-2">
+          {/* Au téléphone, les spécialités forment une rangée qui glisse plutôt qu'un mur de pastilles. */}
+          <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 no-scrollbar [&>*]:shrink-0 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
             <Link href={lien({ archives })} className={pastille(!ouverte)}>Toutes les spécialités</Link>
             {specialites.map((s) => edition?.id === s.id ? (
               <form
@@ -109,12 +110,12 @@ export function BarreSpecialites({
               >
                 <input
                   autoFocus value={edition.nom} onChange={(e) => setEdition({ id: s.id, nom: e.target.value })}
-                  className="w-44 rounded-lg border border-input bg-background px-2 py-1 text-sm focus-ring" aria-label={`Nouveau nom de ${s.name}`}
+                  className="w-40 rounded-lg border border-input bg-background px-2 py-1 text-base focus-ring sm:w-44 sm:text-sm" aria-label={`Nouveau nom de ${s.name}`}
                 />
-                <button type="submit" disabled={!edition.nom.trim() || enCours === `maj:${s.id}`} className="rounded p-1 text-success hover:bg-success/10 disabled:opacity-50" title="Enregistrer">
+                <button type="submit" disabled={!edition.nom.trim() || enCours === `maj:${s.id}`} className="rounded p-2 text-success hover:bg-success/10 disabled:opacity-50 sm:p-1" title="Enregistrer" aria-label="Enregistrer">
                   {enCours === `maj:${s.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                 </button>
-                <button type="button" onClick={() => setEdition(null)} className="rounded p-1 text-muted-foreground hover:bg-secondary" title="Annuler"><X className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={() => setEdition(null)} className="rounded p-2 text-muted-foreground hover:bg-secondary sm:p-1" title="Annuler" aria-label="Annuler"><X className="h-3.5 w-3.5" /></button>
               </form>
             ) : (
               <span key={s.id} className={cn("group", pastille(ouverte === s.id), "gap-1")}>
@@ -123,7 +124,7 @@ export function BarreSpecialites({
                   <span className="text-xs text-muted-foreground">({s.count})</span>
                 </Link>
                 {gerer?.modifier && (
-                  <button type="button" onClick={() => { setErreur(null); setEdition({ id: s.id, nom: s.name }); }} className="rounded p-0.5 text-muted-foreground hover:text-foreground" title={`Renommer ${s.name}`} aria-label={`Renommer ${s.name}`}>
+                  <button type="button" onClick={() => { setErreur(null); setEdition({ id: s.id, nom: s.name }); }} className="-my-1 rounded p-1.5 text-muted-foreground hover:text-foreground sm:my-0 sm:p-0.5" title={`Renommer ${s.name}`} aria-label={`Renommer ${s.name}`}>
                     <Pencil className="h-3 w-3" />
                   </button>
                 )}
@@ -132,7 +133,7 @@ export function BarreSpecialites({
                     brut type="button" disabled={enCours !== null}
                     confirmation={`Supprimer la spécialité « ${s.name} » ? ${s.count > 0 ? `Ses ${s.count} médecin(s) gardent leur spécialité écrite.` : ""}`}
                     onClick={() => void agir(`sup:${s.id}`, () => deleteSpecialty(fd({ id: s.id })), () => { if (ouverte === s.id) router.push(lien({ archives })); })}
-                    className="rounded p-0.5 text-muted-foreground hover:text-destructive" aria-label={`Supprimer ${s.name}`}
+                    className="-my-1 rounded p-1.5 text-muted-foreground hover:text-destructive sm:my-0 sm:p-0.5" aria-label={`Supprimer ${s.name}`}
                   >
                     {enCours === `sup:${s.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                   </BoutonDecisif>
