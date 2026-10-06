@@ -1157,6 +1157,10 @@ X("LES LIGNES DES DEVIS D'UN POSTE ET LES BC QU'ELLES FONT GÉNÉRER (§118.206)
 X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable remonte la marche du N+1 à son propre N+1, "
   + "qui la redescend validée ou refusée. Un geste de la ligne « Mon équipe », devant la demande — pas un appel d'Adam.", [
   "hr-actions:demanderAvisN1Conge",
+  // L'ORDRE DE MISSION GÉNÉRÉ par les RH sur le document de la Direction : un formulaire devant la demande du salarié.
+  "hr-document-actions:genererOrdreDeMission",
+  // LA DISCUSSION ET LES PARTICIPANTS D'UNE DEMANDE DE VALIDATION : des gestes de la fiche de la demande.
+  "validation-actions:commenterValidation", "validation-actions:ajouterParticipantsValidation", "validation-actions:retirerParticipantValidation",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "

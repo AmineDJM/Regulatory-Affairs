@@ -468,13 +468,15 @@ const GESTES_D_ECRITURE_DE_PIECE: readonly Action[] = ["UPLOAD", "UPDATE", "DELE
  */
 export async function lecteurDeLaDemandeDeValidation(
   user: { id: string; role: string },
-  demande: { requesterId: string; steps: { validatorId: string }[] },
+  demande: { requesterId: string; steps: { validatorId: string }[]; participants?: { userId: string }[] },
   action: Action = "VIEW",
 ): Promise<boolean> {
   if (user.role === "SUPER_ADMIN" || demande.requesterId === user.id) return true;
   if (action !== "VIEW") return false;
   const validateurs = [...new Set(demande.steps.map((e) => e.validatorId))];
   if (validateurs.includes(user.id)) return true;
+  // LES PARTICIPANTS ajoutés à la demande (Direction, 06/10) la lisent et en discutent.
+  if (demande.participants?.some((p) => p.userId === user.id)) return true;
   for (const v of validateurs) if (await actsForUser(user.id, v)) return true;
   return false;
 }
@@ -530,7 +532,7 @@ export async function canAccessEntity(
   // cette demande » finiraient par répondre autrement (§118.5, §118.177).
   if (entityType === "VALIDATION_REQUEST") {
     const v = await prisma.validationRequest.findUnique({
-      where: { id: entityId }, select: { requesterId: true, steps: { select: { validatorId: true } } },
+      where: { id: entityId }, select: { requesterId: true, steps: { select: { validatorId: true } }, participants: { select: { userId: true } } },
     });
     return v ? lecteurDeLaDemandeDeValidation(user, v, action) : false;
   }

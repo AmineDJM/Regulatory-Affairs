@@ -16,6 +16,7 @@ import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import { ExpenseClaimHrPanel } from "@/components/hr/expense-claim-hr-panel";
 import type { HrDocumentDTO, HrRequestDTO } from "@/lib/queries/hr-documents";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { OrdreMissionForm } from "./ordre-mission-form";
 
 const REQ_TO_CAT: Record<string, string> = {
   WORK_CERTIFICATE: "WORK_CERTIFICATE",
@@ -26,7 +27,7 @@ const REQ_TO_CAT: Record<string, string> = {
   OTHER: "OTHER",
 };
 
-export function HrDossier({ employeeId, employeeName, documents, requests, currentUserId }: { employeeId: string; employeeName: string; documents: HrDocumentDTO[]; requests: HrRequestDTO[]; currentUserId: string }) {
+export function HrDossier({ employeeId, employeeName, employeePosition = null, referenceOrdreMission = "", documents, requests, currentUserId }: { employeeId: string; employeeName: string; employeePosition?: string | null; referenceOrdreMission?: string; documents: HrDocumentDTO[]; requests: HrRequestDTO[]; currentUserId: string }) {
   const router = useRouter();
   const [category, setCategory] = React.useState("PAYSLIP");
   // La case suit la CATÉGORIE tant que personne ne l'a touchée : choisir « Contrat » doit
@@ -151,7 +152,7 @@ export function HrDossier({ employeeId, employeeName, documents, requests, curre
           <p className="text-sm text-muted-foreground">Aucune demande.</p>
         ) : (
           <ul className="space-y-2">
-            {requests.map((r) => <RequestRow key={r.id} req={r} employeeId={employeeId} employeeName={employeeName} onFulfil={upload} busy={busy} currentUserId={currentUserId} />)}
+            {requests.map((r) => <RequestRow key={r.id} req={r} employeeId={employeeId} employeeName={employeeName} employeePosition={employeePosition} referenceOrdreMission={referenceOrdreMission} onFulfil={upload} busy={busy} currentUserId={currentUserId} />)}
           </ul>
         )}
       </div>
@@ -159,7 +160,7 @@ export function HrDossier({ employeeId, employeeName, documents, requests, curre
   );
 }
 
-function RequestRow({ req, employeeId, employeeName, onFulfil, busy, currentUserId }: { req: HrRequestDTO; employeeId: string; employeeName: string; onFulfil: (file: File, opts: { category: string; requestId: string }) => void; busy: boolean; currentUserId: string }) {
+function RequestRow({ req, employeeId, employeeName, employeePosition, referenceOrdreMission, onFulfil, busy, currentUserId }: { req: HrRequestDTO; employeeId: string; employeeName: string; employeePosition: string | null; referenceOrdreMission: string; onFulfil: (file: File, opts: { category: string; requestId: string }) => void; busy: boolean; currentUserId: string }) {
   const router = useRouter();
   const [status, setStatus] = React.useState(req.status);
   const [note, setNote] = React.useState(req.hrNote ?? "");
@@ -349,6 +350,12 @@ function RequestRow({ req, employeeId, employeeName, onFulfil, busy, currentUser
               <Button size="sm" variant="outline" disabled={saving} onClick={save}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer</Button>
             </div>
           </div>
+          {/* L'ORDRE DE MISSION SE GÉNÈRE (Direction, 06/10) : le document de la Direction, rempli par la plateforme. */}
+          {req.type === "MISSION_ORDER" && req.status !== "CANCELLED" && (
+            <div className="mt-2">
+              <OrdreMissionForm requestId={req.id} employeeName={employeeName} employeePosition={employeePosition} details={req.details} referenceSuggeree={referenceOrdreMission} />
+            </div>
+          )}
           <div className="mt-2">
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Joindre le document & marquer prêt</Button>
             <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFulfil(f, { category: REQ_TO_CAT[req.type] ?? "OTHER", requestId: req.id }); e.target.value = ""; }} />

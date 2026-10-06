@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink, Paperclip } from "lucide-react";
+import { ArrowLeft, ExternalLink, MessagesSquare, Paperclip, Users } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,10 @@ import { lecteurDeLaDemandeDeValidation } from "@/lib/entity-access";
 import { resoumissionSurPlace } from "@/lib/validations/decision";
 import { refusDuRetraitValidation, retraitEfface } from "@/lib/validations/retrait";
 import { ResubmitValidation } from "./resubmit";
+import { ParticipantsValidation } from "./participants";
+import { CommentThread, type CommentItem } from "@/components/shared/comment-thread";
+import { commenterValidation } from "@/lib/actions/validation-actions";
+import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +30,7 @@ export const dynamic = "force-dynamic";
  * ni relire ce qu'on avait écrit, ni rouvrir la pièce envoyée, ni voir qui bloquait — il fallait
  * demander au validateur, ce qui est précisément le coup de fil que ce module doit éviter.
  *
- * QUI PEUT LA VOIR : le demandeur, les validateurs désignés, et le Super Admin. Une demande de
+ * QUI PEUT LA VOIR : le demandeur, les validateurs désignés, les participants ajoutés, et le Super Admin. Une demande de
  * validation porte souvent une pièce sensible (un contrat, une facture) : la rendre lisible à
  * tout le module l'aurait ouverte bien plus largement que la file de validation elle-même.
  */
@@ -40,6 +44,7 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
         orderBy: [{ order: "asc" }],
         include: { validator: { select: { id: true, name: true } } },
       },
+      participants: { select: { userId: true, addedById: true }, orderBy: { createdAt: "asc" } },
     },
   });
   if (!req) notFound();
@@ -74,6 +79,18 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
     include: { author: { select: { name: true } } },
     orderBy: { createdAt: "asc" },
   });
+  // LA DISCUSSION ET LES PARTICIPANTS (Direction, 06/10) : le fil de la demande, et les collègues qu'on y a ajoutés.
+  const commentaires: CommentItem[] = historique.map((c) => ({
+    id: c.id, author: c.author?.name ?? "—", authorId: c.authorId ?? undefined, body: c.body,
+    createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null,
+  }));
+  const peutGerer = user.role === "SUPER_ADMIN" || estDemandeur || req.steps.some((s) => s.validatorId === user.id);
+  const suiveurs = new Set([req.requesterId, ...req.steps.map((s) => s.validatorId), ...req.participants.map((p) => p.userId)]);
+  const [nomsParticipants, candidats] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: req.participants.map((p) => p.userId) } }, select: { id: true, name: true } }),
+    peutGerer ? prisma.user.findMany({ where: { isActive: true, id: { notIn: [...suiveurs] } }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
+  ]);
+  const participants = req.participants.map((p) => ({ userId: p.userId, nom: nomsParticipants.find((u) => u.id === p.userId)?.name ?? "—" }));
   const renvois = req.steps.filter((e) => e.status === "CHANGES_REQUESTED");
   const surPlace = resoumissionSurPlace(req);
 
@@ -174,22 +191,21 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
             </CardContent>
           </Card>
 
-          {historique.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle>Historique des versions</CardTitle></CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {historique.map((c) => (
-                  <div key={c.id} className="space-y-1 border-b border-border pb-2.5 last:border-0 last:pb-0">
-                    <p className="text-xs text-muted-foreground">{c.author?.name ?? "—"} · {formatDateTime(c.createdAt)}</p>
-                    <p className="whitespace-pre-wrap">{c.body}</p>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+          {/* LA DISCUSSION DE LA DEMANDE (Direction, 06/10) : demandeur, validateurs et participants y échangent ; les
+              versions resoumises y restent, à leur place dans le fil. */}
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><MessagesSquare className="h-4 w-4" /> Discussion</CardTitle></CardHeader>
+            <CardContent>
+              <CommentThread
+                comments={commentaires} action={commenterValidation} hiddenFields={{ requestId: req.id }} currentUserId={user.id}
+                canModerate={estDemandeur || user.role === "SUPER_ADMIN"} updateAction={updateComment} deleteAction={deleteComment} path={`/validations/${req.id}`}
+              />
+            </CardContent>
+          </Card>
         </div>
 
-        <Card className="lg:col-span-1">
+        <div className="space-y-4 lg:col-span-1">
+        <Card>
           <CardHeader><CardTitle>Le circuit</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
             {req.steps.length === 0 ? (
@@ -216,6 +232,13 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
             )}
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-4 w-4" /> Participants</CardTitle></CardHeader>
+          <CardContent>
+            <ParticipantsValidation requestId={req.id} participants={participants} candidats={candidats} peutGerer={peutGerer} moi={user.id} />
+          </CardContent>
+        </Card>
+        </div>
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ import {
   canEditExpenseClaim, expenseAmountError, expenseEditDeadline, expenseEditLabel,
 } from "@/lib/hr/expense-claim";
 import { requestDocument } from "@/lib/actions/document-request-actions";
+import { genererEtRemettreOrdreDeMission } from "@/lib/hr/ordre-mission/service";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
@@ -486,6 +487,30 @@ export async function addHrRequestComment(formData: FormData): Promise<ActionRes
 }
 
 /** Traitement d'une demande par les RH (statut + note). */
+/**
+ * GÉNÉRER L'ORDRE DE MISSION d'une demande (Direction, 06/10) — les RH saisissent date d'émission, référence, lieu(x),
+ * dates, transport, signataire ; la plateforme remplit le document de la Direction et le remet au salarié.
+ */
+export async function genererOrdreDeMission(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const requestId = fdStr(formData, "requestId");
+  if (!requestId) return { ok: false, error: "Demande introuvable." };
+  const txt = (k: string) => fdStr(formData, k) ?? "";
+  const r = await genererEtRemettreOrdreDeMission(user.id, requestId, {
+    dateEmission: txt("dateEmission"), reference: txt("reference"), entreprise: txt("entreprise"), adresse: txt("adresse"),
+    collaborateur: txt("collaborateur"), fonction: txt("fonction"), objet: txt("objet"), destination: txt("destination"),
+    datesDepart: formData.getAll("dateDepart").map(String), datesRetour: formData.getAll("dateRetour").map(String),
+    transport: txt("transport"), signataire: txt("signataire"), signataireFonction: txt("signataireFonction"),
+  });
+  if (!r.ok) return r;
+  await archiveHrRequestIfDone(requestId, user.id);
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${r.employeeId}`);
+  revalidatePath("/rh");
+  return { ok: true, id: requestId, message: r.message };
+}
+
 export async function processHrRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };

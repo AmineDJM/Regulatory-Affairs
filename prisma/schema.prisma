@@ -6166,9 +6166,25 @@ model ValidationRequest {
   updatedAt    DateTime         @updatedAt
 
   steps ValidationStep[]
+  /// LES PARTICIPANTS (Direction, 06/10) : des collègues ajoutés à la demande — ils la lisent et prennent part à sa
+  /// discussion (le fil `Comment`), sans rien valider.
+  participants ValidationParticipant[]
 
   @@index([status])
   @@index([requesterId])
+}
+
+/// Un collègue ajouté à une demande de validation : il la lit et en discute, il ne la valide pas.
+model ValidationParticipant {
+  id        String            @id @default(cuid())
+  requestId String
+  request   ValidationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    String
+  addedById String?
+  createdAt DateTime          @default(now())
+
+  @@unique([requestId, userId])
+  @@index([userId])
 }
 
 model ValidationStep {
