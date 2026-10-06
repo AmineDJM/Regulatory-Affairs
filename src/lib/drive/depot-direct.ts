@@ -125,7 +125,11 @@ export type ResultatFinalisation =
  * FINALISE : le bucket a-t-il TOUT, à la bonne taille ? Alors le fichier entre au Drive. Rejouable :
  * une seconde finalisation rend le même fichier, jamais un second.
  */
-export async function finaliserDepotDirect(user: SessionUser, id: string, client: ClientS3Direct = CLIENT_S3): Promise<ResultatFinalisation> {
+export async function finaliserDepotDirect(
+  user: SessionUser, id: string, client: ClientS3Direct = CLIENT_S3,
+  /** Les empreintes reçues par le navigateur — secours quand le stockage ne liste pas ses parties. */
+  etagsClient: Record<number, string> = {},
+): Promise<ResultatFinalisation> {
   const s = await sessionDe(user, id);
   if (!s) return { ok: false, status: 404, error: "Envoi introuvable." };
   if (s.status === "COMPLETED" && s.resultId) return { ok: true, id: s.resultId };
@@ -146,7 +150,7 @@ export async function finaliserDepotDirect(user: SessionUser, id: string, client
   const rouvrir = (error: string) => prisma.directUpload.update({ where: { id }, data: { status: "UPLOADING", error } });
 
   const total = Number(s.totalBytes);
-  const issue = await finaliserEnvoi(s.objectKey, s.uploadId, total, s.partSize, client);
+  const issue = await finaliserEnvoi(s.objectKey, s.uploadId, total, s.partSize, client, etagsClient);
   if (!issue.ok) {
     if (issue.reprendre) {
       await rouvrir(issue.erreur);

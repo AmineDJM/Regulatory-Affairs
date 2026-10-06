@@ -234,15 +234,18 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           return m.plan;
         };
         let dernier = 0;
-        const envoyer = (plan: PlanClient) => envoyerParties({
-          fichier: file, plan, signal: ctrl.signal, renouveler: rouvrir,
+        // Les empreintes des parties reçues par le navigateur — remises à la finalisation (secours d'un stockage
+        // qui ne liste pas ses parties) et cumulées d'un envoi à la reprise.
+        let etags: Record<number, string> = {};
+        const envoyer = async (plan: PlanClient) => { etags = await envoyerParties({
+          fichier: file, plan, signal: ctrl.signal, renouveler: rouvrir, etags,
           onProgres: (p) => {
             const t = Date.now();
             if (t - dernier < 250 && p.envoyes < p.total) return; // quatre rafraîchissements par seconde suffisent
             dernier = t;
             patch(dossierId, { progress: Math.min(99, Math.floor((p.envoyes / Math.max(1, p.total)) * 100)), debit: p.debit, resteS: p.resteS });
           },
-        });
+        }); };
 
         const startedAt = Date.now();
         try {
@@ -253,7 +256,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
             bailIfCancelled();
             patch(dossierId, { phase: "processing", progress: 100, debit: undefined, resteS: undefined });
             const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary; manquantes?: number[] }>(
-              `/api/regulatory/intelligence/upload/direct/${sessionId}/finalize`, 45,
+              `/api/regulatory/intelligence/upload/direct/${sessionId}/finalize`, 45, { etags },
             );
             if (data.ok) {
               const seconds = (Date.now() - startedAt) / 1000;

@@ -127,7 +127,11 @@ export type ResultatFinalisationDoc =
   | { ok: false; error: string; status: number; reprendre?: boolean; manquantes?: number[] };
 
 /** Le bucket a-t-il TOUT, à la bonne taille ? Alors le document est inscrit. Rejouable : jamais deux fiches. */
-export async function finaliserDepotDirectDocument(user: SessionUser, id: string, client: ClientS3Direct = CLIENT_S3): Promise<ResultatFinalisationDoc> {
+export async function finaliserDepotDirectDocument(
+  user: SessionUser, id: string, client: ClientS3Direct = CLIENT_S3,
+  /** Les empreintes reçues par le navigateur — secours quand le stockage ne liste pas ses parties. */
+  etagsClient: Record<number, string> = {},
+): Promise<ResultatFinalisationDoc> {
   const s = await sessionDe(user, id);
   if (!s) return { ok: false, status: 404, error: "Envoi introuvable." };
   if (s.status === "COMPLETED" && s.resultId) return { ok: true, id: s.resultId };
@@ -147,7 +151,7 @@ export async function finaliserDepotDirectDocument(user: SessionUser, id: string
   const rouvrir = (error: string) => prisma.directUpload.update({ where: { id }, data: { status: "UPLOADING", error } });
 
   const total = Number(s.totalBytes);
-  const issue = await finaliserEnvoi(s.objectKey, s.uploadId, total, s.partSize, client);
+  const issue = await finaliserEnvoi(s.objectKey, s.uploadId, total, s.partSize, client, etagsClient);
   if (!issue.ok) {
     if (issue.reprendre) {
       await rouvrir(issue.erreur);

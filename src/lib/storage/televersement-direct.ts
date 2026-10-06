@@ -76,7 +76,9 @@ export function partiesValides(recues: PartieRecue[], total: number, tailleParti
   const ok = new Map<number, PartieRecue>();
   for (const p of recues) {
     if (p.numero < 1 || p.numero > n) continue;
-    if (p.taille !== tailleAttendue(p.numero, total, taillePartie)) continue;
+    // Taille 0 = NON DITE par le stockage (certains « compatibles S3 » ne la listent pas) : la partie est là, et
+    // la taille de l'objet final sera vérifiée après recollage. Une taille DITE et fausse fait renvoyer la partie.
+    if (p.taille !== 0 && p.taille !== tailleAttendue(p.numero, total, taillePartie)) continue;
     ok.set(p.numero, p);
   }
   return ok;
@@ -134,29 +136,62 @@ export type IssueFinalisation =
  *
  * Rejouable : un recollage déjà fait répond `NoSuchUpload` ; on vérifie alors l'objet lui-même.
  */
+/**
+ * LES EMPREINTES À RECOLLER — celles que le BUCKET liste d'abord ; à défaut, celles que le NAVIGATEUR a reçues en
+ * réponse à chaque partie (`etagsClient`). Pur — testé.
+ *
+ * POURQUOI : « 5 parties sur 5 manquent ou sont tronquées » pour un envoi que le navigateur avait poussé en entier
+ * (Direction, 06/10 — une archive CTD qui ne finissait JAMAIS). Un stockage « compatible S3 » peut lister ses parties
+ * sans leur taille, ou ne pas les lister du tout : la finalisation accepte donc une taille NON DITE, et se rabat sur
+ * les empreintes que le navigateur a reçues partie par partie. Une taille DITE et fausse fait toujours renvoyer la
+ * partie. La garantie anti-troncature reste entière : la taille de l'OBJET FINAL est vérifiée (HEAD) après le
+ * recollage — un fichier qui n'a pas exactement la bonne taille n'est jamais inscrit.
+ */
+export function empreintesARecoller(
+  recues: readonly PartieRecue[] | null, total: number, taillePartie: number, etagsClient: Readonly<Record<number, string>> = {},
+): { etags: string[] | null; manquantes: number[] } {
+  const n = nombreDeParties(total, taillePartie);
+  const parNumero = new Map<number, string>();
+  // Les parties LISTÉES et bonnes (taille juste, ou non dite) — une taille DITE et fausse fait renvoyer la partie.
+  for (const [numero, p] of partiesValides([...(recues ?? [])], total, taillePartie)) if (p.etag) parNumero.set(numero, p.etag);
+  // Une partie listée avec une taille fausse ne se rattrape pas par l'empreinte du navigateur : elle repart.
+  const fausses = new Set((recues ?? []).filter((p) => p.numero >= 1 && p.numero <= n && !parNumero.has(p.numero)).map((p) => p.numero));
+  const manquantes: number[] = [];
+  const etags: string[] = [];
+  for (let i = 1; i <= n; i++) {
+    const e = parNumero.get(i) ?? (!fausses.has(i) && typeof etagsClient[i] === "string" && etagsClient[i].trim() ? etagsClient[i].trim() : undefined);
+    if (e) etags.push(e); else manquantes.push(i);
+  }
+  return { etags: manquantes.length === 0 ? etags : null, manquantes };
+}
+
 export async function finaliserEnvoi(
   cle: string, uploadId: string, total: number, taillePartie: number, client: ClientS3Direct = CLIENT_S3,
+  /** Les empreintes renvoyées au navigateur par chaque partie — secours quand le bucket ne les liste pas. */
+  etagsClient: Readonly<Record<number, string>> = {},
 ): Promise<IssueFinalisation> {
   const n = nombreDeParties(total, taillePartie);
   let recues: PartieRecue[] | null = null;
+  let dejaRecolle = false;
   try {
     recues = await client.parties(cle, uploadId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (!/NoSuchUpload|404/.test(msg)) return { ok: false, erreur: `Le stockage ne répond pas (${msg}).`, reprendre: true };
+    dejaRecolle = true; // l'envoi n'existe plus : un recollage précédent a abouti — on vérifie l'objet lui-même
   }
-  if (recues) {
-    const valides = partiesValides(recues, total, taillePartie);
-    const manquantes: number[] = [];
-    for (let i = 1; i <= n; i++) if (!valides.has(i)) manquantes.push(i);
-    if (manquantes.length > 0) {
+  if (!dejaRecolle) {
+    const { etags, manquantes } = empreintesARecoller(recues, total, taillePartie, etagsClient);
+    if (!etags) {
+      // Diagnostic serveur : ce que le bucket a réellement listé (sans contenu) — pour comprendre un stockage atypique.
+      console.warn("[televersement-direct] parties manquantes", { cle, n, listees: recues?.length ?? 0, manquantes, etagsClient: Object.keys(etagsClient).length });
       return {
         ok: false, reprendre: true, manquantes,
-        erreur: `Envoi incomplet : ${manquantes.length} partie(s) sur ${n} manquent ou sont tronquées. Reprenez l'envoi — seules ces parties repartiront.`,
+        erreur: `Envoi incomplet : ${manquantes.length} partie(s) sur ${n} ne sont pas arrivées au stockage. Reprenez l'envoi — seules ces parties repartiront.`,
       };
     }
     try {
-      await client.recoller(cle, uploadId, Array.from({ length: n }, (_, i) => valides.get(i + 1)!.etag));
+      await client.recoller(cle, uploadId, etags);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!/NoSuchUpload/i.test(msg)) return { ok: false, erreur: `Recollage des parties impossible (${msg}).`, reprendre: true };
