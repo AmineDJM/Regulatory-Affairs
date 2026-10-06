@@ -5391,10 +5391,38 @@ model LeaveRequest {
   standInDecidedAt   DateTime?
   standInNote        String?
 
+  /// ─── DEMANDER À SON N+1 (Direction, 06/10) ───
+  /// Le responsable peut demander l'avis de SON propre N+1, qui peut remonter encore, jusqu'au sommet ; les
+  /// validations redescendent ensuite, une marche à la fois. `currentApproverId` : la PERSONNE (User) qui tient la
+  /// décision de la marche N+1 quand elle a été remontée — nul = le N+1 de la demande. La trace : `escalations`.
+  currentApproverId  String?
+  escalations        LeaveEscalation[]
+
   @@index([employeeId])
   @@index([status])
   @@index([startDate])
   @@index([standInId, standInStatus])
+  @@index([currentApproverId])
+}
+
+/// UNE MARCHE REMONTÉE sur un congé : qui a demandé l'avis de qui, quand, pourquoi — et ce qui est redescendu
+/// (validé ou refusé, par qui, quand). Une ligne par échelon franchi, dans l'ordre.
+model LeaveEscalation {
+  id           String       @id @default(cuid())
+  leaveId      String
+  leave        LeaveRequest @relation(fields: [leaveId], references: [id], onDelete: Cascade)
+  order        Int
+  fromUserId   String
+  toUserId     String
+  note         String?
+  askedAt      DateTime     @default(now())
+  /// APPROVED | REJECTED — nul tant que la marche du dessus n'a pas répondu.
+  decision     String?
+  decisionNote String?
+  decidedAt    DateTime?
+
+  @@unique([leaveId, order])
+  @@index([toUserId])
 }
 
 enum StandInStatus {

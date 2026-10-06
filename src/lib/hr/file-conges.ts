@@ -51,6 +51,8 @@ export function clauseFileConges(a: {
   isHr: boolean;
   fichesSignataires: readonly string[];
   salariesRattaches: readonly string[];
+  /** Les comptes au nom de qui je signe — une marche REMONTÉE jusqu'à moi m'attend, à toute profondeur (Direction, 06/10). */
+  signataires?: readonly string[];
 }): Prisma.LeaveRequestWhereInput | null {
   const base: Prisma.LeaveRequestWhereInput = { status: "PENDING", stage: { not: "DONE" } };
   if (a.isDg) return base;
@@ -58,5 +60,7 @@ export function clauseFileConges(a: {
   if (a.isHr) ou.push({ stage: "HR" });
   if (a.fichesSignataires.length > 0) ou.push({ stage: "MANAGER", managerId: { in: [...a.fichesSignataires] } });
   if (a.salariesRattaches.length > 0) ou.push({ stage: "MANAGER", employeeId: { in: [...a.salariesRattaches] } });
+  if (a.signataires && a.signataires.length > 0) ou.push({ stage: "MANAGER", currentApproverId: { in: [...a.signataires] } });
+  if (a.signataires && a.signataires.length > 0) ou.push({ stage: "MANAGER", currentApproverId: { in: [...a.signataires] } });
   return ou.length === 0 ? null : { AND: [base, { OR: ou }] };
 }

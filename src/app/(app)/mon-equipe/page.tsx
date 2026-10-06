@@ -11,7 +11,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency, formatDate, formatDateTime, daysUntil } from "@/lib/utils";
-import { TeamTree } from "./team-tree";
+import { TeamTree } from "./team-tree";
+import { DecisionConge } from "./decision-conge";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Mon Équipe — AMD Internal OS" };
@@ -211,8 +212,11 @@ function PendingRow({ p }: { p: TeamPending }) {
           </span>
         )}
         <span className="text-xs text-muted-foreground">demandé le {formatDateTime(p.createdAt)}</span>
-        {/* UN LIEN N'EST OFFERT QUE SI LA PAGE S'OUVRE ; sinon la ligne dit qui peut l'ouvrir (§118.83). */}
-        {p.href ? (
+        {/* UN CONGÉ SE DÉCIDE ICI (Direction, 06/10) ; le reste, sur sa page. Un lien n'est offert que si la page
+            s'ouvre ; sinon la ligne dit qui peut l'ouvrir (§118.83). */}
+        {p.conge ? (
+          <DecisionConge conge={p.conge} />
+        ) : p.href ? (
           <Link
             href={p.href}
             className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
