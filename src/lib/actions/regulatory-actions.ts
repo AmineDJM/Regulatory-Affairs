@@ -119,15 +119,76 @@ async function dciDuplicatesFor(user: SessionUser, dci: string): Promise<DciDupl
  * dans un message d'erreur oblige à relire un formulaire qu'on croyait fini, et c'est là qu'on
  * force le passage plutôt que d'aller vérifier.
  */
-export async function checkDciDuplicate(dci: string): Promise<{ notice: string | null; canRequestAccess: boolean }> {
+export interface ExistantDeLaMolecule {
+  /** DOSSIER = un dossier réglementaire visible ; PRODUIT = un produit du référentiel canonique. */
+  nature: "DOSSIER" | "PRODUIT";
+  id: string;
+  libelle: string;
+  detail: string;
+  /** Pour un PRODUIT : de quoi pré-remplir le formulaire si l'on part de lui. */
+  identite?: { dosage: string | null; dosageUnit: string | null; form: string | null; packaging: string | null; brandName: string | null };
+}
+
+export async function checkDciDuplicate(dci: string): Promise<{ notice: string | null; canRequestAccess: boolean; existants: ExistantDeLaMolecule[] }> {
   const user = await requireUser();
   // Le même droit que la création : ce que cette réponse révèle (« cette DCI est déjà suivie »)
   // n'a pas à sortir pour qui n'ouvre pas de dossier.
-  if (!userCan(user, "REGULATORY", "CREATE")) return { notice: null, canRequestAccess: false };
+  if (!userCan(user, "REGULATORY", "CREATE")) return { notice: null, canRequestAccess: false, existants: [] };
   const propre = normalizeDci(dci ?? "");
-  if (propre.length < 3) return { notice: null, canRequestAccess: false };
+  if (propre.length < 3) return { notice: null, canRequestAccess: false, existants: [] };
   const doublons = await dciDuplicatesFor(user, propre);
-  return { notice: duplicateNotice(propre, doublons), canRequestAccess: needsAccessRequest(doublons) };
+  // CE QUI EXISTE DÉJÀ, PROPOSÉ (Direction, 06/10) : les dossiers VISIBLES de cette molécule (on les ouvre), et les
+  // produits du référentiel canonique qui la portent (on part de l'un d'eux, ou l'on crée un nouveau produit).
+  const cle = dciKey(propre);
+  const produits = (await prisma.product.findMany({
+    where: { isActive: true, dci: { contains: propre.split(" + ")[0], mode: "insensitive" } },
+    select: { id: true, code: true, canonicalName: true, dci: true, dosage: true, dosageUnit: true, form: true, packaging: true },
+    take: 40,
+  })).filter((p) => dciKey(p.dci) === cle);
+  const existants: ExistantDeLaMolecule[] = [
+    ...doublons.visible.map((d) => ({
+      nature: "DOSSIER" as const, id: d.id, libelle: `${d.reference}${d.brandName ? ` — ${d.brandName}` : ""}`,
+      detail: [d.dosage, d.pharmaceuticalForm].filter(Boolean).join(" · ") || "dossier existant",
+    })),
+    ...produits.map((p) => ({
+      nature: "PRODUIT" as const, id: p.id, libelle: p.canonicalName, detail: [p.code, p.dosage ? `${p.dosage} ${p.dosageUnit ?? ""}`.trim() : null, p.form, p.packaging].filter(Boolean).join(" · "),
+      identite: { dosage: p.dosage, dosageUnit: p.dosageUnit, form: p.form, packaging: p.packaging, brandName: null },
+    })),
+  ];
+  const notice = duplicateNotice(propre, doublons) ?? (produits.length ? `« ${propre} » existe déjà dans le référentiel produits (${produits.length} produit${produits.length > 1 ? "s" : ""}).` : null);
+  return { notice, canRequestAccess: needsAccessRequest(doublons), existants };
+}
+
+/**
+ * METTRE AU PIPELINE TOUS LES DOSSIERS NON ENTAMÉS (Direction, 06/10) — un geste du SUPER ADMIN seul. « Non entamé » :
+ * dossier visible (non verrouillé) dont AUCUNE étape n'a commencé. Ils repassent à l'étude (verrouillés), invisibles de
+ * l'équipe jusqu'à ce que le cadenas s'ouvre. `compterDossiersNonEntames` en donne le nombre avant.
+ */
+/** « Non entamé » : visible (non verrouillé), et aucune étape commencée. */
+const NON_ENTAMES: Prisma.RegulatoryProductWhereInput = { isLocked: false, steps: { none: { status: { not: "NOT_STARTED" } } } };
+
+/** Combien de dossiers non entamés — l'aperçu que le bouton montre avant de confirmer. */
+export async function compterDossiersNonEntames(): Promise<ActionResult & { nombre?: number }> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  return { ok: true, nombre: await prisma.regulatoryProduct.count({ where: NON_ENTAMES }) };
+}
+
+export async function mettreAuPipelineNonEntames(): Promise<ActionResult & { nombre?: number }> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const where = NON_ENTAMES;
+  const res = await prisma.regulatoryProduct.updateMany({ where, data: { isLocked: true, updatedById: user.id } });
+  if (res.count > 0) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT",
+      entityId: "*", field: "isLocked", newValue: "true",
+      summary: `${res.count} dossier(s) non entamé(s) mis au pipeline en une fois (verrouillés, à l'étude)`,
+    });
+  }
+  revalidatePath("/regulatory");
+  revalidatePath("/regulatory/pipeline");
+  return { ok: true, nombre: res.count, message: `${res.count} dossier(s) non entamé(s) mis au pipeline.` };
 }
 
 /**
@@ -255,6 +316,13 @@ export async function createRegulatoryProduct(
   // Le droit reste celui du cadenas — le Super Admin, et lui seul : sans cette garde, n'importe
   // qui pourrait créer un dossier que personne d'autre ne verrait.
   const lockOnCreate = str(formData, "lock") === "1" && user.role === "SUPER_ADMIN";
+
+  // LA CTD INITIALE EST OBLIGATOIRE dans le suivi de dossiers (Direction, 06/10) — pas au pipeline, où un dossier
+  // naît à l'étude, avant d'avoir sa CTD. Les fichiers partent APRÈS la création (envoi en arrière-plan vers
+  // l'étape 1) : le formulaire dit combien il en a choisis, et un dossier du suivi sans CTD ne se crée pas.
+  if (!lockOnCreate && !(Number(str(formData, "ctdFichiers") ?? "0") > 0)) {
+    return { ok: false, error: "Joignez la CTD initiale : un dossier du suivi se crée avec elle (le pipeline, lui, l'accepte plus tard)." };
+  }
 
   // LA RÉFÉRENCE SE CALCULE SOUS LA FILE (§118.175, §118.178). Deux créations simultanées lisaient
   // le même maximum et la seconde tombait sur l'unicité de `reference` — une erreur brute après un

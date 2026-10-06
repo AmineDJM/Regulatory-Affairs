@@ -15,6 +15,7 @@ import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { RegulatoryTable } from "./regulatory-table";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
 import { NewProductButton } from "./new-product";
+import { MettreAuPipeline } from "./mettre-au-pipeline";
 import { SuppliersManager } from "./suppliers-manager";
 import { UpdateReminderButton } from "./update-reminder";
 import { canSendUpdateReminder } from "@/lib/regulatory/update-reminder";
@@ -101,6 +102,8 @@ export default async function RegulatoryPage() {
               unassigned={reminderBoard.unassigned}
             />
           )}
+          {/* Super Admin SEUL (Direction, 06/10) : remettre à l'étude tout ce qui n'a pas commencé. */}
+          {user.role === "SUPER_ADMIN" && <MettreAuPipeline />}
           {canCreate && (
             <>
               <SuppliersManager suppliers={supplierList} />

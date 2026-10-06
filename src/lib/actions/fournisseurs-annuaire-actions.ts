@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/session";
 import { peutAnnuaire } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
 
 /**
  * L'ANNUAIRE « FOURNISSEURS REGULATORY » (Direction, 06/10) — les fabricants des dossiers d'enregistrement, tenus
@@ -53,10 +53,9 @@ export async function modifierFournisseurAnnuaire(fd: FormData): Promise<ActionR
   if (!avant) return { ok: false, error: "Fournisseur introuvable." };
   const data = lire(fd);
   if (!data.name) return { ok: false, error: "Le nom du fournisseur est obligatoire." };
-  // La case « Actif » a un témoin caché (« 0 ») : la DERNIÈRE valeur fait foi — cochée, c'est « 1 ».
-  const valeurs = fd.getAll("active").map(String);
-  const actif = valeurs.length ? valeurs[valeurs.length - 1] : null;
-  await prisma.supplier.update({ where: { id }, data: { ...data, ...(actif === "1" || actif === "0" ? { active: actif === "1" } : {}) } });
+  // La case « Actif » a un témoin caché : `fdCase` la lit (cochée, décochée, ou absente du formulaire).
+  const actif = fdCase(fd, "active");
+  await prisma.supplier.update({ where: { id }, data: { ...data, ...(actif !== undefined ? { active: actif } : {}) } });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SUPPLIER", entityId: id, summary: `Fournisseur Regulatory « ${avant.name}${data.name !== avant.name ? ` → ${data.name}` : ""} » corrigé` });
   revalider();
   return { ok: true };

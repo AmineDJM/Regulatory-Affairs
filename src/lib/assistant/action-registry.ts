@@ -1102,6 +1102,10 @@ X("ANNUAIRES (Direction, 06/10) : l'annuaire des FOURNISSEURS REGULATORY (ajoute
   "fournisseurs-annuaire-actions:creerFournisseurAnnuaire", "fournisseurs-annuaire-actions:modifierFournisseurAnnuaire",
   "fournisseurs-annuaire-actions:retirerFournisseurAnnuaire", "directory-actions:updateDirectoryEndpoint",
 ]);
+X("METTRE AU PIPELINE TOUS LES DOSSIERS NON ENTAMÉS (Direction, 06/10) : un geste du Super Admin, sur l'écran du "
+  + "suivi, qui compte puis confirme avant de verrouiller un portefeuille entier. Pas un travail d'assistant.", [
+  "regulatory-actions:mettreAuPipelineNonEntames", "regulatory-actions:compterDossiersNonEntames",
+]);
 X("RÉPARTITION DES COÛTS PARTAGÉS D'UNE BU (cahier des charges §15, §85) : un geste des Finances qui décide quelle part "
   + "des dépenses de la BU revient à chaque produit pour l'année. Il se décide en regardant la vue 360° du produit "
   + "(direct, alloué, non alloué). Adam est en pause de développement (Super Admin seul).", [

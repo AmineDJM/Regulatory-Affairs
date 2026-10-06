@@ -46,7 +46,7 @@ describe("droits des nouveaux annuaires", () => {
   it("un fournisseur qui porte des dossiers se désactive, il ne se supprime pas", () => {
     const a = code("src/lib/actions/fournisseurs-annuaire-actions.ts");
     expect(a).toContain("s._count.products + s._count.users > 0");
-    expect(a).toContain("valeurs[valeurs.length - 1]");
+    expect(a).toContain('fdCase(fd, "active")');
   });
 });
 

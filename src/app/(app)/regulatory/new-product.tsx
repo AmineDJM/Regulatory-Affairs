@@ -58,6 +58,24 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
   // Un résultat d'action ne se traite qu'UNE fois : l'effet rejoue quand d'autres dépendances changent, et
   // une CTD choisie pour un AUTRE dossier plus tard ne doit jamais partir vers celui-ci.
   const traite = React.useRef<unknown>(null);
+  const formRef = React.useRef<HTMLFormElement>(null);
+  // LA CTD INITIALE EST OBLIGATOIRE dans le suivi (Direction, 06/10) ; au pipeline, elle viendra plus tard.
+  const ctdManquante = !lockOnCreate && ctd.length === 0;
+
+  /** Partir d'un produit existant : son identité remplit le formulaire (seulement les valeurs que les menus connaissent). */
+  const partirDuProduit = React.useCallback((id: { dosage: string | null; dosageUnit: string | null; form: string | null; packaging: string | null }) => {
+    const f = formRef.current;
+    if (!f) return;
+    const poser = (name: string, v: string | null) => {
+      const el = f.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+      if (!el || !v) return;
+      if (el instanceof HTMLSelectElement) {
+        const opt = Array.from(el.options).find((o) => o.value.toLowerCase() === v.toLowerCase());
+        if (opt) el.value = opt.value;
+      } else el.value = v;
+    };
+    poser("dosage", id.dosage); poser("dosageUnit", id.dosageUnit); poser("pharmaceuticalForm", id.form); poser("packaging", id.packaging);
+  }, []);
 
   React.useEffect(() => {
     if (state?.ok) {
@@ -108,6 +126,7 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
         width="lg"
       >
         <form
+          ref={formRef}
           action={(fd) => {
             if (lock.current) return;
             lock.current = true;
@@ -119,6 +138,7 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
           {/* La destination du dossier, portée par le formulaire lui-même : c'est l'écran d'où
               l'on crée qui décide, pas une case que l'on peut oublier de cocher. */}
           {lockOnCreate && <input type="hidden" name="lock" value="1" />}
+          <input type="hidden" name="ctdFichiers" value={String(ctd.length)} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" />
             <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue="BOTH" />
@@ -144,8 +164,9 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" />
 
           <CtdALaCreation entrees={ctd} onChange={setCtd} />
+          {ctdManquante && <p className="text-xs text-muted-foreground">La CTD initiale est obligatoire pour créer un dossier dans le suivi (au pipeline, elle peut venir plus tard).</p>}
 
-          <DciDuplicateBanner dci={dci} check={doublon} />
+          <DciDuplicateBanner dci={dci} check={doublon} onPartirDuProduit={partirDuProduit} />
           {/* L'accord de la personne, porté par le formulaire. Le serveur refuse sans lui : la
               garde vit là-bas, l'écran ne fait que ne pas proposer ce qui serait refusé. */}
           {doublon.acknowledged && <input type="hidden" name="confirmDuplicate" value="1" />}
@@ -161,7 +182,7 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Annuler
             </Button>
-            <Button type="submit" disabled={submitting || doublon.blocking}>
+            <Button type="submit" disabled={submitting || doublon.blocking || ctdManquante} title={ctdManquante ? "Joignez la CTD initiale" : undefined}>
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Créer le dossier
             </Button>
