@@ -94,9 +94,12 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
     expect(poleOfPath(poles, "/regulatory/pipeline")).toBe("REGULATORY");
   });
 
-  it("un SOUS-MODULE (capacité `children`) ouvre le pôle de son parent — la Paie sous les RH", () => {
+  it("un SOUS-MODULE (capacité `children`) ouvre le pôle de son parent — Employés, Demandes RH, Formations et Paie sous les RH", () => {
     const rh = NAVIGATION.find((n) => n.href === "/rh")!;
-    expect(rh.children?.map((c) => c.href)).toEqual(["/rh/paie"]);
+    // LES SOUS-MODULES RH (Direction, 06/10) : chacun son module, réglable dans la console.
+    expect(rh.children?.map((c) => c.href)).toEqual(["/rh/equipe", "/rh/demandes", "/formations", "/rh/paie"]);
+    expect(rh.children?.map((c) => c.module)).toEqual(["EMPLOYEES", "HR_REQUESTS", "TRAINING", "RH"]);
+    expect(rh.groupe).toBe(true);
     // Arriver sur la paie par un lien de notification doit ouvrir Administration, sinon on ne
     // retrouve pas dans le menu l'écran où l'on se trouve.
     expect(poleOfPath(groupIntoPoles([rh]), "/rh/paie")).toBe("ADMINISTRATION");

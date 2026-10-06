@@ -29,7 +29,7 @@ import {
   canEditExpenseClaim, expenseAmountError, expenseEditDeadline, expenseEditLabel,
 } from "@/lib/hr/expense-claim";
 import { requestDocument } from "@/lib/actions/document-request-actions";
-import { genererEtRemettreOrdreDeMission } from "@/lib/hr/ordre-mission/service";
+import { genererEtRemettreOrdreDeMission } from "@/lib/ordre-mission-depot";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
@@ -196,7 +196,7 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
   const typeRaw = fdStr(formData, "type");
   const type = (typeRaw && REQUEST_TYPES.includes(typeRaw as HrRequestType) ? typeRaw : "WORK_CERTIFICATE") as HrRequestType;
 
-  // UN CONGÉ N'EST PAS UN DOCUMENT À PRÉPARER : c'est une décision qui monte N+1 → RH → DG.
+  // UN CONGÉ N'EST PAS UN DOCUMENT À PRÉPARER : c'est une décision qui monte N+1 → RH.
   // Quelle que soit la porte d'entrée (ce formulaire, « Mon espace », ou l'assistant IA), il
   // n'existe qu'UNE demande de congé. Sans ce renvoi, un congé déposé ici échappait à la file
   // de validation, aux « Absents aujourd'hui » et au solde.
@@ -370,7 +370,7 @@ export async function updateExpenseClaim(formData: FormData): Promise<ActionResu
  */
 export async function setExpenseClaimEditUnlocked(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
   const ouvrir = fdStr(formData, "unlock") === "1";
@@ -429,7 +429,7 @@ export async function setExpenseClaimEditUnlocked(formData: FormData): Promise<A
  */
 export async function askHrRequestPiece(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "requestId");
   if (!id) return { ok: false, error: "Demande introuvable." };
   const req = await prisma.hrDocumentRequest.findUnique({
@@ -471,7 +471,7 @@ export async function addHrRequestComment(formData: FormData): Promise<ActionRes
   const req = await prisma.hrDocumentRequest.findUnique({ where: { id }, include: { employee: { select: { userId: true, fullName: true } } } });
   if (!req) return { ok: false, error: "Demande introuvable." };
   const isOwner = req.employee.userId === user.id;
-  const isHr = userCan(user, "RH", "UPDATE");
+  const isHr = userCan(user, "HR_REQUESTS", "UPDATE");
   if (!(isOwner || isHr)) return { ok: false, error: "Non autorisé." };
 
   await prisma.comment.create({ data: { entityType: "HR_REQUEST", entityId: id, body, authorId: user.id } });
@@ -493,7 +493,7 @@ export async function addHrRequestComment(formData: FormData): Promise<ActionRes
  */
 export async function genererOrdreDeMission(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const requestId = fdStr(formData, "requestId");
   if (!requestId) return { ok: false, error: "Demande introuvable." };
   const txt = (k: string) => fdStr(formData, k) ?? "";
@@ -513,7 +513,7 @@ export async function genererOrdreDeMission(formData: FormData): Promise<ActionR
 
 export async function processHrRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
   const statusRaw = fdStr(formData, "status");
@@ -553,7 +553,7 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
  */
 export async function decideExpenseReport(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision"); // APPROVE | APPROVE_NEXT | REJECT
   if (!id || !decision || !["APPROVE", "APPROVE_NEXT", "REJECT"].includes(decision)) return { ok: false, error: "Décision invalide." };
@@ -602,7 +602,7 @@ export async function decideExpenseReport(formData: FormData): Promise<ActionRes
  */
 export async function decideHrLeave(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision"); // APPROVE | REJECT
   if (!id || !decision || !["APPROVE", "REJECT"].includes(decision)) return { ok: false, error: "Décision invalide." };
@@ -696,7 +696,7 @@ export async function proposeHrMeeting(formData: FormData): Promise<ActionResult
   if (!req || req.type !== "HR_INTERVIEW") return { ok: false, error: "Demande d'entrevue introuvable." };
   if (req.meetingConfirmedAt) return { ok: false, error: "L'entrevue est déjà confirmée." };
   const isOwner = req.employee.userId === user.id;
-  const isHr = userCan(user, "RH", "UPDATE");
+  const isHr = userCan(user, "HR_REQUESTS", "UPDATE");
   if (!(isOwner || isHr)) return { ok: false, error: "Non autorisé." };
 
   await prisma.hrDocumentRequest.update({
@@ -726,7 +726,7 @@ export async function confirmHrMeeting(formData: FormData): Promise<ActionResult
   if (req.meetingConfirmedAt) return { ok: false, error: "L'entrevue est déjà confirmée." };
   if (req.meetingProposedById === user.id) return { ok: false, error: "L'autre partie doit accepter votre proposition." };
   const isOwner = req.employee.userId === user.id;
-  const isHr = userCan(user, "RH", "UPDATE");
+  const isHr = userCan(user, "HR_REQUESTS", "UPDATE");
   if (!(isOwner || isHr)) return { ok: false, error: "Non autorisé." };
 
   await prisma.hrDocumentRequest.update({
@@ -799,7 +799,7 @@ export async function annulerDemandeRh(formData: FormData): Promise<ActionResult
   if (req.handledById && req.handledById !== user.id) {
     await notifyUser({ userId: req.handledById, type: "GENERIC", title: "Demande RH annulée", body: corps, link: `/rh/${req.employeeId}` }).catch(() => undefined);
   }
-  await notifyRoles(rolesWithModule("RH", "UPDATE"), { type: "GENERIC", title: "Demande RH annulée", body: corps, link: `/rh/${req.employeeId}` }).catch(() => undefined);
+  await notifyRoles(rolesWithModule("HR_REQUESTS", "UPDATE"), { type: "GENERIC", title: "Demande RH annulée", body: corps, link: `/rh/${req.employeeId}` }).catch(() => undefined);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "RH", entityType: "HR_REQUEST", entityId: id,
     field: "status", oldValue: req.status, newValue: "CANCELLED",
@@ -821,7 +821,7 @@ export async function deleteHrRequest(formData: FormData): Promise<ActionResult>
   });
   if (!req) return { ok: false, error: "Demande introuvable." };
   const isOwner = req.employee.userId === user.id;
-  const isHr = userCan(user, "RH", "UPDATE");
+  const isHr = userCan(user, "HR_REQUESTS", "UPDATE");
   // LE SALARIÉ ANNULE, IL N'EFFACE PAS (décision du 04/10) : sa demande se CLÔT par
   // `annulerDemandeRh`, qui prévient les RH — la supprimer ferait disparaître ce qu'elles préparent.
   if (!isHr) {
@@ -848,7 +848,7 @@ export async function deleteHrRequest(formData: FormData): Promise<ActionResult>
 /** Suppression d'un document RH (RH) — libère le blob chiffré. */
 export async function deleteEmployeeDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "EMPLOYEES", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
   const doc = await prisma.employeeDocument.findUnique({ where: { id }, select: { blobId: true, employeeId: true, name: true } });
@@ -873,7 +873,7 @@ export async function deleteEmployeeDocument(formData: FormData): Promise<Action
  */
 export async function setEmployeeDocumentVisibility(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "EMPLOYEES", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
   const visible = fdStr(formData, "visible") === "1";

@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan } from "@/lib/rbac";
 import { loadReportingLine } from "@/lib/departments";
 import { subtreeOf, flattenTree } from "@/lib/hr/team-tree";
@@ -29,7 +30,7 @@ import { getTeamMemberKpis, type TeamMemberKpis } from "@/lib/queries/team-kpis"
 export async function teamMemberKpis(employeeId: string): Promise<
   { ok: true; kpis: TeamMemberKpis } | { ok: false; error: string }
 > {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   if (!userCan(user, "MY_TEAM", "VIEW")) return { ok: false, error: "Accès non autorisé." };
 
   const moi = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });

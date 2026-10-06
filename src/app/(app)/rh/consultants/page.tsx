@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { visibleTabs } from "@/lib/nav-tabs";
-import { HR_TABS } from "@/lib/labels";
+import { EMPLOYES_TABS } from "@/lib/labels";
 import { consultingRhCreateFields } from "@/lib/ad-pro/create-fields";
 import { createConsultingContract } from "@/lib/actions/consulting-actions";
 import { isOverdue } from "@/lib/ad-pro/consulting";
@@ -27,8 +27,8 @@ export const dynamic = "force-dynamic";
  * suivent la promotion ne les voient plus, les RH si.
  */
 export default async function RhConsultantsPage() {
-  const user = await requireModule("RH");
-  const canCreate = userCan(user, "RH", "CREATE");
+  const user = await requireModule("EMPLOYEES");
+  const canCreate = userCan(user, "EMPLOYEES", "CREATE");
 
   const [contracts, companies, tabs] = await Promise.all([
     // LE PÔLE RH SEULEMENT — composé avec la portée de la plateforme, jamais étalé (§118.133).
@@ -38,7 +38,7 @@ export default async function RhConsultantsPage() {
       include: { company: { select: { name: true } }, tasks: { select: { doneAt: true } } },
     }),
     getMyCompanies(user.id),
-    visibleTabs(user, HR_TABS),
+    visibleTabs(user, EMPLOYES_TABS),
   ]);
 
   const active = contracts.filter((c) => c.status === "ACTIVE");

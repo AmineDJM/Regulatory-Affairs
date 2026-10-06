@@ -429,7 +429,7 @@ suite("l'intérim ne prête jamais plus que ce que l'absent détient", () => {
     expect(dossier).toContain("termine: congeTermine(l.endDate)");
     expect(dossier).not.toMatch(/MODULES\.filter\(isDelegatable\)/);
     const conges = readFileSync("src/app/(app)/rh/conges/page.tsx", "utf8");
-    expect(conges).toContain(`const peutValiderInterims = canManage && !estPrete(user, "RH", "UPDATE");`);
+    expect(conges).toContain(`const peutValiderInterims = canManage && !estPrete(user, "HR_REQUESTS", "UPDATE");`);
     expect(conges).toContain("const standIns = peutValiderInterims");
     expect(conges).toContain(".filter((l) => !congeTermine(l.endDate))");
     expect(conges).toContain("{peutValiderInterims && standIns.length > 0 && (");

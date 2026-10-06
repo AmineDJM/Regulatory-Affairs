@@ -63,7 +63,7 @@ export async function clauseSponsoringsVisibles(user: SessionUser): Promise<Pris
  *     chaîne au-dessus ouvre la FICHE (`canAccessEntity`), comme il peut trancher (`deciderFor`).
  */
 export async function clauseFormationsVisibles(user: SessionUser): Promise<Prisma.TrainingWhereInput> {
-  const rh = userCan(user, "RH", "VALIDATE") || userCan(user, "RH", "UPDATE");
+  const rh = userCan(user, "TRAINING", "VALIDATE") || userCan(user, "TRAINING", "UPDATE");
   if (rh || hasGlobalView(user)) return (await platformScope(user.id)) as Prisma.TrainingWhereInput;
   const moi = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
   // L'INTÉRIMAIRE (I18) voit ce qui attend la marche du N+1 qu'il remplace — et cela seulement :

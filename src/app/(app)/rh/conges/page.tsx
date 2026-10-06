@@ -8,7 +8,7 @@ import { getHrPulse } from "@/lib/queries/hr-pulse";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
-import { HR_TABS, LEAVE_TYPE, LEAVE_STATUS } from "@/lib/labels";
+import { DEMANDES_RH_TABS, LEAVE_TYPE, LEAVE_STATUS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,13 +31,13 @@ export const dynamic = "force-dynamic";
  * quelqu'un, qu'on planifie une réunion ou qu'on répartit une charge.
  */
 export default async function RhLeavePage() {
-  const user = await requireModule("RH");
-  const canManage = userCan(user, "RH", "UPDATE");
+  const user = await requireModule("HR_REQUESTS");
+  const canManage = userCan(user, "HR_REQUESTS", "UPDATE");
   // Valider un intérim, c'est prêter des droits : un droit RH qui ne tient qu'à un intérim ne le fait pas
   // (`estPrete`, §118.196 — lot E4). La section ne s'offre pas à qui l'action refuserait (§118.83).
-  const peutValiderInterims = canManage && !estPrete(user, "RH", "UPDATE");
+  const peutValiderInterims = canManage && !estPrete(user, "HR_REQUESTS", "UPDATE");
 
-  const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(user.id), visibleTabs(user, HR_TABS)]);
+  const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(user.id), visibleTabs(user, DEMANDES_RH_TABS)]);
   // Les intérims EN ATTENTE des RH : la marche qui manque pour que la délégation s'ouvre.
   // Un congé TERMINÉ n'a plus de place à tenir : l'action refuse de le trancher, la liste ne le propose
   // plus (la même horloge, celle du serveur).

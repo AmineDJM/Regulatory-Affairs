@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
-import { listerZip, ErreurZip } from "@/lib/storage/zip-lecteur";
-import { refusLisible, reponseEntreeZip, sourceDuBlob } from "@/lib/storage/zip-reponse";
+import { ErreurZip } from "@/lib/storage/zip-lecteur";
+import { listerArchive, refusLisible, reponseEntreeZip, reponsePrechauffage, sourceDuBlob } from "@/lib/storage/zip-reponse";
 
 export const dynamic = "force-dynamic";
 
@@ -37,13 +37,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   try {
     const source = await sourceDuBlob(version.blobId, version.size);
     if ("erreur" in source) return refus(source.erreur, source.status);
-    const { entrees, tronque } = await listerZip(source);
+    const { entrees, tronque } = await listerArchive(source);
 
-    // ───────── UNE entrée (aperçu inline / téléchargement) ─────────
+    // ───────── UNE entrée (aperçu inline / téléchargement / préchauffage au survol) ─────────
     if (path) {
       const entree = entrees.find((e) => e.chemin === path && !e.dossier);
       if (!entree) return refus("Entrée introuvable dans l'archive.", 404);
-      return reponseEntreeZip(source, entree, req.nextUrl.searchParams.get("dl") === "1");
+      if (req.nextUrl.searchParams.get("prechauffer") === "1") return reponsePrechauffage(source, entree);
+      return reponseEntreeZip(source, entree, req.nextUrl.searchParams.get("dl") === "1", req.headers.get("range"));
     }
 
     // ───────── Liste des entrées (fichiers uniquement ; l'arborescence est dérivée côté client) ─────────

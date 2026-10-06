@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan, peutVoirAdam, REFUS_ADAM } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
@@ -174,8 +175,9 @@ export async function assistantChat(
     if (!peutVoirAdam(user)) return { configured: true, ok: false, reply: "", trace: [], error: REFUS_ADAM };
     // CLOISONNEMENT : en « Vue exacte » (un admin regarde l'app comme quelqu'un d'autre),
     // l'assistant est DÉSACTIVÉ. Sa mémoire est strictement personnelle : on n'ouvre jamais
-    // celle d'un tiers, même à un administrateur.
-    if (user.impersonatedBy) {
+    // celle d'un tiers, même à un administrateur. Le corps d'une action résout le Super Admin RÉEL :
+    // c'est `visualise` qui dit qu'une vue est ouverte (`impersonatedBy` n'y existe jamais).
+    if (user.impersonatedBy || user.visualise) {
       return {
         configured: true, ok: false, reply: "", trace: [],
         error: "L'assistant est désactivé en « Vue exacte » : sa mémoire est strictement personnelle.",
@@ -412,7 +414,7 @@ export async function cancelAssistantAction(intentId: string): Promise<boolean> 
  */
 export async function listAssistantFiles(query?: string): Promise<AssistantFileOption[]> {
   try {
-    const user = await requireUser();
+    const user = await enLecture(requireUser);
     if (!userCan(user, "DRIVE", "VIEW") || !peutVoirAdam(user)) return [];
     const q = (query ?? "").trim();
     const files = await prisma.driveNode.findMany({
@@ -434,7 +436,7 @@ export async function listAssistantFiles(query?: string): Promise<AssistantFileO
 /** Mes conversations passées. Personne d'autre ne peut les lister. */
 export async function myAssistantThreads(): Promise<ThreadSummary[]> {
   try {
-    const user = await requireUser();
+    const user = await enLecture(requireUser);
     if (user.impersonatedBy || !peutVoirAdam(user)) return [];
     if (!(await featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id))) return [];
     return await listThreads(user.id);
@@ -453,7 +455,7 @@ export async function myAssistantThreads(): Promise<ThreadSummary[]> {
  */
 export async function myAssistantThread(threadId: string): Promise<StoredMessage[] | null> {
   try {
-    const user = await requireUser();
+    const user = await enLecture(requireUser);
     if (user.impersonatedBy || !peutVoirAdam(user)) return null;
     return await getThreadMessages(user.id, threadId, undefined, { avecWorkspace: true });
   } catch {
@@ -465,7 +467,7 @@ export async function myAssistantThread(threadId: string): Promise<StoredMessage
 export async function deleteMyAssistantThread(threadId: string): Promise<ExecuteResult> {
   try {
     const user = await requireUser();
-    if (user.impersonatedBy) return { ok: false, error: "Indisponible en « Vue exacte »." };
+    if (user.impersonatedBy || user.visualise) return { ok: false, error: "Indisponible en « Vue exacte »." };
     const ok = await deleteThreadScoped(user.id, threadId);
     return ok ? { ok: true, message: "Conversation supprimée." } : { ok: false, error: "Conversation introuvable." };
   } catch {
@@ -479,7 +481,7 @@ export async function deleteMyAssistantThread(threadId: string): Promise<Execute
  */
 export async function refreshMyBrief(): Promise<{ text: string | null }> {
   try {
-    const user = await requireUser();
+    const user = await enLecture(requireUser);
     if (user.impersonatedBy || !peutVoirAdam(user)) return { text: null };
     if (!(await featureEnabled(FEATURES.ASSISTANT_PROACTIVE.key, user.id))) return { text: null };
     if (!(await aiFeatureEnabled("assistant"))) return { text: null };
@@ -495,7 +497,7 @@ export async function refreshMyBrief(): Promise<{ text: string | null }> {
 export async function forgetMyAssistantMemory(): Promise<ExecuteResult> {
   try {
     const user = await requireUser();
-    if (user.impersonatedBy) return { ok: false, error: "Indisponible en « Vue exacte »." };
+    if (user.impersonatedBy || user.visualise) return { ok: false, error: "Indisponible en « Vue exacte »." };
     await forgetEverything(user.id);
     return { ok: true, message: "Mémoire effacée." };
   } catch {

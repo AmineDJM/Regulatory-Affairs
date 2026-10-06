@@ -16,6 +16,7 @@ import { RegulatoryTable } from "./regulatory-table";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
 import { NewProductButton } from "./new-product";
 import { MettreAuPipeline } from "./mettre-au-pipeline";
+import { RangerDansLeDrive } from "./ranger-drive";
 import { SuppliersManager } from "./suppliers-manager";
 import { UpdateReminderButton } from "./update-reminder";
 import { canSendUpdateReminder } from "@/lib/regulatory/update-reminder";
@@ -104,6 +105,8 @@ export default async function RegulatoryPage() {
           )}
           {/* Super Admin SEUL (Direction, 06/10) : remettre à l'étude tout ce qui n'a pas commencé. */}
           {user.role === "SUPER_ADMIN" && <MettreAuPipeline />}
+          {/* Super Admin SEUL (Direction, 06/10) : chaque dossier du suivi rangé dans la catégorie Drive « Regulatory ». */}
+          {user.role === "SUPER_ADMIN" && <RangerDansLeDrive />}
           {canCreate && (
             <>
               <SuppliersManager suppliers={supplierList} />

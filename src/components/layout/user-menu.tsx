@@ -5,14 +5,17 @@ import { LogOut, ChevronDown } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { doSignOut } from "@/lib/actions/auth-actions";
 import { ROLE_LABELS } from "@/lib/labels";
+import { QuitterVueBouton } from "@/components/layout/quitter-vue-bouton";
 
 interface UserMenuProps {
   name: string;
   email: string;
   role: string;
+  /** Vue exacte : le menu est celui de la personne visualisée, sa seule sortie est « Quitter la vue ». */
+  enVue?: boolean;
 }
 
-export function UserMenu({ name, email, role }: UserMenuProps) {
+export function UserMenu({ name, email, role, enVue = false }: UserMenuProps) {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
 
@@ -47,6 +50,14 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
             <p className="truncate text-xs text-muted-foreground">{email}</p>
           </div>
           <div className="my-1 h-px bg-border" />
+          {/* EN VUE EXACTE, le menu est celui de la personne visualisée — et « Se déconnecter » déconnecterait
+              l'ADMINISTRATEUR depuis l'écran d'une autre. La seule sortie proposée est celle de la vue. */}
+          {enVue ? (
+            <QuitterVueBouton
+              libelle="Quitter la vue"
+              className="w-full justify-start gap-2 rounded-lg bg-transparent px-2.5 py-2 text-sm font-normal text-foreground hover:bg-secondary"
+            />
+          ) : (
           <form action={doSignOut}>
             <button
               type="submit"
@@ -56,6 +67,7 @@ export function UserMenu({ name, email, role }: UserMenuProps) {
               Se déconnecter
             </button>
           </form>
+          )}
         </div>
       )}
     </div>

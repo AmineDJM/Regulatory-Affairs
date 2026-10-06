@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { DriveAccess } from "@prisma/client";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob, releaseBlob, getBlob, retainBlob } from "@/lib/drive-storage";
@@ -15,6 +16,7 @@ import { makeEditToken, appBaseUrl, onlyofficeEditable, extensionsEditables, fil
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { creerArborescenceDrive } from "@/lib/drive/arborescence";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
@@ -90,28 +92,8 @@ export async function ensureDriveFolders(
   // Tout l'arbre importé atterrit dans une même catégorie (ou le Drive personnel).
   const baseSpace = await effectiveSpaceId(parentId || null, spaceId || null);
 
-  const map: Record<string, string> = {};
-  for (const raw of paths) {
-    const segments = raw.split("/").map((s) => s.trim()).filter(Boolean);
-    let curParent = parentId;
-    let acc = "";
-    for (const seg of segments) {
-      acc = acc ? `${acc}/${seg}` : seg;
-      if (map[acc]) { curParent = map[acc]; continue; }
-      const existing = await prisma.driveNode.findFirst({
-        where: { parentId: curParent, name: seg, type: "FOLDER", isTrashed: false, spaceId: baseSpace },
-        select: { id: true },
-      });
-      const id = existing
-        ? existing.id
-        : (await prisma.driveNode.create({
-            data: { name: seg.slice(0, 200), type: "FOLDER", parentId: curParent ?? null, spaceId: baseSpace, ownerId: user.id, createdById: user.id },
-            select: { id: true },
-          })).id;
-      map[acc] = id;
-      curParent = id;
-    }
-  }
+  // La boucle est partagée avec le dépôt de la messagerie (même arborescence, même réutilisation).
+  const map = await creerArborescenceDrive({ ownerId: user.id, parentId, spaceId: baseSpace, paths });
   revalidatePath("/drive");
   if (baseSpace) revalidatePath(`/drive/espace/${baseSpace}`);
   return { ok: true, map };
@@ -121,7 +103,7 @@ export async function ensureDriveFolders(
 export async function getDriveNodeShares(
   nodeId: string,
 ): Promise<{ ok: boolean; error?: string; canEdit?: boolean; shares?: { userId: string; name: string; access: string }[] }> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   const level = await resolveDriveAccess(user, nodeId);
   if (level === "NONE") return { ok: false, error: "Non autorisé." };
   const node = await prisma.driveNode.findUnique({

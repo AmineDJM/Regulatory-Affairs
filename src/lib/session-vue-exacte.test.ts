@@ -110,7 +110,7 @@ function routes(dir: string): string[] {
 describe("Vue exacte — chaque route d'API qui écrit le déclare", () => {
   // Adam (assistant, voix) : visible du seul Super Admin PRINCIPAL. En vue exacte, la session rend une
   // autre personne, qu'Adam refuse déjà — elles n'écrivent donc jamais au nom de la personne visualisée.
-  const ADAM = /src\/app\/api\/assistant\//;
+  const ADAM = /src[\\/]app[\\/]api[\\/]assistant[\\/]/;
   const fichiers = routes("src/app/api").filter((f) => /export (async )?function (POST|PUT|PATCH|DELETE)/.test(readFileSync(f, "utf8")));
 
   it("PRÉMISSE : le parcours trouve les routes qui écrivent", () => {
@@ -136,8 +136,11 @@ describe("Vue exacte — chaque route d'API qui écrit le déclare", () => {
 describe("Vue exacte — la session ne décide plus sur l'en-tête (§118.49 : le point d'appel, pas le corps)", () => {
   const src = readFileSync("src/lib/session.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-  it("`build` consulte l'exécution de l'action (stockage de Next) avant d'ignorer la vue", () => {
-    expect(src).toMatch(/opts\.ecriture \|\| actionServeurEnCours\(\)/);
+  it("`build` consulte l'exécution de l'action (stockage de Next) ET le rendu en cours avant d'ignorer la vue", () => {
+    // Le rendu qui SUIT une action qui revalide tourne dans le même stockage `isAction` (Next 14.2) : sans le
+    // second critère, la coque se rendait pour l'administrateur au milieu de l'écran visualisé (Direction, 06/10).
+    expect(src).toMatch(/actionServeur: actionServeurEnCours\(\)/);
+    expect(src).toMatch(/rendu: rendreEnCours\(\)/);
     expect(src).toMatch(/actionAsyncStorage\.getStore\(\)\?\.isAction === true/);
   });
 

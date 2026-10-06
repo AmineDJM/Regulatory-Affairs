@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Upload, Loader2, Trash2, FileText, Download, Paperclip, FolderArchive, FolderTree } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
@@ -156,6 +157,59 @@ export function HrDossier({ employeeId, employeeName, employeePosition = null, r
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * LA FILE DES DEMANDES RH (sous-module « Demandes RH », Direction 06/10) — chaque demande ouverte, traitée SUR PLACE avec
+ * la même ligne que sur la fiche du salarié (statut, note, pièce à joindre, ordre de mission, fil d'échange) : qui tient
+ * les demandes n'a pas à ouvrir le dossier du salarié, ni même à y avoir accès.
+ */
+export function FileDemandesRh({ demandes, referenceOrdreMission, currentUserId, lienFiche }: {
+  demandes: (HrRequestDTO & { employeeId: string; employeeName: string; employeePosition: string | null })[];
+  referenceOrdreMission: string;
+  currentUserId: string;
+  /** La personne voit-elle les fiches des salariés (module Employés) ? Le nom mène alors à la fiche. */
+  lienFiche: boolean;
+}) {
+  const { rafraichir } = useRafraichir();
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const deposer = (employeeId: string) => async (file: File, opts: { category: string; requestId: string }) => {
+    setBusy(true); setErr(null);
+    const fd = new FormData();
+    fd.set("file", file); fd.set("employeeId", employeeId); fd.set("category", opts.category);
+    fd.set("visibleToEmployee", "1");
+    fd.set("requestId", opts.requestId);
+    try {
+      const res = await fetch("/api/rh/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) setErr(data.error ?? "Échec de l'envoi.");
+      else rafraichir();
+    } catch { setErr("Échec de l'envoi."); }
+    finally { setBusy(false); }
+  };
+  if (demandes.length === 0) return <p className="surface p-4 text-sm text-muted-foreground">Aucune demande à traiter.</p>;
+  return (
+    <div className="space-y-2">
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <ul className="space-y-2">
+        {demandes.map((r) => (
+          <li key={r.id} className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">
+              {lienFiche ? <a href={`/rh/${r.employeeId}`} className="text-primary hover:underline">{r.employeeName}</a> : r.employeeName}
+              {r.employeePosition ? ` · ${r.employeePosition}` : ""}
+            </p>
+            <ul>
+            <RequestRow
+              req={r} employeeId={r.employeeId} employeeName={r.employeeName} employeePosition={r.employeePosition}
+              referenceOrdreMission={referenceOrdreMission} onFulfil={deposer(r.employeeId)} busy={busy} currentUserId={currentUserId}
+            />
+            </ul>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

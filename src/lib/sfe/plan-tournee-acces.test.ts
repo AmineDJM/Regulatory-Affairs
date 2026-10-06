@@ -217,7 +217,10 @@ describe("Plan de tournée — les points d'appel de la règle (§118.49)", () =
   it("le validateur voit les visites qu'il valide — la lecture jour par jour existe hors édition", () => {
     const ecran = src("src/app/(app)/medical/plan-de-tournee/planificateur.tsx");
     expect(ecran).toContain("Visites prévues");
-    expect(ecran).toMatch(/visitesParJour\.map/);
+    // La grille jour par jour (Direction, 06/10) se rend HORS édition aussi : en lecture, rien ne s'y déplace.
+    expect(ecran).toMatch(/<GrilleTournee/);
+    expect(ecran).toMatch(/modifiable=\{modifiable\}/);
+    expect(ecran).not.toMatch(/\{modifiable \? \(\s*<GrilleTournee/);
   });
   it("« à resoumettre » se lit sur la même règle dans l'en-tête du plan et dans la liste des plans — la révision comprise (§118.193)", () => {
     const sansCommentaires = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/^\s*\/\/.*$/gm, "");

@@ -341,7 +341,9 @@ actions `requestBudgetRevision` / `resolveBudgetRevision`.
 ### Vue exacte (impersonation)
 - Le Super Admin visualise l'OS **exactement comme** un utilisateur (mêmes onglets/droits/données).
   Cookie `amd_impersonate` honoré **uniquement si la session réelle est Super Admin** (pas d'escalade).
-  Bandeau permanent + « Quitter ». Démarrage/arrêt journalisés.
+  Bandeau permanent + « Quitter ». Démarrage/arrêt journalisés. Étanche (06/10) : coque, rendu post-action,
+  panneaux chargés par action (`enLecture`), onglets (témoin `amd_vue` + `GardeIdentite`) et stockage navigateur
+  suivent la personne visualisée — voir `docs/readme/11-workflows-critiques.md` § Vue exacte.
 
 ### Messagerie interne (`/messages`)
 - **3 types de conversations** : **message direct** (1-1), **groupe** privé, **canal** d'équipe

@@ -2,11 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Pencil, Trash2, Inbox, CheckCheck } from "lucide-react";
+import { Pencil, Trash2, Inbox, CheckCheck, Paperclip, ExternalLink, Building2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { attributeTransaction, deleteBudgetExpense } from "@/lib/actions/budget-envelope-actions";
+import { attributeTransaction, changerSocieteEcriture, deleteBudgetExpense } from "@/lib/actions/budget-envelope-actions";
+import { PartagerButton } from "@/components/shared/partager-button";
 import type { BudgetOverview, AttributedTx } from "@/lib/queries/budget";
 import { useRun, AddExpenseRow, ExpenseEditSheet } from "./budget-forms";
 import { BarreSuppressionAImputer } from "./suppression-a-imputer";
@@ -18,15 +19,26 @@ import { BarreSuppressionAImputer } from "./suppression-a-imputer";
  * imputées viennent donc EN PREMIER — elles faussent tous les chiffres tant qu'elles
  * traînent — et le reste (l'historique de ce qui est déjà imputé) vient après.
  */
-export function BudgetExpenses({ overview, canAttribute, canDelete }: {
+export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [] }: {
   overview: BudgetOverview;
   canAttribute: boolean;
+  /** Les sociétés que la personne engage — pour rattacher une dépense à la bonne (Direction, 06/10). */
+  societes?: { id: string; nom: string }[];
   /** Le Super Admin supprime une ou plusieurs écritures « à imputer » (§118.176) — le serveur revérifie. */
   canDelete: boolean;
 }) {
   const { run } = useRun();
   const [editExpense, setEditExpense] = React.useState<AttributedTx | null>(null);
   const [selection, setSelection] = React.useState<Set<string>>(new Set());
+  // LES PIÈCES D'UNE DÉPENSE, dépliées à la demande (Direction, 06/10 : « j'ai besoin des documents pour comprendre »).
+  const [ouverte, setOuverte] = React.useState<string | null>(null);
+  const deplacer = (transactionId: string, companyId: string) => {
+    if (!companyId) return;
+    const fd = new FormData();
+    fd.set("transactionId", transactionId);
+    fd.set("companyId", companyId);
+    run(() => changerSocieteEcriture(fd));
+  };
   const cats = overview.categories;
   const aImputer = overview.unattributed.transactions;
   const basculer = (id: string) => setSelection((s) => {
@@ -86,15 +98,68 @@ export function BudgetExpenses({ overview, canAttribute, canDelete }: {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{tx.label}</p>
-                  <p className="text-xs text-muted-foreground">{tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}
+                    {" · "}<span className={tx.societe ? "" : "text-warning"}>{tx.societe ?? "sans société"}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">{tx.paiement}</p>
                 </div>
                 <span className="shrink-0 font-semibold tabular-nums">{formatCurrency(tx.amount)}</span>
+                <button
+                  type="button" onClick={() => setOuverte(ouverte === tx.id ? null : tx.id)} aria-expanded={ouverte === tx.id}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-secondary"
+                >
+                  <Paperclip className="h-3.5 w-3.5" /> Pièces ({tx.pieces.length + tx.liens.length})
+                </button>
+                {/* DEMANDER PAR MESSAGE si elle est toujours d'actualité, et si elle a été payée (Direction, 06/10). */}
+                <PartagerButton
+                  iconOnly refType="FINANCE_TRANSACTION" refId={tx.id} refLabel={`${tx.reference} — ${tx.label} (${formatCurrency(tx.amount)})`}
+                  href="/budgets/depenses" noteInitiale={`Bonjour, cette dépense (${tx.reference} — ${tx.label}, ${formatCurrency(tx.amount)}${tx.counterparty ? `, ${tx.counterparty}` : ""}) est-elle toujours d'actualité ? A-t-elle été payée ?`}
+                />
                 {canAttribute ? (
                   <Select defaultValue="" onChange={(e) => assign(tx.id, e.target.value)} className="h-9 w-48 text-xs" aria-label={`Imputer ${tx.label}`}>
                     <option value="">Imputer à…</option>
                     {cats.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
                   </Select>
                 ) : <Badge tone="neutral" dot={false}>Non imputé</Badge>}
+                {ouverte === tx.id && (
+                  <div className="basis-full space-y-2 rounded-lg bg-secondary/30 p-2.5 text-xs">
+                    {tx.liens.length === 0 && tx.pieces.length === 0 && (
+                      <p className="text-muted-foreground">Aucune pièce ni facture n&apos;est reliée à cette écriture : elle a été saisie directement en trésorerie.</p>
+                    )}
+                    {tx.liens.length > 0 && (
+                      <div className="flex flex-wrap gap-x-3 gap-y-1">
+                        {tx.liens.map((l) => (
+                          <Link key={l.href + l.libelle} href={l.href} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                            {l.libelle} <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                    {tx.pieces.length > 0 && (
+                      <ul className="space-y-0.5">
+                        {tx.pieces.map((d) => (
+                          <li key={d.id}>
+                            <a href={d.href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                              <Paperclip className="h-3 w-3" /> {d.nom}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {/* CETTE DÉPENSE CONCERNE UNE AUTRE SOCIÉTÉ : la déplacer. */}
+                    {canAttribute && societes.length > 0 && (
+                      <label className="flex flex-wrap items-center gap-2">
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>Société de la dépense :</span>
+                        <Select defaultValue={tx.companyId ?? ""} onChange={(e) => deplacer(tx.id, e.target.value)} className="h-8 w-56 text-xs" aria-label={`Société de ${tx.label}`}>
+                          {!tx.companyId && <option value="">— Aucune —</option>}
+                          {societes.map((s) => <option key={s.id} value={s.id}>{s.nom}</option>)}
+                        </Select>
+                      </label>
+                    )}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

@@ -124,7 +124,7 @@ suite("« Mon espace » — ce qui m'attend, une ligne par objet, et depuis quan
       emp[k] = (await prisma.employee.create({ data: { fullName: `${TAG} ${k}`, userId: u[k], companyId, isActive: true } })).id;
     }
     // Les RH : un accès posé par la console — voir, modifier, VALIDER (la marche des RH).
-    await prisma.userAccess.create({ data: { userId: u.rh, module: "RH", canView: true, canUpdate: true, canValidate: true, scope: "ALL" } });
+    for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: u.rh, module, canView: true, canUpdate: true, canValidate: true, scope: "ALL" } });
     // L'INTÉRIM : congé de M accordé, intérimaire S validé par les RH, en cours aujourd'hui.
     await prisma.leaveRequest.create({
       data: {

@@ -18,8 +18,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread } from "@/components/shared/comment-thread";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
-import { ProductDriveExplorer } from "@/components/documents/product-drive-explorer";
-import { REG_DRIVE_ROOT } from "@/lib/regulatory-drive-mirror";
+import { ProductDriveExplorer, dossierDriveAffiche } from "@/components/documents/product-drive-explorer";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { RegulatoryProcess } from "./anpp-process";
 import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
@@ -131,12 +130,9 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
   // requête que /pch/[id]. Rien à montrer tant que le produit canonique n'a croisé aucun AO.
   const marches = product.productId ? await loadProductMarkets(product.productId) : [];
 
-  // La carte « Dossiers & fichiers » n'apparaît que si le dossier Drive du produit EXISTE —
-  // même résolution que l'explorateur (il naît au premier dépôt).
-  const productDriveRoot = await prisma.driveNode.findFirst({
-    where: { type: "FOLDER", name: `${product.reference} — ${product.dci}`.trim(), isTrashed: false, parent: { name: REG_DRIVE_ROOT } },
-    select: { id: true },
-  });
+  // La carte « Dossiers & fichiers » n'apparaît que si le dossier Drive du produit EXISTE : celui de la
+  // catégorie « Regulatory » (Direction, 06/10), sinon celui de l'ancien miroir.
+  const productDriveRoot = await dossierDriveAffiche(product);
 
   const supplierViewValues = {
     supplierId: product.supplierId ?? "",
@@ -499,7 +495,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
               <CardContent>
                 <ProductDriveExplorer
                   user={user}
-                  productName={`${product.reference} — ${product.dci}`.trim()}
+                  rootId={productDriveRoot}
                   folderId={searchParams.dossier ?? null}
                   basePath={`/regulatory/${product.id}`}
                   canEdit={canUpload}

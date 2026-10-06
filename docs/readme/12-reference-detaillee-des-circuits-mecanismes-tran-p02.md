@@ -144,6 +144,22 @@
   reprise : ce qui n'a pas eu lieu à sa date n'a plus d'objet. **(4) Le compteur ne bouge que sur un envoi
   réussi** — « 12 demandes envoyées » doit compter des demandes réellement parties. Une **cadence illisible** en
   base met la récurrence en pause au lieu de la faire tourner à chaque battement.
+- **Demandes de stocks DO → KAM** (`/stocks/demandes`, Direction 06/10) : le pilote (`canRequestStockState`, via
+  `peutPiloterDemandesStocks`) choisit des établissements (**aucun = tous** les candidats : types hospitaliers,
+  établissements couverts par un secteur actif, lieux de stock) et, par établissement, des produits (**aucun = tous
+  ceux que ses KAM portent** ; un filtre commun possible quand tous les établissements sont visés). La demande est
+  **développée à la création** (instantané) en cases établissement × produit (`StockCountRequest` +
+  `StockCountRequestHospital` + `StockCountRequestLine`). **Routage = règle de la portée** : une case va aux KAM
+  d'un secteur actif couvrant l'établissement, dans leur BU (fiche, sinon secteurs), pour un produit de cette BU
+  (`lib/stocks/demande-stocks.ts`, PUR + test). Un établissement non couvert est listé **« sans KAM »** au DO ; un
+  produit choisi sans porteur donne une case « sans KAM ». Chaque KAM a UNE vue (`StockCountRequestRecipient`) :
+  notification + entrée « À renseigner » dans Mon espace (`action-center.ts`), saisie mobile (boîtes, « rupture »,
+  note par établissement), brouillon puis **Envoyer** (toutes ses cases exigées, portée relue) — l'envoi écrit les
+  **états datés** du module (`ecrireEtatDuJour`, `lib/stocks/etat-jour.ts`, partagé avec `recordStockSnapshot`).
+  Suivi DO : avancement global / par KAM, tableau consolidé, relance (1 / KAM / heure), clôture, suppression
+  (auteur ou Super Admin ; les états envoyés restent), export CSV `/api/stocks/demandes/[id]/export`.
+  Fichiers : `src/lib/actions/demande-stocks-actions.ts`, `src/lib/queries/demande-stocks.ts`,
+  `src/app/(app)/stocks/demandes/{page,nouvelle-demande}.tsx`, `[id]/{page,saisie-stocks,suivi-gestes}.tsx`.
 - **Fichiers** : `src/lib/stocks/portee.ts` (+ test, PUR), `src/lib/queries/stock-portee.ts` (+ test avec des acteurs SANS vue globale), `src/lib/stocks/lieux.ts` (`assurerLieuDeStock`, `rattacherLieuDeStock`, `suivreRenommageEtablissement`), `src/lib/actions/stock-snapshot-actions.ts`, `src/app/(app)/stocks/{page,stocks-view}.tsx`,
   `src/lib/adventum/risks.ts`. Récurrences : `src/lib/stocks/{recurrence,demande,recurrence-runner}.ts`,
   `src/lib/actions/stock-recurrence-actions.ts`, `src/lib/queries/stock-recurrence.ts`,

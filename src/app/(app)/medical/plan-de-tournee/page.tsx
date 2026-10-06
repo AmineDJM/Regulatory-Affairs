@@ -11,7 +11,9 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { MEDICAL_TABS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
-import { diagnostiquerPanelVide, loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
+import { clePaire, diagnostiquerPanelVide, loadPanelPlanifiable, loadPlanTournee, loadVisitesDuPlan } from "@/lib/queries/tour-schedule";
+import { stockPourVisite, type StockPourVisite } from "@/lib/queries/promo-remises";
+import { jourIso } from "@/lib/sfe/grille-tournee";
 import {
   GRANULARITE_LABELS, STATUT_PLAN_LABELS, aResoumettre, accesAuPlan, clausePlansADecider, estJourOuvrePourTournee, gestesPossibles, periodeSuivante,
   retardDeSoumission, type StatutPlan,
@@ -109,6 +111,13 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
   // (`peutEcrirePourLeKam` : le KAM, le superviseur de sa BU, la Direction). Un bouton offert à qui l'action
   // refuse fait chercher une panne qui n'existe pas (§118.83).
   const jePeuxEcrire = plan ? plan.repId === user.id || (await canEditRep(user, plan.repId)) : false;
+  // LA GRILLE OUVRE LE RAPPORT DE LA VISITE (Direction, 06/10) — pour le KAM lui-même, qui saisit ses visites : c'est
+  // son stock qui sort et son compte rendu. Les visites se lisent comme « Ma journée » les lit (`loadVisitesDuPlan`).
+  const peutRapporter = plan ? plan.repId === user.id && userCan(user, "MEDICAL", "CREATE") : false;
+  const sansStock: StockPourVisite = { articles: [], numeriques: [] };
+  const [visitesDuPlan, stock] = plan
+    ? await Promise.all([loadVisitesDuPlan(plan.id, plan.repId), peutRapporter ? stockPourVisite(user.id) : Promise.resolve(sansStock)])
+    : [null, sansStock];
 
   // LES JOURS OUVRÉS DE LA PÉRIODE — la semaine ouvrée algérienne (dimanche → jeudi). Proposer
   // un vendredi ferait planifier un jour où personne ne sort, et la soumission le refuserait.
@@ -125,7 +134,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
   const canPlan = userCan(user, "MEDICAL", "CREATE");
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className={`mx-auto ${plan ? "max-w-6xl" : "max-w-5xl"} space-y-5`}>
       <PageHeader
         title="Plan de tournée"
         description={`La ville où vous serez, les médecins que vous verrez, jour par jour — puis la validation de votre N+1. Maille ${GRANULARITE_LABELS[granularite].toLowerCase()}.`}
@@ -167,6 +176,18 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             // test ne proposait la décision que sur un plan soumis, et le N+2 restait sans bouton.
             jePeuxDecider={acces?.decider ?? false}
             jePeuxEscalader={acces?.escalader ?? false}
+            aujourdhui={jourIso(new Date())}
+            dejaValide={plan.dejaValide}
+            lignes={(visitesDuPlan?.lignes ?? [])
+              .filter((l) => l.doctorId)
+              .map((l) => ({ ...l, date: l.date.toISOString(), cle: clePaire(l.date, l.doctorId!) }))}
+            gamme={{
+              produits: visitesDuPlan?.produits ?? [], produitsIncomplets: visitesDuPlan?.produitsIncomplets ?? [],
+              messages: visitesDuPlan?.messages ?? [], sansBu: visitesDuPlan?.sansBu ?? true,
+            }}
+            stock={stock}
+            peutRapporter={peutRapporter}
+            voirRapportsTerrain={userCan(user, "FIELD_REPORTS", "VIEW")}
           />
         </>
       ) : (

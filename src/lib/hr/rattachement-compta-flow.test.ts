@@ -85,7 +85,7 @@ suite("Rattacher à une entité depuis la paie ; la paie dans le résultat de so
     const mk = (n: string, role: SessionUser["role"]) =>
       prisma.user.create({ data: { name: `${TAG}${n}`, email: `${TAG}${n}@t.dz`, role, passwordHash: "x" } }).then((u) => u.id);
     [rhId, financeId] = await Promise.all([mk("rh", "DIRECTION_ASSISTANT"), mk("finance", "FINANCE_BUDGET_MANAGER")]);
-    await prisma.userAccess.create({ data: { userId: rhId, module: "RH", canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
+    for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: rhId, module, canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
     await prisma.employee.create({ data: { fullName: `${TAG} RH`, userId: rhId, companyId: aId } });
     await prisma.userCompanyAccess.create({ data: { userId: rhId, companyId: aId, canEdit: true } });
     await prisma.employee.create({ data: { fullName: `${TAG} Finance`, userId: financeId, companyId: aId } });

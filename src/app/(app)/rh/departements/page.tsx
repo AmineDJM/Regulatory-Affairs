@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Building2, Network } from "lucide-react";
+import { Building2, Network } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -9,14 +9,18 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { DepartmentsManager } from "./departments-manager";
-import { BackLink } from "@/components/shared/back-link";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
+import { EMPLOYES_TABS } from "@/lib/labels";
 
 export const metadata = { title: "Départements — AMD Internal OS" };
 export const dynamic = "force-dynamic";
 
 export default async function DepartmentsPage() {
-  const user = await requireModule("RH");
-  const canManage = userCan(user, "RH", "UPDATE");
+  const user = await requireModule("EMPLOYEES");
+  const canManage = userCan(user, "EMPLOYEES", "UPDATE");
+  // LES ONGLETS DU SOUS-MODULE « EMPLOYÉS » (Direction, 06/10) : équipe, consultants, départements.
+  const tabs = await visibleTabs(user, EMPLOYES_TABS);
 
   // Périmètre d'ENTITÉ actif (sélecteur de la barre supérieure) : chaque société a ses
   // propres départements ; « toutes les entités » donne la vue de SES entités.
@@ -53,9 +57,6 @@ export default async function DepartmentsPage() {
 
   return (
     <div className="space-y-5">
-      <BackLink href="/rh">
-        <ArrowLeft className="h-4 w-4" /> Ressources humaines
-      </BackLink>
       <PageHeader
         title="Départements"
         description={
@@ -66,6 +67,7 @@ export default async function DepartmentsPage() {
       >
         <Link href="/admin/organigramme"><Button variant="outline"><Network className="h-4 w-4" /> Organigramme</Button></Link>
       </PageHeader>
+      <ModuleTabs tabs={tabs} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Départements" value={flat.length} icon="Building2" />

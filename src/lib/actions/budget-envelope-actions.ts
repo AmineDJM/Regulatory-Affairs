@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { canManageEnvelopes, canManageEnvelope, canViewEnvelope, hasGlobalView, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { companyIdForNew } from "@/lib/company";
+import { canEditCompanyId, companyIdForNew } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
@@ -203,6 +203,37 @@ export async function attributeTransaction(formData: FormData): Promise<ActionRe
   await prisma.financeTransaction.update({ where: { id: transactionId }, data: { budgetCategoryId } });
   revalidatePath("/budgets");
   return { ok: true };
+}
+
+/**
+ * CETTE DÉPENSE CONCERNE UNE AUTRE SOCIÉTÉ (Direction, 06/10) — la déplacer. L'écriture change de société, et l'ordre de
+ * dépense qu'elle a payé la suit ; elle quitte la liste « à imputer » de l'enveloppe de son ancienne société. Les deux
+ * sociétés, l'ancienne et la nouvelle, doivent être de celles que la personne engage.
+ */
+export async function changerSocieteEcriture(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!(hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE") || userCan(user, "FINANCES", "UPDATE"))) return { ok: false, error: "Réservé à la Direction, aux Budgets et aux Finances." };
+  const transactionId = fdStr(formData, "transactionId");
+  const companyId = fdStr(formData, "companyId");
+  if (!transactionId || !companyId) return { ok: false, error: "Choisissez la société de cette dépense." };
+  const tx = await prisma.financeTransaction.findUnique({ where: { id: transactionId }, select: { id: true, reference: true, label: true, companyId: true, company: { select: { name: true } } } });
+  if (!tx) return { ok: false, error: "Dépense introuvable." };
+  if (tx.companyId === companyId) return { ok: true, message: "Cette dépense est déjà rattachée à cette société." };
+  const societe = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true, name: true, isActive: true } });
+  if (!societe?.isActive) return { ok: false, error: "Société introuvable." };
+  if (!(await canEditCompanyId(user.id, tx.companyId)) || !(await canEditCompanyId(user.id, companyId))) {
+    return { ok: false, error: "Vous ne pouvez déplacer une dépense qu'entre des sociétés que vous engagez." };
+  }
+  await prisma.$transaction([
+    prisma.financeTransaction.update({ where: { id: tx.id }, data: { companyId } }),
+    prisma.expenseOrder.updateMany({ where: { transactionId: tx.id }, data: { companyId } }),
+  ]);
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "FINANCE_TRANSACTION", entityId: tx.id,
+    summary: `Dépense ${tx.reference} « ${tx.label} » déplacée de ${tx.company?.name ?? "sans société"} vers ${societe.name}`,
+  });
+  revalidatePath("/budgets");
+  return { ok: true, message: `Dépense ${tx.reference} rattachée à ${societe.name}.` };
 }
 
 /** Accès en imputation à une (sous-)catégorie : renvoie la catégorie si autorisée, sinon un message. */

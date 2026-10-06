@@ -109,13 +109,13 @@ suite("Transfert d'un contrat de consulting — Ad & Pro ⇄ RH, le flux réel",
     const pm = await actorFor(pmId, "PRODUCT_MANAGER");
     expect(userCan(pm, "CONSULTING", "UPDATE")).toBe(true);
     expect(userCan(pm, "CONSULTING", "VALIDATE")).toBe(true);
-    expect(userCan(pm, "RH", "VIEW"), "sans cela, la fuite vers la promotion ne se mesurerait pas").toBe(false);
+    expect(userCan(pm, "EMPLOYEES", "VIEW"), "sans cela, la fuite vers la promotion ne se mesurerait pas").toBe(false);
     const od = await actorFor(odId, "OPERATIONS_DIRECTOR");
-    expect(userCan(od, "RH", "VIEW")).toBe(true);
-    expect(userCan(od, "RH", "UPDATE"), "un lecteur RH ne transfère pas").toBe(false);
+    expect(userCan(od, "EMPLOYEES", "VIEW")).toBe(true);
+    expect(userCan(od, "EMPLOYEES", "UPDATE"), "un lecteur RH ne transfère pas").toBe(false);
     expect(userCan(od, "CONSULTING", "VIEW"), "sans cela, la lecture RH ne se mesurerait pas").toBe(false);
     const dir = await actorFor(dirId, "DIRECTION");
-    for (const m of ["CONSULTING", "RH"] as const) {
+    for (const m of ["CONSULTING", "EMPLOYEES"] as const) {
       expect(userCan(dir, m, "UPDATE")).toBe(true);
       expect(userCan(dir, m, "VALIDATE")).toBe(true);
     }

@@ -66,7 +66,7 @@ suite("Formations — la liste et la fiche lisent la même règle", () => {
     await mk("rhB", B, null);
     // Les RH : un accès personnalisé au module, comme la console le donne.
     for (const k of ["rhA", "rhB"]) {
-      await prisma.userAccess.create({ data: { userId: u[k], module: "RH", canView: true, canUpdate: true, canValidate: true, scope: "ALL" } });
+      for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: u[k], module, canView: true, canUpdate: true, canValidate: true, scope: "ALL" } });
     }
     for (const k of Object.keys(u)) acteurs[k] = { id: u[k], role: "VIEWER", secondaryRole: null, access: await getAccess(u[k], "VIEWER" as never) } as unknown as SessionUser;
     const mkT = async (k: string, data: Record<string, unknown>) => {

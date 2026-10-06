@@ -2,6 +2,7 @@ import type { SessionUser } from "@/lib/rbac";
 import { Prisma } from "@prisma/client";
 import { userCan, hasGlobalView, scopeBusinessDevelopment } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { clauseProduitTermine } from "@/lib/products/termines";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { accessibleDocumentWhere } from "@/lib/queries/documents";
@@ -79,7 +80,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
     userCan(user, "FINANCES", "VIEW")
       ? prisma.financeTransaction.findMany({ where: { AND: [await clauseEcrituresVisibles(user.id), ...(match(["label", "reference", "counterparty"]) as Prisma.FinanceTransactionWhereInput[])] }, take, select: { id: true, label: true, reference: true } })
       : [],
-    userCan(user, "RH", "VIEW")
+    userCan(user, "EMPLOYEES", "VIEW")
       ? prisma.employee.findMany({ where: { AND: [await clauseSalariesVisibles(user.id), ...(match(["fullName", "position", "department"]) as Prisma.EmployeeWhereInput[])] }, take, select: { id: true, fullName: true, position: true } })
       : [],
     userCan(user, "SALES", "VIEW")
@@ -188,7 +189,7 @@ async function rechercheReliee(
   const voitProduits = userCan(user, "PRODUCTS", "VIEW");
   const [produits, bus, strategies] = await Promise.all([
     voitProduits
-      ? prisma.product.findMany({ where: { AND: [{ isActive: true }, { OR: [{ AND: match(["canonicalName", "dci", "code"]) as Prisma.ProductWhereInput[] }, { aliases: { some: { AND: match(["label"]) as Prisma.ProductAliasWhereInput[] } } }] }] }, take, select: { id: true, canonicalName: true, code: true, dci: true } })
+      ? prisma.product.findMany({ where: { AND: [{ isActive: true }, clauseProduitTermine, { OR: [{ AND: match(["canonicalName", "dci", "code"]) as Prisma.ProductWhereInput[] }, { aliases: { some: { AND: match(["label"]) as Prisma.ProductAliasWhereInput[] } } }] }] }, take, select: { id: true, canonicalName: true, code: true, dci: true } })
       : [],
     userCan(user, "SALES_PLANNING", "VIEW")
       ? prisma.businessUnit.findMany({ where: { AND: [{ isActive: true }, ...(match(["name", "code"]) as Prisma.BusinessUnitWhereInput[])] }, take, select: { id: true, name: true, code: true } })

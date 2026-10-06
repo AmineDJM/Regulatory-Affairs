@@ -14,7 +14,8 @@ describe("le pôle d'un contrat de consulting (§118.150)", () => {
     expect(new Set(POLES_CONSULTING.map((p) => MODULE_DU_POLE[p])).size).toBe(POLES_CONSULTING.length);
     expect(new Set(POLES_CONSULTING.map((p) => CHEMIN_LISTE_POLE[p])).size).toBe(POLES_CONSULTING.length);
     expect(MODULE_DU_POLE.AD_PRO).toBe("CONSULTING");
-    expect(MODULE_DU_POLE.RH).toBe("RH");
+    // Le pôle RH relève du sous-module « Employés » depuis le découpage des RH (Direction, 06/10).
+    expect(MODULE_DU_POLE.RH).toBe("EMPLOYEES");
   });
 
   it("le pôle opposé est une involution", () => {
@@ -41,7 +42,7 @@ describe("le pôle d'un contrat de consulting (§118.150)", () => {
   it("le refus NOMME les deux modules et qui a le droit", () => {
     const m = refusTransfert("AD_PRO", "RH");
     expect(m).toMatch(/CONSULTING/);
-    expect(m).toMatch(/\bRH\b/);
+    expect(m).toMatch(/\bEMPLOYEES\b/);
     expect(m).toMatch(/Ad & Pro/);
     expect(m).toMatch(/Ressources humaines/);
     expect(m).toMatch(/Super Admin/);
@@ -49,9 +50,9 @@ describe("le pôle d'un contrat de consulting (§118.150)", () => {
 
   it("les pôles lisibles suivent les droits de lecture, MODULE par module", () => {
     const voit = (...modules: string[]) => (m: string) => modules.includes(m);
-    expect(polesLisibles(voit("CONSULTING", "RH"))).toEqual(["AD_PRO", "RH"]);
+    expect(polesLisibles(voit("CONSULTING", "EMPLOYEES"))).toEqual(["AD_PRO", "RH"]);
     expect(polesLisibles(voit("CONSULTING"))).toEqual(["AD_PRO"]);
-    expect(polesLisibles(voit("RH"))).toEqual(["RH"]);
+    expect(polesLisibles(voit("EMPLOYEES"))).toEqual(["RH"]);
     expect(polesLisibles(voit())).toEqual([]);
     // Un module sans rapport n'ouvre aucun pôle : le prédicat est interrogé sur les modules
     // de la table, et sur eux seuls.

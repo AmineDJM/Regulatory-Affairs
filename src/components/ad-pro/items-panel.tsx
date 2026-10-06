@@ -38,11 +38,13 @@ import {
 } from "@/lib/ad-pro/poste-etapes";
 import { NATURES_REPARTITION } from "@/lib/ad-pro/repartition";
 import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
+import { porteDesHebergements } from "@/lib/ad-pro/hebergements";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { faitDeStock, NATURE_MATERIEL_STOCK } from "@/lib/promo/reservations";
 import { BlocMaterielStock, type LigneStockVue, type ContexteMaterielStock } from "./materiel-stock";
 import { BlocVoyageurs, type VoyageurVue } from "./voyageurs-bloc";
+import { BlocHebergements, type HebergementVue } from "./hebergements-bloc";
 import { ConseilLuna } from "./conseil-luna";
 import type { PiecesDuPoste, PieceDePoste, DemandeBCDuPoste } from "@/lib/ad-pro/pieces-poste";
 import type { DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
@@ -53,6 +55,7 @@ import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export type { LigneStockVue, ContexteMaterielStock, ArticleMagasinVue } from "./materiel-stock";
 export type { VoyageurVue } from "./voyageurs-bloc";
+export type { HebergementVue } from "./hebergements-bloc";
 
 /** Un poste « Matériel du stock » n'engage pas d'argent : il ne montre ni montant, ni budget, ni BC. */
 const estPosteStock = (it: { kind: AdProItemKind }) => it.kind === NATURE_MATERIEL_STOCK;
@@ -118,6 +121,13 @@ export interface ItemRow {
   reservation: { id: string; reference: string; refusRetrait: string | null } | null;
   /** Les voyageurs d'un poste « billetterie » — vide sinon. */
   voyageurs: VoyageurVue[];
+  /** Les fiches hôtellerie d'un poste « hôtellerie » — vide sinon (Direction, 06/10). */
+  hebergements: HebergementVue[];
+  /**
+   * Le poste vit dans un sponsoring INDIRECT (né d'une répartition, ou posé sur un sponsoring de
+   * nature indirecte) : ses fiches par personne sont facultatives. Calculé au serveur.
+   */
+  priseEnChargeIndirecte: boolean;
   /** Les noms que la demande porte déjà — proposés à la saisie d'un voyageur, jamais imposés. */
   nomsSuggeres: string[];
   /** Premier temps de validation franchi (Direction des opérations) — `null` tant qu'il ne l'est pas (§118.204). */
@@ -1015,6 +1025,19 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
           montantAccorde={item.amountGranted}
           bcPossible={pas.geste?.cle === "DEMANDER_BC" && item.orderStage !== "REQUESTED" && item.orderStage !== "DIRECTION_OK"}
           assistantes={assistantes}
+        />
+      )}
+
+      {/* L'HÔTELLERIE : une fiche par personne logée (Direction, 06/10) — facultatives en sponsoring indirect. */}
+      {porteDesHebergements(item.kind) && (
+        <BlocHebergements
+          itemId={item.id}
+          hebergements={item.hebergements}
+          nomsSuggeres={item.nomsSuggeres}
+          peutEditer={regard.canEdit}
+          obligatoire={!item.priseEnChargeIndirecte}
+          busy={busy}
+          run={run}
         />
       )}
 

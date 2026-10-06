@@ -44,7 +44,7 @@ export type PoleConsulting = (typeof POLES_CONSULTING)[number];
  * valeurs sont des clés du RBAC (`Module`) : ce module n'importe rien, donc le typecheck des
  * appelants (`userCan(user, MODULE_DU_POLE[p], …)`) est ce qui tient cette correspondance.
  */
-export const MODULE_DU_POLE = { AD_PRO: "CONSULTING", RH: "RH" } as const satisfies Record<PoleConsulting, string>;
+export const MODULE_DU_POLE = { AD_PRO: "CONSULTING", RH: "EMPLOYEES" } as const satisfies Record<PoleConsulting, string>;
 export type ModulePoleConsulting = (typeof MODULE_DU_POLE)[PoleConsulting];
 
 export const LIBELLE_POLE: Record<PoleConsulting, string> = {

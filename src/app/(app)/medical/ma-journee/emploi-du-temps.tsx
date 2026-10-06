@@ -104,10 +104,8 @@ export function EmploiDuTemps({
   const [ouverte, setOuverte] = React.useState<LigneVue | null>(null);
   /** La visite qu'on dit NON TENUE (reportée, annulée) — §118.193. */
   const [nonTenue, setNonTenue] = React.useState<LigneVue | null>(null);
-  const [motifNonTenue, setMotifNonTenue] = React.useState("");
-  /** La visite ouverte l'est-elle pour une CORRECTION (rapport déjà fait, fenêtre encore ouverte) ? */
-  const correction = ouverte?.etat === "FAITE";
   const [imprevue, setImprevue] = React.useState(false);
+  const gamme: GammeVue = { produits, produitsIncomplets, messages, sansBu };
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -241,7 +239,7 @@ export function EmploiDuTemps({
                       </Button>
                       {/* DIRE QU'ELLE N'A PAS EU LIEU (§118.193) : un médecin absent n'est pas une visite perdue,
                           à condition de le dire — dans la même fenêtre que le rapport. */}
-                      <Button size="sm" variant="ghost" onClick={() => { setErr(null); setMotifNonTenue(""); setNonTenue(l); }} disabled={occupe}>
+                      <Button size="sm" variant="ghost" onClick={() => { setErr(null); setNonTenue(l); }} disabled={occupe}>
                         N&apos;a pas eu lieu
                       </Button>
                     </span>
@@ -268,130 +266,204 @@ export function EmploiDuTemps({
       </Button>
 
       {/* ── LE RAPPORT TERRAIN ──────────────────────────────────────────────── */}
-      <Sheet
-        open={ouverte !== null}
-        onClose={() => setOuverte(null)}
-        title={ouverte ? `${correction ? "Corriger le rapport" : "Rapport"} — ${ouverte.doctorName}` : ""}
-        description={ouverte
-          ? `Visite du ${new Date(ouverte.date).toLocaleDateString("fr-FR")} · ${ouverte.heuresRestantes} h restantes pour la ${correction ? "corriger" : "rapporter"}.`
-          : ""}
-        width="md"
-      >
-        {ouverte && (
-          <FormulaireRapport
-            key={ouverte.id}
-            action={async (fd) => {
-              fd.set("visitId", ouverte.id);
-              if (await run(rapporterVisite, fd)) setOuverte(null);
-            }}
-            produits={produits}
-            produitsIncomplets={produitsIncomplets}
-            messages={messages}
-            sansBu={sansBu}
-            // UNE CORRECTION N'EXIGE PAS PLUS QUE LA CRÉATION : la règle est au serveur, l'écran la
-            // reflète — une imprévue, ou une visite rapportée sans message, se corrige sans message.
-            messageObligatoire={ouverte.origine !== "UNPLANNED" && !(correction && ouverte.messageIds.length === 0)}
-            produitObligatoire={ouverte.origine !== "UNPLANNED" && !(correction && ouverte.produitIds.length === 0)}
-            stock={stock}
-            initial={correction ? {
-              texte: ouverte.rapport ?? "", suite: ouverte.suite ?? "",
-              produitIds: ouverte.produitIds, messageIds: ouverte.messageIds, remises: ouverte.remises,
-            } : undefined}
-            libelleEnvoi={correction ? "Enregistrer la correction" : "Enregistrer le rapport"}
-            potentiel={ouverte.potentiel}
-            busy={occupe}
-            err={err}
-            onCancel={() => setOuverte(null)}
-          />
-        )}
-      </Sheet>
+      <FeuilleRapportVisite ouverte={ouverte} onClose={() => setOuverte(null)} gamme={gamme} stock={stock} executer={run} occupe={occupe} err={err} />
 
       {/* ── LA VISITE QUI N'A PAS EU LIEU (§118.193) ───────────────────────────── */}
-      <Sheet
-        open={nonTenue !== null}
-        onClose={() => setNonTenue(null)}
-        title={nonTenue ? `La visite n'a pas eu lieu — ${nonTenue.doctorName}` : ""}
-        description={nonTenue
-          ? `Visite du ${new Date(nonTenue.date).toLocaleDateString("fr-FR")}. Reportée ou annulée, elle sort du dénominateur de votre plan — en le disant, motif à l'appui.`
-          : ""}
-        width="md"
-      >
-        {nonTenue && (
-          <form
-            className="space-y-3"
-            action={async (fd) => {
-              fd.set("visitId", nonTenue.id);
-              if (await run(direVisiteNonTenue, fd)) setNonTenue(null);
-            }}
-          >
-            <fieldset className="space-y-1.5">
-              <legend className="text-sm font-medium">Ce qui s&apos;est passé</legend>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="radio" name="issue" value="POSTPONED" defaultChecked className="h-4 w-4" /> Reportée
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="radio" name="issue" value="CANCELLED" className="h-4 w-4" /> Annulée
-              </label>
-            </fieldset>
-            <div>
-              <Label htmlFor="non-tenue-motif">Pourquoi</Label>
-              <Textarea id="non-tenue-motif" name="motif" rows={3} value={motifNonTenue} onChange={(e) => setMotifNonTenue(e.target.value)}
-                placeholder="Le Dr Amrani était en congé ; je le revois mardi prochain." />
-            </div>
-            {err && <p className="text-sm text-destructive">{err}</p>}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setNonTenue(null)} disabled={occupe}>Annuler</Button>
-              <BoutonDecisif type="submit" disabled={occupe || motifNonTenue.trim().length === 0} confirmation="dire que la visite n’a pas eu lieu">
-                {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
-              </BoutonDecisif>
-            </div>
-          </form>
-        )}
-      </Sheet>
+      <FeuilleNonTenue visite={nonTenue} onClose={() => setNonTenue(null)} executer={run} occupe={occupe} err={err} />
 
       {/* ── LA VISITE IMPRÉVUE ──────────────────────────────────────────────── */}
-      <Sheet
-        open={imprevue}
-        onClose={() => setImprevue(false)}
-        title="Visite imprévue"
-        description="Une rencontre que le plan ne prévoyait pas. Elle compte au nombre de visites, jamais au dénominateur du plan."
-        width="md"
-      >
+      <FeuilleVisiteImprevue open={imprevue} onClose={() => setImprevue(false)} panel={panel} gamme={gamme} stock={stock} executer={run} occupe={occupe} err={err} />
+    </div>
+  );
+}
+
+/** La gamme du KAM qui rapporte : ses produits, ses messages — ce que le formulaire de rapport propose. */
+export interface GammeVue {
+  produits: { productId: string; name: string }[];
+  produitsIncomplets: string[];
+  messages: { id: string; title: string; body: string | null; buName: string | null }[];
+  sansBu: boolean;
+}
+
+/** Le geste suivi de l'écran hôte : appelle l'action, montre l'erreur, rafraîchit (`useRafraichir`). Vrai si réussi. */
+export type Executer = (action: (fd: FormData) => Promise<{ ok: boolean; error?: string }>, fd: FormData) => Promise<boolean>;
+
+/**
+ * LE RAPPORT D'UNE VISITE PLANIFIÉE — UNE feuille, ouverte depuis « Ma journée » ET depuis la grille du plan de
+ * tournée (Direction, 06/10). Deux écrans, une porte : la même action (`rapporterVisite`), le même formulaire, les
+ * mêmes exigences. En écrire une seconde pour la grille ferait diverger les deux saisies au premier champ ajouté.
+ */
+export function FeuilleRapportVisite({
+  ouverte, onClose, gamme, stock, executer, occupe, err,
+}: {
+  ouverte: LigneVue | null;
+  onClose: () => void;
+  gamme: GammeVue;
+  stock: StockPourVisite;
+  executer: Executer;
+  occupe: boolean;
+  err: string | null;
+}) {
+  /** La visite ouverte l'est-elle pour une CORRECTION (rapport déjà fait, fenêtre encore ouverte) ? */
+  const correction = ouverte?.etat === "FAITE";
+  return (
+    <Sheet
+      open={ouverte !== null}
+      onClose={onClose}
+      title={ouverte ? `${correction ? "Corriger le rapport" : "Rapport"} — ${ouverte.doctorName}` : ""}
+      description={ouverte
+        ? `Visite du ${new Date(ouverte.date).toLocaleDateString("fr-FR")} · ${ouverte.heuresRestantes} h restantes pour la ${correction ? "corriger" : "rapporter"}.`
+        : ""}
+      width="md"
+    >
+      {ouverte && (
         <FormulaireRapport
-          action={async (fd) => { if (await run(ajouterVisiteImprevue, fd)) setImprevue(false); }}
-          produits={produits}
-          produitsIncomplets={produitsIncomplets}
-          messages={messages}
-          sansBu={sansBu}
-          // LE MESSAGE EST FACULTATIF ICI — la demande le dit, et une rencontre de couloir n'a
-          // pas d'ordre de mission.
-          messageObligatoire={false}
-          produitObligatoire={false}
+          key={ouverte.id}
+          action={async (fd) => {
+            fd.set("visitId", ouverte.id);
+            if (await executer(rapporterVisite, fd)) onClose();
+          }}
+          produits={gamme.produits}
+          produitsIncomplets={gamme.produitsIncomplets}
+          messages={gamme.messages}
+          sansBu={gamme.sansBu}
+          // UNE CORRECTION N'EXIGE PAS PLUS QUE LA CRÉATION : la règle est au serveur, l'écran la
+          // reflète — une imprévue, ou une visite rapportée sans message, se corrige sans message.
+          messageObligatoire={ouverte.origine !== "UNPLANNED" && !(correction && ouverte.messageIds.length === 0)}
+          produitObligatoire={ouverte.origine !== "UNPLANNED" && !(correction && ouverte.produitIds.length === 0)}
           stock={stock}
+          initial={correction ? {
+            texte: ouverte.rapport ?? "", suite: ouverte.suite ?? "",
+            produitIds: ouverte.produitIds, messageIds: ouverte.messageIds, remises: ouverte.remises,
+          } : undefined}
+          libelleEnvoi={correction ? "Enregistrer la correction" : "Enregistrer le rapport"}
+          potentiel={ouverte.potentiel}
           busy={occupe}
           err={err}
-          onCancel={() => setImprevue(false)}
-          entete={
-            <>
-              <div>
-                <Label htmlFor="imp-doctor">Praticien rencontré</Label>
-                <Select id="imp-doctor" name="doctorId" required defaultValue="">
-                  <option value="" disabled>— Choisir dans votre panel —</option>
-                  {panel.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="imp-date">Jour de la rencontre</Label>
-                <Input id="imp-date" name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Jamais dans le futur, et dans les 48 h : c&apos;est la même borne que pour une visite planifiée.
-                </p>
-              </div>
-            </>
-          }
+          onCancel={onClose}
         />
-      </Sheet>
-    </div>
+      )}
+    </Sheet>
+  );
+}
+
+/** LA VISITE QUI N'A PAS EU LIEU (§118.193) — la même feuille pour « Ma journée » et la grille du plan. */
+export function FeuilleNonTenue({
+  visite, onClose, executer, occupe, err,
+}: {
+  visite: LigneVue | null;
+  onClose: () => void;
+  executer: Executer;
+  occupe: boolean;
+  err: string | null;
+}) {
+  const [motif, setMotif] = React.useState("");
+  // Une feuille rouverte sur une autre visite repart d'un motif vide.
+  React.useEffect(() => { setMotif(""); }, [visite?.id]);
+  return (
+    <Sheet
+      open={visite !== null}
+      onClose={onClose}
+      title={visite ? `La visite n'a pas eu lieu — ${visite.doctorName}` : ""}
+      description={visite
+        ? `Visite du ${new Date(visite.date).toLocaleDateString("fr-FR")}. Reportée ou annulée, elle sort du dénominateur de votre plan — en le disant, motif à l'appui.`
+        : ""}
+      width="md"
+    >
+      {visite && (
+        <form
+          className="space-y-3"
+          action={async (fd) => {
+            fd.set("visitId", visite.id);
+            if (await executer(direVisiteNonTenue, fd)) onClose();
+          }}
+        >
+          <fieldset className="space-y-1.5">
+            <legend className="text-sm font-medium">Ce qui s&apos;est passé</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="radio" name="issue" value="POSTPONED" defaultChecked className="h-4 w-4" /> Reportée
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="radio" name="issue" value="CANCELLED" className="h-4 w-4" /> Annulée
+            </label>
+          </fieldset>
+          <div>
+            <Label htmlFor="non-tenue-motif">Pourquoi</Label>
+            <Textarea id="non-tenue-motif" name="motif" rows={3} value={motif} onChange={(e) => setMotif(e.target.value)}
+              placeholder="Le Dr Amrani était en congé ; je le revois mardi prochain." />
+          </div>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={occupe}>Annuler</Button>
+            <BoutonDecisif type="submit" disabled={occupe || motif.trim().length === 0} confirmation="dire que la visite n’a pas eu lieu">
+              {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
+            </BoutonDecisif>
+          </div>
+        </form>
+      )}
+    </Sheet>
+  );
+}
+
+/**
+ * LA VISITE IMPRÉVUE — la rencontre que le plan ne prévoyait pas. La même feuille pour « Ma journée » et pour le
+ * bouton « Nouveau rapport terrain » de la grille du plan : elle crée la `MedicalVisit` hors plan (`ajouterVisiteImprevue`),
+ * comptée au nombre de visites, jamais au dénominateur du plan.
+ */
+export function FeuilleVisiteImprevue({
+  open, onClose, panel, gamme, stock, executer, occupe, err,
+}: {
+  open: boolean;
+  onClose: () => void;
+  panel: { id: string; name: string }[];
+  gamme: GammeVue;
+  stock: StockPourVisite;
+  executer: Executer;
+  occupe: boolean;
+  err: string | null;
+}) {
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Visite imprévue"
+      description="Une rencontre que le plan ne prévoyait pas. Elle compte au nombre de visites, jamais au dénominateur du plan."
+      width="md"
+    >
+      <FormulaireRapport
+        action={async (fd) => { if (await executer(ajouterVisiteImprevue, fd)) onClose(); }}
+        produits={gamme.produits}
+        produitsIncomplets={gamme.produitsIncomplets}
+        messages={gamme.messages}
+        sansBu={gamme.sansBu}
+        // LE MESSAGE EST FACULTATIF ICI — la demande le dit, et une rencontre de couloir n'a
+        // pas d'ordre de mission.
+        messageObligatoire={false}
+        produitObligatoire={false}
+        stock={stock}
+        busy={occupe}
+        err={err}
+        onCancel={onClose}
+        entete={
+          <>
+            <div>
+              <Label htmlFor="imp-doctor">Praticien rencontré</Label>
+              <Select id="imp-doctor" name="doctorId" required defaultValue="">
+                <option value="" disabled>— Choisir dans votre panel —</option>
+                {panel.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="imp-date">Jour de la rencontre</Label>
+              <Input id="imp-date" name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Jamais dans le futur, et dans les 48 h : c&apos;est la même borne que pour une visite planifiée.
+              </p>
+            </div>
+          </>
+        }
+      />
+    </Sheet>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { addCareBeneficiary, removeCareBeneficiary, demanderPiecesPriseEnCharge } from "@/lib/actions/care-actions";
 
@@ -52,7 +53,7 @@ export async function listBeneficiaryRefs(): Promise<{
   specialties: { id: string; name: string }[];
   institutions: { id: string; name: string; wilaya: string | null }[];
 }> {
-  await requireUser();
+  await enLecture(requireUser);
   const [doctors, specialties, institutions] = await Promise.all([
     prisma.medicalDoctor.findMany({ select: { id: true, name: true, institution: true, specialty: true }, orderBy: { name: "asc" }, take: 2000 }),
     prisma.medicalSpecialty.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),

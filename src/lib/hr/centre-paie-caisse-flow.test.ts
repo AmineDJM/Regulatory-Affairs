@@ -115,7 +115,7 @@ suite("Paie et caisse d'avance par le centre de paiement", () => {
     ]);
     // LA RH N'A QUE LE MODULE RH, ET NE VOIT QUE L'ENTITÉ A : sans cela, « une entité qui n'est
     // pas la vôtre » ne pourrait pas être refusée, et la garde passerait pour armée (§118.104).
-    await prisma.userAccess.create({ data: { userId: rhId, module: "RH", canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
+    for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: rhId, module, canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
     await prisma.employee.create({ data: { fullName: `${TAG} RH`, userId: rhId, companyId: aId, departmentId: deptAId } });
     await prisma.userCompanyAccess.create({ data: { userId: rhId, companyId: aId, canEdit: true } });
     await prisma.userAccess.create({ data: { userId: holderId, module: "GENERAL_MEANS", canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });

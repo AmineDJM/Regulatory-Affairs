@@ -230,5 +230,30 @@ describe("la traduction des faits d'un poste — une seule, lue par l'écran et 
     expect(faitsDuPoste({ ...brut, pieces: { bc: { etape: null }, factures: [] } }).bc).toBe("HORS_CIRCUIT");
     // La proforma / lettre d'un sponsoring direct est un DEVIS du poste : seuls les devis NON annulés comptent.
     expect(faitsDuPoste({ ...brut, pieces: { bc: null, factures: [], devis: [{ annulee: false }, { annulee: true }, {}] } }).devis).toBe(2);
+    // LES FICHES PAR PERSONNE (Direction, 06/10) : comptées quand le chargeur les rend, jamais devinées sinon.
+    expect(faitsDuPoste(brut).fichesPersonnes).toBeUndefined();
+    expect(faitsDuPoste({ ...brut, voyageurs: [{}, {}], hebergements: [] }).fichesPersonnes).toBe(2);
+    expect(faitsDuPoste({ ...brut, voyageurs: [], hebergements: [{}], priseEnChargeIndirecte: true })).toMatchObject({ fichesPersonnes: 1, priseEnChargeIndirecte: true });
+  });
+});
+
+describe("une fiche par personne avant de soumettre (Direction, 06/10)", () => {
+  const chiffre = { amountEstimated: 50_000 };
+  it("billetterie sans voyageur, hôtellerie sans fiche : « Soumettre » n'est pas offert — l'attente dit quoi faire", () => {
+    const billet = prochainPas(poste({ kind: "TICKETING", ...chiffre, fichesPersonnes: 0 }), DEMANDEUR);
+    expect(billet.geste).toBeNull();
+    expect(billet.attente).toMatch(/au moins un voyageur/);
+    const hotel = prochainPas(poste({ kind: "ACCOMMODATION", ...chiffre, fichesPersonnes: 0 }), DEMANDEUR);
+    expect(hotel.geste).toBeNull();
+    expect(hotel.attente).toMatch(/au moins une fiche hôtellerie/);
+  });
+  it("une fiche suffit ; en sponsoring indirect, aucune n'est exigée", () => {
+    expect(prochainPas(poste({ kind: "TICKETING", ...chiffre, fichesPersonnes: 1 }), DEMANDEUR).geste?.cle).toBe("SOUMETTRE");
+    expect(prochainPas(poste({ kind: "ACCOMMODATION", ...chiffre, fichesPersonnes: 0, priseEnChargeIndirecte: true }), DEMANDEUR).geste?.cle).toBe("SOUMETTRE");
+    // Témoin : une autre nature sans fiche se soumet.
+    expect(prochainPas(poste({ kind: "STAND", ...chiffre, fichesPersonnes: 0 }), DEMANDEUR).geste?.cle).toBe("SOUMETTRE");
+  });
+  it("le chiffre d'abord : un poste non chiffré propose de le chiffrer", () => {
+    expect(prochainPas(poste({ kind: "ACCOMMODATION", fichesPersonnes: 0 }), DEMANDEUR).geste?.cle).toBe("CHIFFRER");
   });
 });

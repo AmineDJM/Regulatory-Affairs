@@ -932,6 +932,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   MAIL_ENTRY: "Courrier",
   LEGAL_DOCUMENT: "Document légal",
   INVOICE: "Facture",
+  PHARMACOVIGILANCE_CASE: "Cas de pharmacovigilance",
 };
 
 /**
@@ -1462,7 +1463,7 @@ export interface NavItem {
    * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
    * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps" | "pharmacovigilance";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1482,6 +1483,11 @@ export interface NavItem {
    * n'a pas la même audience que le reste du module (voir l'entrée RH plus bas).
    */
   children?: NavItem[];
+  /**
+   * UN GROUPE de sous-modules (Ressources humaines, Direction 06/10) : l'entrée s'affiche dès qu'UN de ses enfants est
+   * ouvert, même sans le module du parent — elle mène alors au premier enfant ouvert.
+   */
+  groupe?: boolean;
   /** Préfixes de chemin additionnels qui activent l'entrée (pour les entrées fusionnées). */
   match?: string[];
 }
@@ -1550,21 +1556,23 @@ export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Business Units", href: "/budgets/business-units" },
   { module: "BUDGETS", label: "Réglages", href: "/budgets/reglages" },
 ];
-// RH — quatre écrans au lieu d'une page à sept sections : ce qu'il faut TRAITER, l'ANNUAIRE
-// de l'équipe, les CONGÉS (qui est absent, historique), et la structure (départements).
-export const HR_TABS: NavTab[] = [
-  { module: "RH", label: "À traiter", href: "/rh" },
-  // La formation est une affaire RH, mais sa DEMANDE est ouverte à tous — l'onglet reste ici,
-  // et la page laisse entrer quiconque a un espace de travail.
-  { module: "RH", label: "Formations", href: "/formations" },
-  { module: "RH", label: "Équipe", href: "/rh/equipe" },
-  { module: "RH", label: "Congés", href: "/rh/conges" },
-  { module: "RH", label: "Départements", href: "/rh/departements" },
-  // Les contrats des consultants suivis par les RH (§118.150) — les mêmes contrats qu'Ad & Pro ›
-  // Consulting, au pôle RH : c'est ici qu'arrive un contrat transféré depuis Ad & Pro.
-  { module: "RH", label: "Consultants", href: "/rh/consultants" },
+// LES SOUS-MODULES RH (Direction, 06/10) — indépendants (chacun son droit, réglable dans la console) mais reliés (un même
+// groupe « Ressources humaines » dans le menu, et chaque page renvoie aux autres).
+// « Employés » : l'équipe, les consultants suivis par les RH (§118.150), la structure (départements).
+export const EMPLOYES_TABS: NavTab[] = [
+  { module: "EMPLOYEES", label: "Équipe", href: "/rh/equipe" },
+  // Les contrats des consultants suivis par les RH — les mêmes contrats qu'Ad & Pro › Consulting, au pôle RH : c'est ici
+  // qu'arrive un contrat transféré depuis Ad & Pro.
+  { module: "EMPLOYEES", label: "Consultants", href: "/rh/consultants" },
+  { module: "EMPLOYEES", label: "Départements", href: "/rh/departements" },
 ];
-// « Ad & Pro » : sponsoring + congrès (international/national) + événements +
+// « Demandes RH » : les demandes des salariés (attestations, ordres de mission, notes de frais, entrevues) et les congés.
+export const DEMANDES_RH_TABS: NavTab[] = [
+  { module: "HR_REQUESTS", label: "Demandes", href: "/rh/demandes" },
+  { module: "HR_REQUESTS", label: "Congés et absences", href: "/rh/conges" },
+];
+/** Compatibilité : les écrans RH d'avant le découpage. */
+export const HR_TABS: NavTab[] = [...EMPLOYES_TABS, ...DEMANDES_RH_TABS];// « Ad & Pro » : sponsoring + congrès (international/national) + événements +
 // matériel promotionnel, sous un seul module. Le matériel promotionnel a été
 // déplacé ici depuis « Promotion médicale » (sa fonctionnalité est inchangée).
 /**
@@ -1730,6 +1738,10 @@ export const MODULE_LABELS: Record<Module, string> = {
   SEGMENTATION: "Segmentation Studio",
   CONSUMPTION: "Consumption Intelligence",
   PRODUCTS: "Produits",
+  EMPLOYEES: "Employés",
+  HR_REQUESTS: "Demandes RH",
+  TRAINING: "Formations",
+  PHARMACOVIGILANCE: "Pharmacovigilance",
 };
 
 /**
@@ -1868,6 +1880,10 @@ export const NAVIGATION: NavItem[] = [
   // avec exactement les mêmes titulaires qu'hier. Déplacer une entrée de menu ne doit jamais
   // ouvrir ni fermer un écran à quiconque, et c'est vérifié (`navigation.test.ts`).
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles", pole: "REGULATORY" },
+  // PHARMACOVIGILANCE (Direction, 06/10) — la boîte de réception des cas signalés par les KAM. GARDE
+  // `pharmacovigilance` : l'entrée ne s'affiche qu'à qui reçoit les cas (portée TOUT) ; le KAM, qui ne lit que ses
+  // signalements, les retrouve dans les Rapports terrain — il n'a rien à faire dans le pôle Regulatory.
+  { module: "PHARMACOVIGILANCE", label: "Pharmacovigilance", href: "/regulatory/pharmacovigilance", icon: "ShieldAlert", group: "Pôles", pole: "REGULATORY", gate: "pharmacovigilance" },
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
   // d'Administration, qui est celle du logiciel et vit dans « Système »).
@@ -1954,10 +1970,14 @@ export const NAVIGATION: NavItem[] = [
   // elle se déplie par la flèche — sur ordinateur comme sur mobile — et n'apparaît qu'à ceux
   // qui peuvent l'ouvrir. Elle reste servie par sa propre route, gardée par sa propre page.
   {
+    // UN GROUPE (Direction, 06/10) : « RH » garde le tableau de bord des RH, la paie et les avances ; Employés, Demandes RH
+    // et Formations sont des modules à part. L'entrée s'ouvre dès qu'UN de ses sous-modules est ouvert.
     module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles",
-    pole: "ADMINISTRATION", tabs: HR_TABS,
-    match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/consultants", "/rh/paie", "/formations"],
+    pole: "ADMINISTRATION", groupe: true,
     children: [
+      { module: "EMPLOYEES", label: "Employés", href: "/rh/equipe", icon: "Users", group: "Pôles", pole: "ADMINISTRATION", match: ["/rh/consultants", "/rh/departements"] },
+      { module: "HR_REQUESTS", label: "Demandes RH", href: "/rh/demandes", icon: "Inbox", group: "Pôles", pole: "ADMINISTRATION", match: ["/rh/conges"] },
+      { module: "TRAINING", label: "Formations", href: "/formations", icon: "GraduationCap", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "RH", label: "Paie", href: "/rh/paie", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION", gate: "payroll" },
     ],
   },

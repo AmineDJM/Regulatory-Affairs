@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { createOfficeNode } from "@/lib/actions/drive-actions";
 import { OFFICE_APPS, OFFICE_PINS_KEY, parsePinned, togglePinned, type OfficeAppKey } from "@/lib/office/apps";
 import { LetterheadChoice } from "@/components/office/letterhead-choice";
+import { lireStockagePersonnel, useIdentiteEcran } from "@/components/layout/identite-vue";
+import { cleParPersonne } from "@/lib/vue-exacte-ui";
 import type { LetterheadOption } from "@/lib/queries/letterheads";
 
 /**
@@ -41,9 +43,11 @@ export function OfficeLauncher({
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
+  // Épingles rangées par PERSONNE À L'ÉCRAN (Vue exacte : celles de la personne visualisée).
+  const ident = useIdentiteEcran();
   React.useEffect(() => {
-    setPins(parsePinned(window.localStorage.getItem(OFFICE_PINS_KEY)));
-  }, []);
+    setPins(parsePinned(lireStockagePersonnel(OFFICE_PINS_KEY, ident)));
+  }, [ident]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -56,7 +60,7 @@ export function OfficeLauncher({
     const next = togglePinned(pins, key);
     setPins(next);
     try {
-      window.localStorage.setItem(OFFICE_PINS_KEY, JSON.stringify(next));
+      window.localStorage.setItem(cleParPersonne(OFFICE_PINS_KEY, ident.id), JSON.stringify(next));
       window.dispatchEvent(new CustomEvent("amd:office-pins", { detail: { pins: next } }));
     } catch { /* refusé : sans mémoire, l'écran reste utilisable */ }
   };

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { clauseProduitTermine, PHRASE_PRODUITS_TERMINES } from "@/lib/products/termines";
 import { userCan, regulatoryLockWhere } from "@/lib/rbac";
 import { produit360ParId } from "@/lib/queries/product-360";
 import { sections360, segmentationDuProduit, consommationDuProduit } from "@/lib/queries/vue-360";
@@ -34,6 +35,24 @@ export default async function Produit360Page({ params, searchParams }: { params:
   const voit = sections360(user);
   const p = await produit360ParId(params.id);
   if (!p) notFound();
+  // LE MODULE NE PORTE QUE LES PRODUITS TERMINÉS DANS REGULATORY (Direction, 06/10) : un lien venu d'ailleurs vers un
+  // produit encore en cours d'enregistrement le DIT, et renvoie à son dossier, au lieu d'ouvrir une vue 360° d'un produit
+  // qui n'est pas (encore) un produit de la société.
+  const termine = (await prisma.product.count({ where: { id: p.produit.id, ...clauseProduitTermine } })) > 0;
+  if (!termine) {
+    const dossiers = userCan(user, "REGULATORY", "VIEW")
+      ? await prisma.regulatoryProduct.findMany({ where: { productId: p.produit.id, ...regulatoryLockWhere(user) }, select: { id: true, reference: true } })
+      : [];
+    return (
+      <div className="space-y-4">
+        <PageHeader title={p.produit.nom} description="Produit en cours d'enregistrement" />
+        <p className="surface p-4 text-sm text-muted-foreground">
+          {PHRASE_PRODUITS_TERMINES}
+          {dossiers.length > 0 && <> Son dossier : {dossiers.map((d, i) => <span key={d.id}>{i > 0 && ", "}<Link href={`/regulatory/${d.id}`} className="text-primary underline">{d.reference}</Link></span>)}.</>}
+        </p>
+      </div>
+    );
+  }
   const annee = Number(searchParams?.annee) || new Date().getUTCFullYear();
   const [specialites, reglementaire, segmentation, consommation, attribution] = await Promise.all([
     prisma.promoProductSpecialite.findMany({ where: { promoProduct: { productId: p.produit.id } }, select: { specialty: { select: { name: true } }, promoProduct: { select: { businessUnit: { select: { name: true } } } } } }),

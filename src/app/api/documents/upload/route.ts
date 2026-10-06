@@ -48,9 +48,9 @@ export async function POST(req: NextRequest) {
 
   // Une seule lecture des réglages pour tout le lot (repli généreux si la lecture échoue).
   const maxUploadMb = await getAppSettings().then((s) => s.maxUploadMb).catch(() => 200);
-  // TOUT document téléversé est AUSSI répliqué dans le Drive de celui qui importe : Regulatory sous
-  // le dossier du produit (miroir historique, partagé avec les parties prenantes), les autres
-  // modules sous « Mes documents importés / <module> / <objet> ». On garde le binaire pour ça.
+  // TOUT document téléversé est AUSSI répliqué dans le Drive : Regulatory dans le dossier du produit de
+  // la catégorie « Regulatory » (Direction, 06/10 — repli : l'ancien miroir), les autres modules sous
+  // « Mes documents importés / <module> / <objet> ». On garde le binaire pour ça.
   const isRegulatory = entityType === "REGULATORY_PRODUCT";
   const mirrorHere = isRegulatory || shouldMirrorToDrive(entityType);
   const toMirror: { name: string; data: Buffer; mime?: string }[] = [];
@@ -87,7 +87,8 @@ export async function POST(req: NextRequest) {
   // enchaîner d'autres tâches. Best-effort : toute erreur est journalisée, jamais propagée.
   if (toMirror.length > 0) {
     const mirror = isRegulatory
-      ? mirrorRegulatoryUpload({ productId: entityId, ownerId: user.id, files: toMirror })
+      // Regulatory : rangé dans le dossier du produit de la catégorie « Regulatory », d'après les fiches créées.
+      ? mirrorRegulatoryUpload({ productId: entityId, ownerId: user.id, files: toMirror, documentIds: ids })
       : mirrorDocumentsToDrive({ ownerId: user.id, entityType, entityId, files: toMirror });
     void mirror.catch((e) => console.error("[documents upload] miroir Drive en arrière-plan a échoué", e));
   }

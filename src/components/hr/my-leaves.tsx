@@ -19,7 +19,7 @@ export interface LeaveItem {
   endDate: string;
   days: number;
   status: string;
-  /** Marche courante du circuit N+1 → RH → DG. */
+  /** Marche courante du circuit N+1 → RH. */
   stage: LeaveStage;
   /** Marches déjà franchies, dans l'ordre — pour montrer OÙ en est la demande. */
   passed: { label: string; note: string | null }[];
@@ -53,21 +53,23 @@ function CancelButton({ id }: { id: string }) {
   );
 }
 
-/** Les trois marches, dessinées : ce qui est signé, ce qu'on attend, ce qui reste. */
+/** Les deux marches, dessinées : ce qui est signé, ce qu'on attend (la marche DG est supprimée — Direction, 06/10). */
 const STEPS: { stage: LeaveStage; short: string }[] = [
   { stage: "MANAGER", short: "N+1" },
   { stage: "HR", short: "RH" },
-  { stage: "DG", short: "DG" },
 ];
+/** Une demande restée à la DG d'avant le changement garde sa troisième marche à l'écran. */
+const STEPS_AVEC_DG: { stage: LeaveStage; short: string }[] = [...STEPS, { stage: "DG", short: "DG" }];
 
 function StageTrail({ leave }: { leave: LeaveItem }) {
   if (leave.status !== "PENDING") {
     return <span className="text-xs text-muted-foreground">{leave.passed.length > 0 ? `${leave.passed.length} validation(s)` : "—"}</span>;
   }
-  const currentIdx = STEPS.findIndex((s) => s.stage === leave.stage);
+  const marches = leave.stage === "DG" ? STEPS_AVEC_DG : STEPS;
+  const currentIdx = marches.findIndex((s) => s.stage === leave.stage);
   return (
     <div className="flex items-center gap-1">
-      {STEPS.map((s, i) => {
+      {marches.map((s, i) => {
         const done = currentIdx < 0 || i < currentIdx;
         const current = i === currentIdx;
         return (

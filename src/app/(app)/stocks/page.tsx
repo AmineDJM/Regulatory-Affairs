@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { PackageSearch } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { visibleStockScopes, canRequestStockState, keepVisibleSnapshots } from "@/lib/stocks/scopes";
@@ -81,7 +83,12 @@ export default async function StocksPage() {
       <PageHeader
         title="Stocks"
         description="États de stock datés, par produit : PCH (centrale), hôpitaux et annexes PCH. On enregistre simplement « à cette date, il reste X » — la courbe se construit au fil des relevés. Les hôpitaux sont ceux de l'annuaire des établissements : un KAM relève ceux de son secteur, pour les produits de sa BU."
-      />
+      >
+        {/* DEMANDES DE STOCKS (DO → KAM) : le DO y lance et suit ; le KAM y renseigne ce qu'on lui demande. */}
+        <Link href="/stocks/demandes" className="inline-flex h-10 items-center gap-2 rounded-[var(--radius)] border border-border bg-card px-4 text-sm font-medium hover:bg-secondary">
+          <PackageSearch className="h-4 w-4" /> Demandes de stocks
+        </Link>
+      </PageHeader>
       <StocksView
         products={products.map((p) => ({ id: p.id, label: p.label }))}
         hospitals={lieux.hopitaux}

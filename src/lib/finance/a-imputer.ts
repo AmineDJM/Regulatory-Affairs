@@ -46,11 +46,15 @@ export async function versementsDeCaisse(): Promise<string[]> {
  * `notIn: []` ne filtre rien (un `NOT IN` vide est vrai partout — mesuré, §118.116) : sans aucune
  * caisse, la liste est exactement celle d'avant.
  */
-export async function clauseAImputer(from: Date, to: Date): Promise<Prisma.FinanceTransactionWhereInput> {
+export async function clauseAImputer(from: Date, to: Date, opts: { societeId?: string | null } = {}): Promise<Prisma.FinanceTransactionWhereInput> {
   return {
     direction: "OUT",
     budgetCategoryId: null,
     date: { gte: from, lte: to },
     id: { notIn: await versementsDeCaisse() },
+    // L'ENVELOPPE D'UNE SOCIÉTÉ ne montre que les dépenses de CETTE société, et celles qui n'en ont encore aucune
+    // (Direction, 06/10 : « il se peut que cette dépense concerne une autre société ») — la changer de société la
+    // retire de cette liste.
+    ...(opts.societeId ? { OR: [{ companyId: opts.societeId }, { companyId: null }] } : {}),
   };
 }

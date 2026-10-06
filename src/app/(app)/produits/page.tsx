@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { clauseProduitTermine, PHRASE_PRODUITS_TERMINES } from "@/lib/products/termines";
 import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
 
@@ -18,7 +19,8 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
   // LES DOSSIERS QUI NE SONT PAS (ENCORE) DES PRODUITS : identité incomplète, donc pas de produit canonique.
   const dossiersSansProduit = userCan(user, "REGULATORY", "VIEW") ? await prisma.regulatoryProduct.count({ where: { productId: null } }) : null;
   const produits = await prisma.product.findMany({
-    where: q ? { OR: [{ canonicalName: { contains: q, mode: "insensitive" } }, { dci: { contains: q, mode: "insensitive" } }, { code: { contains: q, mode: "insensitive" } }, { aliases: { some: { label: { contains: q, mode: "insensitive" } } } }] } : {},
+    // SEULEMENT LES PRODUITS TERMINÉS DANS REGULATORY (Direction, 06/10).
+    where: { AND: [clauseProduitTermine, q ? { OR: [{ canonicalName: { contains: q, mode: "insensitive" } }, { dci: { contains: q, mode: "insensitive" } }, { code: { contains: q, mode: "insensitive" } }, { aliases: { some: { label: { contains: q, mode: "insensitive" } } } }] } : {}] },
     orderBy: [{ isActive: "desc" }, { canonicalName: "asc" }], take: 200,
     select: { id: true, code: true, canonicalName: true, dci: true, lifecycle: true, isActive: true, promoProfiles: { select: { businessUnit: { select: { name: true } } } } },
   });
@@ -26,6 +28,7 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
     <div className="space-y-5">
       <PageHeader title="Produits" description="Chaque produit une seule fois — réglementaire, marchés, ventes, segmentation, consommation et coûts réunis dans sa vue 360°." />
       <div className="surface space-y-1 p-3 text-xs text-muted-foreground">
+        <p><b className="text-foreground">{PHRASE_PRODUITS_TERMINES}</b></p>
         <p><b className="text-foreground">D'où viennent ces produits ?</b> Du référentiel canonique : un produit naît d'un dossier réglementaire dont l'identité est complète (DCI, dosage, unité, forme, conditionnement), à la création du dossier ou depuis Regulatory › Catalogue produits. La Force de vente, les appels d'offres, la segmentation et la consommation s'y rattachent — jamais une copie.</p>
         {dossiersSansProduit !== null && dossiersSansProduit > 0 && <p>{dossiersSansProduit} dossier(s) réglementaire(s) ne sont pas encore des produits (identité incomplète ou non rattachée) : <Link href="/regulatory/catalogue" className="text-primary underline">les compléter dans le Catalogue produits</Link>.</p>}
       </div>

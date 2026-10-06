@@ -76,6 +76,7 @@ export const SECTION_DU_TYPE: Record<EntityType, SectionCentre> = {
   PRODUCT: R,
   SUPPLIER: R,
   MEDICAL_INFO_DECLARATION: R,
+  PHARMACOVIGILANCE_CASE: R,
 
   // ── Sales & Marketing : Ad & Pro, matériel promotionnel, congrès, événements, force de vente.
   SPONSORING: S,

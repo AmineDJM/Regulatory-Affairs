@@ -67,7 +67,7 @@ export async function proposeStandIn(formData: FormData): Promise<ActionResult> 
   // des congés l'est, l'action ne touche pas par l'identifiant au congé d'une autre société.
   const isOwner = leave.employee.userId === user.id;
   if (!isOwner) {
-    if (!userCan(user, "RH", "UPDATE") || estPrete(user, "RH", "UPDATE")) {
+    if (!userCan(user, "HR_REQUESTS", "UPDATE") || estPrete(user, "HR_REQUESTS", "UPDATE")) {
       return { ok: false, error: "Seule la personne absente (ou les ressources humaines) désigne son intérimaire." };
     }
     if (!(await entitePermisePourFiche(user.id, leave.employee.companyId))) {
@@ -141,7 +141,7 @@ export async function proposeStandIn(formData: FormData): Promise<ActionResult> 
     },
   });
   if (ecrit.count === 0) return { ok: false, error: "Ce congé vient d'être annulé ou refusé — rechargez la page." };
-  await notifyRoles(rolesWithModule("RH", "UPDATE"), {
+  await notifyRoles(rolesWithModule("HR_REQUESTS", "UPDATE"), {
     type: "GENERIC",
     title: "Intérimaire à valider",
     body: `${leave.employee.fullName} propose ${candidate.name} pendant son congé (${modules.map((m) => MODULE_LABELS[m]).join(", ")}).`,
@@ -163,12 +163,12 @@ export async function proposeStandIn(formData: FormData): Promise<ActionResult> 
 /** Les RH tranchent : l'intérimaire est validé, ou refusé avec un motif. */
 export async function decideStandIn(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) {
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) {
     return { ok: false, error: "La validation d'un intérimaire appartient aux ressources humaines." };
   }
   // UN DROIT PRÊTÉ NE S'ACCORDE PAS À SON TOUR (§118.196) : valider un intérim, c'est prêter des
   // droits — l'intérimaire des RH ne le fait pas au nom de la personne qu'il remplace.
-  if (estPrete(user, "RH", "UPDATE")) {
+  if (estPrete(user, "HR_REQUESTS", "UPDATE")) {
     return {
       ok: false,
       error: "Vous tenez les ressources humaines par intérim : valider un intérimaire reste aux RH en titre — un droit prêté ne se prête pas à son tour.",

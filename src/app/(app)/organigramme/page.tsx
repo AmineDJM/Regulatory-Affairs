@@ -70,7 +70,7 @@ export default async function OrganigrammePage() {
             : "Hiérarchie de l'entreprise, en consultation. Les rattachements et les postes se règlent dans l'administration."
         }
       >
-        {userCan(user, "RH", "VIEW") && (
+        {userCan(user, "EMPLOYEES", "VIEW") && (
           <Link href="/rh"><Button variant="outline"><UserPlus className="h-4 w-4" /> Employés (RH)</Button></Link>
         )}
       </PageHeader>

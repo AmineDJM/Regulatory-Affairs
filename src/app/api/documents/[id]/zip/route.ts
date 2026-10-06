@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
-import { listerZip, ErreurZip } from "@/lib/storage/zip-lecteur";
-import { refusLisible, reponseEntreeZip, sourceDuFichierStocke } from "@/lib/storage/zip-reponse";
+import { ErreurZip } from "@/lib/storage/zip-lecteur";
+import { listerArchive, refusLisible, reponseEntreeZip, reponsePrechauffage, sourceDuFichierStocke } from "@/lib/storage/zip-reponse";
 import { recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   try {
     const source = await sourceDuFichierStocke(doc.fileKey);
     if ("erreur" in source) return refus(source.erreur, source.status);
-    const { entrees, tronque } = await listerZip(source);
+    const { entrees, tronque } = await listerArchive(source);
 
     if (!chemin) {
       // Même forme que la liste du Drive : la visionneuse est UNE seule, pour les deux.
@@ -47,14 +47,18 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     const entree = entrees.find((e) => e.chemin === chemin && !e.dossier);
     if (!entree) return refus("Entrée introuvable dans l'archive.", 404);
+    // Survol / sélection d'une grosse entrée : l'extraction démarre avant le clic (zip-reponse).
+    if (req.nextUrl.searchParams.get("prechauffer") === "1") return reponsePrechauffage(source, entree);
     const dl = req.nextUrl.searchParams.get("dl") === "1";
-    if (dl) {
+    // Une reprise de téléchargement (plage au-delà du début) n'est pas un nouveau téléchargement.
+    const reprise = /^bytes=(?!0-)/i.test(req.headers.get("range") ?? "");
+    if (dl && !reprise) {
       await recordAudit({
         actorId: user.id, action: "EXPORT", module: "Documents", entityType: doc.entityType, entityId: doc.entityId,
         summary: `Téléchargement de « ${entree.chemin} » dans « ${doc.name} »`,
       }).catch(() => undefined);
     }
-    return reponseEntreeZip(source, entree, dl);
+    return reponseEntreeZip(source, entree, dl, req.headers.get("range"));
   } catch (e) {
     if (e instanceof ErreurZip) return refus(e.message, 422);
     console.error("[documents zip]", e);

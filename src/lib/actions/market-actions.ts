@@ -1,6 +1,7 @@
 "use server";
 
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan } from "@/lib/rbac";
 import { searchProducts, type MarketProduct, type MarketSegment } from "@/lib/market/products";
 import {
@@ -40,7 +41,7 @@ export async function searchMarketProducts(input: {
   q?: string; molecule?: string; brand?: string; labName?: string;
   form?: string; dosage?: string; cls?: string; lab?: string; segment?: string;
 }): Promise<MarketProductSearchResult> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   if (!peutInterrogerLeMarche(user)) return { ok: false, products: [], total: 0, error: "Non autorisé." };
   const segment = input.segment === "VILLE" || input.segment === "HOPITAL" ? (input.segment as MarketSegment) : null;
   const res = searchProducts({
@@ -82,7 +83,7 @@ export async function analyzeMarketMolecule(input: {
 
 /** Suggestions pendant la frappe : molécules connues (les plus grosses d'abord) et laboratoires. */
 export async function marketSuggestions(kind: "molecule" | "lab", q: string): Promise<string[]> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   if (!peutInterrogerLeMarche(user)) return [];
   try {
     return kind === "molecule" ? moleculeSuggestions(q).map((m) => m.label) : labSuggestions(q);

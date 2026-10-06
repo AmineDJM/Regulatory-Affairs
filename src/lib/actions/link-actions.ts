@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { addLink, removeLink, linkRevalidatePaths } from "@/lib/links/store";
 import { linkCandidates, type LinkCandidateGroup } from "@/lib/queries/link-candidates";
 import { isLinkType } from "@/lib/links/graph";
@@ -58,7 +59,7 @@ export async function removeEntityLink(formData: FormData): Promise<ActionResult
  * revérifie les deux bouts (`links/store.ts`). C'est une commodité de saisie, rien de plus.
  */
 export async function linkCandidatesFor(type: string, id: string): Promise<LinkCandidateGroup[]> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   if (!isLinkType(type) || !id) return [];
   return linkCandidates(user.id, { type, id });
 }

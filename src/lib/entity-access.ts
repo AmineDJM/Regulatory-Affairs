@@ -20,6 +20,7 @@ import { clauseBonsDeCommandePchVisibles, clauseFormationsVisibles, clauseMarche
 import { isManagerOfUser } from "@/lib/departments";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { canViewDeclaration } from "@/lib/queries/medical-info";
+import { accesAuCasPv } from "@/lib/pharmacovigilance/acces";
 import {
   userCan, hasGlobalView, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring,
@@ -44,10 +45,10 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   BD_OPPORTUNITY: "BUSINESS_DEVELOPMENT",
   BD_PROJECT: "BD_PROJECTS",
   FINANCE_TRANSACTION: "FINANCES",
-  EMPLOYEE: "RH",
+  EMPLOYEE: "EMPLOYEES",
   COMPANY: "LEGAL",
   PAYROLL: "FINANCES",
-  LEAVE_REQUEST: "RH",
+  LEAVE_REQUEST: "HR_REQUESTS",
   TASK: "WORKSPACE",
   SALARY_ADVANCE: "RH",
   EXPENSE_ORDER: "FINANCES",
@@ -75,7 +76,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   // l'accès réel est nominatif (demandeur / destinataire / Finances), résolu plus bas — sans
   // quoi celui qui fait payer une facture aurait besoin du grand livre pour joindre sa pièce.
   PAYMENT_REQUEST: "FINANCES",
-  HR_REQUEST: "RH",
+  HR_REQUEST: "HR_REQUESTS",
   EVENT: "EVENTS",
   // Polymorphe : l'accès réel est résolu spécifiquement (assigné ou entité parente).
   MISSION_ASSIGNMENT: "WORKSPACE",
@@ -102,7 +103,10 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   SPECIALTY: "MEDICAL",
   // Une formation relève des RH — mais la personne qui la DEMANDE n'a pas le module : sa porte est
   // la règle de la liste (`clauseFormationsVisibles`), lue plus bas AVANT le droit de module.
-  TRAINING: "RH",
+  TRAINING: "TRAINING",
+  // Un cas de pharmacovigilance : l'accès réel est nominatif (déclarant, participants, qui reçoit les cas), résolu
+  // plus bas par `accesAuCasPv`.
+  PHARMACOVIGILANCE_CASE: "PHARMACOVIGILANCE",
 };
 
 /**
@@ -537,6 +541,10 @@ export async function canAccessEntity(
     return v ? lecteurDeLaDemandeDeValidation(user, v, action) : false;
   }
 
+  // UN CAS DE PHARMACOVIGILANCE (Direction, 06/10) : la règle de SA FICHE, avant le droit de module — une personne
+  // ajoutée à l'échange n'a pas forcément le module, et un KAM qui l'a ne lit que SES signalements.
+  if (entityType === "PHARMACOVIGILANCE_CASE") return accesAuCasPv(user, entityId, action);
+
   // POSTE DE DÉPENSE : l'accès ne vient PAS d'un module, il vient de SON OPÉRATION.
   //
   // Un poste n'existe pas tout seul — il est le stand d'un congrès, le traiteur d'un événement,
@@ -718,7 +726,7 @@ export async function canAccessEntity(
     if (action === "VIEW" || action === "UPLOAD") return true;
     // Renommer ou retirer une PIÈCE : qui porte la demande, les RH, la vue globale — pas un collègue
     // participant, ni le N+1 qui la tranche.
-    return t.requesterId === user.id || hasGlobalView(user) || userCan(user, "RH", "UPDATE") || userCan(user, "RH", "VALIDATE");
+    return t.requesterId === user.id || hasGlobalView(user) || userCan(user, "TRAINING", "UPDATE") || userCan(user, "TRAINING", "VALIDATE");
   }
 
   if (entityType === "HR_REQUEST" && (action === "VIEW" || action === "UPLOAD" || action === "UPDATE")) {
@@ -783,6 +791,25 @@ export async function canAccessEntity(
   // laissera ouvrir, et deux écritures de la même règle finiraient par diverger (§118.5).
   if (entityType === "LEGAL_DOCUMENT") {
     return (await accesAuxPiecesLegal(user, [entityId], [action])).get(action)?.has(entityId) ?? false;
+  }
+
+  // UNE DÉPENSE DE TRÉSORERIE SE LIT AUSSI DEPUIS LES BUDGETS (Direction, 06/10) : la liste « à imputer » la montre à qui
+  // voit les budgets — la partager pour demander si elle est payée ne doit pas exiger, en plus, le module Finances.
+  if (entityType === "FINANCE_TRANSACTION" && action === "VIEW" && userCan(user, "BUDGETS", "VIEW")) return true;
+
+  // JOINDRE UNE PIÈCE À SA TÂCHE (Direction, 06/10 : « un employé essaie d'uploader, ça ne veut pas ») : « Mon espace »
+  // n'accorde pas le verbe UPLOAD (aucun rôle hors Super Admin ne l'a), si bien que la personne chargée d'une tâche se
+  // voyait offrir « Joindre » puis refuser le dépôt, quel que soit le type choisi. Pour une tâche, c'est SON CERCLE qui
+  // décide (la personne chargée, le demandeur — `canAttachTask`), sous le simple droit d'ouvrir « Mon espace ».
+  if (entityType === "TASK" && (action === "UPLOAD" || action === "DELETE")) {
+    if (!userCan(user, "WORKSPACE", "VIEW")) return false;
+    const t = await prisma.task.findUnique({
+      where: { id: entityId },
+      select: { assignedToId: true, createdById: true, participantIds: true, readerIds: true, status: true, requestedAt: true },
+    });
+    if (!t) return false;
+    if (hasGlobalView(user.role)) return true;
+    return canSeeTask(t, user.id) && canAttachTask(t, user.id);
   }
 
   if (!userCan(user, module, action)) return false;

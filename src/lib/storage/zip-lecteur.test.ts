@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
-import { listerZip, lireEntreeZip, fluxEntreeZip, sourceTampon, cheminSur, ErreurZip } from "./zip-lecteur";
+import { listerZip, lireEntreeZip, fluxEntreeZip, sourceTampon, cheminSur, ErreurZip, debutDonneesEntree, fluxOctets } from "./zip-lecteur";
 
 async function archive(fichiers: Record<string, string | Buffer>, compression: "DEFLATE" | "STORE" = "DEFLATE", commentaire?: string): Promise<Buffer> {
   const z = new JSZip();
@@ -107,5 +107,13 @@ describe("une grosse entrée se lit EN FLUX (Direction, 06/10 : « trop volumine
     const src = sourceTampon(await archive({ "a.txt": "a".repeat(100_000) }));
     const e = { ...(await listerZip(src)).entrees[0], taille: 10 };
     await expect(lireTout(await fluxEntreeZip(src, e, 1024))).rejects.toThrow(/taille décompressée/);
+  });
+  it("une entrée STOCKÉE se lit par plages, directement dans l'archive (aperçu sans attente, Direction, 06/10)", async () => {
+    const contenu = Buffer.from(Array.from({ length: 50_000 }, (_, i) => String.fromCharCode(97 + (i % 26))).join(""));
+    const src = sourceTampon(await archive({ "doc.pdf": contenu }, "STORE"));
+    const e = (await listerZip(src)).entrees[0];
+    const debut = await debutDonneesEntree(src, e);
+    expect((await lireTout(fluxOctets(src, debut + 1000, 777, 100))).equals(contenu.subarray(1000, 1777))).toBe(true);
+    expect(e.crc32).toBeGreaterThan(0);
   });
 });

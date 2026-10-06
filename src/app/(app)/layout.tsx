@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { requireUser } from "@/lib/session";
+import { MARQUE_VUE_COOKIE } from "@/lib/vue-exacte-ui";
+import { IdentiteProvider, GardeIdentite } from "@/components/layout/identite-vue";
 import { userCan } from "@/lib/rbac";
 import { moduleForPath } from "@/lib/labels";
 import { navigationFor } from "@/lib/nav-access";
@@ -77,7 +80,14 @@ export default async function AppLayout({
     if (m) moduleBadges[m] = (moduleBadges[m] ?? 0) + 1;
   }
 
+  // LE TÉMOIN DE VUE TEL QUE CE RENDU L'A VU : la garde d'identité de l'onglet le compare au témoin actuel et
+  // recharge tout s'il a changé ailleurs (autre onglet, expiration) — jamais une coque d'une personne au-dessus
+  // d'une page d'une autre (Direction, 06/10).
+  const marqueVue = cookies().get(MARQUE_VUE_COOKIE)?.value ?? "";
+
   return (
+    <IdentiteProvider id={user.id} vue={Boolean(user.impersonatedBy)}>
+    <GardeIdentite marque={marqueVue} />
     <UploadProvider>
     <BackgroundUploadProvider>
     {/* L'APPEL VIT AU NIVEAU DU LAYOUT, pas de la page Chief of Staff : naviguer dans l'ERP
@@ -113,11 +123,11 @@ export default async function AppLayout({
             la ligne sur un écran étroit, et les écrans pleine hauteur doivent déduire la
             hauteur réelle, pas une estimation. */}
         <ChromeMetrics>
-          {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
+          {user.impersonatedBy && <ImpersonationBanner viewedName={user.name} />}
           {testMode && <TestModeBanner />}
           {/* L'intérimaire voit qu'il agit au nom de quelqu'un — calculé par `getAccess`, aucune lecture de plus (§118.196). */}
           {user.access.interims && user.access.interims.length > 0 && <InterimBanner interims={user.access.interims} />}
-          <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
+          <Topbar navItems={navItems} user={{ name: user.name, email: user.email, role: user.role, enVue: Boolean(user.impersonatedBy) }} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
         </ChromeMetrics>
         {/* `page-shell` porte les règles « pleine largeur sur téléphone » (globals.css) :
             les cartes de premier niveau y perdent leurs bordures latérales pour occuper
@@ -162,5 +172,6 @@ export default async function AppLayout({
     </CallProvider>
     </BackgroundUploadProvider>
     </UploadProvider>
+    </IdentiteProvider>
   );
 }

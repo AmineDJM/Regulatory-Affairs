@@ -44,7 +44,7 @@ export async function createEmployee(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "EMPLOYEES", "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const fullName = fdStr(formData, "fullName");
   if (!fullName) return { ok: false, error: "Le nom complet est obligatoire." };
@@ -131,7 +131,7 @@ async function resolveDepartmentFields(formData: FormData): Promise<{ department
 
 export async function updateEmployee(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "EMPLOYEES", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Employé introuvable." };
 
@@ -248,7 +248,7 @@ export async function analyzeEmployeeContract(
   formData: FormData,
 ): Promise<{ ok: boolean; error?: string; values?: Record<string, string> }> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "EMPLOYEES", "CREATE")) return { ok: false, error: "Non autorisé." };
   // Le nom de la clé se lit dans le registre (§118.128), jamais de mémoire.
   if (!aiConfigured()) return { ok: false, error: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un contrat de travail") };
   const file = formData.get("file");
@@ -295,7 +295,7 @@ export async function analyzeEmployeeContract(
 
 export async function setEmployeeActive(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "EMPLOYEES", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Employé introuvable." };
   const isActive = fdBool(formData, "isActive");
@@ -328,7 +328,7 @@ export async function requestLeave(
   if (!userCan(user, "WORKSPACE", "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const explicitId = fdStr(formData, "employeeId");
-  const isRh = userCan(user, "RH", "CREATE");
+  const isRh = userCan(user, "HR_REQUESTS", "CREATE");
   const employee = explicitId && isRh
     ? await prisma.employee.findUnique({ where: { id: explicitId } })
     : await prisma.employee.findUnique({ where: { userId: user.id } });
@@ -366,7 +366,7 @@ export async function requestLeave(
 }
 
 /**
- * DÉCISION SUR UN CONGÉ — une marche du circuit N+1 → RH → DG (cf. `leave-workflow.ts`).
+ * DÉCISION SUR UN CONGÉ — une marche du circuit N+1 → RH (cf. `leave-workflow.ts`).
  * Approuver fait monter d'un cran ; seule la dernière marche accorde réellement le congé
  * (et débite le solde). Refuser arrête tout.
  */
@@ -503,7 +503,7 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
   if (!leave) return { ok: false, error: "Demande introuvable." };
 
   const isOwner = leave.employee.userId === user.id;
-  const isRh = userCan(user, "RH", "UPDATE");
+  const isRh = userCan(user, "HR_REQUESTS", "UPDATE");
   if (!isOwner && !isRh) return { ok: false, error: "Non autorisé." };
   if (leave.status === "CANCELLED") return { ok: false, error: "Cette demande est déjà annulée." };
   // Le salarié ne retire que ce qui n'a pas encore été tranché. Les RH, eux, annulent AUSSI un
@@ -568,7 +568,7 @@ const LEAVE_STATUSES: LeaveStatus[] = ["PENDING", "APPROVED", "REJECTED", "CANCE
  */
 export async function updateLeaveRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Réservé aux ressources humaines." };
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) return { ok: false, error: "Réservé aux ressources humaines." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
   const leave = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: true } });

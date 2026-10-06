@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { clauseAImputer } from "@/lib/finance/a-imputer";
+import { piecesDesEcritures, type LienDepense, type PieceDepense } from "@/lib/finance/pieces-depense";
 import { platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { canViewEnvelope, type SessionUser } from "@/lib/rbac";
@@ -44,6 +45,13 @@ export interface UnattributedTx {
   category: string;
   counterparty: string | null;
   status: string;
+  /** La société de la dépense — une dépense d'une autre société se déplace (Direction, 06/10). */
+  companyId: string | null;
+  societe: string | null;
+  /** Payée ou non, en clair ; ses liens (facture, dossier, origine) et ses pièces (fichiers). */
+  paiement: string;
+  liens: LienDepense[];
+  pieces: PieceDepense[];
 }
 
 /**
@@ -389,7 +397,7 @@ export async function getBudgetOverview(
   // Total et compte EXACTS via un agrégat, indépendants des 30 lignes affichées. La clause est
   // UNE, lue par les deux : elle écarte les remises et rallonges de caisse d'avance, qui ne sont
   // pas des dépenses (§118.176, `finance/a-imputer.ts`).
-  const aImputer = await clauseAImputer(from, to);
+  const aImputer = await clauseAImputer(from, to, { societeId: envelope.companyId });
   const [unattributedAgg, unattributedTx] = await Promise.all([
     prisma.financeTransaction.aggregate({
       where: aImputer,
@@ -400,10 +408,12 @@ export async function getBudgetOverview(
       where: aImputer,
       orderBy: { date: "desc" },
       take: 30,
-      select: { id: true, reference: true, date: true, label: true, amount: true, category: true, counterparty: true, status: true },
+      select: { id: true, reference: true, date: true, label: true, amount: true, category: true, counterparty: true, status: true, companyId: true, company: { select: { name: true, shortName: true } } },
     }),
   ]);
   const unattributedTotal = toNumber(unattributedAgg._sum.amount);
+  // CE QUI EXPLIQUE CHAQUE DÉPENSE (Direction, 06/10) : ses pièces, sa facture, son ordre, sa source — en lot.
+  const piecesAImputer = await piecesDesEcritures(unattributedTx.map((t) => ({ id: t.id, status: t.status })));
 
   // Dépenses DÉJÀ imputées à une catégorie de CETTE enveloppe. Deux origines fusionnées :
   // les vraies dépenses de trésorerie (FinanceTransaction, ré-attribuables) et les lignes
@@ -484,6 +494,8 @@ export async function getBudgetOverview(
       transactions: unattributedTx.map((t) => ({
         id: t.id, reference: t.reference, date: t.date.toISOString(), label: t.label,
         amount: toNumber(t.amount), category: t.category, counterparty: t.counterparty, status: t.status,
+        companyId: t.companyId, societe: t.company ? (t.company.shortName || t.company.name) : null,
+        ...(piecesAImputer.get(t.id) ?? { paiement: t.status, liens: [], pieces: [] }),
       })),
     },
     attributed: {

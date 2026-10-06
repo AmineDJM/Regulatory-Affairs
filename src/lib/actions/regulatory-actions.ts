@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus, UserRole } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan, isRegulatorySupervisor, holdsRegulatoryLock, type SessionUser } from "@/lib/rbac";
 import { pipelineAccessFor } from "@/lib/regulatory/pipeline-access";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
@@ -37,6 +38,7 @@ import {
   type RegWorkflowState, type RegChecklistState,
 } from "@/lib/regulatory-workflow";
 import { deriveStatus } from "@/lib/regulatory/process-status";
+import { creerDossierDriveProduit, synchroniserDossierDrive } from "@/lib/regulatory-drive-dossier";
 import { emit } from "@/platform/events";
 
 export interface ActionResult {
@@ -130,7 +132,7 @@ export interface ExistantDeLaMolecule {
 }
 
 export async function checkDciDuplicate(dci: string): Promise<{ notice: string | null; canRequestAccess: boolean; existants: ExistantDeLaMolecule[] }> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   // Le même droit que la création : ce que cette réponse révèle (« cette DCI est déjà suivie »)
   // n'a pas à sortir pour qui n'ouvre pas de dossier.
   if (!userCan(user, "REGULATORY", "CREATE")) return { notice: null, canRequestAccess: false, existants: [] };
@@ -384,6 +386,15 @@ export async function createRegulatoryProduct(
     entityId: product.id,
     summary: `Nouveau dossier ${reference} — ${dci}${lockOnCreate ? " (créé verrouillé, dans le pipeline)" : ""}`,
   });
+
+  // LE DOSSIER DRIVE DU PRODUIT (Direction, 06/10) : un dossier du SUIVI naît avec son dossier dans la
+  // catégorie « Regulatory », organisé comme le modèle. En arrière-plan et sans jamais faire échouer la
+  // création ; la file par produit fait attendre le dépôt de la CTD qui suit. Un dossier du pipeline
+  // (verrouillé) l'aura à l'ouverture du cadenas.
+  if (!lockOnCreate) {
+    void creerDossierDriveProduit(product.id, user.id)
+      .catch((e) => console.error("[drive regulatory] dossier Drive non créé (non bloquant)", e));
+  }
 
   // LE PRODUIT CANONIQUE (§118.178) : un dossier à l'identité complète rejoint son produit dès sa
   // naissance — sinon on dit ce qui manque. Le dossier est créé quoi qu'il arrive : un incident de
@@ -697,6 +708,11 @@ export async function setRegulatoryLock(formData: FormData): Promise<ActionResul
     entityId: id, field: "isLocked", newValue: locked ? "true" : "false",
     summary: `${before.reference} — dossier ${locked ? "verrouillé (invisible pour l'équipe)" : "déverrouillé (visible par l'équipe)"}`,
   });
+  // ENTRÉ AU SUIVI : il reçoit son dossier Drive (catégorie « Regulatory »), pièces déjà déposées comprises.
+  if (!locked) {
+    void synchroniserDossierDrive(id, user.id)
+      .catch((e) => console.error("[drive regulatory] dossier Drive non synchronisé (non bloquant)", e));
+  }
   revalidatePath("/regulatory");
   revalidatePath(`/regulatory/${id}`);
   // LE PIPELINE AUSSI — c'est l'écran d'où l'on déverrouille, et le seul dont le contenu CHANGE
@@ -720,11 +736,19 @@ export async function unlockAllRegulatory(): Promise<ActionResult> {
   if (!holdsRegulatoryLock(user)) {
     return { ok: false, error: "Vous ne tenez pas le cadenas des dossiers réglementaires." };
   }
+  const ouverts = await prisma.regulatoryProduct.findMany({ where: { isLocked: true }, select: { id: true } });
   const res = await prisma.regulatoryProduct.updateMany({
-    where: { isLocked: true },
+    where: { id: { in: ouverts.map((p) => p.id) }, isLocked: true },
     data: { isLocked: false, updatedById: user.id },
   });
   if (res.count === 0) return { ok: true };
+  // Entrés au suivi : chacun reçoit son dossier Drive, l'un après l'autre, en arrière-plan.
+  void (async () => {
+    for (const p of ouverts) {
+      await synchroniserDossierDrive(p.id, user.id)
+        .catch((e) => console.error("[drive regulatory] dossier Drive non synchronisé (non bloquant)", { id: p.id }, e));
+    }
+  })();
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT",
     entityId: "*", field: "isLocked", newValue: "false",

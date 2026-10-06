@@ -5,12 +5,17 @@ import bcrypt from "bcryptjs";
 import { auth, signIn, signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { effacerVueExacte } from "@/lib/vue-exacte";
 
 /** Server action used by the login form. Returns an error string on failure. */
 export async function authenticate(
   _prevState: string | undefined,
   formData: FormData,
 ): Promise<string | undefined> {
+  // UNE CONNEXION NEUVE NE REPREND JAMAIS LA « VUE EXACTE » D'UNE AUTRE SESSION (Direction, 06/10 : « c'est
+  // seulement quand je quitte cette vue que je reviens à mon profil ») : un autre Super Admin qui se connecte
+  // sur ce navigateur ne doit pas tomber dans l'écran que le précédent visualisait.
+  try { effacerVueExacte(); } catch { /* hors requête : rien à effacer */ }
   try {
     await signIn("credentials", {
       email: String(formData.get("email") ?? ""),
@@ -36,6 +41,8 @@ export async function doSignOut() {
       .update({ where: { id: sid }, data: { revokedAt: new Date() } })
       .catch(() => undefined);
   }
+  // Se déconnecter termine aussi la vue : elle ne ressurgit pas à la connexion suivante.
+  try { effacerVueExacte(); } catch { /* hors requête */ }
   await signOut({ redirectTo: "/login" });
 }
 

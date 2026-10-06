@@ -1,10 +1,11 @@
 "use client";
 
-import type { DirectSpec } from "@/components/layout/background-upload";
+import type { BilanEnvoi, DirectSpec, EnqueueSpec } from "@/components/layout/background-upload";
 import type { LimitesEnvoi } from "@/components/layout/use-limites-envoi";
 import type { PlanClient } from "@/lib/storage/envoi-direct-client";
 import { refusTeleversement } from "@/lib/files/politique-televersement";
 import { refusSansStockageObjet } from "@/lib/storage/phrases-stockage";
+import { fingerprintFile } from "@/lib/drive/fingerprint";
 
 /** Où va le fichier dans le Drive — les mêmes champs que le chemin habituel. */
 export interface CibleDrive {
@@ -50,11 +51,100 @@ export function envoiDrive(cible: CibleDrive, limites: LimitesEnvoi | null): { r
         finaliser: async (id, etags) => {
           // Les empreintes reçues par le navigateur : la finalisation s'en sert si le stockage ne liste pas ses parties.
           const res = await fetch(`/api/drive/upload/direct/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ etags: etags ?? {} }) });
-          const b = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; reprendre?: boolean };
-          return res.ok && b.ok ? { ok: true as const } : { ok: false as const, error: b.error ?? `Finalisation refusée (${res.status}).`, reprendre: b.reprendre };
+          const b = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; reprendre?: boolean; id?: string };
+          // Le corps (avec l'id du nœud créé) remonte à `onFileDone`, comme sur le chemin habituel.
+          return res.ok && b.ok ? { ok: true as const, body: b as Record<string, unknown> } : { ok: false as const, error: b.error ?? `Finalisation refusée (${res.status}).`, reprendre: b.reprendre };
         },
         abandonner: async (id) => { await fetch(`/api/drive/upload/direct/${id}`, { method: "DELETE" }).catch(() => undefined); },
       };
     },
+  };
+}
+
+/**
+ * ENVOI INSTANTANÉ QUAND LE CONTENU EST DÉJÀ LÀ.
+ *
+ * On calcule l'empreinte du fichier dans le navigateur et on la présente au serveur : s'il connaît
+ * déjà ce contenu (et que la personne peut déjà le voir), le fichier est créé sans qu'un seul octet
+ * ne parte. Redéposer un dossier dont 90 % existe déjà devient immédiat au lieu de retransférer.
+ *
+ * Rend `false` au moindre doute — un fichier trop petit ou trop gros pour être empreint, un serveur
+ * qui ne répond pas : on retombe simplement sur l'envoi normal. Connu, rend le corps du serveur
+ * (`{ known, id }`), que le gestionnaire d'envois remet à `onFileDone`.
+ */
+export function preflightDrive(target: { parentId?: string | null; spaceId?: string | null; category?: string; viewers?: string[]; editors?: string[] }) {
+  return async (file: File): Promise<false | Record<string, unknown>> => {
+    const sha256 = await fingerprintFile(file);
+    if (!sha256) return false;
+    const res = await fetch("/api/drive/upload/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sha256, name: file.name, size: file.size, ...target }),
+    });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { known?: boolean } & Record<string, unknown>;
+    return body.known ? body : false;
+  };
+}
+
+/** Le dossier d'un chemin relatif (« A/B/c.pdf » → « A/B »), ou « » pour un fichier seul. */
+export const dossierDuCheminDrive = (p: string) => { const i = p.lastIndexOf("/"); return i >= 0 ? p.slice(0, i) : ""; };
+
+/**
+ * IMPORT D'UNE ARBORESCENCE DANS LE DRIVE — le lot confié au gestionnaire d'envois.
+ *
+ * Une seule construction pour l'import de dossier du Drive ET le dépôt de la messagerie (Direction,
+ * 06/10 : « avec les exactes et mêmes performances ») : six fichiers en parallèle, refus dit avant
+ * d'envoyer, envoi direct au bucket au-delà du seuil, contenu déjà connu non retransféré — et chaque
+ * fichier dans SON dossier (`map`, rendu par la création de l'arborescence côté serveur).
+ */
+export function envoiArborescenceDrive(args: {
+  label: string;
+  entrees: { file: File; path: string }[];
+  /** Chemin relatif d'un dossier → id du dossier créé. */
+  map: Record<string, string>;
+  /** Où vont les fichiers posés à la racine de la sélection. */
+  parentId: string | null;
+  spaceId?: string | null;
+  limites: LimitesEnvoi | null;
+  onFileDone?: (file: File, body: Record<string, unknown>) => void;
+  onJobStart?: () => void;
+  onJobDone?: (bilan: BilanEnvoi) => void;
+}): EnqueueSpec {
+  const { map, parentId, limites } = args;
+  const spaceId = args.spaceId ?? null;
+  const chemins = new Map<File, string>(args.entrees.map((e) => [e.file, e.path]));
+  // Le dossier de destination dépend du fichier.
+  const pidDe = (file: File): string | null => {
+    const dir = dossierDuCheminDrive(chemins.get(file) ?? file.name);
+    return dir ? (map[dir] ?? parentId) : parentId;
+  };
+  return {
+    label: args.label,
+    files: args.entrees.map((e) => e.file),
+    concurrency: 6,
+    refus: envoiDrive({}, limites).refus,
+    // L'envoi direct reçoit sa destination fichier par fichier.
+    direct: (file) => {
+      const pid = pidDe(file);
+      return envoiDrive({ parentId: pid, spaceId: pid ? null : spaceId }, limites).direct?.(file) ?? null;
+    },
+    // Réimporter un dossier déjà déposé : la quasi-totalité des fichiers est reconnue et n'est pas
+    // retransférée. C'est le cas où le gain se compte en minutes.
+    preflight: async (file) => {
+      const pid = pidDe(file);
+      return preflightDrive({ parentId: pid, spaceId: pid ? null : spaceId })(file);
+    },
+    makeRequest: (file) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const pid = pidDe(file);
+      if (pid) fd.append("parentId", pid);
+      else if (spaceId) fd.append("spaceId", spaceId);
+      return { url: "/api/drive/upload", formData: fd };
+    },
+    onFileDone: args.onFileDone,
+    onJobStart: args.onJobStart,
+    onJobDone: args.onJobDone,
   };
 }

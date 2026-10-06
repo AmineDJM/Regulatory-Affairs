@@ -7,6 +7,7 @@ import {
   type AvancementTournee, type EtatVisite, type RetardDeSoumission, type StatutPlan, type VueTournee,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
+import { planDejaValide } from "@/lib/sfe/grille-tournee";
 import { diagnosticPanelVide, type CausePanelVide } from "@/lib/sfe/panel-diagnostic";
 import { remisesDesVisites, type RemisesDeVisite } from "@/lib/queries/promo-remises";
 
@@ -115,14 +116,53 @@ export async function loadEmploiDuTemps(
   const { debut, fin } = fenetreDeVue(vue, maintenant);
   const mois = periodeDe("MONTH", maintenant);
 
+  const [coeur, visitesDuMois] = await Promise.all([
+    lignesEtGamme(repId, { delegateId: repId, date: { gte: debut, lte: fin } }, maintenant),
+    // L'AVANCEMENT SE LIT SUR LE MOIS, quelle que soit la vue : « Aujourd'hui » ne dit rien d'un
+    // objectif mensuel, et afficher le taux du jour ferait lire 0 % chaque matin.
+    prisma.medicalVisit.findMany({
+      where: { delegateId: repId, date: { gte: mois.debut, lte: mois.fin } },
+      select: { status: true, date: true, report: true, tourPlanId: true },
+    }),
+  ]);
+
+  return {
+    vue, debut, fin, ...coeur,
+    avancementDuMois: avancementTournee(visitesDuMois.map((v) => ({
+      etat: etatVisite({ statut: v.status, date: v.date, rapportFait: Boolean(v.report), maintenant }),
+      imprevue: v.tourPlanId === null,
+    }))),
+  };
+}
+
+/**
+ * LES VISITES D'UN PLAN, LUES COMME L'EMPLOI DU TEMPS LES LIT (Direction, 06/10) — la grille du plan de tournée
+ * montre l'état de chaque cellule (à faire, rapport fait, non tenue) et ouvre le MÊME rapport que « Ma journée ».
+ * Une seule lecture des lignes (`lignesEtGamme`) : deux écrans qui calculent l'état d'une visite chacun de leur
+ * côté finiraient par dire deux choses de la même visite (§118.5).
+ */
+export async function loadVisitesDuPlan(
+  planId: string,
+  repId: string,
+  maintenant: Date = new Date(),
+): Promise<Omit<EmploiDuTemps, "vue" | "debut" | "fin" | "avancementDuMois">> {
+  return lignesEtGamme(repId, { tourPlanId: planId }, maintenant);
+}
+
+/** Le cœur partagé : les lignes d'un filtre de visites, et la gamme (produits, messages) du KAM qui les rapporte. */
+async function lignesEtGamme(
+  repId: string,
+  filtre: { delegateId: string; date: { gte: Date; lte: Date } } | { tourPlanId: string },
+  maintenant: Date,
+): Promise<Omit<EmploiDuTemps, "vue" | "debut" | "fin" | "avancementDuMois">> {
   const profil = await prisma.salesRepProfile.findUnique({
     where: { repId },
     select: { businessUnitId: true },
   });
 
-  const [visites, visitesDuMois, promus, messages] = await Promise.all([
+  const [visites, promus, messages] = await Promise.all([
     prisma.medicalVisit.findMany({
-      where: { delegateId: repId, date: { gte: debut, lte: fin } },
+      where: filtre,
       orderBy: [{ date: "asc" }],
       select: {
         id: true, date: true, status: true, origin: true, objective: true, report: true, doctorId: true,
@@ -132,12 +172,6 @@ export async function loadEmploiDuTemps(
         messageLinks: { select: { messageId: true, message: { select: { title: true } } } },
         fieldReports: { select: { id: true }, take: 1 },
       },
-    }),
-    // L'AVANCEMENT SE LIT SUR LE MOIS, quelle que soit la vue : « Aujourd'hui » ne dit rien d'un
-    // objectif mensuel, et afficher le taux du jour ferait lire 0 % chaque matin.
-    prisma.medicalVisit.findMany({
-      where: { delegateId: repId, date: { gte: mois.debut, lte: mois.fin } },
-      select: { status: true, date: true, report: true, tourPlanId: true },
     }),
     profil?.businessUnitId
       ? prisma.promoProduct.findMany({
@@ -196,11 +230,7 @@ export async function loadEmploiDuTemps(
   });
 
   return {
-    vue, debut, fin, lignes,
-    avancementDuMois: avancementTournee(visitesDuMois.map((v) => ({
-      etat: etatVisite({ statut: v.status, date: v.date, rapportFait: Boolean(v.report), maintenant }),
-      imprevue: v.tourPlanId === null,
-    }))),
+    lignes,
     produits: promus
       .filter((p): p is { name: string; productId: string } => Boolean(p.productId))
       .map((p) => ({ productId: p.productId, name: p.name })),
@@ -257,6 +287,9 @@ export interface PlanTourneeVue {
   revisionNote: string | null;
   revisionPar: string | null;
   revisionLe: Date | null;
+  /** Validé au moins une fois (validé, ou rouvert en révision) : ses visites sont dans l'emploi du temps du KAM,
+   *  et la grille du plan ouvre leur rapport (`planDejaValide`, lib/sfe/grille-tournee). */
+  dejaValide: boolean;
   avancement: AvancementTournee;
 }
 
@@ -418,6 +451,7 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
     revisionNote: p.revisionNote,
     revisionPar,
     revisionLe: p.revisionRequestedAt,
+    dejaValide: planDejaValide(String(p.status) as StatutPlan, p.revisionCount),
     avancement: avancementTournee(p.visits.map((v) => ({
       etat: etatVisite({ statut: v.status, date: v.date, rapportFait: Boolean(v.report), maintenant }),
       imprevue: v.tourPlanId === null,

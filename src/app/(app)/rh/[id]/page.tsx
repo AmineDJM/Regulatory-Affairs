@@ -19,7 +19,7 @@ import { getDepartmentOptions, getDepartmentPath, getManagerOf } from "@/lib/dep
 import { aiConfigured, cleModeleRequise } from "@/lib/ai";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
 import { HrDossier } from "./hr-dossier";
-import { referenceOrdreMissionSuggeree } from "@/lib/hr/ordre-mission/service";
+import { referenceOrdreMissionSuggeree } from "@/lib/ordre-mission-depot";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { seesWholeGroup } from "@/lib/company-access";
 import { CompanyAccessCard, type CompanyAccessRow } from "./company-access-card";
@@ -28,8 +28,8 @@ import { BackLink } from "@/components/shared/back-link";
 const d10 = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : "");
 
 export default async function EmployeeDetailPage({ params }: { params: { id: string } }) {
-  const user = await requireModule("RH");
-  const canUpdate = userCan(user, "RH", "UPDATE");
+  const user = await requireModule("EMPLOYEES");
+  const canUpdate = userCan(user, "EMPLOYEES", "UPDATE");
 
   const employee = await prisma.employee.findUnique({
     where: { id: params.id },

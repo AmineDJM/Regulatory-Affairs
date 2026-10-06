@@ -444,6 +444,8 @@ enum EntityType {
   /// s'écrivaient sous DOSSIER (un « sujet ») avec l'identifiant de la FORMATION : la porte des pièces
   /// cherchait alors un sujet qui n'existe pas, et personne ne pouvait télécharger un devis de formation.
   TRAINING
+  /// Un CAS DE PHARMACOVIGILANCE signalé par un KAM (Direction, 06/10) — ses pièces et son échange.
+  PHARMACOVIGILANCE_CASE
 }
 
 enum DocumentCategory {
@@ -1187,6 +1189,9 @@ model User {
   /// LES RÉCURRENCES de demande d'état de stock qui lui sont ADRESSÉES, et celles qu'il a POSÉES.
   stockRecurrences        StockRequestRecurrence[]         @relation("StockRecurrenceAssignee")
   stockRecurrencesCreated StockRequestRecurrence[]         @relation("StockRecurrenceAuthor")
+  /// LES DEMANDES DE STOCKS qu'il a lancées (DO), et celles qu'il doit renseigner (KAM).
+  demandesStocksCreees    StockCountRequest[]              @relation("StockCountRequestAuthor")
+  demandesStocksRecues    StockCountRequestRecipient[]     @relation("StockCountRequestKam")
   /// SES PLANS DE TOURNÉE, et ceux qu'il doit trancher.
   tourPlans               TourPlan[]                       @relation("TourPlanRep")
   tourPlansToReview       TourPlan[]                       @relation("TourPlanReviewer")
@@ -1785,12 +1790,13 @@ model RegulatoryProduct {
   // Row-level access: only these users (plus privileged roles) see the line.
   assignedUsers User[]  @relation("RegulatoryAssignedUsers")
 
-  steps          RegulatoryStep[]
-  variations     RegulatoryVariation[] // variations de fabrication (Importation → packaging local)
-  dossierSteps   RegulatoryDossierStep[] // la FRISE du dossier : CTD initial → réserves → versions
-  stockMovements StockMovement[] // mouvements de stock PCH rattachés à ce produit
-  stockSnapshots StockSnapshot[] // états de stock datés (PCH / hôpital / annexes)
-  regRequests    RegulatoryRequest[] // demandes de l'information médicale (PRIM) sur ce dossier
+  steps           RegulatoryStep[]
+  variations      RegulatoryVariation[] // variations de fabrication (Importation → packaging local)
+  dossierSteps    RegulatoryDossierStep[] // la FRISE du dossier : CTD initial → réserves → versions
+  stockMovements  StockMovement[] // mouvements de stock PCH rattachés à ce produit
+  stockSnapshots  StockSnapshot[] // états de stock datés (PCH / hôpital / annexes)
+  stockCountLines StockCountRequestLine[] // lignes des demandes de stocks (établissement × produit)
+  regRequests     RegulatoryRequest[] // demandes de l'information médicale (PRIM) sur ce dossier
 
   // ─── Vue fournisseur (portail externe) — pilotée par l'équipe Regulatory ───
   // Le fournisseur ne voit QUE ces champs externes, jamais le statut/les notes
@@ -2381,9 +2387,11 @@ model AdProItem {
   /// LE SUJET DE RÉSERVATION d'une billetterie, ouvert pour l'assistante de direction. Une
   /// seconde demande écrit dans le MÊME sujet au lieu d'en ouvrir un autre.
   reservationDossierId String?
-  reservationDossier   Dossier?        @relation("AdProItemReservation", fields: [reservationDossierId], references: [id], onDelete: SetNull)
+  reservationDossier   Dossier?           @relation("AdProItemReservation", fields: [reservationDossierId], references: [id], onDelete: SetNull)
   /// Les voyageurs d'un poste « billetterie » (§118.175).
   voyageurs            AdProVoyageur[]
+  /// Les fiches hôtellerie d'un poste « hôtellerie » — une par personne logée (Direction, 06/10).
+  hebergements         AdProHebergement[]
 
   position           Int                      @default(0)
   createdById        String?
@@ -2472,6 +2480,37 @@ model AdProVoyageurDevis {
   createdAt   DateTime       @default(now())
 
   @@index([voyageurId])
+}
+
+/// UNE FICHE HÔTELLERIE D'UN POSTE « HÔTELLERIE » (Direction, 06/10).
+///
+/// « Si c'est la prise en charge de l'hôtellerie, on fait une fiche hôtellerie pour chaque
+/// personne. » Même forme que le voyageur : un nom OBLIGATOIRE, tout le reste facultatif (on loge
+/// un médecin avant de connaître l'hôtel). Pas de devis par personne dans cette version : le devis
+/// du poste suffit.
+///
+/// La PIÈCE D'IDENTITÉ n'est pas une colonne : c'est un `Document` du poste dont `stepKey` est
+/// l'identifiant de la fiche — même chemin que le passeport d'un voyageur.
+model AdProHebergement {
+  id          String    @id @default(cuid())
+  itemId      String
+  item        AdProItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  nom         String
+  prenom      String?
+  hotel       String?
+  ville       String?
+  dateArrivee DateTime?
+  dateDepart  DateTime?
+  /// Libellé libre (Single, Double, Twin, Suite… — liste proposée par `ad-pro/hebergements.ts`).
+  typeChambre String?
+  notes       String?
+  position    Int       @default(0)
+  createdById String?
+  updatedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([itemId])
 }
 
 /// HISTORIQUE DES DÉCISIONS D'UN POSTE — « autant de fois qu'il le faut » : une demande de
@@ -4252,18 +4291,20 @@ model MedicalInstitution {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  doctors       MedicalDoctor[]
+  doctors        MedicalDoctor[]
   /// SES SERVICES (cardiologie, oncologie, pharmacie centrale…) — §118.172. Un praticien se
   /// rattache à l'un d'eux ; un secteur commercial couvre l'établissement entier ou certains.
-  services      MedicalInstitutionService[]
+  services       MedicalInstitutionService[]
   /// LES SECTEURS COMMERCIAUX qui couvrent cet établissement.
-  sectors       SalesSectorInstitution[]
+  sectors        SalesSectorInstitution[]
   /// Les couleurs posées sur ses cellules dans la feuille des établissements (§118.133).
-  cellStyles    DirectoryCellStyle[]
+  cellStyles     DirectoryCellStyle[]
   /// SON LIEU DE STOCK, quand des relevés le visent (§118.134) — au plus un.
-  stockLocation StockAnnex?
+  stockLocation  StockAnnex?
+  /// LES DEMANDES DE STOCKS qui l'ont visé (DO → KAM).
+  demandesStocks StockCountRequestHospital[]
   /// SA CONSOMMATION (Consumption Intelligence) — les lignes normalisées des fichiers importés.
-  consommations ConsommationLigne[]
+  consommations  ConsommationLigne[]
 
   @@index([type])
   @@index([wilaya])
@@ -5395,8 +5436,8 @@ model LeaveRequest {
   /// Le responsable peut demander l'avis de SON propre N+1, qui peut remonter encore, jusqu'au sommet ; les
   /// validations redescendent ensuite, une marche à la fois. `currentApproverId` : la PERSONNE (User) qui tient la
   /// décision de la marche N+1 quand elle a été remontée — nul = le N+1 de la demande. La trace : `escalations`.
-  currentApproverId  String?
-  escalations        LeaveEscalation[]
+  currentApproverId String?
+  escalations       LeaveEscalation[]
 
   @@index([employeeId])
   @@index([status])
@@ -6165,7 +6206,7 @@ model ValidationRequest {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
-  steps ValidationStep[]
+  steps        ValidationStep[]
   /// LES PARTICIPANTS (Direction, 06/10) : des collègues ajoutés à la demande — ils la lisent et prennent part à sa
   /// discussion (le fil `Comment`), sans rien valider.
   participants ValidationParticipant[]
@@ -7886,6 +7927,82 @@ model FieldReportAttachment {
   @@index([reportId])
 }
 
+// ─────────────────────────── Pharmacovigilance (Direction, 06/10) ───────────────────────────
+// Le KAM SIGNALE un cas depuis les Rapports terrain (produit, établissement, date, ce qui s'est
+// passé) ; Regulatory le REÇOIT, l'analyse, ouvre au besoin une enquête approfondie et le clôt. Un
+// fil d'échange (Comment, entityType PHARMACOVIGILANCE_CASE) relie le KAM, Regulatory et les
+// personnes ajoutées. Aucune donnée identifiante du patient : âge et sexe seulement, facultatifs.
+
+enum PvCaseStatus {
+  RECU // signalé, pas encore pris en charge
+  EN_ANALYSE // Regulatory l'instruit
+  ENQUETE // enquête approfondie : des informations complémentaires sont demandées
+  CLOS // clos, avec sa note de clôture
+}
+
+enum PvSeverity {
+  NON_GRAVE
+  GRAVE
+  DECES
+  INCONNU
+}
+
+model PharmacovigilanceCase {
+  id         String       @id @default(cuid())
+  /// PV-AAAA-NNN
+  reference  String       @unique
+  reporterId String // le KAM qui signale
+  status     PvCaseStatus @default(RECU)
+
+  /// Le produit choisi dans le catalogue des BU (`PromoProduct`) et son canonique quand il est connu ;
+  /// le LIBELLÉ est un instantané : un produit renommé ou archivé ne réécrit pas un signalement.
+  promoProductId  String?
+  productId       String?
+  productLabel    String
+  /// L'établissement de l'annuaire (`MedicalInstitution`) et son nom au jour du signalement.
+  institutionId   String?
+  institutionName String
+  doctorName      String? // médecin concerné (facultatif, texte)
+  occurredOn      DateTime // date de survenue
+  description     String // ce qui s'est passé
+  patientAge      Int?
+  patientSex      String? // "F" | "M"
+  severity        PvSeverity?
+
+  // Enquête approfondie
+  investigationOpenedAt   DateTime?
+  investigationOpenedById String?
+  requestedInfo           String? // informations complémentaires demandées au KAM
+
+  // Clôture
+  closedAt    DateTime?
+  closedById  String?
+  closingNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants PharmacovigilanceParticipant[]
+
+  @@index([reporterId])
+  @@index([status])
+  @@index([occurredOn])
+  @@index([promoProductId])
+}
+
+/// Une personne ajoutée à l'échange d'un cas : elle lit le cas et prend part à la conversation.
+model PharmacovigilanceParticipant {
+  id        String                @id @default(cuid())
+  caseId    String
+  case      PharmacovigilanceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId    String
+  addedById String?
+  createdAt DateTime              @default(now())
+
+  @@unique([caseId, userId])
+  @@index([userId])
+}
+
 // ─────────────────────────── Module Events / Billetterie ───────────────────────────
 // Gestion de bout en bout des événements (congrès, séminaires, staffs, webinars…) :
 // inscriptions (formulaire public + lien), QR code par participant, check-in,
@@ -9025,20 +9142,130 @@ model StockRequestRecurrenceHospital {
 }
 
 model StockSnapshot {
-  id          String            @id @default(cuid())
-  companyId   String? // entité (Adventum / Pharmagène / …)
-  company     Company?          @relation(fields: [companyId], references: [id])
-  scope       String // PCH | HOSPITAL (ANNEX = legacy, plus écrit)
-  annexId     String?
-  annex       StockAnnex?       @relation(fields: [annexId], references: [id], onDelete: Cascade)
-  productId   String
-  product     RegulatoryProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
-  date        DateTime
-  quantity    Int
-  createdById String?
-  createdAt   DateTime          @default(now())
+  id            String                  @id @default(cuid())
+  companyId     String? // entité (Adventum / Pharmagène / …)
+  company       Company?                @relation(fields: [companyId], references: [id])
+  scope         String // PCH | HOSPITAL (ANNEX = legacy, plus écrit)
+  annexId       String?
+  annex         StockAnnex?             @relation(fields: [annexId], references: [id], onDelete: Cascade)
+  productId     String
+  product       RegulatoryProduct       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  date          DateTime
+  quantity      Int
+  createdById   String?
+  createdAt     DateTime                @default(now())
+  /// Les lignes de demande de stocks dont l'envoi a écrit cet état.
+  demandeLignes StockCountRequestLine[]
 
   @@index([productId, scope, annexId, date])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UNE DEMANDE DE STOCKS — le directeur des opérations la lance, chaque KAM la renseigne.
+///
+/// Direction, 06/10 : « le DO sélectionne le ou les hôpitaux — aucun = tous — et pour chacun le
+/// ou les produits — aucun = tous. Chaque KAM reçoit la demande et ajoute, pour chaque hôpital,
+/// les stocks de chaque produit demandé. »
+///
+/// ── DÉVELOPPÉE À LA CRÉATION ─────────────────────────────────────────────────────────────
+///
+/// « Tous » est un INSTANTANÉ : les établissements et produits du jour sont écrits ligne à ligne.
+/// Résolu plus tard, « tous » changerait de sens sous les pieds du KAM — un hôpital ajouté à un
+/// secteur après coup apparaîtrait dans une demande que personne n'a lancée pour lui.
+///
+/// ── UNE SEULE VÉRITÉ SUR LE STOCK ────────────────────────────────────────────────────────
+///
+/// La ligne porte la SAISIE (brouillon compris). L'ENVOI écrit l'état daté (`StockSnapshot`) du
+/// module Stocks : la courbe de l'hôpital se nourrit de la réponse, sans seconde table de stocks.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model StockCountRequest {
+  id           String    @id @default(cuid())
+  title        String
+  dueDate      DateTime?
+  notes        String?
+  /// OUVERTE | CLOTUREE. Clôturée, elle ne se renseigne plus et sort de « Mon espace » des KAM.
+  status       String    @default("OUVERTE")
+  /// « Aucun hôpital choisi » au moment de la création — dit à l'écran « tous (N) ».
+  toutHopitaux Boolean   @default(false)
+  createdById  String?
+  createdBy    User?     @relation("StockCountRequestAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  closedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  hopitaux      StockCountRequestHospital[]
+  lignes        StockCountRequestLine[]
+  destinataires StockCountRequestRecipient[]
+
+  @@index([status, createdAt])
+}
+
+/// UN ÉTABLISSEMENT VISÉ. Le nom et la wilaya sont FIGÉS : un établissement renommé ou retiré
+/// de l'annuaire ne doit pas rendre illisible une demande passée (`SetNull` sur le lien).
+model StockCountRequestHospital {
+  id            String              @id @default(cuid())
+  requestId     String
+  request       StockCountRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  institutionId String?
+  institution   MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  name          String
+  wilaya        String?
+  /// Aucun produit choisi : « tous ceux que ses KAM portent ».
+  tousProduits  Boolean             @default(false)
+  /// Aucun KAM ne couvre l'établissement — listé au DO, jamais adressé à personne.
+  sansKam       Boolean             @default(false)
+  /// Le mot du KAM sur cet établissement (« pharmacie fermée le jeudi »).
+  note          String?
+  noteById      String?
+
+  lignes StockCountRequestLine[]
+
+  @@unique([requestId, institutionId])
+  @@index([institutionId])
+}
+
+/// UNE CASE de la matrice établissement × produit. `kamIds` : les KAM qui la portent (secteur
+/// couvrant l'établissement, produit de leur BU) — vide = « sans KAM ». Partagée : deux KAM du
+/// même secteur voient la même case, la dernière saisie fait foi (`savedById`).
+model StockCountRequestLine {
+  id           String                    @id @default(cuid())
+  requestId    String
+  request      StockCountRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  hospitalId   String
+  hospital     StockCountRequestHospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  productId    String?
+  product      RegulatoryProduct?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productLabel String
+  kamIds       String[]                  @default([])
+  /// En boîtes. Nul = pas encore renseigné.
+  quantity     Int?
+  rupture      Boolean                   @default(false)
+  savedAt      DateTime?
+  savedById    String?
+  /// L'état daté écrit à l'envoi — le pont vers la courbe du module Stocks.
+  snapshotId   String?
+  snapshot     StockSnapshot?            @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, productId])
+  @@index([requestId])
+  @@index([productId])
+  @@index([snapshotId])
+}
+
+/// UN KAM DESTINATAIRE — une seule vue par KAM et par demande, son envoi, ses relances.
+model StockCountRequestRecipient {
+  id          String            @id @default(cuid())
+  requestId   String
+  request     StockCountRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  kamId       String
+  kam         User              @relation("StockCountRequestKam", fields: [kamId], references: [id], onDelete: Cascade)
+  submittedAt DateTime?
+  remindedAt  DateTime?
+  remindCount Int               @default(0)
+  createdAt   DateTime          @default(now())
+
+  @@unique([requestId, kamId])
+  @@index([kamId, submittedAt])
 }
 
 // ═══════════════════════════ Regulatory Intelligence OS ═══════════════════════════

@@ -8,6 +8,7 @@ import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
+import { mirrorRegulatoryUpload } from "@/lib/regulatory-drive-mirror";
 import { cheminSur, refusDepotCtd } from "@/lib/regulatory/ctd-initiale";
 
 /**
@@ -135,8 +136,13 @@ export async function persistUploadedDocument(
   // voit. La copie se termine côté serveur — on ne fait pas attendre un téléversement pour elle.
   if (input.mirrorToDrive !== false) {
     const data = content;
-    void mirrorDocumentsToDrive({ ownerId: userId, entityType, entityId, files: [{ name: file.name, data, mime: file.type || null }] })
-      .catch((e) => console.error("[upload] miroir Drive échoué (non bloquant)", e));
+    // Regulatory a SON rangement (dossier du produit, catégorie « Regulatory ») — le miroir générique
+    // l'écarte ; sans cette branche, une pièce posée par un autre chemin que la route de lot n'arrivait
+    // dans aucun Drive.
+    const miroir = entityType === "REGULATORY_PRODUCT"
+      ? mirrorRegulatoryUpload({ productId: entityId, ownerId: userId, documentIds: [documentId], files: [{ name: folder ? `${folder}/${file.name}` : file.name, data, mime: file.type || undefined }] })
+      : mirrorDocumentsToDrive({ ownerId: userId, entityType, entityId, files: [{ name: file.name, data, mime: file.type || null }] });
+    void miroir.catch((e) => console.error("[upload] miroir Drive échoué (non bloquant)", e));
   }
   return { ok: true, documentId };
 }
@@ -176,6 +182,12 @@ export async function inscrireDocumentDirect(
       actorId: userId, action: "UPLOAD", module: ENTITY_TYPE_LABELS[entityType] ?? ENTITY_MODULE[entityType], entityType, entityId,
       summary: `Document « ${folder ? `${folder}/` : ""}${name} » téléversé (envoi direct)`,
     }).catch((e) => console.error("[upload direct] audit failed (non-bloquant)", e));
+    // REGULATORY (Direction, 06/10) : la pièce rejoint le dossier du produit dans la catégorie
+    // « Regulatory » par RÉFÉRENCE à son blob — aucun octet relu, même pour plusieurs Go.
+    if (entityType === "REGULATORY_PRODUCT") {
+      void mirrorRegulatoryUpload({ productId: entityId, ownerId: userId, documentIds: [created.id], files: [] })
+        .catch((e) => console.error("[upload direct] rangement Drive Regulatory échoué (non bloquant)", e));
+    }
     return { documentId: created.id };
   } catch (e) {
     // Pas de correspondance sans fiche : la ligne `StoredFile` part, le blob reste à l'appelant.

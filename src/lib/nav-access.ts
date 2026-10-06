@@ -8,6 +8,7 @@ import { loadReportingLine } from "@/lib/departments";
 import { managesAnyone } from "@/lib/hr/reporting-line";
 import { prisma } from "@/lib/prisma";
 import { estDirecteurDesOperations } from "@/lib/suppression/delegation";
+import { voitTousLesCasPv } from "@/lib/pharmacovigilance/acces";
 
 /**
  * CE QU'UNE PERSONNE A LE DROIT D'OUVRIR — la réponse, une fois, pour tous les écrans.
@@ -107,6 +108,9 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     corbeilleOps: user.role !== "SUPER_ADMIN" && estDirecteurDesOperations(user),
     // ADAM (assistant + chief of staff) : le Super Admin seul (§118.153). La palette suit le menu.
     adam: peutVoirAdam(user),
+    // LA BOÎTE DE PHARMACOVIGILANCE (Direction, 06/10) : à qui REÇOIT les cas (portée TOUT). Le KAM qui signale lit
+    // ses cas depuis les Rapports terrain — une entrée de pôle Regulatory lui ouvrirait une boîte presque vide.
+    pharmacovigilance: voitTousLesCasPv(user),
   };
 
   // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde, et
@@ -140,6 +144,8 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     const kids = allowedChildren(n);
     if (!n.tabs) {
       if (moduleOuvert(n)) acc.push(kids.length ? { ...n, children: kids } : { ...n, children: undefined });
+      // UN GROUPE s'ouvre par ses sous-modules : sans le module du parent, il mène au premier enfant ouvert.
+      else if (n.groupe && kids.length > 0) acc.push({ ...n, href: kids[0].href, children: kids.length > 1 ? kids : undefined });
       return acc;
     }
     // Entrées fusionnées (`tabs`) : visibles si l'utilisateur a accès à au moins un onglet ; le

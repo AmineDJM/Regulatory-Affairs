@@ -204,6 +204,22 @@ describe("canSubmitItem — ce qui part en validation", () => {
     expect(canSubmitItem({ status: "PENDING", amountEstimated: 1000 }).ok).toBe(false);
     expect(canSubmitItem({ status: "APPROVED", amountGranted: 1000 }).ok).toBe(false);
   });
+
+  it("UNE FICHE PAR PERSONNE (Direction, 06/10) : billetterie sans voyageur, hôtellerie sans fiche — refusées, sauf en sponsoring indirect", () => {
+    const billet = { status: "DRAFT" as const, amountEstimated: 1000, kind: "TICKETING" as const };
+    const hotel = { status: "DRAFT" as const, amountEstimated: 1000, kind: "ACCOMMODATION" as const };
+    expect(canSubmitItem({ ...billet, fichesPersonnes: 0 }).reason).toMatch(/au moins un voyageur/);
+    expect(canSubmitItem({ ...hotel, fichesPersonnes: 0 }).reason).toMatch(/au moins une fiche hôtellerie/);
+    expect(canSubmitItem({ ...billet, fichesPersonnes: 1 }).ok).toBe(true);
+    expect(canSubmitItem({ ...hotel, fichesPersonnes: 2 }).ok).toBe(true);
+    // Sponsoring indirect : les fiches restent possibles, jamais exigées.
+    expect(canSubmitItem({ ...billet, fichesPersonnes: 0, priseEnChargeIndirecte: true }).ok).toBe(true);
+    expect(canSubmitItem({ ...hotel, fichesPersonnes: 0, priseEnChargeIndirecte: true }).ok).toBe(true);
+    // Témoin : une autre nature n'en demande pas.
+    expect(canSubmitItem({ status: "DRAFT", amountEstimated: 1000, kind: "DINNER", fichesPersonnes: 0 }).ok).toBe(true);
+    // Le chiffre passe d'abord : un poste vide se chiffre avant de se peupler.
+    expect(canSubmitItem({ ...billet, amountEstimated: 0, fichesPersonnes: 0 }).reason).toMatch(/Chiffrez/);
+  });
 });
 
 describe("canRequestPurchaseOrder — le bon de commande ne part pas trop tôt", () => {

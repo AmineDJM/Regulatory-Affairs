@@ -9,13 +9,14 @@ import { BUDGET_TABS } from "@/lib/labels";
 import { BudgetContextBar } from "../budget-context-bar";
 import { BudgetExpenses } from "../budget-expenses";
 import { resolveBudgetEnvelope } from "@/lib/budget-scope";
+import { getMyCompanies } from "@/lib/company";
 
 export const dynamic = "force-dynamic";
 
 /** BUDGETS — écran de travail : imputer les dépenses, en ajouter, corriger. */
 export default async function BudgetExpensesPage({ searchParams }: { searchParams: { env?: string; from?: string; to?: string } }) {
   const user = await requireModule("BUDGETS");
-  const [envelopes, tabs] = await Promise.all([getEnvelopes(user), visibleTabs(user, BUDGET_TABS)]);
+  const [envelopes, tabs, societes] = await Promise.all([getEnvelopes(user), visibleTabs(user, BUDGET_TABS), getMyCompanies(user.id)]);
   const from = searchParams.from ? new Date(searchParams.from) : null;
   const to = searchParams.to ? new Date(searchParams.to) : null;
   const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to);
@@ -32,7 +33,7 @@ export default async function BudgetExpensesPage({ searchParams }: { searchParam
       ) : (
         <>
           <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
-          <BudgetExpenses overview={overview} canAttribute={canAttribute} canDelete={user.role === "SUPER_ADMIN"} />
+          <BudgetExpenses overview={overview} canAttribute={canAttribute} canDelete={user.role === "SUPER_ADMIN"} societes={societes.map((s) => ({ id: s.id, nom: s.shortName || s.name }))} />
         </>
       )}
     </div>

@@ -28,7 +28,7 @@ export const metadata = { title: "Formations — AMD Internal OS" };
  */
 export default async function FormationsPage() {
   const user = await requireUser();
-  const isHr = userCan(user, "RH", "VALIDATE") || userCan(user, "RH", "UPDATE");
+  const isHr = userCan(user, "TRAINING", "VALIDATE") || userCan(user, "TRAINING", "UPDATE");
   const isDg = hasGlobalView(user);
   const canOrganise = isHr || isDg;
 

@@ -1,4 +1,5 @@
 import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, AdProItemOrderStage } from "@prisma/client";
+import { refusFichesPersonnes } from "@/lib/ad-pro/hebergements";
 
 /**
  * POSTES D'UNE OPÉRATION AD & PRO — la ventilation de l'enveloppe.
@@ -253,6 +254,13 @@ export function canSubmitItem(item: {
   kind?: AdProItemKind;
   /** Combien d'articles du stock il liste — c'est eux, pas un montant, qui se décident. */
   lignesStock?: number;
+  /**
+   * Combien de FICHES PERSONNES le poste porte — voyageurs d'une billetterie, fiches hôtellerie
+   * d'une hôtellerie (Direction, 06/10). `undefined` = non compté par l'appelant : pas de refus.
+   */
+  fichesPersonnes?: number;
+  /** Le poste vit dans un sponsoring INDIRECT : les fiches par personne y sont facultatives. */
+  priseEnChargeIndirecte?: boolean;
 }): { ok: boolean; reason?: string } {
   if (item.status === "PENDING") return { ok: false, reason: "Ce poste est déjà en attente de la Direction." };
   if (item.status === "APPROVED") return { ok: false, reason: "Ce poste est déjà accordé." };
@@ -271,6 +279,12 @@ export function canSubmitItem(item: {
   const amount = item.amountGranted ?? item.amountEstimated;
   if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
     return { ok: false, reason: "Chiffrez le poste (montant estimé) avant de le soumettre." };
+  }
+  // UNE FICHE PAR PERSONNE (Direction, 06/10) : une billetterie sans voyageur, une hôtellerie sans
+  // fiche hôtellerie ne se soumettent pas — sauf en sponsoring indirect, où elles restent facultatives.
+  if (item.kind) {
+    const fiches = refusFichesPersonnes({ kind: item.kind, fichesPersonnes: item.fichesPersonnes, priseEnChargeIndirecte: item.priseEnChargeIndirecte });
+    if (fiches) return { ok: false, reason: fiches };
   }
   return { ok: true };
 }
