@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import { getDriveListing } from "@/lib/queries/drive";
 import { REG_DRIVE_ROOT } from "@/lib/regulatory-drive-mirror";
+import { dossierDriveDuProduit } from "@/lib/regulatory/drive-dossier";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { formatDateTime } from "@/lib/utils";
 import { fileTypeLabel, explorerSize } from "@/lib/drive/explorer";
@@ -27,23 +28,36 @@ import { NewFolderButton } from "@/app/(app)/drive/new-folder-button";
  * Les droits restent ceux du Drive : `getDriveListing` résout l'accès nœud par nœud. Un dossier
  * produit partagé en lecture s'affiche en lecture ici aussi.
  */
+/**
+ * LE DOSSIER DRIVE À MONTRER sur la fiche d'un produit Regulatory : celui de la catégorie « Regulatory »
+ * (Direction, 06/10) ; à défaut, celui de l'ancien miroir (« REF — DCI ») — ses fichiers restent où ils sont.
+ */
+export async function dossierDriveAffiche(product: { id: string; reference: string; dci: string }): Promise<string | null> {
+  const nouveau = await dossierDriveDuProduit(product.id);
+  if (nouveau) return nouveau;
+  const ancien = await prisma.driveNode.findFirst({
+    where: { type: "FOLDER", name: `${product.reference} — ${product.dci}`.trim(), isTrashed: false, parent: { name: REG_DRIVE_ROOT } },
+    select: { id: true },
+  });
+  return ancien?.id ?? null;
+}
+
 export async function ProductDriveExplorer({
-  user, productName, folderId, basePath, canEdit,
+  user, rootId, folderId, basePath, canEdit,
 }: {
   user: SessionUser;
-  /** Nom du dossier produit dans le Drive — « REF — DCI », tel que posé par le miroir. */
-  productName: string;
+  /**
+   * Le dossier produit dans le Drive : celui de la catégorie « Regulatory » (Direction, 06/10), sinon
+   * l'ancien « Regulatory — Dossiers produits / REF — DCI » (voir `dossierDriveAffiche`).
+   */
+  rootId: string | null;
   /** Sous-dossier ouvert (navigation interne), sinon la racine du dossier produit. */
   folderId: string | null;
   /** Chemin de l'écran hôte, pour que la navigation reste DANS le produit (`/regulatory/<id>`). */
   basePath: string;
   canEdit: boolean;
 }) {
-  // Le dossier produit, tel que le miroir l'a créé. Absent = aucun dépôt encore fait.
-  const root = await prisma.driveNode.findFirst({
-    where: { type: "FOLDER", name: productName, isTrashed: false, parent: { name: REG_DRIVE_ROOT } },
-    select: { id: true },
-  });
+  const root = rootId ? { id: rootId } : null;
   if (!root) {
     return (
       <p className="text-sm text-muted-foreground">

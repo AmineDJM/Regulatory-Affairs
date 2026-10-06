@@ -29,7 +29,9 @@ import {
  * Mêmes réserves que le Drive, dites franchement : ces fichiers ne passent pas par le chiffrement
  * applicatif (le navigateur n'a pas la clé) — chiffrement au repos du fournisseur, accès contrôlé par
  * l'application qui seule signe les adresses ; non dédupliqués ; PAS de copie automatique dans le Drive
- * (la recopier relirait plusieurs Go) — la fiche reste la référence, le ZIP s'y parcourt.
+ * (la recopier relirait plusieurs Go) — la fiche reste la référence, le ZIP s'y parcourt. Exception
+ * Regulatory (Direction, 06/10) : la pièce apparaît dans le dossier du produit de la catégorie
+ * « Regulatory » par RÉFÉRENCE au même blob (`inscrireDocumentDirect`) — rien n'est relu ni recopié.
  */
 
 const SESSION_PERIMEE_MS = 7 * 24 * 3600_000;

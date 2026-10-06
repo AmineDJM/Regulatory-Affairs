@@ -1167,6 +1167,8 @@ X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable
   "messaging-actions:preparerDepotMessagerie",
   // LES FICHES HÔTELLERIE D'UN POSTE (une par personne) : des gestes de la carte du poste, comme les voyageurs.
   "ad-pro-item-actions:ajouterHebergement", "ad-pro-item-actions:modifierHebergement", "ad-pro-item-actions:retirerHebergement",
+  // RANGER LES DOSSIERS REGULATORY DANS LE DRIVE : le rattrapage du Super Admin, un bouton de la page Regulatory.
+  "regulatory-drive-actions:synchroniserDriveRegulatory",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "

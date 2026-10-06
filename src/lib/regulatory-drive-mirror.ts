@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
+import { mimeFromName } from "@/lib/drive/mime-nom";
+import { rangerDocumentsDansDrive } from "@/lib/regulatory/drive-dossier";
+
+export { mimeFromName };
 
 /**
  * MIROIR DRIVE d'un dépôt Regulatory. Réplique dans le Drive — sous un dossier
@@ -14,25 +18,6 @@ import { putBlob } from "@/lib/drive-storage";
  */
 
 export const REG_DRIVE_ROOT = "Regulatory — Dossiers produits";
-
-const EXT_MIME: Record<string, string> = {
-  pdf: "application/pdf",
-  doc: "application/msword",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  xls: "application/vnd.ms-excel",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ppt: "application/vnd.ms-powerpoint",
-  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  csv: "text/csv", txt: "text/plain", md: "text/markdown", json: "application/json", xml: "application/xml",
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
-  mp4: "video/mp4", webm: "video/webm", mp3: "audio/mpeg", wav: "audio/wav",
-  zip: "application/zip",
-};
-
-export function mimeFromName(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  return EXT_MIME[ext] ?? "application/octet-stream";
-}
 
 /** Segments d'un chemin, nettoyés (sépar. Windows, « . »/« .. »/vides retirés). */
 export function cleanPathSegments(path: string): string[] {
@@ -129,18 +114,32 @@ export async function mirrorToProductDrive(opts: {
 }
 
 /**
- * MIROIR AUTOMATIQUE d'un (ou plusieurs) document(s) Regulatory officiellement téléversé(s) :
- * les réplique aussitôt dans le Drive, sous le dossier du produit, partagés en lecture avec les
- * parties prenantes du dossier. Appelé après l'enregistrement du document (upload officiel) — il
- * n'y a plus d'option manuelle. **Best-effort** : ne doit JAMAIS faire échouer le téléversement
- * (toute erreur est journalisée et avalée). Le stockage physique est dédupliqué (SHA-256), donc
- * le miroir n'ajoute pas de copie binaire si le contenu existe déjà.
+ * MIROIR AUTOMATIQUE d'un (ou plusieurs) document(s) Regulatory officiellement téléversé(s).
+ * **Best-effort** : ne doit JAMAIS faire échouer le téléversement (toute erreur est journalisée
+ * et avalée).
+ *
+ * DEPUIS LE 06/10 (Direction) : les pièces d'un dossier du suivi vont dans SON dossier de la
+ * catégorie Drive « Regulatory », rangées selon le modèle (`lib/regulatory/drive-dossier.ts`), par
+ * RÉFÉRENCE au blob du document — d'où `documentIds`. L'ancien miroir (Drive de celui qui dépose,
+ * « Regulatory — Dossiers produits », partagé aux parties prenantes) ne sert plus que de repli :
+ * dossier verrouillé (la catégorie l'exposerait), catégorie absente. Ce qu'il a déjà rangé reste où
+ * il est.
  */
 export async function mirrorRegulatoryUpload(opts: {
   productId: string;
   ownerId: string;
   files: { name: string; data: Buffer; mime?: string }[];
+  /** Les documents créés par ce dépôt : le rangement dans la catégorie part de leurs fiches. */
+  documentIds?: readonly string[];
 }): Promise<void> {
+  if (opts.documentIds?.length) {
+    try {
+      const bilan = await rangerDocumentsDansDrive(opts.productId, { acteurId: opts.ownerId, documentIds: opts.documentIds });
+      if (bilan.range) return;
+    } catch (err) {
+      console.error("[reg auto-mirror] rangement dans la catégorie Regulatory échoué — repli sur l'ancien miroir", err);
+    }
+  }
   if (opts.files.length === 0) return;
   try {
     const product = await prisma.regulatoryProduct.findUnique({
