@@ -7,7 +7,6 @@ import { userCan } from "@/lib/rbac";
 import { canAccessEntity, ENTITY_MODULE } from "@/lib/entity-access";
 import { resolveDriveAccess } from "@/lib/drive";
 import { sendMessage } from "@/lib/actions/messaging-actions";
-import { getConversationSummaries, getDirectory } from "@/lib/queries/messaging";
 import { ROLE_LABELS } from "@/lib/labels";
 import { ENTITY_TYPE_LABELS } from "@/lib/partage";
 
@@ -181,21 +180,37 @@ export async function partagerParMessagerie(formData: FormData): Promise<Resulta
 export async function listerDestinatairesPartage(): Promise<{ ok: boolean; groupes: GroupePartage[]; people: PersonneDestinataire[]; error?: string }> {
   const user = await requireUser();
   if (!userCan(user, "MESSAGING", "CREATE")) return { ok: false, groupes: [], people: [], error: "Vous n'avez pas accès à la messagerie." };
-  const [conversations, annuaire] = await Promise.all([getConversationSummaries(user.id), getDirectory(user.id)]);
+  // DEUX LECTURES LÉGÈRES (Direction, 06/10 : « le chargement ne s'arrête pas ») : les groupes dont on est membre — sans
+  // leurs messages ni leurs membres —, et les collègues actifs avec, pour chacun, s'il existe déjà une conversation.
+  const [groupes, collegues, directes] = await Promise.all([
+    prisma.conversation.findMany({
+      where: { type: { in: ["GROUP", "CHANNEL"] }, isArchived: false, members: { some: { userId: user.id, leftAt: null } } },
+      select: { id: true, title: true, _count: { select: { members: { where: { leftAt: null } } } } },
+      orderBy: { updatedAt: "desc" },
+      take: 200,
+    }),
+    prisma.user.findMany({
+      where: { isActive: true, id: { not: user.id } },
+      select: { id: true, name: true, title: true, role: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.conversationMember.findMany({
+      where: { conversation: { type: "DIRECT", members: { some: { userId: user.id } } }, userId: { not: user.id } },
+      select: { userId: true },
+    }),
+  ]);
+  const recents = new Set(directes.map((d) => d.userId));
   return {
     ok: true,
-    // LES GROUPES DONT ON EST MEMBRE — pas les archivés.
-    groupes: conversations
-      .filter((c) => (c.type === "GROUP" || c.type === "CHANNEL") && !c.isArchived)
-      .map((c) => ({ id: c.id, title: c.title ?? "Groupe sans nom", memberCount: c.memberCount })),
-    people: annuaire.map((u) => ({
+    groupes: groupes.map((g) => ({ id: g.id, title: g.title ?? "Groupe sans nom", memberCount: g._count.members })),
+    people: collegues.map((u) => ({
       id: u.id,
       name: u.name,
       // Le titre d'abord : « Responsable Regulatory » distingue mieux deux homonymes que le
       // rôle RBAC, qui dit ce que le compte a le droit de faire, pas ce que la personne fait.
       role: u.title ?? ROLE_LABELS[u.role as keyof typeof ROLE_LABELS] ?? null,
       // UN COLLÈGUE AVEC QUI ON ÉCHANGE DÉJÀ est proposé d'emblée ; les autres se cherchent par leur nom.
-      recent: Boolean(u.existingConversationId),
+      recent: recents.has(u.id),
     })),
   };
 }

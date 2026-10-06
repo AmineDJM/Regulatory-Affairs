@@ -84,19 +84,25 @@ export function PartagerSheet({ open, onClose, ...cible }: CiblePartage & { open
   const [groupes, setGroupes] = React.useState<readonly GroupePartage[] | null>(null);
   const [chargement, setChargement] = React.useState(false);
 
-  // Les groupes et les collègues se chargent à la PREMIÈRE ouverture, une seule fois par panneau monté.
+  // Les groupes et les collègues se chargent à la PREMIÈRE ouverture, une seule fois par panneau monté. La demande est
+  // marquée PARTIE dans une ref : mettre `chargement` dans les dépendances annulait la réponse au rendu suivant — le
+  // panneau restait sur « Chargement… » pour toujours (Direction, 06/10).
+  const demande = React.useRef(false);
+  const monte = React.useRef(true);
+  React.useEffect(() => () => { monte.current = false; }, []);
   React.useEffect(() => {
-    if (!open || groupes !== null || chargement) return;
-    let vivant = true;
+    if (!open || demande.current) return;
+    demande.current = true;
     setChargement(true);
-    void listerDestinatairesPartage().then((r) => {
-      if (!vivant) return;
-      setChargement(false);
-      if (r.ok) { setGroupes(r.groupes); if (!people) setAnnuaire(r.people); }
-      else { setGroupes([]); setAnnuaire(people ?? []); setErr(r.error ?? "La messagerie n'a pas pu être chargée."); }
-    });
-    return () => { vivant = false; };
-  }, [open, people, groupes, chargement]);
+    listerDestinatairesPartage()
+      .then((r) => {
+        if (!monte.current) return;
+        if (r.ok) { setGroupes(r.groupes); if (!people) setAnnuaire(r.people); }
+        else { setGroupes([]); setAnnuaire(people ?? []); setErr(r.error ?? "La messagerie n'a pas pu être chargée."); }
+      })
+      .catch(() => { if (monte.current) { setGroupes([]); setErr("La messagerie n'a pas pu être chargée — réessayez."); demande.current = false; } })
+      .finally(() => { if (monte.current) setChargement(false); });
+  }, [open, people]);
 
   const quoi = nommer(cible);
   const q = filtre.trim().toLowerCase();
