@@ -11,7 +11,8 @@ import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createValidationFromRules, createDirectValidation, notifyValidator, joindrePiecesValidation, reprendreEtapesRenvoyees, verifierPiecesValidation } from "@/lib/validation";
-import { issueDeLaDecision, motifExige, MOTIF_EXIGE, repriseApresCorrection, resoumissionSurPlace, type DecisionEtape } from "@/lib/validations/decision";
+import { issueDeLaDecision, motifExige, MOTIF_EXIGE, repriseApresCorrection, resoumissionSurPlace, cheminsDeLObjetLie, type DecisionEtape } from "@/lib/validations/decision";
+import { lireCircuit } from "@/lib/validations/lecture-circuit";
 import { refusDuRetraitValidation, retraitEfface, validateursSollicites } from "@/lib/validations/retrait";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
@@ -259,7 +260,7 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
       data: { status: r.status, currentOrder: r.currentOrder, decidedAt: finalisee ? new Date() : null },
     });
     const suivante = r.suivanteId ? etapes.find((e) => e.id === r.suivanteId) ?? null : null;
-    return { ok: true as const, status: r.status, finalisee, suivanteValidatorId: suivante?.validatorId ?? null };
+    return { ok: true as const, status: r.status, finalisee, currentOrder: r.currentOrder, suivanteValidatorId: suivante?.validatorId ?? null };
   });
   if (!issue.ok) return { ok: false, error: issue.error };
   const newStatus: ValidationStatus = issue.status;
@@ -296,6 +297,25 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
         ? `${req.reference} · cette décision porte sur cette pièce seule.${stillPending > 0 ? ` ${stillPending} autre${stillPending > 1 ? "s" : ""} pièce${stillPending > 1 ? "s" : ""} de la même demande attend${stillPending > 1 ? "ent" : ""} encore.` : " Toutes les pièces de la demande sont désormais tranchées."}${motif}${suite}`
         : `${req.reference} — ${req.title}.${motif}${suite}`,
       link: `/validations/${req.id}`,
+    });
+  } else if (!finalized && req.requesterId !== user.id) {
+    // UN ACCORD QUI NE CLÔT PAS LE CIRCUIT SE DIT AUSSI (Direction, 06/10). Le premier de deux validateurs
+    // validait, la demande passait au second — et le demandeur n'en savait rien : sur son écran, « En
+    // attente » sous un « Je valide… » sans auteur. On lui dit qui a validé, ce qu'il a écrit, et qui reste.
+    const etapes = await prisma.validationStep.findMany({
+      where: { requestId: req.id },
+      select: { order: true, status: true, reason: true, decidedAt: true, validator: { select: { name: true } } },
+    });
+    const { resume } = lireCircuit({
+      status: newStatus, mode: req.mode, currentOrder: issue.currentOrder,
+      steps: etapes.map((e) => ({ order: e.order, status: e.status, validateur: e.validator?.name ?? "—", motif: e.reason, decideeLe: e.decidedAt })),
+    });
+    await notifyUser({
+      userId: req.requesterId,
+      type: "GENERIC",
+      title: `Validation partielle — ${req.reference}`,
+      body: `${req.title}. ${resume}${reason ? ` Note de ${user.name} : « ${reason} ».` : ""}`,
+      link: req.link || `/validations/${req.id}`,
     });
   }
   await recordAudit({
@@ -375,9 +395,9 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
     revalidatePath("/demandes");
     revalidatePath("/demandes/assistant");
   }
-  if (finalized && req.entityType === "ADMIN_REQUEST" && req.entityId) {
-    revalidatePath(`/demandes/${req.entityId}`);
-  }
+  // CHAQUE DÉCISION, pas seulement la dernière (Direction, 06/10) : la fiche d'origine montre ce que
+  // chaque validateur a dit — le premier accord d'un circuit à deux doit s'y lire aussi.
+  for (const chemin of cheminsDeLObjetLie(req)) revalidatePath(chemin);
 
   // UN BON DE COMMANDE VALIDÉ PASSE À LA SIGNATURE DES FINANCES (§118.149) — elles en sont
   // prévenues, sans quoi la file « à signer » se remplirait en silence. Relu, jamais supposé :

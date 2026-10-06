@@ -1,7 +1,8 @@
 import { suppressionPermise } from "@/lib/suppression/delegation";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, Clock, RotateCcw, MinusCircle } from "lucide-react";
+import { lireCircuit, libelleDuMode, type EtatEtape } from "@/lib/validations/lecture-circuit";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, isTopManagement } from "@/lib/rbac";
 import { clauseDemandeLisible } from "@/lib/queries/admin-requests";
@@ -345,20 +346,40 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                 <Badge tone="neutral">{linkedValidations.length}</Badge>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                {linkedValidations.map((v) => (
-                  <div key={v.id} className="space-y-1 border-b border-border pb-2 last:border-0 last:pb-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
-                      <StatusBadge map={VALIDATION_STATUS} value={v.status} dot={false} />
+                {linkedValidations.map((v) => {
+                  // CE QUE CHAQUE VALIDATEUR A DIT (Direction, 06/10) : le statut global seul, avec un motif sans
+                  // auteur, laissait lire « Je valide… » sous « En attente » — sans dire qu'un second accord restait dû.
+                  const circuit = lireCircuit({
+                    status: v.status, mode: v.mode, currentOrder: v.currentOrder,
+                    steps: v.steps.map((s) => ({ order: s.order, status: s.status, validateur: s.validator?.name ?? "—", motif: s.reason, decideeLe: s.decidedAt })),
+                  });
+                  return (
+                    <div key={v.id} className="space-y-1.5 border-b border-border pb-2 last:border-0 last:pb-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <Link href={`/validations/${v.id}`} className="font-mono text-xs text-muted-foreground hover:text-primary hover:underline">{v.reference}</Link>
+                        <StatusBadge map={VALIDATION_STATUS} value={v.status} dot={false} />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {v.module}{libelleDuMode(v.mode, v.steps.length) ? ` · ${libelleDuMode(v.mode, v.steps.length)}` : ""}
+                      </p>
+                      <p className="text-xs font-medium">{circuit.resume}</p>
+                      <ul className="space-y-1">
+                        {circuit.lignes.map((l, i) => (
+                          <li key={i} className="text-xs">
+                            <span className="flex items-start gap-1.5">
+                              <IconeEtape etat={l.etat} />
+                              <span className="min-w-0">
+                                <span className="font-medium">{l.validateur}</span>
+                                <span className="text-muted-foreground"> — {l.libelle}{l.decideeLe ? ` le ${formatDateTime(l.decideeLe)}` : ""}</span>
+                              </span>
+                            </span>
+                            {l.motif && <span className="mt-0.5 block pl-5">« {l.motif} »</span>}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {v.module} · {v.steps.map((s) => s.validator?.name ?? "—").join(", ")}
-                    </p>
-                    {v.steps.some((s) => s.reason) && (
-                      <p className="text-xs">{v.steps.filter((s) => s.reason).map((s) => s.reason).join(" — ")}</p>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
                 <Link href="/validations" className="text-xs text-primary hover:underline">Ouvrir le bureau des validations →</Link>
               </CardContent>
             </Card>
@@ -393,6 +414,16 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
       </div>
     </div>
   );
+}
+
+/** ✓ validé · ✗ refusé · ↺ correction demandée · ⏳ en attente · — non sollicité. */
+function IconeEtape({ etat }: { etat: EtatEtape }) {
+  const cls = "mt-0.5 h-3.5 w-3.5 shrink-0";
+  if (etat === "VALIDE") return <CheckCircle2 className={cn(cls, "text-success")} aria-label="Validé" />;
+  if (etat === "REFUSE") return <XCircle className={cn(cls, "text-destructive")} aria-label="Refusé" />;
+  if (etat === "A_CORRIGER") return <RotateCcw className={cn(cls, "text-amber-600")} aria-label="Correction demandée" />;
+  if (etat === "SANS_OBJET") return <MinusCircle className={cn(cls, "text-muted-foreground")} aria-label="Non sollicité" />;
+  return <Clock className={cn(cls, etat === "A_SON_TOUR" ? "text-amber-600" : "text-muted-foreground")} aria-label="En attente" />;
 }
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {

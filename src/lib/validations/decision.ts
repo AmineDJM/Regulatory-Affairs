@@ -64,6 +64,25 @@ export function issueDeLaDecision(
 }
 
 /**
+ * LES ÉCRANS DE L'OBJET D'ORIGINE À RAFRAÎCHIR APRÈS CHAQUE DÉCISION — finalisante OU NON (Direction, 06/10).
+ *
+ * La fiche de la demande au secrétariat n'était rafraîchie que quand le circuit se CLÔTURAIT : le premier
+ * accord d'un circuit à deux n'y changeait rien, alors que cette fiche montre désormais ce que chaque
+ * validateur a dit. On rafraîchit la fiche de l'objet lié (demande au secrétariat) et le lien interne
+ * porté par la validation (`link`, chemin seul — jamais une adresse externe, jamais une requête).
+ */
+export function cheminsDeLObjetLie(v: { entityType: string | null; entityId: string | null; link: string | null }): string[] {
+  const chemins = new Set<string>();
+  if (v.entityType === "ADMIN_REQUEST" && v.entityId) chemins.add(`/demandes/${v.entityId}`);
+  const lien = v.link?.trim() ?? "";
+  if (lien.startsWith("/") && !lien.startsWith("//")) {
+    const chemin = lien.split(/[?#]/)[0];
+    if (chemin.length > 1) chemins.add(chemin);
+  }
+  return [...chemins];
+}
+
+/**
  * LA REPRISE D'UNE DEMANDE RENVOYÉE — quelles étapes rouvrir, et où reprend le circuit.
  *
  * Le circuit reprend À L'ÉTAPE QUI A RENVOYÉ : la personne qui a demandé la correction juge la

@@ -225,6 +225,9 @@ export function RequestActions({
           <p className="text-xs text-muted-foreground">Choisissez qui doit valider (opérations, direction, autre). La demande arrive dans leur bureau « Demandes de validations ».</p>
           <Field label="Validateur"><Select name="validatorId" required defaultValue=""><option value="" disabled>Choisir…</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</Select></Field>
           <Field label="2ᵉ validateur (optionnel)"><Select name="validator2Id" defaultValue=""><option value="">—</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</Select></Field>
+          {/* Deux validateurs = deux accords, l'un après l'autre (Direction, 06/10) : le premier « je valide »
+              n'est pas la fin du circuit, et l'écran le disait nulle part. */}
+          <p className="text-xs text-muted-foreground">Avec deux validateurs, le second décide après le premier : la demande n&apos;est validée qu&apos;avec les deux accords.</p>
           <Field label="Commentaire"><Textarea name="comment" /></Field>
           <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setInternal(false)}>Annuler</Button><Button type="submit" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer</Button></div>
         </form>
