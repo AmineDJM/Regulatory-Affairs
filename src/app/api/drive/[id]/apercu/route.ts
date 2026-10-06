@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { makeEditToken, appBaseUrl, fileExt } from "@/lib/onlyoffice";
-import { aConvertirEnPdf } from "@/lib/formats/apercu";
+import { apercuParServeur } from "@/lib/formats/apercu";
 import { pdfDApercu, reponseApercu } from "@/lib/apercu-pdf";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +19,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const node = await prisma.driveNode.findUnique({ where: { id: params.id }, select: { name: true, mimeType: true, type: true } });
   if (!node || node.type !== "FILE") return NextResponse.json({ error: "Introuvable" }, { status: 404 });
-  if (!aConvertirEnPdf(node.name, node.mimeType)) {
-    return NextResponse.json({ error: "Ce format s'affiche directement : pas de conversion nécessaire." }, { status: 400 });
+  if (!apercuParServeur(node.name, node.mimeType)) {
+    return NextResponse.json({ error: "Ce format n'a pas d'aperçu préparé par le serveur." }, { status: 400 });
   }
   const version = await prisma.fileVersion.findFirst({ where: { nodeId: params.id }, orderBy: { version: "desc" }, select: { version: true } });
   if (!version) return NextResponse.json({ error: "Aucun contenu." }, { status: 404 });

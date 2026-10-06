@@ -28,6 +28,24 @@ describe("l'aperçu universel — une table, tous les écrans", () => {
     }
   });
 
+  it("Word, Excel et PowerPoint passent par le serveur d'abord ; la visionneuse du navigateur n'est que le secours", () => {
+    const src = lire("src/components/documents/apercu-universel.tsx");
+    for (const v of ["DocxView", "XlsxView", "PptxView"]) {
+      expect(src, v).toMatch(new RegExp(`<VueConvertie[^>]*secours=\\{<${v} `));
+    }
+    expect(lire("src/app/api/drive/[id]/apercu/route.ts")).toContain("apercuParServeur(");
+    expect(lire("src/app/api/documents/[id]/apercu/route.ts")).toContain("apercuParServeur(");
+  });
+
+  it("le dossier envoyé en messagerie est archivé par le serveur : plus de JSZip dans le navigateur", () => {
+    expect(lire("src/app/(app)/messages/composer.tsx")).not.toContain("jszip");
+    expect(lire("src/app/(app)/messages/composer.tsx")).toContain("/api/messaging/upload-dossier");
+    const route = lire("src/app/api/messaging/upload-dossier/route.ts");
+    expect(route).toContain("ecrireZip(");
+    expect(route).toContain("getCurrentUserPourEcrire()");
+    expect(route).toContain("canAccessConversation(");
+  });
+
   it("l'HTML d'un tiers ne s'exécute jamais dans l'application (cadre isolé)", () => {
     expect(lire("src/components/documents/apercu-universel.tsx")).toContain('sandbox=""');
   });

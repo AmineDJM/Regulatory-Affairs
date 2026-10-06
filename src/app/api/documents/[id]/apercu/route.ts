@@ -4,7 +4,7 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { peutLirePasseportDuSujet } from "@/lib/ad-pro/passeport-acces";
 import { prisma } from "@/lib/prisma";
 import { makeDocEditToken, appBaseUrl, fileExt } from "@/lib/onlyoffice";
-import { aConvertirEnPdf } from "@/lib/formats/apercu";
+import { apercuParServeur } from "@/lib/formats/apercu";
 import { pdfDApercu, reponseApercu } from "@/lib/apercu-pdf";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     || (await peutLirePasseportDuSujet(user.id, doc));
   if (!allowed) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   if (!doc.fileKey) return NextResponse.json({ error: "Aucun fichier binaire associé (métadonnées uniquement)." }, { status: 404 });
-  if (!aConvertirEnPdf(doc.name, doc.mimeType)) {
-    return NextResponse.json({ error: "Ce format s'affiche directement : pas de conversion nécessaire." }, { status: 400 });
+  if (!apercuParServeur(doc.name, doc.mimeType)) {
+    return NextResponse.json({ error: "Ce format n'a pas d'aperçu préparé par le serveur." }, { status: 400 });
   }
 
   try {

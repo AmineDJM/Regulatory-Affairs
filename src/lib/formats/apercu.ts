@@ -82,8 +82,19 @@ export function natureApercu(nom: string, mime?: string | null): NatureApercu {
   return "autre";
 }
 
-/** Faut-il passer par l'éditeur Office pour AFFICHER ce fichier ? */
+/** Faut-il passer par l'éditeur Office pour AFFICHER ce fichier ? (formats que le navigateur ne sait pas lire seul) */
 export const aConvertirEnPdf = (nom: string, mime?: string | null): boolean => natureApercu(nom, mime) === "converti";
+
+/**
+ * L'APERÇU SE PRÉPARE SUR LE SERVEUR — la capacité des PC des utilisateurs est limitée (Direction, 06/10) : ni
+ * Word, ni Excel, ni PowerPoint ne sont décodés dans le navigateur quand le serveur peut en tirer un PDF. Le
+ * serveur convertit (éditeur Office), garde la copie quelques minutes, et le PC n'affiche qu'un PDF. Si le
+ * serveur ne peut pas (éditeur absent ou en panne), la visionneuse du navigateur reste le SECOURS.
+ */
+export const apercuParServeur = (nom: string, mime?: string | null): boolean => {
+  const n = natureApercu(nom, mime);
+  return n === "converti" || n === "docx" || n === "xlsx" || n === "pptx";
+};
 
 /** Les extensions que l'éditeur Office sait rendre en PDF — pour dire ce qui est admis dans un refus. */
 export const EXTENSIONS_CONVERTIBLES: readonly string[] = CONVERTI;

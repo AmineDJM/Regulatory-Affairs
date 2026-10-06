@@ -51,12 +51,14 @@ function Rendu({ nature, src, apercuSrc, name, telechargement }: {
       return <audio src={src} controls className="w-full" />;
     case "pdf":
       return <iframe src={src} title={name} className="h-[78vh] w-full rounded-lg border border-border bg-white" />;
+    // LE SERVEUR D'ABORD (PC des utilisateurs limités) : Word, Excel et PowerPoint sont rendus en PDF par l'éditeur Office
+    // et le PC n'affiche qu'un PDF. La visionneuse du navigateur n'est que le SECOURS (éditeur absent, en panne, refus).
     case "docx":
-      return <DocxView src={src} name={name} />;
+      return <VueConvertie apercuSrc={apercuSrc} name={name} telechargement={telechargement} secours={<DocxView src={src} name={name} />} />;
     case "xlsx":
-      return <XlsxView src={src} name={name} />;
+      return <VueConvertie apercuSrc={apercuSrc} name={name} telechargement={telechargement} secours={<XlsxView src={src} name={name} />} />;
     case "pptx":
-      return <PptxView src={src} name={name} />;
+      return <VueConvertie apercuSrc={apercuSrc} name={name} telechargement={telechargement} secours={<PptxView src={src} name={name} />} />;
     case "texte":
       return <VueTexte src={src} name={name} telechargement={telechargement} />;
     case "html":
@@ -129,7 +131,7 @@ function VueHtml({ src, name, telechargement }: { src: string; name: string; tel
   );
 }
 
-function VueConvertie({ apercuSrc, name, telechargement }: { apercuSrc: string; name: string; telechargement: string }) {
+function VueConvertie({ apercuSrc, name, telechargement, secours }: { apercuSrc: string; name: string; telechargement: string; secours?: React.ReactNode }) {
   const [etat, setEtat] = React.useState<{ chargement: boolean; url: string | null; erreur: string | null }>({ chargement: true, url: null, erreur: null });
   React.useEffect(() => {
     let vivant = true;
@@ -146,6 +148,8 @@ function VueConvertie({ apercuSrc, name, telechargement }: { apercuSrc: string; 
     return () => { vivant = false; if (objet) URL.revokeObjectURL(objet); };
   }, [apercuSrc]);
   if (etat.chargement) return <Attente />;
+  // Le serveur n'a pas pu préparer le PDF : la visionneuse du navigateur prend le relais quand elle existe.
+  if ((etat.erreur || !etat.url) && secours) return <>{secours}</>;
   if (etat.erreur || !etat.url) return <SansApercu nom={name} telechargement={telechargement} raison={etat.erreur ?? "Aperçu impossible."} />;
   return <iframe src={etat.url} title={name} className="h-[78vh] w-full rounded-lg border border-border bg-white" />;
 }
