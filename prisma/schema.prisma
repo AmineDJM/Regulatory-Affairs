@@ -4180,6 +4180,9 @@ model CompanyContact {
   name        String
   /// Nature libre : « Agence de voyage », « Livreur », « Imprimeur », « Agence marketing »…
   kind        String?
+  /// PRIVE (prestataires, l'annuaire « Partenaires ») · PUBLIC (ministères, PCH, ANPP, DSP… l'annuaire « Partenaires
+  /// publics »). Même fiche, même écran : seule la porte change (Direction, 06/10).
+  sphere      String   @default("PRIVE")
   contactName String? // la personne qu'on demande
   phone       String?
   phoneAlt    String?
@@ -6187,6 +6190,12 @@ model Supplier {
   name         String
   country      String?
   contactEmail String?
+  /// LES COORDONNÉES de l'annuaire « Fournisseurs Regulatory » (Direction, 06/10) — un annuaire comme les autres.
+  contactName  String?
+  phone        String?
+  website      String?
+  address      String?
+  city         String?
   active       Boolean  @default(true)
   notes        String?
   createdById  String?

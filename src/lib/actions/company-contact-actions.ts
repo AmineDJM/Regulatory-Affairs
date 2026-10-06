@@ -21,7 +21,13 @@ import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
  * dont personne ne se sert.
  */
 
-const PATH = "/mon-espace/annuaire";
+/** Les portes de l'annuaire des partenaires : Mon espace, et les deux onglets du module Annuaires. */
+const PATHS = ["/mon-espace/annuaire", "/annuaires/partenaires", "/annuaires/partenaires-publics"] as const;
+const revaliderAnnuaire = () => { for (const p of PATHS) revalidatePath(p); };
+
+/** La sphère d'un contact : PUBLIC (ministères, PCH, ANPP…) ou PRIVE. Elle décide de l'annuaire, donc du droit. */
+const sphereDe = (v: unknown): "PRIVE" | "PUBLIC" => (v === "PUBLIC" ? "PUBLIC" : "PRIVE");
+const annuaireDe = (s: "PRIVE" | "PUBLIC") => (s === "PUBLIC" ? "PARTENAIRES_PUBLICS" as const : "PARTENAIRES" as const);
 
 /** Les champs libres d'un contact, lus une seule fois — création et modification s'accordent. */
 function readContact(formData: FormData) {
@@ -53,8 +59,9 @@ export async function createCompanyContact(_prev: ActionResult | undefined, form
   const user = await requireUser();
   // L'ANNUAIRE DES PARTENAIRES (§118.147) : les Moyens généraux, OU l'annuaire ouvert en écriture
   // pour cette personne depuis la console — la même règle que les deux écrans qui le montrent.
-  if (!peutAnnuaire(user, "PARTENAIRES", "CREATE")) return { ok: false, error: "Non autorisé." };
-  const data = readContact(formData);
+  const sphere = sphereDe(formData.get("sphere"));
+  if (!peutAnnuaire(user, annuaireDe(sphere), "CREATE")) return { ok: false, error: "Non autorisé." };
+  const data = { ...readContact(formData), sphere };
   if (!data.name) return { ok: false, error: "Le nom du contact est obligatoire." };
 
   const companyRaw = formData.get("companyId");
@@ -69,7 +76,7 @@ export async function createCompanyContact(_prev: ActionResult | undefined, form
     actorId: user.id, action: "CREATE", module: "Moyens généraux",
     summary: `Contact « ${data.name} »${data.kind ? ` (${data.kind})` : ""} ajouté à l'annuaire d'entreprise`,
   });
-  revalidatePath(PATH);
+  revaliderAnnuaire();
   return { ok: true, id: created.id };
 }
 
@@ -77,11 +84,11 @@ export async function updateCompanyContact(formData: FormData): Promise<ActionRe
   const user = await requireUser();
   // L'ANNUAIRE DES PARTENAIRES (§118.147) : les Moyens généraux, OU l'annuaire ouvert en écriture
   // pour cette personne depuis la console — la même règle que les deux écrans qui le montrent.
-  if (!peutAnnuaire(user, "PARTENAIRES", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Contact introuvable." };
-  const existing = await prisma.companyContact.findUnique({ where: { id }, select: { name: true, companyId: true } });
+  const existing = await prisma.companyContact.findUnique({ where: { id }, select: { name: true, companyId: true, sphere: true } });
   if (!existing) return { ok: false, error: "Contact introuvable." };
+  if (!peutAnnuaire(user, annuaireDe(sphereDe(existing.sphere)), "UPDATE")) return { ok: false, error: "Non autorisé." };
   // On ne corrige pas le contact d'une société qu'on ne voit pas, même en devinant l'identifiant.
   if (!(await companyAllowed(user.id, existing.companyId))) {
     return { ok: false, error: "Ce contact n'est pas dans votre périmètre." };
@@ -110,7 +117,7 @@ export async function updateCompanyContact(formData: FormData): Promise<ActionRe
     actorId: user.id, action: "UPDATE", module: "Moyens généraux",
     summary: `Contact « ${existing.name}${data.name !== existing.name ? ` → ${data.name}` : ""} » corrigé`,
   });
-  revalidatePath(PATH);
+  revaliderAnnuaire();
   return { ok: true };
 }
 
@@ -126,11 +133,11 @@ export async function deleteCompanyContact(formData: FormData): Promise<ActionRe
   const user = await requireUser();
   // L'ANNUAIRE DES PARTENAIRES (§118.147) : les Moyens généraux, OU l'annuaire ouvert en écriture
   // pour cette personne depuis la console — la même règle que les deux écrans qui le montrent.
-  if (!peutAnnuaire(user, "PARTENAIRES", "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Contact introuvable." };
-  const existing = await prisma.companyContact.findUnique({ where: { id }, select: { name: true, companyId: true } });
+  const existing = await prisma.companyContact.findUnique({ where: { id }, select: { name: true, companyId: true, sphere: true } });
   if (!existing) return { ok: false, error: "Contact introuvable." };
+  if (!peutAnnuaire(user, annuaireDe(sphereDe(existing.sphere)), "DELETE")) return { ok: false, error: "Non autorisé." };
   if (!(await companyAllowed(user.id, existing.companyId))) {
     return { ok: false, error: "Ce contact n'est pas dans votre périmètre." };
   }
@@ -140,6 +147,6 @@ export async function deleteCompanyContact(formData: FormData): Promise<ActionRe
     actorId: user.id, action: "DELETE", module: "Moyens généraux",
     summary: `Contact « ${existing.name} » retiré de l'annuaire d'entreprise`,
   });
-  revalidatePath(PATH);
+  revaliderAnnuaire();
   return { ok: true };
 }

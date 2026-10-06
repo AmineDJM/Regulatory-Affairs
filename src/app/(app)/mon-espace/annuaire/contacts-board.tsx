@@ -27,9 +27,14 @@ export type { ContactRow };
  * Les numéros se COPIENT d'un clic : les recopier à la main dans un message est exactement le
  * geste où l'on inverse deux chiffres.
  */
+/** Les natures proposées pour un PARTENAIRE PUBLIC — libres comme les autres, ceci n'est qu'une aide. */
+const KINDS_PUBLICS = ["Ministère", "Pharmacie centrale (PCH)", "ANPP", "Direction de la santé (DSP)", "CNAS", "CASNOS", "Douanes", "Wilaya", "Hôpital (administration)", "Institut Pasteur", "Autre organisme public"];
+
 export function ContactsBoard({
-  contacts, companies, canCreate, canEdit, canDelete,
+  contacts, companies, canCreate, canEdit, canDelete, sphere = "PRIVE",
 }: {
+  /** PUBLIC = l'annuaire « Partenaires publics » : un contact créé ici en fait partie. */
+  sphere?: "PRIVE" | "PUBLIC";
   contacts: ContactRow[];
   companies: { id: string; label: string }[];
   canCreate: boolean;
@@ -79,7 +84,7 @@ export function ContactsBoard({
         )}
         {canCreate && (
           <Button size="sm" onClick={() => { setErr(null); setAdding(true); }}>
-            <Plus className="h-4 w-4" /> Nouveau contact
+            <Plus className="h-4 w-4" /> {sphere === "PUBLIC" ? "Nouveau partenaire public" : "Nouveau contact"}
           </Button>
         )}
       </div>
@@ -147,10 +152,11 @@ export function ContactsBoard({
 
       {adding && (
         <ContactSheet
-          title="Nouveau contact" companies={companies} defaults={{}} busy={busy} err={err}
+          title={sphere === "PUBLIC" ? "Nouveau partenaire public" : "Nouveau contact"} companies={companies} defaults={{}} busy={busy} err={err} sphere={sphere}
           onClose={() => setAdding(false)}
           onSubmit={async (fd) => {
             setBusy(true); setErr(null);
+            fd.set("sphere", sphere);
             const r = await createCompanyContact(undefined, fd);
             setBusy(false);
             if (r.ok) { setAdding(false); router.refresh(); } else setErr(r.error ?? "Échec.");
@@ -160,7 +166,7 @@ export function ContactsBoard({
 
       {editing && (
         <ContactSheet
-          title={editing.name} companies={companies} defaults={editing} busy={busy} err={err} showActive
+          title={editing.name} companies={companies} defaults={editing} busy={busy} err={err} showActive sphere={sphere}
           onClose={() => setEditing(null)}
           onSubmit={async (fd) => {
             setBusy(true); setErr(null);
@@ -206,8 +212,9 @@ function CopyLine({ icon: I, value, href, external }: { icon: React.ElementType;
 }
 
 function ContactSheet({
-  title, companies, defaults, busy, err, showActive, onClose, onSubmit,
+  title, companies, defaults, busy, err, showActive, onClose, onSubmit, sphere = "PRIVE",
 }: {
+  sphere?: "PRIVE" | "PUBLIC";
   title: string;
   companies: { id: string; label: string }[];
   defaults: Partial<ContactRow>;
@@ -226,9 +233,9 @@ function ContactSheet({
               qu'une liste fermée ne les prévoit (« sérigraphie », « standiste », « douanes »). */}
           <div className="space-y-1.5">
             <Label htmlFor="cc-kind">Nature</Label>
-            <Input id="cc-kind" name="kind" list="contact-kinds" defaultValue={defaults.kind ?? ""} placeholder="Imprimeur, agence de voyage…" />
+            <Input id="cc-kind" name="kind" list="contact-kinds" defaultValue={defaults.kind ?? ""} placeholder={sphere === "PUBLIC" ? "Ministère, PCH, ANPP, DSP…" : "Imprimeur, agence de voyage…"} />
             <datalist id="contact-kinds">
-              {CONTACT_KIND_SUGGESTIONS.map((k) => <option key={k} value={k} />)}
+              {(sphere === "PUBLIC" ? KINDS_PUBLICS : CONTACT_KIND_SUGGESTIONS).map((k) => <option key={k} value={k} />)}
             </datalist>
           </div>
           <Field name="contactName" label="Personne à demander" defaultValue={defaults.contactName} />

@@ -21,7 +21,9 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
  * courrier de l'entreprise : ça se trace comme un geste de sécurité, pas comme une préférence.
  */
 
-const PATH = "/mon-espace/annuaire";
+/** Les deux portes de l'annuaire des personnes : Mon espace, et le module Annuaires. */
+const PATHS = ["/mon-espace/annuaire", "/annuaires/personnes"] as const;
+const revaliderAnnuaire = () => { for (const p of PATHS) revalidatePath(p); };
 
 /** Le refus, dit une fois — même phrase partout, pour que la règle soit lisible. */
 const DENIED = "Vous n'avez pas le droit de modifier l'annuaire de l'entreprise.";
@@ -59,7 +61,7 @@ export async function ensureDirectoryEntry(formData: FormData): Promise<ActionRe
     actorId: user.id, action: "CREATE", module: "Annuaire",
     entityId: created.id, summary: `Entrée d'annuaire créée — ${displayName}`,
   });
-  revalidatePath(PATH);
+  revaliderAnnuaire();
   return { ok: true, id: created.id };
 }
 
@@ -85,7 +87,7 @@ export async function updateDirectoryEntry(formData: FormData): Promise<ActionRe
     actorId: user.id, action: "UPDATE", module: "Annuaire", entityId: id,
     summary: `Entrée d'annuaire mise à jour (alias : ${aliases.join(", ") || "aucun"})`,
   });
-  revalidatePath(PATH);
+  revaliderAnnuaire();
   return { ok: true };
 }
 
@@ -142,7 +144,7 @@ export async function addDirectoryEndpoint(formData: FormData): Promise<ActionRe
     actorId: user.id, action: "UPDATE", module: "Annuaire", entityId: entryId,
     summary: `Coordonnée ${rawChannel.toLowerCase()} enregistrée — ${value}${isPrimary ? " (principale)" : ""} [${confidence}]`,
   });
-  revalidatePath(PATH);
+  revaliderAnnuaire();
   return { ok: true };
 }
 
@@ -166,6 +168,44 @@ export async function deactivateDirectoryEndpoint(formData: FormData): Promise<A
     actorId: user.id, action: "UPDATE", module: "Annuaire", entityId: ep.entryId,
     summary: `Coordonnée désactivée — ${ep.value}`,
   });
-  revalidatePath(PATH);
+  revaliderAnnuaire();
+  return { ok: true };
+}
+
+/**
+ * MODIFIE une coordonnée — sa valeur, son usage, sa fiabilité, « principale ». Une nouvelle valeur qui existe déjà sur
+ * le même canal est refusée plutôt que fusionnée en silence. Marquer principale dégrade l'ancienne du même canal.
+ */
+export async function updateDirectoryEndpoint(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canEditDirectory(user)) return { ok: false, error: DENIED };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Coordonnée introuvable." };
+  const ep = await prisma.directoryEndpoint.findUnique({ where: { id }, select: { entryId: true, channel: true, value: true } });
+  if (!ep) return { ok: false, error: "Coordonnée introuvable." };
+  const value = normalizeEndpointValue(ep.channel, fdStr(formData, "value") ?? "");
+  if (!value) return { ok: false, error: ep.channel === "EMAIL" ? "Adresse e-mail invalide." : "Numéro invalide." };
+  if (value !== ep.value) {
+    const doublon = await prisma.directoryEndpoint.findUnique({ where: { entryId_channel_value: { entryId: ep.entryId, channel: ep.channel, value } }, select: { id: true } });
+    if (doublon) return { ok: false, error: "Cette coordonnée existe déjà pour cette personne." };
+  }
+  const rawConfidence = (fdStr(formData, "confidence") ?? "").toUpperCase();
+  const confidence = isConfidence(rawConfidence) ? rawConfidence : undefined;
+  const isPrimary = fdStr(formData, "isPrimary") === "on" || fdStr(formData, "isPrimary") === "true";
+  await prisma.$transaction(async (tx) => {
+    if (isPrimary) await tx.directoryEndpoint.updateMany({ where: { entryId: ep.entryId, channel: ep.channel, isPrimary: true, id: { not: id } }, data: { isPrimary: false } });
+    await tx.directoryEndpoint.update({
+      where: { id },
+      data: {
+        value, label: fdStr(formData, "label") || null, isPrimary,
+        ...(confidence ? { confidence, ...(confidence === EndpointConfidence.VERIFIED_INTERNAL ? { verifiedById: user.id, verifiedAt: new Date() } : {}) } : {}),
+      },
+    });
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Annuaire", entityId: ep.entryId,
+    field: "coordonnee", oldValue: ep.value, newValue: value, summary: `Coordonnée ${ep.channel.toLowerCase()} modifiée — ${ep.value} → ${value}`,
+  });
+  revaliderAnnuaire();
   return { ok: true };
 }

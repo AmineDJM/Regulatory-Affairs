@@ -371,10 +371,11 @@ export interface AnnuairePartenaires {
 }
 
 /** Les contacts EXTERNES de la société — agence, livreur, transitaire —, dans le périmètre d'entité. */
-export async function chargerPartenaires(user: SessionUser): Promise<AnnuairePartenaires> {
+export async function chargerPartenaires(user: SessionUser, sphere: "PRIVE" | "PUBLIC" = "PRIVE"): Promise<AnnuairePartenaires> {
   const [contacts, myCompanies] = await Promise.all([
     prisma.companyContact.findMany({
-      where: await companyScopedWhere(user.id, {}),
+      // LA SPHÈRE fait l'annuaire : « Partenaires » (prestataires) ou « Partenaires publics » (Direction, 06/10).
+      where: { AND: [await companyScopedWhere(user.id, {}), { sphere }] },
       include: { company: { select: { name: true, shortName: true } } },
       orderBy: [{ name: "asc" }],
     }),
@@ -408,7 +409,7 @@ export async function chargerPersonnes(): Promise<DirectoryPerson[]> {
       user: { select: { email: true } },
       directoryEntry: {
         select: {
-          id: true, aliases: true,
+          id: true, aliases: true, location: true, notes: true,
           endpoints: {
             where: { isActive: true },
             orderBy: [{ isPrimary: "desc" }, { channel: "asc" }],
@@ -437,6 +438,8 @@ export async function chargerPersonnes(): Promise<DirectoryPerson[]> {
       employeeId: e.id,
       entryId: e.directoryEntry?.id ?? null,
       aliases: e.directoryEntry?.aliases ?? [],
+      location: e.directoryEntry?.location ?? null,
+      notes: e.directoryEntry?.notes ?? null,
       endpoints: endpoints.map((p) => ({
         id: p.id, channel: p.channel, value: p.value, label: p.label,
         confidence: p.confidence, isPrimary: p.isPrimary,
@@ -445,53 +448,4 @@ export async function chargerPersonnes(): Promise<DirectoryPerson[]> {
     };
   });
 }
-
-// ── LES AUTRES ANNUAIRES — ce que le concentrateur NOMME sans le redire ─────────────────────
-
-export interface AutreAnnuaire {
-  cle: string;
-  titre: string;
-  description: string;
-  href: string;
-  /** Le nombre de fiches, ou `null` quand la personne n'a pas le droit de le voir. */
-  compte: number | null;
-}
-
-/**
- * Les annuaires qui ont leur propre écran ailleurs : on les NOMME et on y mène, on ne les
- * redessine pas ici — un second écran des fournisseurs ferait deux écrans qui divergent.
- * Le compte n'est calculé que si la personne a le module : le nombre de fabricants référencés
- * n'est pas une information pour qui n'a pas Regulatory.
- */
-export async function chargerAutresAnnuaires(droits: {
-  regulatorySuppliers: boolean; courriers: boolean; stocks: boolean; specialites: boolean;
-}): Promise<AutreAnnuaire[]> {
-  const [fournisseurs, partenairesCourrier, lieux, specialites] = await Promise.all([
-    droits.regulatorySuppliers ? prisma.supplier.count() : Promise.resolve(null),
-    droits.courriers ? prisma.mailPartner.count() : Promise.resolve(null),
-    droits.stocks ? prisma.stockAnnex.count() : Promise.resolve(null),
-    droits.specialites ? prisma.medicalSpecialty.count() : Promise.resolve(null),
-  ]);
-  return [
-    {
-      cle: "specialites", titre: "Spécialités médicales",
-      description: "Le référentiel des spécialités auquel se rattachent les praticiens.",
-      href: "/medical", compte: specialites,
-    },
-    {
-      cle: "fournisseurs", titre: "Fournisseurs Regulatory",
-      description: "Les fabricants référencés dans les dossiers d'enregistrement, et leurs comptes du portail externe.",
-      href: "/admin/suppliers", compte: fournisseurs,
-    },
-    {
-      cle: "courriers", titre: "Partenaires du registre des courriers",
-      description: "Expéditeurs et destinataires du carnet entrant / sortant de l'assistante de direction.",
-      href: "/courriers", compte: partenairesCourrier,
-    },
-    {
-      cle: "stocks", titre: "Lieux de stock",
-      description: "Hôpitaux et annexes où l'on tient un état de stock PCH.",
-      href: "/stocks", compte: lieux,
-    },
-  ];
-}
+

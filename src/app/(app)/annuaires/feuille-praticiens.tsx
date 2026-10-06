@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { userCan, peutAnnuaire, annuaireOuvertParConsole, peutGererSpecialites, type SessionUser } from "@/lib/rbac";
 import { chargerFeuillePraticiens, type FiltreGrade } from "@/lib/queries/annuaires";
@@ -48,7 +49,8 @@ export async function FeuillePraticiensHub({
   };
   const feuille = await chargerFeuillePraticiens(user, {
     annuaire: medecins ? null : annuaire, grade, canManage: canManageStructure,
-    specialitesVides: medecins && (gerer.creer || gerer.modifier || gerer.supprimer),
+    // La GESTION des spécialités a une porte unique, Marketing cockpit (Direction, 06/10) : la barre ne les liste que si elles ont des médecins.
+    specialitesVides: false,
     entier: annuaireOuvertParConsole(user, cle, "VIEW"),
     // L'annuaire par spécialité ne concerne que les médecins ; l'archivage, les deux grades.
     specialite: grade === "medecins" ? specialite : null,
@@ -81,11 +83,14 @@ export async function FeuillePraticiensHub({
         />
       )}
       <BarreSpecialites
-        basePath={basePath} annuaire={medecins ? null : annuaire} gerer={medecins ? gerer : undefined}
+        basePath={basePath} annuaire={medecins ? null : annuaire} gerer={undefined}
         specialites={feuille.annuairesSpecialite} sansSpecialite={feuille.sansSpecialiteCount}
         ouverte={feuille.specialiteOuverte} archives={feuille.archives} archivesCount={feuille.archivesCount}
         avecSpecialites={grade === "medecins"}
       />
+      {medecins && (gerer.creer || gerer.modifier || gerer.supprimer) && (
+        <p className="text-xs text-muted-foreground">Ajouter, renommer ou supprimer une spécialité se fait dans <Link href="/marketing-cockpit/specialites" className="text-primary underline">Marketing cockpit › Spécialités</Link>.</p>
+      )}
       <AnnuaireGrid
         archives={feuille.archives}
         rows={feuille.rows} etablissements={feuille.etablissements} couleurs={feuille.couleurs} customColumns={feuille.customColumns}

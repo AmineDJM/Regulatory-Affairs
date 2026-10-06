@@ -1792,12 +1792,13 @@ export const ANNUAIRES_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Médecins", href: "/annuaires/medecins", annuaire: "MEDECINS" },
   { module: "MEDICAL", label: "Pharmaciens", href: "/annuaires/pharmaciens", annuaire: "PHARMACIENS" },
   { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements", annuaire: "ETABLISSEMENTS" },
-  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — une STRUCTURE de l'annuaire : il s'ouvre par la
-  // Promotion médicale, pas par une case « Médecins » de la console (§118.147).
-  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites", regle: "specialites" },
+  // LES SPÉCIALITÉS ne sont plus un onglet des Annuaires (Direction, 06/10) : une porte d'entrée UNIQUE, Marketing
+  // cockpit › Spécialités. « Autres annuaires » disparaît : ses fournisseurs deviennent un annuaire à part entière ;
+  // les partenaires du courrier et les lieux de stock restent dans leurs modules.
   { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
+  { module: "WORKSPACE", label: "Partenaires publics", href: "/annuaires/partenaires-publics", annuaire: "PARTENAIRES_PUBLICS" },
+  { module: "DIRECTORIES", label: "Fournisseurs Regulatory", href: "/annuaires/fournisseurs", annuaire: "FOURNISSEURS" },
   { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes", annuaire: "PERSONNES" },
-  { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },
 ];
 
 /**

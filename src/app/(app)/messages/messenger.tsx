@@ -243,7 +243,8 @@ export function Messenger({
   const handleDelete = (messageId: string) => {
     patchMessage(messageId, (m) => ({ ...m, deleted: true, body: "", attachments: [], reactions: [] }));
     const f = new FormData(); f.set("id", messageId);
-    deleteMessage(f).then(() => pollThread());
+    // La liste des conversations se relit aussi : son aperçu ne doit plus montrer le message supprimé.
+    deleteMessage(f).then(() => { pollThread(); refreshSync(); });
   };
 
   const handleSaveEdit = async (messageId: string, body: string): Promise<boolean> => {

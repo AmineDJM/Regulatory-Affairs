@@ -100,6 +100,9 @@ export interface DirectoryPerson {
   employeeId: string | null;
   entryId: string | null;
   aliases: string[];
+  /** Ce que l'annuaire porte EN PROPRE : lieu (bureau, site) et notes. */
+  location: string | null;
+  notes: string | null;
   endpoints: {
     id: string;
     channel: "EMAIL" | "PHONE" | "WHATSAPP";

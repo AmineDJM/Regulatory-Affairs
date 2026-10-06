@@ -1096,6 +1096,12 @@ X("RATTACHEMENT AUTOMATIQUE DES PRATICIENS À LEUR ÉTABLISSEMENT (Direction, 06
   + "(cellule, ajout, import). Adam est en pause de développement (Super Admin seul).", [
   "medical-directory-actions:rattacherAutomatiquement",
 ]);
+X("ANNUAIRES (Direction, 06/10) : l'annuaire des FOURNISSEURS REGULATORY (ajouter, corriger, retirer — désactivé "
+  + "quand il porte des dossiers) et la MODIFICATION d'une coordonnée d'une personne. Des gestes d'écran, faits en "
+  + "regardant la fiche. Adam est en pause de développement (Super Admin seul).", [
+  "fournisseurs-annuaire-actions:creerFournisseurAnnuaire", "fournisseurs-annuaire-actions:modifierFournisseurAnnuaire",
+  "fournisseurs-annuaire-actions:retirerFournisseurAnnuaire", "directory-actions:updateDirectoryEndpoint",
+]);
 X("RÉPARTITION DES COÛTS PARTAGÉS D'UNE BU (cahier des charges §15, §85) : un geste des Finances qui décide quelle part "
   + "des dépenses de la BU revient à chaque produit pour l'année. Il se décide en regardant la vue 360° du produit "
   + "(direct, alloué, non alloué). Adam est en pause de développement (Super Admin seul).", [
