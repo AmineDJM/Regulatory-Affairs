@@ -142,6 +142,9 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
   const [fait, setFait] = React.useState<string | null>(null);
   // RENVOYER AU LIEU DE SIGNER (audit 360°, R09) : le motif est exigé, à l'écran comme à l'action.
   const [renvoi, setRenvoi] = React.useState<string | null>(null);
+  // LE BC SIGNÉ SUR PAPIER (Direction, 06/10) : la copie signée et le nom du signataire sont exigés.
+  const [signataire, setSignataire] = React.useState("");
+  const [copie, setCopie] = React.useState<File | null>(null);
   const jours = Math.floor((Date.now() - new Date(l.creeLe).getTime()) / 86_400_000);
   return (
     <li className="surface space-y-3 p-4">
@@ -180,12 +183,34 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
             Lire la pièce
           </a>
         ) : null}
-        {peutSigner && !fait && (
+      </div>
+      {peutSigner && !fait && renvoi === null && (
+        <div className="grid grid-cols-1 gap-2 rounded-lg bg-secondary/40 p-3 sm:grid-cols-2">
+          <label className="space-y-1 text-xs">
+            <span className="font-medium text-foreground">BC signé (scan ou photo) — obligatoire</span>
+            <input
+              type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*" aria-label="Bon de commande signé"
+              onChange={(e) => setCopie(e.target.files?.[0] ?? null)} className="block w-full text-xs"
+            />
+          </label>
+          <label className="space-y-1 text-xs">
+            <span className="font-medium text-foreground">Signé par — obligatoire</span>
+            <Input value={signataire} onChange={(e) => setSignataire(e.target.value)} placeholder="Nom et fonction du signataire" aria-label="Signataire" />
+          </label>
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            Luna regarde le bas de la copie : sans signature repérée, rien n&apos;est enregistré. La copie signée remplace le BC non signé dans Ad &amp; Pro, et la facture peut alors être déposée.
+          </p>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {peutSigner && !fait && renvoi === null && (
           <BoutonDecisif
-            size="sm" disabled={saving}
+            size="sm" disabled={saving || !copie || !signataire.trim()}
             onClick={() => {
               const fd = new FormData();
               fd.set("id", l.id);
+              fd.set("signataire", signataire.trim());
+              if (copie) fd.set("copieSignee", copie);
               void run(async () => {
                 const r = await signerBonDeCommande(fd);
                 if (r.ok) setFait(r.message ?? "Signé.");
@@ -194,7 +219,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
             }}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePen className="h-4 w-4" />}
-            Signer
+            Enregistrer le BC signé
           </BoutonDecisif>
         )}
         {peutSigner && !fait && renvoi === null && (

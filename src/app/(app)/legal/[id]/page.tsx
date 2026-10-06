@@ -24,7 +24,7 @@ import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { legalFields, dateInput } from "../legal-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditLegalButton } from "./edit-legal";
-import { ReviserPieceButton } from "./reviser-piece";
+import { ReviserPieceButton } from "@/components/legal/reviser-piece";
 import { EmettreAvoirButton } from "./emettre-avoir";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { PartagerButton } from "@/components/shared/partager-button";

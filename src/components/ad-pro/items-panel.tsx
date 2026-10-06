@@ -48,6 +48,7 @@ import type { PiecesDuPoste, PieceDePoste, DemandeBCDuPoste } from "@/lib/ad-pro
 import type { DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
 import { refusGenerationBC } from "@/lib/ad-pro/devis-poste";
 import { BlocBonDeCommande, PanneauLignesDevis } from "./devis-bc-poste";
+import { DeposerFactureBC, DemandePaiementBC, ControleDeFacture, bcsSansFacture } from "./facture-paiement-bc";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export type { LigneStockVue, ContexteMaterielStock, ArticleMagasinVue } from "./materiel-stock";
@@ -428,7 +429,7 @@ const RAFRAICHISSEMENT = "rafraichissement";
 
 type Panneau =
   | CleGeste | "MODIFIER" | "HISTORIQUE" | "MODIFIER_BC" | "RETIRER_BC" | "ANNULER_ORDRE" | "REVOIR_DECISION" | "REVISION_DEMANDEE"
-  | "DEVIS" | "FICHIERS_DU_POSTE" | "SECRETARIAT" | "DEMANDES_SECRETARIAT" | "DEMANDER_A_QUELQU_UN" | `LIGNES:${string}`;
+  | "DEVIS" | "FICHIERS_DU_POSTE" | "SECRETARIAT" | "DEMANDES_SECRETARIAT" | "DEMANDER_A_QUELQU_UN" | "FACTURE_BC" | `LIGNES:${string}`;
 
 /** Ce qu'un geste OUVRE (un petit formulaire) — seul « Soumettre » part au clic. */
 const GESTES_A_FORMULAIRE: readonly CleGeste[] = [
@@ -611,6 +612,9 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
   // DÉPOSER UN DEVIS : le demandeur ou qui arbitre (`ajouterDevisPoste`), tant que le poste vit et n'est pas payé.
   const peutDeposerDevis = (regard.canEdit || regard.canAllocate) && !regard.fige && !stock && item.status !== "REJECTED" && !item.expenseOrderId;
   const paiementOuvert = pas.geste?.cle === "DEMANDER_PAIEMENT";
+  // LA CASE FACTURE SE DÉBLOQUE À LA SIGNATURE DU BC (Direction, 06/10) — BC par BC : un poste à deux BC dépose la
+  // facture du premier signé sans attendre le second ; le paiement, lui, attend que tout soit signé et facturé.
+  const factureOuverte = !direct && (regard.canEdit || regard.canAllocate) && !item.expenseOrderId && bcsSansFacture(item.pieces.bcs, item.pieces.factures).length > 0;
   // LA GÉNÉRATION DU BC (§118.206) : la même règle que l'action (`refusGenerationBC`), jamais une copie.
   const peutGenerer = regard.canEdit && !stock && !direct && item.orderStage !== "ISSUED" && !item.expenseOrderId;
   const refusGeneration = refusGenerationBC({
@@ -836,7 +840,10 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
             accepte ? "Bon de commande accepté — il part à la signature." : "Bon de commande refusé — l'assistante est prévenue.").then(fermer);
         }} />
       )}
-      {panneau === "DEMANDER_PAIEMENT" && paiementOuvert && (
+      {(panneau === "FACTURE_BC" || (panneau === "DEMANDER_PAIEMENT" && paiementOuvert)) && factureOuverte && (
+        <DeposerFactureBC itemId={item.id} bcs={item.pieces.bcs} factures={item.pieces.factures} busy={busy} run={run} onClose={fermer} />
+      )}
+      {panneau === "DEMANDER_PAIEMENT" && paiementOuvert && direct && (
         <FormulairePiece
           titre={direct ? `Joindre la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} et demander le paiement` : "Déposer la facture du bon de commande et demander le paiement"}
           aide={direct
@@ -1013,7 +1020,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
 
       {/* 4. LES PIÈCES — la chaîne d'achat en trois cases alignées. */}
       {!stock && (
-        <div className={`grid grid-cols-1 gap-2 border-t border-border/70 pt-2 ${direct && !item.pieces.bc && item.orderStage === "NONE" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+        <div className={`grid grid-cols-1 gap-2 border-t border-border/70 pt-2 ${!direct ? "sm:grid-cols-2 lg:grid-cols-4" : !item.pieces.bc && item.orderStage === "NONE" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
           <CasePiece titre={direct ? LIBELLE_JUSTIFICATIF_DIRECT : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
             {item.pieces.devis.length === 0 ? (
               <p className="text-muted-foreground">—</p>
@@ -1047,6 +1054,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
                 refusGeneration={refusGeneration}
                 peutGenerer={peutGenerer}
                 peutJoindre={peutJoindreBC}
+                peutModifier={regard.canEdit && !regard.fige && !item.expenseOrderId}
                 busy={busy}
                 run={run}
                 onJoindre={() => basculer("DEMANDER_BC")}
@@ -1054,17 +1062,37 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
               />
             </CasePiece>
           )}
-          <CasePiece titre={direct ? "Facture (facultative)" : "Facture"} ajouter={paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined}>
+          <CasePiece
+            titre={direct ? "Facture (facultative)" : "Facture"}
+            ajouter={direct
+              ? (paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined)
+              : (factureOuverte && !enCours ? () => basculer("FACTURE_BC") : undefined)}
+          >
             {item.pieces.factures.length === 0 ? (
-              <p className="text-muted-foreground">{direct ? "Non exigée pour le paiement." : "Après la signature du BC."}</p>
-            ) : item.pieces.factures.map((f) => <LignePiece key={f.id} piece={f} />)}
+              <p className="text-muted-foreground">{direct ? "Non exigée pour le paiement." : factureOuverte ? "Le BC est signé : déposez la facture." : "Après la signature du BC."}</p>
+            ) : item.pieces.factures.map((f) => (
+              <div key={f.id} className="space-y-0.5">
+                <LignePiece piece={f} />
+                <ControleDeFacture piece={f} />
+              </div>
+            ))}
             {conseil("FACTURE")}
-            {item.expenseOrder && (
+            {direct && item.expenseOrder && (
               <p className="inline-flex items-center gap-1 text-muted-foreground">
                 <Receipt className="h-3 w-3" /> Paiement {item.expenseOrder.reference} · {item.expenseOrder.status === "PAID" ? "réglé" : "au centre de paiement"}
               </p>
             )}
           </CasePiece>
+          {/* LA DEMANDE DE PAIEMENT SE DÉCLENCHE quand chaque BC signé a sa facture (Direction, 06/10). */}
+          {!direct && (
+            <CasePiece titre="Demande de paiement">
+              <DemandePaiementBC
+                itemId={item.id} bcs={item.pieces.bcs} factures={item.pieces.factures} accorde={item.amountGranted}
+                peutDemander={(regard.canEdit || regard.canAllocate) && item.status === "APPROVED"}
+                expenseOrder={item.expenseOrder ?? null} busy={busy} run={run}
+              />
+            </CasePiece>
+          )}
         </div>
       )}
     </li>

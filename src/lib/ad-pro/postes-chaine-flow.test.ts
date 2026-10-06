@@ -40,6 +40,7 @@ import {
 } from "@/lib/actions/ad-pro-item-actions";
 import { submitDocumentRequest, decideDocumentRequest } from "@/lib/actions/document-request-actions";
 import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
 import { fileBonsDeCommande } from "@/lib/queries/bons-de-commande";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { ordreAFacture } from "@/lib/finance/facture-ordre";
@@ -210,12 +211,12 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
   async function bcSigne(id: string): Promise<string> {
     const doc = await bcEtabli(id);
     await comme("fin");
-    ok(await signerBonDeCommande(fd({ id: doc })));
+    ok(await signerBonDeCommande(avecCopieSignee(fd({ id: doc }))));
     return doc;
   }
   async function payer(id: string, montant: string, qui: keyof typeof ROLES = "kam", avecPiece = true) {
     await comme(qui);
-    const champs = { id, montant, reference: `${TAG}FA` };
+    const champs = { id, montant, reference: `${TAG}FA`, argumentation: "Écart connu et accepté (banc).", confirme: "1" };
     return demanderPaiementPoste(undefined, avecPiece ? avecFichier(champs, `${TAG}facture.pdf`) : fd(champs));
   }
   const file = async (qui: keyof typeof ROLES) => (await getActionCenter(await acteur(u[qui], ROLES[qui]) as unknown as SessionUser)).items;
@@ -485,7 +486,7 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
     expect(apres, "les Finances ont une file").not.toBeNull();
     if (!apres!.tronquee) expect(apres!.aSigner.some((l) => l.id === bc), "le BC est dans la file de signature des Finances").toBe(true);
     await comme("fin");
-    ok(await signerBonDeCommande(fd({ id: bc })));
+    ok(await signerBonDeCommande(avecCopieSignee(fd({ id: bc }))));
     expect((await etatDuBC(bc))?.etape).toBe("SIGNE");
   });
 
@@ -542,7 +543,7 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
     const avantSignature = await payer(id, "200000");
     expect(avantSignature.ok === false ? avantSignature.error : "payé").toMatch(/pas encore signé par les Finances/);
     await comme("fin");
-    ok(await signerBonDeCommande(fd({ id: bc })));
+    ok(await signerBonDeCommande(avecCopieSignee(fd({ id: bc }))));
 
     const sansFacture = await payer(id, "200000", "kam", false);
     expect(sansFacture.ok === false ? sansFacture.error : "payé").toMatch(/Joignez la facture/);
@@ -686,7 +687,7 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
     ok(await requestAdProItemOrder(undefined, fd({ id, note: "x", assistantId: u.ast1 })));
     await bcSigne(id);
     ACTOR = await acteur(u.kam, "MEDICAL_DELEGATE");
-    const unePaie = () => demanderPaiementPoste(undefined, avecFichier({ id, montant: "100000" }, `${TAG}facture.pdf`));
+    const unePaie = () => demanderPaiementPoste(undefined, avecFichier({ id, montant: "100000", argumentation: "Écart connu et accepté (banc).", confirme: "1" }, `${TAG}facture.pdf`));
     const [a, b] = await sousBarriere(() => [unePaie(), unePaie()]);
     expect([a.ok, b.ok].filter(Boolean), JSON.stringify([a, b])).toHaveLength(1);
     expect(await prisma.expenseOrder.count({ where: { sourceId: congres, label: { contains: "Goodies" } } })).toBe(1);

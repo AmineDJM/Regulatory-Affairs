@@ -59,6 +59,7 @@ import {
   validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste,
 } from "@/lib/actions/ad-pro-item-actions";
 import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { devisDesPostes } from "@/lib/queries/ad-pro-devis-poste";
 import { loadAdProItems } from "@/lib/queries/ad-pro-items";
@@ -658,7 +659,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     expect((await etatDuBC(bcB.id))?.etape, "un seul visa couvre les deux BC du poste").toBe("A_SIGNER");
     // Les Finances signent le BC B seulement.
     await comme("fin");
-    ok(await signerBonDeCommande(fd({ id: bcB.id })));
+    ok(await signerBonDeCommande(avecCopieSignee(fd({ id: bcB.id }))));
     expect((await etatDuBC(bcB.id))?.etape).toBe("SIGNE");
     expect((await piecesDesPostes([p1])).get(p1)!.bc?.etape, "le poste n'est pas signé tant qu'un de ses BC ne l'est pas").toBe("A_SIGNER");
 
@@ -676,11 +677,11 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     ok(r);
     expect(versionDe((await bcsDe(devA))[0].custom)).toBe(3);
     // Payer exige les DEUX signatures : la facture ne se dépose pas après le seul BC B.
-    expect(refus(await demanderPaiementPoste(undefined, (() => { const f = fd({ id: p1, montant: "300000", reference: `${TAG}FA` }); f.append("attachment", pdf(`${TAG}fa.pdf`)); return f; })())))
+    expect(refus(await demanderPaiementPoste(undefined, (() => { const f = fd({ id: p1, montant: "300000", reference: `${TAG}FA`, argumentation: "Écart connu et accepté (banc).", confirme: "1" }); f.append("attachment", pdf(`${TAG}fa.pdf`)); return f; })())))
       .toMatch(/pas encore signé par les Finances/);
     // Les Finances signent le BC A (révisé) : le poste est signé, la facture peut être déposée.
     await comme("fin");
-    ok(await signerBonDeCommande(fd({ id: bcA.id })));
+    ok(await signerBonDeCommande(avecCopieSignee(fd({ id: bcA.id }))));
     expect((await piecesDesPostes([p1])).get(p1)!.bc?.etape).toBe("SIGNE");
     // Les deux BC sont signés : plus aucune ligne de A ne bouge non plus.
     await comme("kam");
@@ -692,7 +693,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
 
   it("PAYÉ, LE POSTE NE GÉNÈRE PLUS : la facture est déposée sur le BC le moins avancé, et la génération se ferme avec la phrase du paiement", async () => {
     await comme("kam");
-    const f = fd({ id: p1, montant: "300000", reference: `${TAG}FA2` });
+    const f = fd({ id: p1, montant: "300000", reference: `${TAG}FA2`, argumentation: "Écart connu et accepté (banc).", confirme: "1" });
     f.append("attachment", pdf(`${TAG}fa2.pdf`));
     ok(await demanderPaiementPoste(undefined, f));
     expect(refus(await genererBonDeCommandePoste(fd({ id: p1 })))).toMatch(/paiement de ce poste est déjà demandé/);

@@ -115,6 +115,16 @@ export interface TeamPending {
   sansLien: string | null;
   /** Pour un congé : les absences de la même équipe qui partagent un jour avec lui (M19). */
   chevauchements: ChevauchementDeConge[];
+  /** Pour un congé : la décision depuis Mon Équipe, et la trace de la marche remontée (Direction, 06/10). */
+  conge?: CongeADecider;
+}
+
+/** Un congé à décider depuis Mon Équipe : à moi ou en attente plus haut, et ce qui a été remonté / redescendu. */
+export interface CongeADecider {
+  leaveId: string;
+  aMoi: boolean;
+  attendDe: string | null;
+  trace: { de: string; a: string; note: string | null; decision: "APPROVED" | "REJECTED" | null; noteDecision: string | null; le: string; decideLe: string | null }[];
 }
 
 /** Une période où deux personnes au moins d'une même équipe manquent ensemble, et le nom de cette équipe. */
@@ -205,12 +215,15 @@ export async function getMyTeam(user: SessionUser, opts: { maintenant?: Date } =
           { status: { in: ["APPROVED", "PENDING"] }, endDate: { gte: minuitUtc(aujourdhui) } },
           // Ce qui attend MA signature, même daté du passé : une demande oubliée attend toujours.
           { status: "PENDING", stage: "MANAGER", employeeId: { in: directs } },
+          // Une marche REMONTÉE jusqu'à moi (« demander à son N+1 », Direction 06/10), à toute profondeur de mon arbre.
+          { status: "PENDING", stage: "MANAGER", currentApproverId: user.id },
         ],
       },
       // Pas le TYPE (maladie, maternité…) : un encadrant a besoin de savoir qui manque, pas pourquoi (§118.184).
       select: {
         id: true, employeeId: true, startDate: true, endDate: true, days: true,
-        reason: true, status: true, stage: true, createdAt: true,
+        reason: true, status: true, stage: true, createdAt: true, currentApproverId: true,
+        escalations: { orderBy: { order: "asc" }, select: { order: true, fromUserId: true, toUserId: true, note: true, decision: true, decisionNote: true, askedAt: true, decidedAt: true } },
       },
       orderBy: { startDate: "asc" },
     }),
@@ -290,8 +303,13 @@ export async function getMyTeam(user: SessionUser, opts: { maintenant?: Date } =
   // Le congé se signe dans MON ESPACE, où chaque encadrant a le bloc « Congés qui attendent votre signature » —
   // `/rh/conges` est l'écran des RH, refusé à un N+1 sans le module (I13).
   const lienConge = lien("WORKSPACE", "/mon-espace#conges-a-signer");
+  // LES NOMS DE LA TRACE d'une marche remontée (qui a demandé l'avis de qui).
+  const gensDesEscalades = [...new Set(conges.flatMap((c) => [c.currentApproverId, ...c.escalations.flatMap((e) => [e.fromUserId, e.toUserId])]).filter((v): v is string => Boolean(v)))];
+  const nomsEscalade = new Map((gensDesEscalades.length > 0
+    ? await prisma.user.findMany({ where: { id: { in: gensDesEscalades } }, select: { id: true, name: true } })
+    : []).map((u) => [u.id, u.name]));
   const lignesConges: TeamPending[] = lienConge === null ? [] : conges
-    .filter((c) => c.status === "PENDING" && c.stage === "MANAGER" && directSet.has(c.employeeId))
+    .filter((c) => c.status === "PENDING" && c.stage === "MANAGER" && (directSet.has(c.employeeId) || c.currentApproverId === user.id))
     .map((c) => {
       const absence = absenceDe.get(c.id);
       return {
@@ -305,6 +323,17 @@ export async function getMyTeam(user: SessionUser, opts: { maintenant?: Date } =
         createdAt: c.createdAt.toISOString(),
         deadline: c.startDate.toISOString(),
         ...lienConge,
+        conge: {
+          leaveId: c.id,
+          // Je tranche si la marche est à moi : remontée jusqu'à moi, ou jamais remontée (je suis le N+1).
+          aMoi: c.currentApproverId ? c.currentApproverId === user.id : true,
+          attendDe: c.currentApproverId && c.currentApproverId !== user.id ? nomsEscalade.get(c.currentApproverId) ?? "—" : null,
+          trace: c.escalations.map((e) => ({
+            de: nomsEscalade.get(e.fromUserId) ?? "—", a: nomsEscalade.get(e.toUserId) ?? "—", note: e.note,
+            decision: e.decision === "APPROVED" || e.decision === "REJECTED" ? e.decision : null, noteDecision: e.decisionNote,
+            le: e.askedAt.toISOString(), decideLe: e.decidedAt?.toISOString() ?? null,
+          })),
+        },
         // M19 — CE QUI MANQUERA EN MÊME TEMPS dans la même équipe : la question qu'on se pose avant de signer.
         chevauchements: absence
           ? chevauchementsDe(absence, absences).map((a) => ({ nom: a.nom, debut: a.debut, fin: a.fin, enAttente: a.enAttente }))

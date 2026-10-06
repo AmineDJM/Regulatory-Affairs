@@ -24,6 +24,7 @@ import {
 } from "./promo-execution-actions";
 import { deciderVisaCentreAdPro } from "./ad-pro-centre-actions";
 import { signerBonDeCommande } from "./bc-signature-actions";
+import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
 import { executionDuDossier } from "@/lib/queries/promo-execution";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { articlesDemandesDuDossier } from "@/lib/queries/promo-achats";
@@ -454,7 +455,7 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
         expect(visa.ok, visa.ok ? "" : visa.error).toBe(true);
       }
       await comme("fin");
-      const s = await signerBonDeCommande(form({ id: e.bc!.id }));
+      const s = await signerBonDeCommande(avecCopieSignee(form({ id: e.bc!.id })));
       expect(s.ok, s.ok ? "" : s.error).toBe(true);
     }
   }, 180_000);

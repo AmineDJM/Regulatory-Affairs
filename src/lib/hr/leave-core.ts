@@ -108,7 +108,7 @@ export async function createLeaveRequest(
   if (stage === "MANAGER" && managerUserId) {
     await notifyUser({
       userId: managerUserId, type: "GENERIC", title: "Congé à valider (votre équipe)",
-      body: `${employee.fullName} — ${period} (${input.days} j).`, link: "/mon-espace",
+      body: `${employee.fullName} — ${period} (${input.days} j).`, link: "/mon-equipe",
     });
   } else {
     await notifyRoles(stageNotifyRoles("HR") as UserRole[], {

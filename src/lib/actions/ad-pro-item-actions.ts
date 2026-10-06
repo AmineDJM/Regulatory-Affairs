@@ -51,7 +51,11 @@ import {
   refusChangementDeValidation, refusEditionDesLignes, refusGenerationBC, refusTauxDuDevis, type LigneDevisPoste,
 } from "@/lib/ad-pro/devis-poste";
 import { genererLesBCsDuPoste, phraseBilanGeneration, refusMontantDuPoste, tiersDuDevis } from "@/lib/ad-pro-bc-devis";
-import { attachFormFiles } from "@/lib/documents";
+import { attachFormFiles, persistUploadedDocument } from "@/lib/documents";
+import { controlerFacture, refusDemandePaiementBC, TOLERANCE_DZD, type ControleFacture } from "@/lib/bons-de-commande/copie-signee";
+import { lireFactureDuPoste } from "@/lib/ad-pro/facture-poste-lecture";
+import { lignesDepuisListes, type ListesDeLignes } from "@/lib/artifact/factory/lignes-saisies";
+import { reviserDocumentDrive, type ModificationsDocument } from "@/platform/in-process/artifact/factory";
 import {
   lireVoyageur, lireEtapes, nomComplet, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation,
   type SaisieVoyageur, type VoyageurLu,
@@ -1158,6 +1162,17 @@ export async function demanderPaiementPoste(_prev: ActionResult | undefined, for
   if (!check.ok) return { ok: false, error: check.reason ?? "Paiement impossible." };
   if (!item.budgetCategoryId) return { ok: false, error: "La Direction Marketing n'a pas encore choisi le budget de ce poste." };
   const direct = VERSEMENT_SANS_BC.includes(item.kind);
+  // UN POSTE À BON DE COMMANDE (Direction, 06/10) : la facture DÉPOSÉE et contrôlée par Luna contre le(s) BC signé(s)
+  // fait la demande — une facture jointe ici est d'abord déposée, et passe le même contrôle.
+  if (!direct) {
+    const fichier = formData.getAll("attachment").find((v): v is File => v instanceof File && v.size > 0) ?? null;
+    return payerLesFacturesDuPoste({
+      user, item, owner, info, montantAccorde, fichier,
+      montantSaisi: fdNum(formData, "montant"), reference: fdStr(formData, "reference"),
+      bcIds: formData.getAll("bcId").map(String).filter(Boolean),
+      argumentation: fdStr(formData, "argumentation"), confirme: fdCase(formData, "confirme") === true,
+    });
+  }
   const pieces = (await piecesDesPostes([id])).get(id);
   const bc = pieces?.bc ?? null;
   if (!direct) {
@@ -1295,6 +1310,277 @@ export async function demanderPaiementPoste(_prev: ActionResult | undefined, for
     }
     return { ok: false, error: "La demande de paiement n'a pas pu être enregistrée." };
   }
+}
+
+// ───────────────────────────── Le BC signé, la facture contrôlée, le paiement (Direction, 06/10) ─────────────────────────────
+
+type PosteAvecOperation = NonNullable<Awaited<ReturnType<typeof loadItem>>>;
+
+/**
+ * DÉPOSER LA FACTURE D'UN OU PLUSIEURS BC SIGNÉS — « une fois la facture reçue, Luna vérifie uniquement la cohérence avec
+ * le bon de commande ». La facture se lit (Luna, sinon le moteur local), se compare aux BC qu'elle couvre
+ * (`controlerFacture`), et le contrôle reste SUR la facture : la case paiement le relit. Un poste à plusieurs BC dépose
+ * une facture par BC — ou une seule pour plusieurs, en les cochant.
+ */
+async function deposerFactureSurPoste(a: {
+  user: SessionUser; poste: PosteAvecOperation; info: ParentInfo; fichier: File; montantSaisi: number | null; reference: string | null; bcIds: string[];
+}): Promise<{ ok: true; factureId: string; controle: ControleFacture } | { ok: false; error: string }> {
+  const { item, owner } = a.poste;
+  const pieces = (await piecesDesPostes([item.id])).get(item.id);
+  const bcs = pieces?.bcs ?? [];
+  const couverts = new Set((pieces?.factures ?? []).filter((f) => !f.annulee).flatMap((f) => f.controle?.bcIds ?? []));
+  const libres = bcs.filter((b) => b.etape === "SIGNE" && !couverts.has(b.id));
+  const choisis = a.bcIds.length > 0 ? bcs.filter((b) => a.bcIds.includes(b.id)) : libres.length === 1 ? libres : [];
+  if (bcs.length === 0) return { ok: false, error: "Ce poste n'a pas encore de bon de commande : la facture se dépose après lui." };
+  if (choisis.length === 0) {
+    return { ok: false, error: libres.length === 0 ? "Aucun bon de commande signé n'attend sa facture sur ce poste." : "Cochez le(s) bon(s) de commande que cette facture couvre." };
+  }
+  if (a.bcIds.length > 0 && choisis.length !== a.bcIds.length) return { ok: false, error: "Un bon de commande coché n'appartient pas à ce poste." };
+  const nonSigne = choisis.find((b) => b.etape !== "SIGNE");
+  if (nonSigne) return { ok: false, error: `Le bon de commande ${nonSigne.reference ?? nonSigne.titre} n'est pas encore signé : sa facture se dépose après la signature.` };
+  const dejaFacture = choisis.find((b) => couverts.has(b.id));
+  if (dejaFacture) return { ok: false, error: `Le bon de commande ${dejaFacture.reference ?? dejaFacture.titre} a déjà sa facture : annulez-la dans Legal pour en déposer une autre.` };
+  const refusFichier = await validateAttachments([a.fichier]);
+  if (refusFichier) return { ok: false, error: refusFichier };
+
+  const octets = Buffer.from(await a.fichier.arrayBuffer());
+  const lu = await lireFactureDuPoste({ userId: a.user.id, octets, nomFichier: a.fichier.name, montantSaisi: a.montantSaisi });
+  const docs = await prisma.legalDocument.findMany({ where: { id: { in: choisis.map((b) => b.id) } }, select: { id: true, reference: true, amount: true, counterparty: true } });
+  const controle = controlerFacture(lu, choisis.map((b) => {
+    const d = docs.find((x) => x.id === b.id);
+    return { id: b.id, reference: d?.reference ?? b.reference, montantTtc: d?.amount != null ? toNumber(d.amount) : b.montant, fournisseur: d?.counterparty ?? null };
+  }));
+  const companyId = a.info.companyId ?? (await moneyEntityOf(a.info.requesterId ?? a.user.id));
+  const facture = await prisma.legalDocument.create({
+    data: {
+      title: `Facture — ${ITEM_KIND_LABELS[item.kind]} : ${item.label} (${a.info.ref})`,
+      kind: "INVOICE", direction: "OUT",
+      reference: a.reference,
+      amount: controle.montant,
+      counterparty: docs[0]?.counterparty ?? item.supplier ?? a.info.beneficiary,
+      companyId,
+      sourceType: PARENT_ENTITE[owner.parent], sourceId: owner.id,
+      chainFromId: choisis[0].id,
+      custom: { facturePoste: { controle } } as unknown as Prisma.InputJsonValue,
+      createdById: a.user.id, updatedById: a.user.id,
+      notes: `Facture du poste « ${item.label} » de ${a.info.ref} — couvre ${choisis.map((b) => b.reference ?? b.titre).join(", ")}.`,
+    },
+    select: { id: true },
+  });
+  const depot = await persistUploadedDocument(a.user.id, {
+    entityType: "LEGAL_DOCUMENT", entityId: facture.id, category: "INVOICE", confidentiality: "INTERNAL", stepKey: null, file: a.fichier, buffer: octets,
+  }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Dépôt impossible.", documentId: undefined }));
+  if (!depot.ok) {
+    await prisma.legalDocument.update({ where: { id: facture.id }, data: { status: "CANCELLED" } }).catch(() => undefined);
+    return { ok: false, error: `La facture n'a pas pu être enregistrée (${depot.error ?? "erreur"}).` };
+  }
+  await rattacherPieceAuPoste({ itemId: item.id, legalDocumentId: facture.id, nature: "FACTURE", acteurId: a.user.id });
+  return { ok: true, factureId: facture.id, controle };
+}
+
+/** La phrase qui rend le contrôle d'une facture — cohérente, ou ses écarts et le geste qui reste. */
+function phraseControleFacture(c: ControleFacture): string {
+  return c.coherente
+    ? `Luna la trouve cohérente avec le bon de commande${c.montant != null ? ` (${c.montant.toLocaleString("fr-FR")} DZD)` : ""} : la demande de paiement peut partir.`
+    : `Incohérences avec le bon de commande : ${c.ecarts.join(" ")} Pour demander tout de même le paiement, argumentez et confirmez.`;
+}
+
+/**
+ * DÉPOSER LA FACTURE D'UN POSTE À BON DE COMMANDE (Direction, 06/10) — la case « Facture » se débloque à la signature du
+ * BC ; le fichier est lu, contrôlé contre le(s) BC, et le contrôle est dit. Le paiement se demande ensuite, depuis la
+ * case paiement (`demanderPaiementPoste`).
+ */
+export async function deposerFacturePoste(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent) && !canAllocate(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (VERSEMENT_SANS_BC.includes(item.kind)) return { ok: false, error: "Un sponsoring direct n'a pas de bon de commande : sa pièce se joint à la demande de paiement." };
+  if (item.expenseOrderId) return { ok: false, error: "Le paiement de ce poste est déjà demandé." };
+  const info = await PARENTS[owner.parent].load(owner.id);
+  if (!info) return { ok: false, error: "Opération introuvable." };
+  const fichier = formData.getAll("attachment").find((v): v is File => v instanceof File && v.size > 0) ?? null;
+  if (!fichier) return { ok: false, error: "Joignez la facture." };
+  const r = await enSerie(filePoste(id), () => deposerFactureSurPoste({
+    user, poste: found, info, fichier, montantSaisi: fdNum(formData, "montant"), reference: fdStr(formData, "reference"),
+    bcIds: formData.getAll("bcId").map(String).filter(Boolean),
+  }));
+  if (!r.ok) return r;
+  await audit(user, owner.parent, owner.id, "UPDATE", `Facture déposée pour le poste « ${item.label} » — ${r.controle.coherente ? "cohérente avec le bon de commande" : `écarts : ${r.controle.ecarts.join(" ")}`}`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id: r.factureId, message: `Facture déposée. ${phraseControleFacture(r.controle)}` };
+}
+
+/**
+ * LA DEMANDE DE PAIEMENT D'UN POSTE À BC, SUR SES FACTURES DÉPOSÉES. Tous les BC vivants signés et couverts ; une facture
+ * incohérente exige l'argumentation ET la confirmation (`refusDemandePaiementBC`) ; le montant est celui des factures, et
+ * ne dépasse jamais l'accordé.
+ */
+async function payerLesFacturesDuPoste(a: {
+  user: SessionUser; item: PosteAvecOperation["item"]; owner: PosteAvecOperation["owner"]; info: ParentInfo; montantAccorde: number | null;
+  fichier: File | null; montantSaisi: number | null; reference: string | null; bcIds: string[]; argumentation: string | null; confirme: boolean;
+}): Promise<ActionResult> {
+  const { user, item, owner, info } = a;
+  const id = item.id;
+  let deposee: string | null = null;
+  const avant = (await piecesDesPostes([id])).get(id);
+  // SANS FACTURE DÉPOSÉE, la facture se joint ICI — et ce qui la refuserait se dit AVANT de déposer quoi que ce soit
+  // (§118.18) : un refus ne laisse ni facture ni ordre derrière lui.
+  if (!(avant?.factures ?? []).some((f) => !f.annulee) || a.fichier) {
+    if (!avant?.bc) return { ok: false, error: "Le bon de commande de ce poste n'est pas encore établi : la facture se dépose après lui." };
+    if (avant.bc.etape !== "SIGNE") return { ok: false, error: "Le bon de commande n'est pas encore signé par les Finances : la facture se dépose après la signature." };
+    if (!a.fichier) return { ok: false, error: "Joignez la facture : elle est obligatoire pour demander le paiement." };
+    if (a.montantSaisi === null || !(a.montantSaisi > 0)) return { ok: false, error: "Indiquez le montant de la facture." };
+    if (a.montantAccorde !== null && a.montantSaisi > a.montantAccorde) {
+      return { ok: false, error: `La facture (${a.montantSaisi.toLocaleString("fr-FR")} DZD) dépasse le montant accordé (${a.montantAccorde.toLocaleString("fr-FR")} DZD) : demandez une révision du poste.` };
+    }
+  }
+  if (a.fichier) {
+    // Jointe à la demande, la facture couvre ce qui attend encore la sienne : tous les BC signés sans facture.
+    const couverts = new Set((avant?.factures ?? []).filter((f) => !f.annulee).flatMap((f) => f.controle?.bcIds ?? []));
+    const bcIds = a.bcIds.length > 0 ? a.bcIds : (avant?.bcs ?? []).filter((b) => b.etape === "SIGNE" && !couverts.has(b.id)).map((b) => b.id);
+    const r = await enSerie(filePoste(id), () => deposerFactureSurPoste({
+      user, poste: { item, owner } as PosteAvecOperation, info, fichier: a.fichier as File, montantSaisi: a.montantSaisi, reference: a.reference, bcIds,
+    }));
+    if (!r.ok) return r;
+    deposee = `Facture déposée. ${phraseControleFacture(r.controle)}`;
+  }
+  const pieces = (await piecesDesPostes([id])).get(id);
+  const factures = (pieces?.factures ?? []).filter((f) => !f.annulee);
+  const refus = refusDemandePaiementBC({
+    bcs: (pieces?.bcs ?? []).map((b) => ({ id: b.id, reference: b.reference, signe: b.etape === "SIGNE" })),
+    factures, argumentation: a.argumentation, confirme: a.confirme,
+  });
+  if (refus) return { ok: false, error: deposee ? `${deposee} ${refus}` : refus };
+  const montants = factures.map((f) => f.controle?.montant ?? f.montant);
+  const montant = montants.every((m): m is number => m != null) ? Math.round(montants.reduce((s, m) => s + m * 100, 0)) / 100 : a.montantSaisi;
+  if (montant === null || !(montant > 0)) return { ok: false, error: "Le montant de la facture ne se lit pas : indiquez-le." };
+  if (a.montantAccorde !== null && montant > a.montantAccorde) {
+    return { ok: false, error: `La facture (${montant.toLocaleString("fr-FR")} DZD) dépasse le montant accordé (${a.montantAccorde.toLocaleString("fr-FR")} DZD) : demandez une révision du poste.` };
+  }
+  const ecarts = factures.flatMap((f) => (f.controle && !f.controle.coherente ? f.controle.ecarts : []));
+  const argument = ecarts.length > 0 ? a.argumentation?.trim() ?? null : null;
+
+  // LE DERNIER REMPART (§118.187) : ce qui part ne dépasse jamais ce que le centre a vu.
+  if (item.orderStage === "DIRECTION_OK") {
+    const apres = { montant: a.montantAccorde, fournisseur: item.supplier };
+    const geste = gesteVisaPoste(etatBcDe(item), apres, (await getAppSettings()).bcValidationThreshold);
+    if (geste.geste === "ROUVRIR") {
+      const phrase = await appliquerGesteVisa(item, geste, apres, { user, owner, ref: info.ref });
+      return { ok: false, error: `Paiement refusé — ${phrase ?? geste.motif}` };
+    }
+  }
+  // LA PRISE (§118.187) : un poste à la fois — deux clics ne demandent pas deux paiements.
+  const etapeLue = item.orderStage;
+  const prise = await prisma.adProItem.updateMany({
+    where: { id, expenseOrderId: null, status: "APPROVED", orderStage: etapeLue },
+    data: { orderStage: "ISSUED", updatedById: user.id },
+  });
+  if (prise.count === 0) return { ok: false, error: "Ce poste vient de changer (paiement déjà demandé, ou sa décision a été revue) : rouvrez la fiche." };
+  let ordreNe = false;
+  try {
+    const order = await createExpenseOrder({
+      label: `${info.ref} — ${ITEM_KIND_LABELS[item.kind]} : ${item.label}`,
+      amount: montant,
+      category: "EVENEMENT",
+      beneficiary: item.supplier ?? info.beneficiary,
+      sourceType: owner.parent === "EVENT" ? "EVENT" : owner.parent,
+      sourceId: info.id,
+      requestedById: user.id,
+      budgetCategoryId: item.budgetCategoryId ?? null,
+      requiresInvoice: facturePourPayer(item.kind),
+      notes: `Poste de l'opération ${info.ref} — ${factures.length > 1 ? `${factures.length} factures jointes` : "facture jointe"}, contrôlée${factures.length > 1 ? "s" : ""} contre le bon de commande.`
+        + (argument ? ` ÉCART ASSUMÉ par le demandeur : ${ecarts.join(" ")} Argumentation : « ${argument} ».` : ""),
+    });
+    ordreNe = true;
+    await prisma.adProItem.update({ where: { id }, data: { expenseOrderId: order.id, orderStage: "ISSUED", updatedById: user.id } });
+    await prisma.legalDocument.updateMany({ where: { id: { in: factures.map((f) => f.id) } }, data: { expenseOrderId: order.id } });
+    await audit(user, owner.parent, owner.id, "UPDATE",
+      `Paiement demandé pour le poste « ${item.label} » — ${montant.toLocaleString("fr-FR")} DZD (ordre ${order.reference}, au centre de paiement)${argument ? ` malgré l'écart avec le bon de commande — « ${argument} »` : ""}.`);
+    revalidate(owner.parent, owner.id);
+    revalidatePath("/finances/paiements-a-faire");
+    return {
+      ok: true, id: order.id,
+      message: `${deposee ? `${deposee} ` : ""}Paiement de ${montant.toLocaleString("fr-FR")} DZD demandé au centre de paiement (${order.reference}).`,
+    };
+  } catch (err) {
+    console.error("[ad-pro-item] demande de paiement impossible", err);
+    if (!ordreNe) await prisma.adProItem.updateMany({ where: { id, expenseOrderId: null, orderStage: "ISSUED" }, data: { orderStage: etapeLue } }).catch(() => undefined);
+    return { ok: false, error: "La demande de paiement n'a pas pu être enregistrée." };
+  }
+}
+
+/**
+ * MODIFIER LE BON DE COMMANDE GÉNÉRÉ, EN NATIF ET SANS LIMITE (Direction, 06/10) — tant qu'il n'est pas signé. Chaque
+ * modification est une nouvelle VERSION du même BC (même numéro) : le Word et le PDF sont régénérés, la fiche suit, et le
+ * BC se réaiguille (un montant relevé le renvoie à son centre). Le demandeur du poste le fait sans droit d'écriture
+ * Legal : le poste qu'il porte est la délégation, nommée au journal.
+ */
+export async function modifierBcDuPoste(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const legalDocumentId = fdStr(formData, "legalDocumentId");
+  if (!id || !legalDocumentId) return { ok: false, error: "Bon de commande non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (item.expenseOrderId) return { ok: false, error: "Le paiement de ce poste est déjà demandé : son bon de commande ne se modifie plus." };
+  const info = await PARENTS[owner.parent].load(owner.id);
+  if (!info) return { ok: false, error: "Opération introuvable." };
+  const lien = await prisma.adProItemPiece.findFirst({ where: { itemId: id, legalDocumentId, nature: "BON_DE_COMMANDE" }, select: { legalDocument: { select: { signedAt: true, reference: true } } } });
+  if (!lien) return { ok: false, error: "Ce bon de commande n'est pas rattaché à ce poste." };
+  if (lien.legalDocument.signedAt) return { ok: false, error: `Le bon de commande ${lien.legalDocument.reference ?? ""} est signé : il ne se modifie plus. Voyez avec les Finances pour le remplacer.` };
+
+  const listes: ListesDeLignes = {
+    designations: formData.getAll("ligneDesignation").map(String), details: formData.getAll("ligneDetails").map(String),
+    quantites: formData.getAll("ligneQuantite").map(String), prix: formData.getAll("lignePrix").map(String),
+    remises: formData.getAll("ligneRemise").map(String), tvas: formData.getAll("ligneTva").map(String), sections: formData.getAll("ligneSection").map(String),
+  };
+  const modifications: ModificationsDocument = {};
+  if (listes.designations.length > 0) modifications.lignes = lignesDepuisListes(listes);
+  const champ = (cle: string): string | null => { const v = fdStr(formData, cle); return v && v.trim() ? v.trim() : null; };
+  if (formData.has("objet")) modifications.objet = champ("objet");
+  if (formData.has("notes")) modifications.notes = champ("notes");
+  if (formData.has("livraisonAdresse") || formData.has("livraisonDelai")) {
+    modifications.livraison = {
+      ...(formData.has("livraisonAdresse") ? { adresse: champ("livraisonAdresse") } : {}),
+      ...(formData.has("livraisonDelai") ? { delai: champ("livraisonDelai") } : {}),
+    };
+  }
+  if (formData.has("contactNom") || formData.has("contactTelephone")) {
+    modifications.contact = {
+      ...(formData.has("contactNom") ? { nom: champ("contactNom") } : {}),
+      ...(formData.has("contactTelephone") ? { telephone: champ("contactTelephone") } : {}),
+    };
+  }
+  if (Object.keys(modifications).length === 0) return { ok: false, error: "Rien à modifier : changez une ligne, l'objet, les notes, la livraison ou le contact." };
+  // UN BC NE DÉPASSE PAS L'ACCORDÉ : le hors-taxe des lignes seul le dépasse-t-il déjà ? (le TTC, la fabrique le calcule.)
+  const accorde = item.amountGranted != null ? toNumber(item.amountGranted) : null;
+  const ht = (modifications.lignes ?? []).filter((l) => !l.section).reduce((s, l) => s + l.quantite * l.prixUnitaire * (1 - (l.remise ?? 0)), 0);
+  if (accorde !== null && Number.isFinite(ht) && ht > accorde + TOLERANCE_DZD) {
+    return { ok: false, error: `Ces lignes font déjà ${Math.round(ht).toLocaleString("fr-FR")} DZD hors taxes, au-delà de l'accordé (${accorde.toLocaleString("fr-FR")} DZD) : demandez une révision du poste.` };
+  }
+  const vue = fdNum(formData, "versionVue");
+  const r = await reviserDocumentDrive(user, {
+    legalDocumentId, modifications, motif: champ("motif") ?? "Modifié depuis le poste Ad & Pro.",
+    versionVue: vue !== null && Number.isInteger(vue) ? vue : null,
+  }, { delegation: `${info.ref} — poste « ${item.label} » : son bon de commande, modifié par le demandeur du poste` });
+  if (!r.ok) return { ok: false, error: r.motif + (r.bloquants?.length ? ` — ${r.bloquants.slice(0, 3).join(" ; ")}` : "") };
+  await audit(user, owner.parent, owner.id, "UPDATE", `Bon de commande ${r.reference} du poste « ${item.label} » modifié — version ${r.version}, ${r.totaux.totalTtc.toLocaleString("fr-FR")} DZD TTC.`);
+  revalidate(owner.parent, owner.id);
+  revalidatePath(`/legal/${legalDocumentId}`);
+  revalidatePath(CHEMIN_BC_A_SIGNER);
+  const depasse = accorde !== null && r.totaux.totalTtc > accorde + TOLERANCE_DZD
+    ? ` Attention : ${r.totaux.totalTtc.toLocaleString("fr-FR")} DZD TTC dépasse l'accordé (${accorde.toLocaleString("fr-FR")} DZD) — le paiement ne pourra pas le dépasser.`
+    : "";
+  return {
+    ok: true, id: legalDocumentId,
+    message: `Bon de commande ${r.reference} modifié : version ${r.version}, Word et PDF régénérés.${r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""}${depasse}`,
+  };
 }
 
 // ───────────────────────────── Matériel promotionnel ─────────────────────────────
@@ -2582,10 +2868,35 @@ export async function ajouterVoyageur(_prev: ActionResult | undefined, formData:
     data: { itemId, ...donneesVoyageur(lu.voyageur), position: (last?.position ?? 0) + 1, createdById: user.id, updatedById: user.id },
     select: { id: true },
   });
-  const sujet = await signalerAuSujet(item, user.id, `voyageur ajouté :\n${ligneVoyageur({ ...lu.voyageur, passeport: false })}`);
-  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${nomComplet(lu.voyageur)} » ajouté au poste « ${item.label} ».`);
+  // LE PASSEPORT ET LES AUTRES DOCUMENTS, JOINTS DÈS LA CRÉATION (Direction, 06/10) — rangés comme ceux qu'on joint
+  // ensuite : des documents du poste, à l'étape du voyageur (`stepKey`), le passeport en pièce d'identité.
+  const pieces: { file: File; category: "ID_DOCUMENT" | "SUPPORTING_DOC" }[] = [
+    ...formData.getAll("passeport").filter((v): v is File => v instanceof File && v.size > 0).map((file) => ({ file, category: "ID_DOCUMENT" as const })),
+    ...formData.getAll("documents").filter((v): v is File => v instanceof File && v.size > 0).map((file) => ({ file, category: "SUPPORTING_DOC" as const })),
+  ];
+  const echecs: string[] = [];
+  let passeport = false;
+  if (pieces.length > 0) {
+    const refus = await validateAttachments(pieces.map((p) => p.file));
+    if (refus) echecs.push(refus);
+    else {
+      for (const p of pieces) {
+        const r = await persistUploadedDocument(user.id, {
+          entityType: "AD_PRO_ITEM", entityId: itemId, category: p.category, confidentiality: "INTERNAL", stepKey: cree.id, file: p.file,
+        }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "dépôt impossible", documentId: undefined }));
+        if (r.ok) passeport ||= p.category === "ID_DOCUMENT";
+        else echecs.push(`${p.file.name} : ${r.error ?? "dépôt impossible"}`);
+      }
+    }
+  }
+  const sujet = await signalerAuSujet(item, user.id, `voyageur ajouté :\n${ligneVoyageur({ ...lu.voyageur, passeport })}`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${nomComplet(lu.voyageur)} » ajouté au poste « ${item.label} »${pieces.length > 0 ? ` — ${pieces.length - echecs.length} document(s) joint(s)` : ""}.`);
   revalidate(owner.parent, owner.id);
-  return { ok: true, id: cree.id, message: `Voyageur ajouté.${sujet}` };
+  const joints = pieces.length - echecs.length;
+  return {
+    ok: true, id: cree.id,
+    message: `Voyageur ajouté${joints > 0 ? ` avec ${joints} document${joints > 1 ? "s" : ""}${passeport ? " (passeport compris)" : ""}` : ""}.${echecs.length > 0 ? ` Non joint : ${echecs.join(" ; ")} — joignez-le depuis la ligne du voyageur.` : ""}${sujet}`,
+  };
 }
 
 /**

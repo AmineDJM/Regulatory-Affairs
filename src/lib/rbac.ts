@@ -111,6 +111,10 @@ export const MODULES = [
   // établissement qu'on en tire. Voir = lire ; Téléverser/Modifier = importer et revoir ; Valider = faire compter un
   // import, régler l'affinité d'un produit.
   "CONSUMPTION",
+  // PRODUCTS : « Produits » — le référentiel canonique et la vue 360° de chaque produit (Direction, 06/10 : « fais-en un
+  // module à part, je n'arrive pas à gérer ses accès depuis la console »). Voir = la liste et la fiche 360° ; chaque
+  // section de la fiche reste gardée par SON module (Regulatory, PCH, Ventes, Segmentation, Consommation, Finances).
+  "PRODUCTS",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -486,6 +490,18 @@ const CONSUMPTION_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
 };
 for (const [role, actions] of Object.entries(CONSUMPTION_PAR_DEFAUT) as [UserRole, Action[]][]) {
   if (!PERMISSIONS[role].CONSUMPTION) PERMISSIONS[role].CONSUMPTION = [...actions];
+}
+
+/**
+ * « PRODUITS » PAR DÉFAUT — les mêmes personnes qu'hier : chaque rôle qui voyait au moins une facette d'un produit
+ * (Regulatory, AO, ventes, Force de vente, segmentation, consommation, finances) garde la LECTURE. Ce n'est qu'un
+ * défaut : la console l'ouvre ou le ferme ensuite personne par personne.
+ */
+const FACETTES_PRODUIT: Module[] = ["REGULATORY", "PCH", "SALES", "SALES_PLANNING", "SEGMENTATION", "CONSUMPTION", "FINANCES"];
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (role === "SUPER_ADMIN") continue;
+  const matrice = PERMISSIONS[role];
+  if (!matrice.PRODUCTS && FACETTES_PRODUIT.some((m) => matrice[m]?.includes("VIEW"))) matrice.PRODUCTS = [...READ];
 }
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];

@@ -2,7 +2,6 @@ import type { SessionUser } from "@/lib/rbac";
 import { Prisma } from "@prisma/client";
 import { userCan, hasGlobalView, scopeBusinessDevelopment } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { sections360 } from "@/lib/vues-360-acces";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { accessibleDocumentWhere } from "@/lib/queries/documents";
@@ -178,7 +177,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
 /**
  * LES OBJETS CENTRAUX (cahier des charges §58) — « Raltégravir » retrouve LE produit (une seule identité, ouverte
  * sur sa vue 360°), les BU et les stratégies de segmentation. La porte est celle de leur écran : un produit à qui
- * voit au moins une de ses facettes (`sections360`), une BU à qui a la Force de vente, une stratégie à qui a le
+ * a le module Produits, une BU à qui a la Force de vente, une stratégie à qui a le
  * Segmentation Studio.
  */
 async function rechercheReliee(
@@ -186,7 +185,7 @@ async function rechercheReliee(
   match: (fields: string[]) => { OR: Record<string, unknown>[] }[],
   take: number,
 ): Promise<SearchResult[]> {
-  const voitProduits = Object.values(sections360(user)).some(Boolean);
+  const voitProduits = userCan(user, "PRODUCTS", "VIEW");
   const [produits, bus, strategies] = await Promise.all([
     voitProduits
       ? prisma.product.findMany({ where: { AND: [{ isActive: true }, { OR: [{ AND: match(["canonicalName", "dci", "code"]) as Prisma.ProductWhereInput[] }, { aliases: { some: { AND: match(["label"]) as Prisma.ProductAliasWhereInput[] } } }] }] }, take, select: { id: true, canonicalName: true, code: true, dci: true } })

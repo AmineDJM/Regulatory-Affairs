@@ -32,14 +32,30 @@ export function ReviserPieceButton(props: {
   validiteJours: number | null;
   livraison: { adresse: string | null; delai: string | null } | null;
   contact: { nom: string | null; telephone: string | null } | null;
+  /**
+   * L'ACTION QUI RÉVISE — par défaut celle de la fiche Legal (`reviserPieceCommerciale`, droits Legal). Ad & Pro passe
+   * la sienne (`modifierBcDuPoste`) : le demandeur du poste modifie SON bon de commande sans droit d'écriture Legal.
+   */
+  envoyer?: (fd: FormData) => Promise<{ ok: boolean; error?: string; message?: string }>;
+  /** Le motif est-il exigé ? Oui sur la fiche Legal ; facultatif depuis le poste (« modifier en illimité »). */
+  motifFacultatif?: boolean;
+  libelle?: string;
+  /** Un bouton discret (lien) plutôt qu'un bouton plein — la case d'un poste est petite. */
+  discret?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const { enCours, rafraichir } = useRafraichir();
   return (
     <>
-      <Button type="button" variant="outline" size="sm" disabled={enCours} onClick={() => setOpen(true)}>
-        <RefreshCw className="h-4 w-4" aria-hidden /> Réviser la pièce
-      </Button>
+      {props.discret ? (
+        <button type="button" disabled={enCours} onClick={() => setOpen(true)} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50">
+          <RefreshCw className="h-3 w-3" aria-hidden /> {props.libelle ?? "Réviser la pièce"}
+        </button>
+      ) : (
+        <Button type="button" variant="outline" size="sm" disabled={enCours} onClick={() => setOpen(true)}>
+          <RefreshCw className="h-4 w-4" aria-hidden /> {props.libelle ?? "Réviser la pièce"}
+        </Button>
+      )}
       {open && <ReviserPieceSheet {...props} onClose={() => setOpen(false)} onDone={() => { setOpen(false); rafraichir(); }} />}
     </>
   );
@@ -78,7 +94,7 @@ function ReviserPieceSheet(props: React.ComponentProps<typeof ReviserPieceButton
     fd.set("motif", motif);
     setErreur(null);
     startEnvoi(async () => {
-      const r = await reviserPieceCommerciale(undefined, fd);
+      const r = props.envoyer ? await props.envoyer(fd) : await reviserPieceCommerciale(undefined, fd);
       if (!r.ok) { setErreur(r.error ?? "La révision n'a pas abouti."); return; }
       setMessage(r.message ?? "Pièce révisée.");
     });
@@ -135,7 +151,7 @@ function ReviserPieceSheet(props: React.ComponentProps<typeof ReviserPieceButton
               <Textarea id="revision-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
             <div className="space-y-1 sm:col-span-2">
-              <Label htmlFor="revision-motif">Ce qui change dans la pièce</Label>
+              <Label htmlFor="revision-motif">Ce qui change dans la pièce{props.motifFacultatif ? " (facultatif)" : ""}</Label>
               <Textarea id="revision-motif" rows={2} value={motif} onChange={(e) => setMotif(e.target.value)}
                 placeholder="Quantité ramenée à 80 boîtes à la demande du fournisseur." />
               <p className="text-xs text-muted-foreground">C&apos;est ce que retiendra l&apos;historique de la pièce.</p>
@@ -145,7 +161,7 @@ function ReviserPieceSheet(props: React.ComponentProps<typeof ReviserPieceButton
           {erreur && <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{erreur}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" disabled={envoi} onClick={props.onClose}>Annuler</Button>
-            <Button type="button" disabled={envoi || motif.trim().length === 0} onClick={envoyer}>
+            <Button type="button" disabled={envoi || (!props.motifFacultatif && motif.trim().length === 0)} onClick={envoyer}>
               {envoi && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />} Émettre la version {props.version + 1}
             </Button>
           </div>

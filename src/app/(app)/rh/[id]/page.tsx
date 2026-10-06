@@ -19,6 +19,7 @@ import { getDepartmentOptions, getDepartmentPath, getManagerOf } from "@/lib/dep
 import { aiConfigured, cleModeleRequise } from "@/lib/ai";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
 import { HrDossier } from "./hr-dossier";
+import { referenceOrdreMissionSuggeree } from "@/lib/hr/ordre-mission/service";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { seesWholeGroup } from "@/lib/company-access";
 import { CompanyAccessCard, type CompanyAccessRow } from "./company-access-card";
@@ -246,7 +247,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
             <Card>
               <CardHeader><CardTitle>Documents & demandes RH</CardTitle></CardHeader>
               <CardContent>
-                <HrDossier employeeId={employee.id} employeeName={employee.fullName} documents={hrDossier.documents} requests={hrDossier.requests} currentUserId={user.id} />
+                <HrDossier employeeId={employee.id} employeeName={employee.fullName} employeePosition={employee.position} referenceOrdreMission={await referenceOrdreMissionSuggeree()} documents={hrDossier.documents} requests={hrDossier.requests} currentUserId={user.id} />
               </CardContent>
             </Card>
           )}

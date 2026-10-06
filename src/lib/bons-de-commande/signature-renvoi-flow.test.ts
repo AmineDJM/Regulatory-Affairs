@@ -12,6 +12,7 @@ import { getAppSettings } from "@/lib/settings";
 import { createLegalDocument, updateLegalDocument } from "@/lib/actions/legal-actions";
 import { decideValidation } from "@/lib/actions/validation-actions";
 import { signerBonDeCommande, renvoyerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
 import { fileBonsDeCommande, REFUS_SIGNATURE_BC } from "@/lib/queries/bons-de-commande";
 import { etatDuBC } from "./etat";
 import { OBJET_BC } from "./aiguillage";
@@ -180,7 +181,7 @@ suite("Bons de commande — renvoyer à l'émetteur au lieu de signer (flux rée
     expect(n?.body).toMatch(/Le fournisseur n'est pas le bon/);
     expect(n?.body, "le geste qui le rend à la signature est NOMMÉ").toMatch(/Modifiez-le dans Legal/);
 
-    const signe = await signerBonDeCommande(form({ id }));
+    const signe = await signerBonDeCommande(avecCopieSignee(form({ id })));
     expect(signe.ok).toBe(false);
     expect(signe.error).toMatch(/renvoyé à son émetteur/);
     const encore = await renvoyerBonDeCommande(form({ id, note: "Bis." }));
@@ -207,7 +208,7 @@ suite("Bons de commande — renvoyer à l'émetteur au lieu de signer (flux rée
     expect(await prisma.auditLog.count({ where: { entityType: "LEGAL_DOCUMENT", entityId: id, summary: { contains: "corrigé après son renvoi" } } })).toBe(1);
 
     ACTOR = await actorFor(financeId, "FINANCE_BUDGET_MANAGER");
-    const s = await signerBonDeCommande(form({ id }));
+    const s = await signerBonDeCommande(avecCopieSignee(form({ id })));
     expect(s.ok, s.error).toBe(true);
   });
 
@@ -233,7 +234,7 @@ suite("Bons de commande — renvoyer à l'émetteur au lieu de signer (flux rée
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`LOCK TABLE "LegalDocument" IN SHARE MODE`);
       ACTOR = finance;
-      const a = signerBonDeCommande(form({ id }));
+      const a = signerBonDeCommande(avecCopieSignee(form({ id })));
       const b = renvoyerBonDeCommande(form({ id, note: "Montant à revoir." }));
       gestes = [a, b];
       for (const g of gestes) g.catch(() => undefined);

@@ -57,7 +57,7 @@ export async function etatsDesBC(ids: readonly string[], opts: { seuil?: number 
     where: { id: { in: uniques }, kind: "PURCHASE_ORDER" },
     select: {
       id: true, reference: true, title: true, counterparty: true, createdById: true, amount: true,
-      status: true, signedAt: true, bcCircuitAt: true, updatedAt: true, signedBy: { select: { id: true, name: true } },
+      status: true, signedAt: true, bcCircuitAt: true, updatedAt: true, signedBy: { select: { id: true, name: true } }, signedByName: true,
       signatureReturnedAt: true, signatureReturnNote: true, signatureReturnedBy: { select: { name: true } },
     },
   });
@@ -76,7 +76,8 @@ export async function etatsDesBC(ids: readonly string[], opts: { seuil?: number 
       etape: etapeBC({ porte, validationRequise, signe: d.signedAt !== null, dansLeCircuit: d.bcCircuitAt !== null, renvoye: d.signatureReturnedAt !== null }),
       annule: d.status === "CANCELLED",
       signeLe: d.signedAt,
-      signePar: d.signedBy ? { id: d.signedBy.id, name: d.signedBy.name } : null,
+      // LE SIGNATAIRE NOMMÉ sur la copie signée (Direction, 06/10), et qui l'a enregistrée aux Finances.
+      signePar: d.signedBy ? { id: d.signedBy.id, name: d.signedByName ? `${d.signedByName} (copie enregistrée par ${d.signedBy.name})` : d.signedBy.name } : null,
       renvoi: d.signatureReturnedAt
         ? { le: d.signatureReturnedAt, par: d.signatureReturnedBy?.name ?? null, note: d.signatureReturnNote }
         : null,

@@ -1,4 +1,4 @@
-import type { EntityType } from "@prisma/client";
+import { Prisma, type EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { recordAudit } from "@/lib/audit";
@@ -539,7 +539,8 @@ export async function aiguillerBC(
     let signatureRetiree = false;
     const montantModifie = Boolean(opts.modifie) && montantAvant !== montant;
     if (signe && (montantModifie || opts.pieceRevisee)) {
-      await prisma.legalDocument.update({ where: { id: doc.id }, data: { signedAt: null, signedById: null } });
+      // La copie signée et son signataire tombent avec elle : ils portaient sur la version d'avant.
+      await prisma.legalDocument.update({ where: { id: doc.id }, data: { signedAt: null, signedById: null, signedByName: null, signatureCheck: Prisma.DbNull } });
       await recordAudit({
         actorId: opts.acteurId, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id,
         summary: montantModifie

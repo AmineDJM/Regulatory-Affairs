@@ -18,6 +18,7 @@ import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
+import { lecteurDeLaDemandeDeValidation } from "@/lib/entity-access";
 
 const ROLES: UserRole[] = [
   "SUPER_ADMIN", "DIRECTION", "HEAD_OF_REGULATORY", "REGULATORY_ASSISTANT", "HEAD_OF_SALES",
@@ -694,5 +695,90 @@ export async function remindValidator(formData: FormData): Promise<ActionResult>
     summary: `Relance du validateur — ${step.request.reference}`,
   });
   revalidatePath("/validations");
+  return { ok: true };
+}
+
+// ─────────────────────────── La discussion et les participants (Direction, 06/10) ───────────────────────────
+
+/** La demande, avec ce qui dit qui la lit (demandeur, validateurs, participants). */
+async function demandeLisible(id: string) {
+  return prisma.validationRequest.findUnique({
+    where: { id },
+    select: { id: true, reference: true, title: true, requesterId: true, steps: { select: { validatorId: true } }, participants: { select: { userId: true, addedById: true } } },
+  });
+}
+
+/** Tous ceux qui suivent la demande — prévenus d'un nouveau message. */
+const suiveursDe = (d: NonNullable<Awaited<ReturnType<typeof demandeLisible>>>): string[] =>
+  [...new Set([d.requesterId, ...d.steps.map((s) => s.validatorId), ...d.participants.map((p) => p.userId)])];
+
+/**
+ * ÉCRIRE DANS LA DISCUSSION D'UNE DEMANDE DE VALIDATION — le demandeur, les validateurs et les participants y échangent ;
+ * chacun des autres est prévenu.
+ */
+export async function commenterValidation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "requestId");
+  const body = fdStr(formData, "body");
+  if (!id || !body?.trim()) return { ok: false, error: "Message vide." };
+  const d = await demandeLisible(id);
+  if (!d || !(await lecteurDeLaDemandeDeValidation(user, d))) return { ok: false, error: "Demande introuvable." };
+  await prisma.comment.create({ data: { entityType: "VALIDATION_REQUEST", entityId: id, body: body.trim(), authorId: user.id } });
+  for (const uid of suiveursDe(d)) {
+    if (uid !== user.id) {
+      await notifyUser({ userId: uid, type: "GENERIC", title: `Nouveau message — ${d.reference}`, body: body.trim().slice(0, 120), link: `/validations/${id}` }).catch(() => undefined);
+    }
+  }
+  revalidatePath(`/validations/${id}`);
+  return { ok: true };
+}
+
+/** Qui ajoute des participants : le demandeur, un validateur de la demande, le Super Admin. */
+async function peutGererParticipants(user: { id: string; role: string }, d: NonNullable<Awaited<ReturnType<typeof demandeLisible>>>): Promise<boolean> {
+  if (user.role === "SUPER_ADMIN" || d.requesterId === user.id) return true;
+  for (const s of d.steps) if (s.validatorId === user.id || (await actsForUser(user.id, s.validatorId))) return true;
+  return false;
+}
+
+/** AJOUTER DES PARTICIPANTS à une demande de validation : ils la lisent et prennent part à sa discussion. */
+export async function ajouterParticipantsValidation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "requestId");
+  const ids = [...new Set(formData.getAll("userId").map(String).filter(Boolean))];
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  if (ids.length === 0) return { ok: false, error: "Choisissez au moins un collègue." };
+  const d = await demandeLisible(id);
+  if (!d || !(await lecteurDeLaDemandeDeValidation(user, d))) return { ok: false, error: "Demande introuvable." };
+  if (!(await peutGererParticipants(user, d))) return { ok: false, error: "Seuls le demandeur et les validateurs ajoutent des participants." };
+  const deja = new Set(suiveursDe(d));
+  const actifs = await prisma.user.findMany({ where: { id: { in: ids.filter((x) => !deja.has(x)) }, isActive: true }, select: { id: true, name: true } });
+  if (actifs.length === 0) return { ok: false, error: "Ces collègues suivent déjà la demande." };
+  await prisma.validationParticipant.createMany({ data: actifs.map((u) => ({ requestId: id, userId: u.id, addedById: user.id })), skipDuplicates: true });
+  const noms = actifs.map((u) => u.name).join(", ");
+  // LA TRACE dans le fil : qui a été ajouté, par qui.
+  await prisma.comment.create({ data: { entityType: "VALIDATION_REQUEST", entityId: id, body: `A ajouté à la discussion : ${noms}.`, authorId: user.id } });
+  for (const u of actifs) {
+    await notifyUser({ userId: u.id, type: "GENERIC", title: `Ajouté à une demande de validation`, body: `${d.reference} — ${d.title}`, link: `/validations/${id}` }).catch(() => undefined);
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Validations", entityType: "VALIDATION_REQUEST", entityId: id, summary: `Participants ajoutés à ${d.reference} : ${noms}` });
+  revalidatePath(`/validations/${id}`);
+  return { ok: true, message: `${noms} ${actifs.length > 1 ? "participent" : "participe"} désormais à la demande.` };
+}
+
+/** RETIRER UN PARTICIPANT — par qui gère les participants, ou par lui-même (se retirer). */
+export async function retirerParticipantValidation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "requestId");
+  const userId = fdStr(formData, "userId");
+  if (!id || !userId) return { ok: false, error: "Participant introuvable." };
+  const d = await demandeLisible(id);
+  if (!d || !(await lecteurDeLaDemandeDeValidation(user, d))) return { ok: false, error: "Demande introuvable." };
+  if (userId !== user.id && !(await peutGererParticipants(user, d))) return { ok: false, error: "Non autorisé." };
+  const r = await prisma.validationParticipant.deleteMany({ where: { requestId: id, userId } });
+  if (r.count === 0) return { ok: false, error: "Ce collègue ne participe pas à la demande." };
+  const nom = (await prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? "—";
+  await prisma.comment.create({ data: { entityType: "VALIDATION_REQUEST", entityId: id, body: userId === user.id ? "S'est retiré de la discussion." : `A retiré de la discussion : ${nom}.`, authorId: user.id } });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Validations", entityType: "VALIDATION_REQUEST", entityId: id, summary: `Participant retiré de ${d.reference} : ${nom}` });
+  revalidatePath(`/validations/${id}`);
   return { ok: true };
 }

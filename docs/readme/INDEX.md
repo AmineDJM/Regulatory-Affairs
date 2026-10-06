@@ -50,3 +50,4 @@ Contenu intégral de `README.md`, découpé par titres sans aucune perte : conca
 | 44 | [31-feuille-de-route.md](31-feuille-de-route.md) | ## 🧭 Feuille de route | 15430–15444 | 1 Ko |
 | 45 | [32-conventions-contribution.md](32-conventions-contribution.md) | ## 🤝 Conventions & contribution | 15445–15464 | 1 Ko |
 | 46 | [33-segmentation-studio.md](33-segmentation-studio.md) | ## Segmentation Studio | — | 3 Ko |
+| 47 | [34-bc-signe-facture-controlee.md](34-bc-signe-facture-controlee.md) | ## Ad & Pro — BC modifiable, BC signé sur papier, facture contrôlée par Luna | — | 3 Ko |

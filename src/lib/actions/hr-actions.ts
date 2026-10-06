@@ -18,6 +18,7 @@ import {
   canDecideLeave, applyLeaveDecision, stageNotifyRoles, LEAVE_STAGE_LABELS, type LeaveStage,
 } from "@/lib/leave-workflow";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
+import { remonterConge, trancherSousEscalade } from "@/lib/hr/conge-escalade";
 import { entitePermisePourFiche } from "@/lib/company";
 import { compteSuitLaFiche } from "@/lib/hr/depart";
 import { chargerSalairesPartis } from "@/lib/hr/salaires-partis";
@@ -387,6 +388,16 @@ export async function decideLeave(formData: FormData): Promise<ActionResult> {
   if (!allowed.ok) return { ok: false, error: allowed.reason ?? "Non autorisé." };
 
   const note = fdStr(formData, "note");
+  // LA MARCHE DU RESPONSABLE A PU ÊTRE REMONTÉE (Direction, 06/10) : l'avis du N+1 sollicité redescend chez qui l'a
+  // demandé ; seul un refus, ou la validation du responsable de la demande, suit le circuit ordinaire.
+  if (leave.stage === "MANAGER") {
+    const sous = await trancherSousEscalade(user, id, decision, note, decider.isDg);
+    if (sous && "continuer" in sous) { /* refus : le circuit ordinaire le pose ci-dessous */ }
+    else if (sous) {
+      if (sous.ok) revalidateLeaveViews(leave.employeeId);
+      return sous.ok ? { ok: true, message: sous.message } : sous;
+    }
+  }
   const next = applyLeaveDecision(leave.stage as LeaveStage, decision);
   const now = new Date();
 
@@ -409,6 +420,8 @@ export async function decideLeave(formData: FormData): Promise<ActionResult> {
         status: next.status,
         stage: next.stage,
         ...(stampByStage[leave.stage] ?? {}),
+        // La marche du responsable est franchie : plus personne ne la « tient ».
+        ...(leave.stage === "MANAGER" ? { currentApproverId: null } : {}),
         // `decidedBy/At/Note` = la DERNIÈRE main posée sur la demande (compat historique + listes).
         decidedById: user.id, decidedAt: now, decisionNote: note,
       },
@@ -463,6 +476,22 @@ export async function decideLeave(formData: FormData): Promise<ActionResult> {
   });
   revalidateLeaveViews(leave.employeeId);
   return { ok: true };
+}
+
+/**
+ * DEMANDER À SON N+1 (Direction, 06/10) — celui qui tient la marche du responsable la remonte à son propre N+1, avec un
+ * mot ; elle lui reviendra avec sa décision. Voir `lib/hr/conge-escalade.ts`.
+ */
+export async function demanderAvisN1Conge(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande non précisée." };
+  const r = await remonterConge(user, id, fdStr(formData, "note"));
+  if (!r.ok) return r;
+  const leave = await prisma.leaveRequest.findUnique({ where: { id }, select: { employeeId: true } });
+  if (leave) revalidateLeaveViews(leave.employeeId);
+  revalidatePath("/mon-equipe");
+  return { ok: true, id, message: r.message };
 }
 
 /** Cancel a still-pending leave request (by its author or an RH manager). */

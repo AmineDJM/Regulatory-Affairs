@@ -404,7 +404,7 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
   // puis filtrer, laissait tomber la demande d'un responsable hors de la fenêtre.
   const { employees, departments } = await loadReportingLine();
   const salariesRattaches = salariesDontJeSuisLeN1(auNom.ids, employees, departments);
-  const clause = clauseFileConges({ isDg, isHr, fichesSignataires: fichesDesSignataires(auNom.ids, employees), salariesRattaches });
+  const clause = clauseFileConges({ isDg, isHr, fichesSignataires: fichesDesSignataires(auNom.ids, employees), salariesRattaches, signataires: [...auNom.ids] });
   if (!clause) return [];
   const rattaches = new Set(salariesRattaches);
   const pending = await prisma.leaveRequest.findMany({

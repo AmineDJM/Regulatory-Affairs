@@ -7,7 +7,7 @@ import { userCan } from "@/lib/rbac";
 import { canAccessEntity, ENTITY_MODULE } from "@/lib/entity-access";
 import { resolveDriveAccess } from "@/lib/drive";
 import { sendMessage } from "@/lib/actions/messaging-actions";
-import { getDirectory } from "@/lib/queries/messaging";
+import { getConversationSummaries, getDirectory } from "@/lib/queries/messaging";
 import { ROLE_LABELS } from "@/lib/labels";
 import { ENTITY_TYPE_LABELS } from "@/lib/partage";
 
@@ -46,7 +46,9 @@ import { ENTITY_TYPE_LABELS } from "@/lib/partage";
  */
 
 /** Ce que le panneau affiche d'une personne : de quoi la reconnaître, rien de plus. */
-export interface PersonneDestinataire { id: string; name: string; role?: string | null }
+export interface PersonneDestinataire { id: string; name: string; role?: string | null; recent?: boolean }
+/** Un groupe de la messagerie dont on est membre. */
+export interface GroupePartage { id: string; title: string; memberCount: number }
 
 export interface ResultatPartage {
   ok: boolean;
@@ -54,9 +56,6 @@ export interface ResultatPartage {
   conversationId?: string;
   error?: string;
 }
-
-/** Au-delà, ce n'est plus un partage : c'est une diffusion, et elle se planifie. */
-const MAX_DESTINATAIRES = 30;
 
 const lireIds = (raw: string | null): string[] => {
   if (!raw) return [];
@@ -73,51 +72,19 @@ const fd = (f: FormData, k: string): string | null => {
 };
 
 /**
- * LA CONVERSATION D'ARRIVÉE — la directe EXISTANTE quand il n'y a qu'une personne, sinon un
- * groupe nommé d'après l'objet.
- *
- * On réutilise la directe : ouvrir un second fil avec la même personne à chaque partage
- * éparpillerait l'historique, et c'est précisément dans le fil qu'on retrouve « ce que tu
- * m'avais envoyé ».
+ * LA CONVERSATION DIRECTE avec ce collègue — l'existante (à deux exactement), sinon une nouvelle : ouvrir un second fil
+ * avec la même personne à chaque partage éparpillerait l'historique.
  */
-async function conversationDArrivee(
-  expediteurId: string,
-  destinataires: readonly string[],
-  titre: string,
-): Promise<string> {
-  if (destinataires.length === 1) {
-    const autre = destinataires[0]!;
-    const directes = await prisma.conversation.findMany({
-      where: {
-        type: "DIRECT",
-        AND: [{ members: { some: { userId: expediteurId } } }, { members: { some: { userId: autre } } }],
-      },
-      select: { id: true, _count: { select: { members: true } } },
-      take: 5,
-    });
-    const existante = directes.find((c) => c._count.members === 2);
-    if (existante) return existante.id;
-    const conv = await prisma.conversation.create({
-      data: {
-        type: "DIRECT", createdById: expediteurId,
-        members: { create: [{ userId: expediteurId }, { userId: autre }] },
-      },
-      select: { id: true },
-    });
-    return conv.id;
-  }
+async function conversationDirecte(expediteurId: string, autre: string): Promise<string> {
+  const directes = await prisma.conversation.findMany({
+    where: { type: "DIRECT", AND: [{ members: { some: { userId: expediteurId } } }, { members: { some: { userId: autre } } }] },
+    select: { id: true, _count: { select: { members: true } } },
+    take: 5,
+  });
+  const existante = directes.find((c) => c._count.members === 2);
+  if (existante) return existante.id;
   const conv = await prisma.conversation.create({
-    data: {
-      type: "GROUP",
-      title: titre.slice(0, 120),
-      createdById: expediteurId,
-      members: {
-        create: [
-          { userId: expediteurId, role: "OWNER" as const },
-          ...destinataires.map((id) => ({ userId: id, role: "MEMBER" as const })),
-        ],
-      },
-    },
+    data: { type: "DIRECT", createdById: expediteurId, members: { create: [{ userId: expediteurId }, { userId: autre }] } },
     select: { id: true },
   });
   return conv.id;
@@ -127,18 +94,22 @@ export async function partagerParMessagerie(formData: FormData): Promise<Resulta
   const user = await requireUser();
   if (!userCan(user, "MESSAGING", "CREATE")) return { ok: false, error: "Vous n'avez pas accès à la messagerie." };
 
-  const demandes = lireIds(fd(formData, "destinataires")).filter((id) => id !== user.id);
-  if (demandes.length === 0) return { ok: false, error: "Choisissez au moins un destinataire." };
-  if (demandes.length > MAX_DESTINATAIRES) {
-    return { ok: false, error: `Un partage vise au plus ${MAX_DESTINATAIRES} personnes. Au-delà, passez par une diffusion.` };
+  // UN GROUPE OU UN COLLÈGUE (Direction, 06/10) — pas une liste de gens qui fabrique un groupe à chaque partage.
+  const groupeId = fd(formData, "groupeId");
+  const collegueId = fd(formData, "collegueId");
+  if (!groupeId === !collegueId) return { ok: false, error: "Choisissez un groupe OU un collègue." };
+  if (collegueId) {
+    if (collegueId === user.id) return { ok: false, error: "Choisissez un collègue, pas vous-même." };
+    const actif = await prisma.user.findFirst({ where: { id: collegueId, isActive: true }, select: { id: true } });
+    if (!actif) return { ok: false, error: "Ce collègue n'a pas de compte actif." };
+  } else {
+    // UN GROUPE DONT ON EST MEMBRE — la messagerie le revérifie à l'envoi (`sendMessage`).
+    const groupe = await prisma.conversation.findFirst({
+      where: { id: groupeId as string, type: { in: ["GROUP", "CHANNEL"] }, members: { some: { userId: user.id, leftAt: null } } },
+      select: { id: true },
+    });
+    if (!groupe) return { ok: false, error: "Vous n'êtes pas membre de ce groupe." };
   }
-
-  const actifs = await prisma.user.findMany({
-    where: { id: { in: demandes }, isActive: true },
-    select: { id: true },
-  });
-  if (actifs.length === 0) return { ok: false, error: "Aucun destinataire actif." };
-  const membres = actifs.map((u) => u.id);
 
   // ── L'OBJET PARTAGÉ, VÉRIFIÉ PAR ENREGISTREMENT ────────────────────────────────────────
   const typeBrut = fd(formData, "refType");
@@ -166,7 +137,7 @@ export async function partagerParMessagerie(formData: FormData): Promise<Resulta
   if (!ref && driveRefs.length === 0) return { ok: false, error: "Rien à partager." };
 
   const titre = ref?.label ?? "Partage";
-  const conversationId = await conversationDArrivee(user.id, membres, `Partage — ${titre}`);
+  const conversationId = groupeId ?? (await conversationDirecte(user.id, collegueId as string));
 
   const note = (fd(formData, "note") ?? "").trim();
   const lien = fd(formData, "href");
@@ -207,18 +178,24 @@ export async function partagerParMessagerie(formData: FormData): Promise<Resulta
  * meilleure — les responsables d'un événement, par exemple.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export async function listerDestinatairesPartage(): Promise<{ ok: boolean; people: PersonneDestinataire[]; error?: string }> {
+export async function listerDestinatairesPartage(): Promise<{ ok: boolean; groupes: GroupePartage[]; people: PersonneDestinataire[]; error?: string }> {
   const user = await requireUser();
-  if (!userCan(user, "MESSAGING", "CREATE")) return { ok: false, people: [], error: "Vous n'avez pas accès à la messagerie." };
-  const annuaire = await getDirectory(user.id);
+  if (!userCan(user, "MESSAGING", "CREATE")) return { ok: false, groupes: [], people: [], error: "Vous n'avez pas accès à la messagerie." };
+  const [conversations, annuaire] = await Promise.all([getConversationSummaries(user.id), getDirectory(user.id)]);
   return {
     ok: true,
+    // LES GROUPES DONT ON EST MEMBRE — pas les archivés.
+    groupes: conversations
+      .filter((c) => (c.type === "GROUP" || c.type === "CHANNEL") && !c.isArchived)
+      .map((c) => ({ id: c.id, title: c.title ?? "Groupe sans nom", memberCount: c.memberCount })),
     people: annuaire.map((u) => ({
       id: u.id,
       name: u.name,
       // Le titre d'abord : « Responsable Regulatory » distingue mieux deux homonymes que le
       // rôle RBAC, qui dit ce que le compte a le droit de faire, pas ce que la personne fait.
       role: u.title ?? ROLE_LABELS[u.role as keyof typeof ROLE_LABELS] ?? null,
+      // UN COLLÈGUE AVEC QUI ON ÉCHANGE DÉJÀ est proposé d'emblée ; les autres se cherchent par leur nom.
+      recent: Boolean(u.existingConversationId),
     })),
   };
 }

@@ -81,16 +81,6 @@ export default async function MonDossierPage() {
             <Info label="Contrat" value={e.contractType ? CONTRACT_TYPE[e.contractType] : null} />
             <Info label="Date d'embauche" value={e.hireDate ? formatDate(e.hireDate) : null} />
             <Info label="N° CNAS" value={e.cnasNumber} />
-            {(e.baseSalary != null || e.netToPay != null) && (
-              <>
-                <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ma rémunération</p>
-                <Info label="Salaire de base" value={e.baseSalary != null ? formatCurrency(e.baseSalary) : null} />
-                <Info label="Ret. SS 9 %" value={e.retSS9 != null ? formatCurrency(e.retSS9) : null} />
-                <Info label="Ret. IRG" value={e.retIrg != null ? formatCurrency(e.retIrg) : null} />
-                <Info label="Remb. frais" value={e.expenseRefund != null ? formatCurrency(e.expenseRefund) : null} />
-                <Info label="Net à payer" value={e.netToPay != null ? formatCurrency(e.netToPay) : null} />
-              </>
-            )}
           </CardContent>
         </Card>
 

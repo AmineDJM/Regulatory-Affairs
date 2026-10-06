@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { X, Download, Printer, Pencil, Trash2, Check, Loader2, ExternalLink } from "lucide-react";
+import { X, Download, Printer, Pencil, Trash2, Check, Loader2, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
 import { ApercuUniversel } from "./apercu-universel";
 import { natureApercu } from "@/lib/formats/apercu";
 import { ZipViewer } from "./zip-viewer";
@@ -64,6 +64,8 @@ export function DocumentPreview({
   const [draft, setDraft] = React.useState(name);
   const [busy, setBusy] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  // GRAND ÉCRAN (Direction, 06/10) : la fenêtre d'aperçu occupe tout l'écran, sans marge ni largeur bornée.
+  const [agrandi, setAgrandi] = React.useState(false);
 
   const src = srcOverride ?? `/api/documents/${id}`;
   const kind = natureApercu(name);
@@ -103,8 +105,8 @@ export function DocumentPreview({
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-4" onClick={() => setOpen(false)}>
-          <div className="mx-auto flex max-h-full w-full max-w-5xl flex-1 flex-col overflow-hidden rounded-xl bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className={`fixed inset-0 z-50 flex flex-col bg-black/60 ${agrandi ? "p-0" : "p-4"}`} onClick={() => setOpen(false)}>
+          <div className={`mx-auto flex max-h-full w-full flex-1 flex-col overflow-hidden bg-card shadow-2xl ${agrandi ? "max-w-none rounded-none" : "max-w-5xl rounded-xl"}`} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
               {renaming ? (
                 <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -137,6 +139,9 @@ export function DocumentPreview({
                       {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                     </button>
                   )}
+                  <button onClick={() => setAgrandi((v) => !v)} className={iconBtn} title={agrandi ? "Réduire la fenêtre" : "Plein écran"} aria-pressed={agrandi}>
+                    {agrandi ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </button>
                   <button onClick={() => setOpen(false)} className={iconBtn} title="Fermer"><X className="h-4 w-4" /></button>
                 </div>
               )}

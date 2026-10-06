@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Download, FileArchive, File as FileIcon, Folder, Loader2, AlertCircle, Search, Eye, ChevronRight, House } from "lucide-react";
+import { Download, FileArchive, File as FileIcon, Folder, Loader2, AlertCircle, Search, Eye, ChevronRight, House, Maximize2, Minimize2, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { natureApercu } from "@/lib/formats/apercu";
 
@@ -15,6 +15,9 @@ import { natureApercu } from "@/lib/formats/apercu";
 
 interface ZipEntry { path: string; size: number | null }
 interface ZipList { ok: boolean; name?: string; count?: number; truncated?: boolean; entries?: ZipEntry[]; error?: string }
+
+/** Au-delà, l'aperçu prévient qu'il peut être lent (le serveur le sert en flux). */
+const GROS_FICHIER = 100 * 1024 * 1024;
 
 const humanSize = (n: number | null) => (n == null ? "" : n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : n >= 1024 ? `${Math.round(n / 1024)} Ko` : `${n} o`);
 
@@ -58,6 +61,18 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
   const [q, setQ] = React.useState("");
   const [path, setPath] = React.useState<string[]>([]); // dossier courant DANS l'archive
   const [sel, setSel] = React.useState<string | null>(null);
+  // PLEIN ÉCRAN (Direction, 06/10) : l'aperçu prend tout l'écran — le panneau lui-même, par l'API du navigateur.
+  const apercuRef = React.useRef<HTMLDivElement>(null);
+  const [plein, setPlein] = React.useState(false);
+  React.useEffect(() => {
+    const suivre = () => setPlein(document.fullscreenElement === apercuRef.current && apercuRef.current !== null);
+    document.addEventListener("fullscreenchange", suivre);
+    return () => document.removeEventListener("fullscreenchange", suivre);
+  }, []);
+  const basculerPlein = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else void apercuRef.current?.requestFullscreen?.().catch(() => undefined);
+  };
 
   React.useEffect(() => {
     let alive = true;
@@ -89,6 +104,7 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
   const searchResults = term ? entries.filter((e) => e.path.toLowerCase().includes(term) && !e.path.endsWith("/")) : [];
   const selUrl = sel ? `${base}?path=${encodeURIComponent(sel)}` : null;
   const kind = sel ? previewKind(sel) : "none";
+  const tailleSel = sel ? entries.find((e) => e.path === sel)?.size ?? null : null;
   const openFile = (p: string) => setSel(p);
   const enterFolder = (folderName: string) => { setPath((p) => [...p, folderName]); setSel(null); };
   const goTo = (depth: number) => { setPath((p) => p.slice(0, depth)); setSel(null); };
@@ -166,18 +182,31 @@ export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name:
         </div>
 
         {/* Aperçu de l'entrée sélectionnée */}
-        <div className="rounded-lg border border-border p-2">
+        <div ref={apercuRef} className={cn("flex flex-col gap-2 rounded-lg border border-border p-2", plein && "bg-background p-3")}>
+          {sel && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="min-w-0 flex-1 truncate font-medium" title={sel}>{sel.split("/").pop()}{tailleSel != null ? ` · ${humanSize(tailleSel)}` : ""}</span>
+              <a href={selUrl!} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted"><ExternalLink className="h-3.5 w-3.5" /> Nouvel onglet</a>
+              <a href={`${selUrl}&dl=1`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted"><Download className="h-3.5 w-3.5" /> Télécharger</a>
+              <button type="button" onClick={basculerPlein} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted" aria-pressed={plein}>
+                {plein ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {plein ? "Quitter le plein écran" : "Plein écran"}
+              </button>
+            </div>
+          )}
+          {sel && tailleSel != null && tailleSel > GROS_FICHIER && (kind === "pdf" || kind === "text") && (
+            <p className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">Fichier volumineux ({humanSize(tailleSel)}) : l&apos;aperçu peut prendre un moment à s&apos;afficher.</p>
+          )}
           {!sel ? (
             <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
               <Eye className="h-5 w-5" /> Sélectionnez un fichier pour l'afficher.
             </div>
           ) : kind === "image" ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={selUrl!} alt={sel} className="mx-auto max-h-[62vh] rounded object-contain" />
+            <img src={selUrl!} alt={sel} className={cn("mx-auto rounded object-contain", plein ? "max-h-[calc(100vh-5rem)]" : "max-h-[62vh]")} />
           ) : kind === "pdf" || kind === "text" ? (
-            <iframe src={selUrl!} title={sel} className="h-[62vh] w-full rounded border border-border bg-white" />
+            <iframe src={selUrl!} title={sel} className={cn("w-full rounded border border-border bg-white", plein ? "h-[calc(100vh-5rem)]" : "h-[62vh]")} />
           ) : kind === "video" ? (
-            <video src={selUrl!} controls className="max-h-[62vh] w-full rounded bg-black" />
+            <video src={selUrl!} controls className={cn("w-full rounded bg-black", plein ? "max-h-[calc(100vh-5rem)]" : "max-h-[62vh]")} />
           ) : kind === "audio" ? (
             <div className="flex h-full min-h-[40vh] items-center justify-center p-4"><audio src={selUrl!} controls className="w-full" /></div>
           ) : (

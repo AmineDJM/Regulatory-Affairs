@@ -72,12 +72,19 @@ export function BonDeCommandeGate({
   const [msg, setMsg] = React.useState<string | null>(null);
   // RENVOYER AU LIEU DE SIGNER (audit 360°, R09) : le motif est exigé, à l'écran comme à l'action.
   const [motifRenvoi, setMotifRenvoi] = React.useState<string | null>(null);
+  // LE BC SIGNÉ SUR PAPIER (Direction, 06/10) : copie signée et signataire exigés, comme dans la file.
+  const [signataire, setSignataire] = React.useState("");
+  const [copie, setCopie] = React.useState<File | null>(null);
 
   const agir = async (quoi: "ADRESSER" | "SIGNER" | "RENVOYER") => {
     setBusy(quoi); setErr(null); setMsg(null);
     const f = new FormData();
     f.set("id", documentId);
     if (quoi === "RENVOYER") f.set("note", motifRenvoi ?? "");
+    if (quoi === "SIGNER") {
+      f.set("signataire", signataire.trim());
+      if (copie) f.set("copieSignee", copie);
+    }
     try {
       const r = quoi === "ADRESSER" ? await adresserBCAuCentre(f)
         : quoi === "SIGNER" ? await signerBonDeCommande(f)
@@ -162,11 +169,23 @@ export function BonDeCommandeGate({
         {aSigner && (
           <div className="space-y-2 rounded-lg bg-secondary/40 px-3 py-2">
             <p className="text-xs">{reserveEtapeBC("A_SIGNER", porte, seuil)}</p>
+            {peutSigner && motifRenvoi === null && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="space-y-1 text-xs">
+                  <span className="font-medium">BC signé (scan ou photo) — obligatoire</span>
+                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*" aria-label="Bon de commande signé" onChange={(e) => setCopie(e.target.files?.[0] ?? null)} className="block w-full text-xs" />
+                </label>
+                <label className="space-y-1 text-xs">
+                  <span className="font-medium">Signé par — obligatoire</span>
+                  <Input value={signataire} onChange={(e) => setSignataire(e.target.value)} placeholder="Nom et fonction du signataire" aria-label="Signataire" />
+                </label>
+              </div>
+            )}
             {peutSigner && (
               <div className="flex flex-wrap items-center gap-2">
-                <BoutonDecisif size="sm" onClick={() => void agir("SIGNER")} disabled={busy !== null}>
+                <BoutonDecisif size="sm" onClick={() => void agir("SIGNER")} disabled={busy !== null || motifRenvoi !== null || !copie || !signataire.trim()}>
                   {busy === "SIGNER" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePen className="h-4 w-4" />}
-                  Signer (Finances)
+                  Enregistrer le BC signé
                 </BoutonDecisif>
                 {motifRenvoi === null && (
                   <Button size="sm" variant="secondary" onClick={() => setMotifRenvoi("")} disabled={busy !== null}>

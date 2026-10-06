@@ -8,6 +8,8 @@ import type { EtapeBC } from "@/lib/bons-de-commande/regle";
 import { etapeDEnsemble } from "@/lib/ad-pro/devis-poste";
 import { fichiersEmis } from "@/lib/lecteurs/fichiers-emis";
 import type { EtatDemandeBC } from "@/lib/ad-pro/poste-etapes";
+import { ETAPE_COPIE_SIGNEE, controleFactureDe, phraseVerdictSignature, verdictSignatureDe, type ControleFacture } from "@/lib/bons-de-commande/copie-signee";
+import { pieceEmise, specRevisable, type SpecRevisable } from "@/lib/legal/piece-emise";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -65,10 +67,21 @@ export interface PieceDePoste {
    * porte de la PIÈCE (`/api/legal/<id>/fichier`), pas du Drive de celui qui l'a émise (§118.152). Faux pour une pièce déposée.
    */
   emis: { docx: boolean; pdf: boolean };
+  /** Une FACTURE déposée sur le poste : son contrôle contre le(s) BC qu'elle couvre (Direction, 06/10). `null` ailleurs. */
+  controle: ControleFacture | null;
 }
 
 /** Un bon de commande du poste : sa pièce, et OÙ IL EN EST (circuit des centres et des Finances). */
-export type BcDePoste = PieceDePoste & { etape: EtapeBC | null };
+export type BcDePoste = PieceDePoste & {
+  etape: EtapeBC | null;
+  /**
+   * LA COPIE SIGNÉE que les Finances ont téléversée (Direction, 06/10) — elle REMPLACE le BC non signé sur la case :
+   * c'est elle qu'on ouvre. `null` tant que le BC n'est pas signé par copie.
+   */
+  copieSignee: { documentId: string; signataire: string | null; constat: string | null } | null;
+  /** Ce que l'éditeur natif reprend (version, lignes, objet…) — `null` si la pièce n'est pas de la fabrique ou ne se modifie plus. */
+  revision: { version: number; numero: string; spec: SpecRevisable } | null;
+};
 
 /**
  * Les pièces d'un poste, rangées dans l'ordre de la chaîne.
@@ -101,14 +114,14 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
     orderBy: { createdAt: "asc" },
     select: {
       itemId: true, nature: true,
-      legalDocument: { select: { id: true, title: true, reference: true, amount: true, status: true, cancelledAt: true, createdAt: true, custom: true } },
+      legalDocument: { select: { id: true, title: true, reference: true, amount: true, status: true, cancelledAt: true, createdAt: true, custom: true, signedAt: true, signedByName: true, signatureCheck: true } },
     },
   });
   if (liens.length === 0) return res;
   const docIds = [...new Set(liens.map((l) => l.legalDocument.id))];
   const [fichiers, autres, etats] = await Promise.all([
     prisma.document.findMany({
-      where: { entityType: "LEGAL_DOCUMENT", entityId: { in: docIds } }, orderBy: { createdAt: "asc" }, select: { id: true, entityId: true },
+      where: { entityType: "LEGAL_DOCUMENT", entityId: { in: docIds } }, orderBy: { createdAt: "asc" }, select: { id: true, entityId: true, stepKey: true },
     }),
     // Les autres postes couverts par un même devis — pour dire « commun à : Imprimerie, Hôtellerie ».
     prisma.adProItemPiece.findMany({
@@ -119,9 +132,12 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
   ]);
   const nbFichiers = new Map<string, number>();
   const premierFichier = new Map<string, string>();
+  // La copie signée la plus récente d'un BC (un BC re-signé après révision en a une nouvelle).
+  const copieSignee = new Map<string, string>();
   for (const f of fichiers) {
     nbFichiers.set(f.entityId, (nbFichiers.get(f.entityId) ?? 0) + 1);
     if (!premierFichier.has(f.entityId)) premierFichier.set(f.entityId, f.id);
+    if (f.stepKey === ETAPE_COPIE_SIGNEE) copieSignee.set(f.entityId, f.id);
   }
   const couverts = new Map<string, { itemId: string; label: string }[]>();
   for (const a of autres) {
@@ -139,11 +155,20 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
       fichiers: nbFichiers.get(d.id) ?? 0, fichierId: premierFichier.get(d.id) ?? null,
       aussiPour: (couverts.get(d.id) ?? []).filter((c) => c.itemId !== l.itemId).map((c) => c.label),
       emis: (() => { const f = fichiersEmis(d.custom); return { docx: f.docx !== null, pdf: f.pdf !== null }; })(),
+      controle: l.nature === "FACTURE" ? controleFactureDe((d.custom as { facturePoste?: { controle?: unknown } } | null)?.facturePoste?.controle) : null,
     };
     if (l.nature === "DEVIS") p.devis.push(piece);
     else if (l.nature === "FACTURE") p.factures.push(piece);
     else {
-      const bc: BcDePoste = { ...piece, etape: annulee ? null : etats.get(d.id)?.etape ?? null };
+      const copie = d.signedAt ? copieSignee.get(d.id) ?? null : null;
+      const verdict = verdictSignatureDe(d.signatureCheck);
+      const emise = pieceEmise(d.custom);
+      const spec = !annulee && !d.signedAt ? specRevisable(d.custom) : null;
+      const bc: BcDePoste = {
+        ...piece, etape: annulee ? null : etats.get(d.id)?.etape ?? null,
+        copieSignee: copie ? { documentId: copie, signataire: d.signedByName, constat: verdict ? phraseVerdictSignature(verdict) : null } : null,
+        revision: emise && spec ? { version: emise.version, numero: emise.numero, spec } : null,
+      };
       if (!annulee) p.bcs.push(bc);
       // Sans BC vivant, le plus récent annulé : la case dit « annulé » au lieu de se taire.
       else if (p.bcs.length === 0) p.bc = bc;
