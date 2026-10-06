@@ -1,14 +1,21 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
-  AlertTriangle, ArrowUpRight, Check, Clock, Loader2, MapPin, RotateCcw, Send, Users, X,
+  AlertTriangle, ArrowRight, ArrowUpRight, CalendarRange, Check, Clock, FilePlus2, Loader2, MapPin, RotateCcw, Send, Users, X,
 } from "lucide-react";
 import {
   planifierVisites, soumettrePlanTournee, escaladerPlanTournee, deciderPlanTournee, demanderRevisionPlanTournee,
 } from "@/lib/actions/tour-plan-actions";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { STATUT_PLAN_LABELS, aResoumettre, gestesPossibles, type StatutPlan } from "@/lib/sfe/tournee";
+import { deplacerCellule, etatCellule, gesteCellule, grilleModifiable, retirerCellule } from "@/lib/sfe/grille-tournee";
+import type { StockPourVisite } from "@/lib/queries/promo-remises";
+import {
+  FeuilleNonTenue, FeuilleRapportVisite, FeuilleVisiteImprevue, type GammeVue,
+} from "../ma-journee/emploi-du-temps";
+import { GrilleTournee, jourLisible as jourDeLaGrille, type InfoPraticien, type LigneDuPlan } from "./grille";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
@@ -22,16 +29,29 @@ export interface PraticienVue {
 }
 
 /**
- * LE PLANIFICATEUR DE TOURNÉE — la ville, puis les médecins, jour par jour.
+ * LE PLANIFICATEUR DE TOURNÉE — un EMPLOI DU TEMPS : les jours en colonnes, les professionnels de santé dans les
+ * cellules (Direction, 06/10).
  *
- * ── POURQUOI UN JOUR À LA FOIS, ET NON UNE GRILLE JOUR × MÉDECIN ────────────────────────────
+ * ── LA GRILLE, ET LA FAÇON D'AJOUTER QUI RESTE ─────────────────────────────────────────────
+ *
+ * La grille (`GrilleTournee`) montre la semaine : sur ordinateur, une colonne par jour ; sur téléphone, un jour par
+ * écran. On y AJOUTE comme avant — le « + » d'une colonne ouvre le même choix : la wilaya où l'on sera, le secteur,
+ * la recherche, et les praticiens du panel à cocher pour ce jour. On y DÉPLACE (glisser une carte, ou son menu) et
+ * on y RETIRE, tant que le plan est ouvert (brouillon, rejeté, rouvert en révision) — `grilleModifiable`, la même règle
+ * que l'action `planifierVisites`, qui la revérifie.
+ *
+ * ── UNE FOIS VALIDÉ, LA GRILLE OUVRE LE RAPPORT ─────────────────────────────────────────────
+ *
+ * Toucher un praticien « à faire » ouvre le rapport de SA visite — la même feuille, la même action (`rapporterVisite`)
+ * que « Ma journée » : une seule porte vers le compte rendu d'une visite planifiée, et la cellule passe au vert sur le
+ * même fait que la ligne de l'emploi du temps. Le bouton « Nouveau rapport terrain », au-dessus de la grille, ouvre une
+ * visite du plan à rapporter, ou la visite IMPRÉVUE de « Ma journée » pour une rencontre hors plan.
+ *
+ * ── POURQUOI LE CHOIX SE FAIT TOUJOURS PAR JOUR ─────────────────────────────────────────────
  *
  * La demande le dit dans ces termes : « il sélectionne la ville dans laquelle il sera dispo la
- * semaine du 18, puis les médecins qu'il va voir — chaque jour de cette semaine ». Une grille de
- * vingt-deux colonnes × cent praticiens n'est lisible sur aucun téléphone, et c'est un téléphone
- * que le terrain a dans la main. On choisit donc un JOUR, on cadre par VILLE ou par SECTEUR, et
- * les praticiens du cadre s'offrent à cocher — le compte par jour reste visible en permanence,
- * sinon on ne sait plus où l'on en est de son mois.
+ * semaine du 18, puis les médecins qu'il va voir — chaque jour de cette semaine ». On choisit donc un
+ * JOUR, on cadre par VILLE ou par SECTEUR, et les praticiens du cadre s'offrent à cocher.
  *
  * ── CE QUI EST PRÉ-SÉLECTIONNÉ ──────────────────────────────────────────────────────────────
  *
@@ -48,9 +68,24 @@ export interface PraticienVue {
 export function Planificateur({
   planId, repName, status, periodStart, periodEnd, joursOuvres, submittedAt, retard,
   reviewerName, escalatedToName, rejectionComment, resubmitDueAt,
-  praticiens, panelVide, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jeSuisLeKam, jePeuxDecider, jePeuxEscalader,
+  praticiens, panelVide, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jePeuxDecider, jePeuxEscalader,
   revisionNote, revisionPar, revisionLe, jePeuxDemanderRevision,
+  aujourdhui, dejaValide, lignes, gamme, stock, peutRapporter, voirRapportsTerrain,
 }: {
+  /** `AAAA-MM-JJ` du jour, calculé par le serveur. */
+  aujourdhui: string;
+  /** Validé au moins une fois : ses visites sont dans l'emploi du temps, et la grille ouvre leur rapport. */
+  dejaValide: boolean;
+  /** Les visites ENREGISTRÉES du plan, lues comme « Ma journée » les lit (`loadVisitesDuPlan`). */
+  lignes: LigneDuPlan[];
+  /** La gamme du KAM — ce que le formulaire de rapport propose. */
+  gamme: GammeVue;
+  /** Le matériel en main du KAM (bloc « Matériel remis » du rapport). */
+  stock: StockPourVisite;
+  /** Le lecteur est le KAM et peut saisir ses visites : la grille ouvre ses rapports. */
+  peutRapporter: boolean;
+  /** Le lecteur a le module Rapports terrain — le lien vers ses rapports s'offre. */
+  voirRapportsTerrain: boolean;
   planId: string;
   repName: string;
   status: StatutPlan;
@@ -76,6 +111,7 @@ export function Planificateur({
   pairesNonTenues: string[];
   /** Les visites passées d'un plan déjà validé : une révision ne les retire pas (§118.193). */
   pairesPassees: string[];
+  /** Le lecteur est-il le KAM du plan ? (Lu par la page ; la grille s'en remet à `peutRapporter` et `grilleModifiable`.) */
   jeSuisLeKam: boolean;
   jePeuxDecider: boolean;
   jePeuxEscalader: boolean;
@@ -104,7 +140,17 @@ export function Planificateur({
   const [sale, setSale] = React.useState(false);
   const [revision, setRevision] = React.useState(false);
   const [motifRevision, setMotifRevision] = React.useState("");
+  /** Le choix des praticiens d'un jour (le « + » d'une colonne) est-il ouvert ? */
+  const [choixOuvert, setChoixOuvert] = React.useState(false);
+  /** La visite dont on rédige (ou corrige) le rapport, celle qu'on dit non tenue, le choix « Nouveau rapport ». */
+  const [aRapporter, setARapporter] = React.useState<LigneDuPlan | null>(null);
+  const [nonTenue, setNonTenue] = React.useState<LigneDuPlan | null>(null);
+  const [nouveauRapport, setNouveauRapport] = React.useState(false);
+  const [imprevue, setImprevue] = React.useState(false);
   const occupe = busy || enCours;
+  // QUI MODIFIE LA GRILLE : la MÊME règle que l'action — plan ouvert, et le KAM, le superviseur de sa BU ou la Direction.
+  const modifiable = grilleModifiable(status, jePeuxDemanderRevision);
+  const verrouillees = React.useMemo(() => new Set([...acquises, ...passees]), [acquises, passees]);
 
   // LA WILAYA, pas la ville : la ville a quitté les annuaires (texte libre tapé de trois façons
   // pour le même endroit) ; la wilaya est une liste fermée, donc un filtre qui ne ment pas.
@@ -156,24 +202,56 @@ export function Planificateur({
     if (await run(planifierVisites, fd)) setSale(false);
   };
 
-  const jourLisible = (j: string) =>
-    new Date(`${j}T09:00:00`).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" });
+  const jourLisible = (j: string) => jourDeLaGrille(j);
 
   const tonStatut = status === "APPROVED" ? "success" : status === "REJECTED" ? "danger"
     : status === "SUBMITTED" || status === "ESCALATED" || status === "REVISION" ? "warning" : "neutral";
 
-
-  // Les visites du plan, groupées par jour, pour la lecture du validateur — les noms viennent du panel
-  // que la page a déjà chargé ; un praticien sorti du panel depuis reste nommé « praticien hors panel ».
-  const nomDe = React.useMemo(() => new Map(praticiens.map((p) => [p.id, p.name])), [praticiens]);
-  const visitesParJour = React.useMemo(() => {
-    const parJour = new Map<string, string[]>();
-    for (const k of paires) {
-      const [j, id] = k.split("|");
-      parJour.set(j, [...(parJour.get(j) ?? []), nomDe.get(id) ?? "praticien hors panel"]);
+  // CE QUE LA CELLULE MONTRE D'UN PRATICIEN : le panel d'abord ; un praticien sorti du panel depuis se lit sur sa
+  // visite enregistrée, et reste nommé — jamais une cellule vide (§118.71).
+  const lignesParCle = React.useMemo(() => new Map(lignes.map((l) => [l.cle, l])), [lignes]);
+  const infos = React.useMemo(() => {
+    const m = new Map<string, InfoPraticien>();
+    for (const l of lignes) {
+      const id = l.cle.slice(l.cle.indexOf("|") + 1);
+      m.set(id, { name: l.doctorName, specialty: l.specialty, institution: l.institution, wilaya: l.wilaya, potential: null, secteur: null });
     }
-    return [...parJour.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [paires, nomDe]);
+    for (const p of praticiens) {
+      m.set(p.id, { name: p.name, specialty: p.specialty, institution: p.institution, wilaya: p.wilaya, potential: p.potential, secteur: p.secteur });
+    }
+    return m;
+  }, [lignes, praticiens]);
+  const infoDe = React.useCallback(
+    (id: string): InfoPraticien => infos.get(id) ?? { name: "Praticien hors panel", specialty: null, institution: null, wilaya: null, potential: null, secteur: null },
+    [infos],
+  );
+
+  // ── LES GESTES DE LA GRILLE — le module pur décide, l'écran applique (la sélection part complète à l'enregistrement).
+  const ajouterAuJour = (j: string) => { setErr(null); setJour(j); setChoixOuvert(true); };
+  const deplacer = (cle: string, versJour: string): string | null => {
+    const r = deplacerCellule(paires, cle, versJour, joursOuvres, verrouillees);
+    if (!r.ok) { setErr(r.raison); return r.raison; }
+    if (r.paires.size !== paires.size || [...r.paires].some((k) => !paires.has(k))) { setPaires(r.paires); setSale(true); }
+    return null;
+  };
+  const retirer = (cle: string): string | null => {
+    const r = retirerCellule(paires, cle, verrouillees);
+    if (!r.ok) { setErr(r.raison); return r.raison; }
+    setPaires(r.paires); setSale(true);
+    return null;
+  };
+
+  // LES VISITES À RAPPORTER MAINTENANT — pour le choix « Nouveau rapport terrain » : celles que la grille ouvrirait
+  // (la même règle, `etatCellule` + `gesteCellule`), la plus récente d'abord.
+  const aRapporterMaintenant = React.useMemo(
+    () => lignes
+      .filter((l) => gesteCellule({
+        etat: etatCellule({ etatEnregistre: l.etat, planValide: dejaValide, jour: l.cle.slice(0, 10), aujourdhui }),
+        heuresRestantes: l.heuresRestantes, planValide: dejaValide, jeSuisLeKam: peutRapporter,
+      }) === "RAPPORTER")
+      .sort((a, b) => b.date.localeCompare(a.date)),
+    [lignes, aujourdhui, dejaValide, peutRapporter],
+  );
 
   return (
     <div className="space-y-4">
@@ -309,9 +387,96 @@ export function Planificateur({
         </div>
       )}
 
-      {/* ── LA PLANIFICATION ────────────────────────────────────────────────── */}
-      {gestes.modifiable && jeSuisLeKam ? (
+      {/* ── L'EMPLOI DU TEMPS DE LA TOURNÉE — les jours en colonnes, les praticiens dans les cellules ─────────── */}
+      <section className="space-y-2" aria-labelledby="grille-titre">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 id="grille-titre" className="mr-auto flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {modifiable ? <CalendarRange className="h-3.5 w-3.5" aria-hidden /> : <Users className="h-3.5 w-3.5" aria-hidden />}
+            {modifiable ? "Emploi du temps de la tournée" : "Visites prévues"}
+          </h2>
+          {/* LE RAPPORT TERRAIN, AU-DESSUS DE L'EMPLOI DU TEMPS (Direction, 06/10) : une visite du plan à rapporter, ou une
+              rencontre hors plan — les deux portes de « Ma journée », jamais une troisième. */}
+          {peutRapporter && (
+            <Button size="sm" onClick={() => { setErr(null); setNouveauRapport(true); }} disabled={occupe}>
+              <FilePlus2 className="h-4 w-4" /> Nouveau rapport terrain
+            </Button>
+          )}
+        </div>
+        {praticiens.length === 0 && modifiable && (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+            <strong>Votre panel est vide.</strong>{" "}
+            {panelVide ?? "Un plan de tournée se construit sur votre territoire (les établissements qu'il couvre) et sur les praticiens qui vous sont rattachés."}
+          </p>
+        )}
+        <GrilleTournee
+          joursOuvres={joursOuvres}
+          paires={paires}
+          aujourdhui={aujourdhui}
+          infoDe={infoDe}
+          lignesParCle={lignesParCle}
+          verrouillees={verrouillees}
+          planValide={dejaValide}
+          jeSuisLeKam={peutRapporter}
+          modifiable={modifiable}
+          occupe={occupe}
+          onAjouter={ajouterAuJour}
+          onDeplacer={deplacer}
+          onRetirer={retirer}
+          onRapporter={(l) => { setErr(null); setARapporter(l); }}
+          onNonTenue={(l) => { setErr(null); setNonTenue(l); }}
+        />
+      </section>
+
+      {modifiable ? (
         <>
+          {/* ENREGISTRER, PUIS SOUMETTRE — la barre reste sous le pouce, en bas de l'écran, tant qu'il y a à enregistrer. */}
+          <div className={cn(
+            "flex flex-wrap items-center justify-end gap-2 rounded-xl border border-border bg-card/95 p-2.5 backdrop-blur",
+            sale && "sticky bottom-2 z-10 border-warning/50 shadow-md",
+          )}>
+            {sale
+              ? <span className="mr-auto text-xs text-warning">Modifications non enregistrées.</span>
+              : <span className="mr-auto text-xs text-muted-foreground"><strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s) au plan</span>}
+            <Button variant="outline" onClick={() => void enregistrer()} disabled={occupe || !sale}>
+              {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer le plan
+            </Button>
+            <Button
+              disabled={occupe || sale || paires.size === 0}
+              onClick={() => { const fd = new FormData(); fd.set("planId", planId); void run(soumettrePlanTournee, fd); }}
+            >
+              <Send className="h-4 w-4" /> Soumettre à validation
+            </Button>
+          </div>
+          {sale && (
+            // ENREGISTRER AVANT DE SOUMETTRE : soumettre une sélection non enregistrée ferait
+            // valider un plan que le validateur ne verrait pas — le faux succès le plus simple.
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              Enregistrez d&apos;abord : votre validateur ne peut voir que ce qui est enregistré.
+            </p>
+          )}
+        </>
+      ) : (
+        // LE DÉTAIL, EN LECTURE (§118.184) : le validateur voit, jour par jour, qui le KAM va voir — c'est exactement ce
+        // qu'il valide. La structure ne se modifie pas : l'action `planifierVisites` le refuserait.
+        <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
+          {gestes.modifiable
+            ? "Seul le KAM (ou le superviseur de sa BU) modifie ce plan."
+            : gestes.revisable
+              ? "Un plan validé ne se modifie pas en direct : sa tournée a commencé. « Demander une révision » le rouvre, motif à l'appui — il repasse en validation, et ce qui a déjà eu lieu reste."
+              : `Un plan « ${STATUT_PLAN_LABELS[status]} » attend la décision de son validateur : il ne se modifie qu'une fois rejeté, ou validé puis rouvert en révision.`}
+        </p>
+      )}
+
+      {/* ── AJOUTER DES PRATICIENS À UN JOUR — la façon d'ajouter d'avant, ouverte par le « + » d'une colonne ── */}
+      <Sheet
+        open={choixOuvert && modifiable}
+        onClose={() => setChoixOuvert(false)}
+        title={`Praticiens à voir le ${jour ? jourLisible(jour) : "—"}`}
+        description="Cadrez par wilaya ou par secteur, puis cochez les praticiens de votre panel. Rien ne part avant « Enregistrer le plan »."
+        width="lg"
+      >
+        <div className="space-y-4">
           {/* LES JOURS OUVRÉS, avec leur compte. La semaine ouvrée algérienne va du dimanche au
               jeudi : proposer un vendredi ferait planifier un jour où personne ne sort. */}
           <div className="space-y-1.5">
@@ -338,7 +503,7 @@ export function Planificateur({
 
           {/* LE CADRE : la wilaya où il sera, ou son secteur. */}
           <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-40">
+            <div className="min-w-40 flex-1">
               <Label htmlFor="plan-wilaya">Wilaya où je serai</Label>
               {/* Le menu se nourrit du panel : vide, il le DIT au lieu d'un « Toutes les wilayas » sans rien. */}
               <Select id="plan-wilaya" value={wilaya} onChange={(e) => setWilaya(e.target.value)} disabled={praticiens.length === 0}>
@@ -347,7 +512,7 @@ export function Planificateur({
               </Select>
             </div>
             {secteurs.length > 0 && (
-              <div className="min-w-40">
+              <div className="min-w-40 flex-1">
                 <Label htmlFor="plan-secteur">Secteur</Label>
                 <Select id="plan-secteur" value={secteur} onChange={(e) => setSecteur(e.target.value)}>
                   <option value="">Tous mes secteurs</option>
@@ -355,7 +520,7 @@ export function Planificateur({
                 </Select>
               </div>
             )}
-            <div className="min-w-48 flex-1">
+            <div className="min-w-48 flex-[2]">
               <Label htmlFor="plan-q">Chercher un praticien</Label>
               <Input id="plan-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nom, spécialité, établissement" />
             </div>
@@ -375,7 +540,7 @@ export function Planificateur({
                 {panelVide ?? "Un plan de tournée se construit sur votre territoire (les établissements qu'il couvre) et sur les praticiens qui vous sont rattachés."}
               </p>
             ) : (
-              <div className="max-h-80 divide-y divide-border overflow-y-auto rounded-xl border border-border">
+              <div className="divide-y divide-border rounded-xl border border-border">
                 {visibles.length === 0 && (
                   <p className="px-3 py-6 text-center text-sm text-muted-foreground">
                     Aucun praticien dans ce cadre — élargissez la ville ou le secteur.
@@ -389,7 +554,7 @@ export function Planificateur({
                   return (
                     <label
                       key={p.id}
-                      className={cn("flex cursor-pointer items-start gap-2 px-3 py-2 text-sm hover:bg-secondary", fige && "cursor-not-allowed opacity-70")}
+                      className={cn("flex cursor-pointer items-start gap-2 px-3 py-2.5 text-sm hover:bg-secondary", fige && "cursor-not-allowed opacity-70")}
                     >
                       <input
                         type="checkbox" checked={paires.has(k)} disabled={fige || !jour}
@@ -420,56 +585,82 @@ export function Planificateur({
               </div>
             )}
           </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {sale && <span className="mr-auto text-xs text-warning">Modifications non enregistrées.</span>}
-            <Button variant="outline" onClick={() => void enregistrer()} disabled={occupe || !sale}>
-              {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer le plan
-            </Button>
-            <Button
-              disabled={occupe || sale || paires.size === 0}
-              onClick={() => { const fd = new FormData(); fd.set("planId", planId); void run(soumettrePlanTournee, fd); }}
-            >
-              <Send className="h-4 w-4" /> Soumettre à validation
+          <div className="flex justify-end">
+            <Button type="button" onClick={() => setChoixOuvert(false)}>
+              <Check className="h-4 w-4" /> Terminé — {compteDuJour(jour)} praticien(s) ce jour
             </Button>
           </div>
-          {sale && (
-            // ENREGISTRER AVANT DE SOUMETTRE : soumettre une sélection non enregistrée ferait
-            // valider un plan que le validateur ne verrait pas — le faux succès le plus simple.
-            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-              Enregistrez d&apos;abord : votre validateur ne peut voir que ce qui est enregistré.
-            </p>
-          )}
-        </>
-      ) : (
-        <>
-          {/* LE DÉTAIL, EN LECTURE (§118.184). Le validateur tranchait sur un nombre (« N visite(s) ») sans
-              voir lesquelles : jour par jour, qui le KAM va voir — c'est exactement ce qu'il valide. */}
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <Users className="h-3.5 w-3.5" aria-hidden /> Visites prévues
-            </p>
-            {visitesParJour.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Aucune visite planifiée.</p>
+        </div>
+      </Sheet>
+
+      {/* ── NOUVEAU RAPPORT TERRAIN — une visite du plan, ou une rencontre hors plan ─────────────────────── */}
+      <Sheet
+        open={nouveauRapport}
+        onClose={() => setNouveauRapport(false)}
+        title="Nouveau rapport terrain"
+        description="Le rapport d'une visite de votre plan la fait passer au vert dans l'emploi du temps. Une rencontre que le plan ne prévoyait pas se rapporte en visite imprévue."
+        width="md"
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Une visite de mon plan</p>
+            {!dejaValide ? (
+              <p className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
+                Ce plan n&apos;est pas encore validé : ses visites se rapportent une fois le plan validé par votre N+1.
+              </p>
+            ) : aRapporterMaintenant.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
+                Aucune visite du plan à rapporter maintenant — les rapports s&apos;ouvrent le jour de la visite, pour 48 h.
+              </p>
             ) : (
               <ul className="divide-y divide-border rounded-xl border border-border">
-                {visitesParJour.map(([j, noms]) => (
-                  <li key={j} className="flex flex-col gap-1 px-3 py-2 text-sm sm:flex-row sm:gap-3">
-                    <span className="w-40 shrink-0 font-medium tabular-nums">{jourLisible(j)}</span>
-                    <span className="min-w-0 flex-1 text-muted-foreground">{noms.join(" · ")}</span>
+                {aRapporterMaintenant.map((l) => (
+                  <li key={l.id}>
+                    <button
+                      type="button" disabled={occupe}
+                      onClick={() => { setNouveauRapport(false); setARapporter(l); }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-secondary focus-ring"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{l.doctorName}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {jourLisible(l.cle.slice(0, 10))} · {[l.specialty, l.institution].filter(Boolean).join(" · ") || "—"}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3" aria-hidden /> {l.heuresRestantes} h
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                    </button>
                   </li>
                 ))}
               </ul>
             )}
           </div>
-          <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
-            {gestes.modifiable
-              ? "Seul le KAM (ou le superviseur de sa BU) modifie ce plan."
-              : gestes.revisable
-                ? "Un plan validé ne se modifie pas en direct : sa tournée a commencé. « Demander une révision » le rouvre, motif à l'appui — il repasse en validation, et ce qui a déjà eu lieu reste."
-                : `Un plan « ${STATUT_PLAN_LABELS[status]} » attend la décision de son validateur : il ne se modifie qu'une fois rejeté, ou validé puis rouvert en révision.`}
-          </p>
+          <div className="space-y-1.5 border-t border-border pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Une rencontre hors plan</p>
+            <Button type="button" variant="outline" disabled={occupe} onClick={() => { setNouveauRapport(false); setImprevue(true); }}>
+              <FilePlus2 className="h-4 w-4" /> Visite imprévue
+            </Button>
+          </div>
+          {voirRapportsTerrain && (
+            <Link href="/field-reports" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+              Mes rapports terrain <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
+        </div>
+      </Sheet>
+
+      {/* ── LE RAPPORT, LA NON-TENUE, L'IMPRÉVUE — les feuilles de « Ma journée », jamais une copie ─────────── */}
+      {peutRapporter && (
+        <>
+          <FeuilleRapportVisite ouverte={aRapporter} onClose={() => setARapporter(null)} gamme={gamme} stock={stock} executer={run} occupe={occupe} err={err} />
+          <FeuilleNonTenue visite={nonTenue} onClose={() => setNonTenue(null)} executer={run} occupe={occupe} err={err} />
+          <FeuilleVisiteImprevue
+            open={imprevue} onClose={() => setImprevue(false)}
+            panel={praticiens.map((p) => ({ id: p.id, name: p.name }))}
+            gamme={gamme} stock={stock} executer={run} occupe={occupe} err={err}
+          />
         </>
       )}
 
