@@ -28,11 +28,14 @@ export const CHAIN_STAGE_LABELS: Record<ChainStage, string> = {
   DONE: "Circuit terminé",
 };
 
-/** L'étape qui suit, quand la marche courante approuve. */
-export function nextChainStage(stage: ChainStage): ChainStage {
+/**
+ * L'étape qui suit, quand la marche courante approuve. `sansDG` : le circuit s'arrête aux RH — c'est celui du CONGÉ
+ * depuis la décision de la Direction (06/10 : « supprime l'étape DG ») ; la formation garde sa troisième marche.
+ */
+export function nextChainStage(stage: ChainStage, opts: { sansDG?: boolean } = {}): ChainStage {
   switch (stage) {
     case "MANAGER": return "HR";
-    case "HR": return "DG";
+    case "HR": return opts.sansDG ? "DONE" : "DG";
     default: return "DONE";
   }
 }
@@ -98,9 +101,9 @@ export interface ChainTransition {
  * définitivement. Refuser clôt le circuit sur-le-champ, quelle que soit la marche.
  * Fonction PURE — testée.
  */
-export function applyChainDecision(stage: ChainStage, decision: "APPROVED" | "REJECTED"): ChainTransition {
+export function applyChainDecision(stage: ChainStage, decision: "APPROVED" | "REJECTED", opts: { sansDG?: boolean } = {}): ChainTransition {
   if (decision === "REJECTED") return { stage: "DONE", status: "REJECTED", granted: false };
-  const next = nextChainStage(stage);
+  const next = nextChainStage(stage, opts);
   if (next === "DONE") return { stage: "DONE", status: "APPROVED", granted: true };
   return { stage: next, status: "PENDING", granted: false };
 }

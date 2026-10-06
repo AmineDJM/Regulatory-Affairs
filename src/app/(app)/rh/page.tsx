@@ -207,7 +207,7 @@ export default async function RhPage() {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes de congés à trancher</h2>
           <p className="text-xs text-muted-foreground">
-            Circuit à trois marches : <strong>responsable (N+1) → ressources humaines → direction générale</strong>.
+            Circuit à deux marches : <strong>responsable (N+1) → ressources humaines</strong>.
             Seules les demandes qui attendent VOTRE signature figurent ici ; le solde n&apos;est débité qu&apos;au bout du circuit.
           </p>
           <LeaveApprovals leaves={leavesToDecide} canManage={canManage} />

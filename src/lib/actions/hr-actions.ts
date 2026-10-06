@@ -366,7 +366,7 @@ export async function requestLeave(
 }
 
 /**
- * DÉCISION SUR UN CONGÉ — une marche du circuit N+1 → RH → DG (cf. `leave-workflow.ts`).
+ * DÉCISION SUR UN CONGÉ — une marche du circuit N+1 → RH (cf. `leave-workflow.ts`).
  * Approuver fait monter d'un cran ; seule la dernière marche accorde réellement le congé
  * (et débite le solde). Refuser arrête tout.
  */

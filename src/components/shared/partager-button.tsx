@@ -53,6 +53,8 @@ export interface CiblePartage {
    * PERTINENTE (les responsables d'un événement) la fournit et rien n'est chargé.
    */
   people?: readonly PersonnePartage[];
+  /** Le message proposé — « Est-ce toujours d'actualité ? A-t-elle été payée ? » (Direction, 06/10). Modifiable. */
+  noteInitiale?: string;
 }
 
 /** Ce qu'on annonce dans le panneau : le nom de l'objet, sinon sa nature. */
@@ -202,7 +204,7 @@ export function PartagerSheet({ open, onClose, ...cible }: CiblePartage & { open
 
         <div className="space-y-1.5">
           <Label>Message (optionnel)</Label>
-          <Textarea name="note" rows={3} placeholder="Pourquoi vous le partagez, ce que vous attendez…" />
+          <Textarea name="note" rows={3} defaultValue={cible.noteInitiale} placeholder="Pourquoi vous le partagez, ce que vous attendez…" />
         </div>
 
         {err && <p className="text-sm text-destructive">{err}</p>}

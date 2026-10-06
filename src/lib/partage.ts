@@ -26,6 +26,7 @@ export const ENTITY_TYPE_LABELS: Partial<Record<EntityType, string>> = {
   SUPPLIER: "Fournisseur",
   CONSULTING_CONTRACT: "Contrat de consulting",
   EXPENSE_ORDER: "Ordre de dépense",
+  FINANCE_TRANSACTION: "Dépense",
   ADMIN_REQUEST: "Demande administrative",
   TASK: "Tâche",
   VALIDATION_REQUEST: "Demande de validation",

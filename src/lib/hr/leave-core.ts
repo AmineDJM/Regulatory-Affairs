@@ -58,7 +58,7 @@ export function revalidateLeaveViews(employeeId?: string): void {
 }
 
 /**
- * Crée la demande et l'engage dans le circuit **N+1 → RH → DG**.
+ * Crée la demande et l'engage dans le circuit **N+1 → RH**.
  *
  * Le circuit démarre au N+1 résolu par l'organigramme. Si personne ne surplombe le demandeur
  * (direction, ou fiche non rattachée), on ne laisse pas la demande dans le vide : elle entre

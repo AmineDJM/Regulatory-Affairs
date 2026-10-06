@@ -785,6 +785,10 @@ export async function canAccessEntity(
     return (await accesAuxPiecesLegal(user, [entityId], [action])).get(action)?.has(entityId) ?? false;
   }
 
+  // UNE DÉPENSE DE TRÉSORERIE SE LIT AUSSI DEPUIS LES BUDGETS (Direction, 06/10) : la liste « à imputer » la montre à qui
+  // voit les budgets — la partager pour demander si elle est payée ne doit pas exiger, en plus, le module Finances.
+  if (entityType === "FINANCE_TRANSACTION" && action === "VIEW" && userCan(user, "BUDGETS", "VIEW")) return true;
+
   if (!userCan(user, module, action)) return false;
 
   // ── UN DOSSIER AD & PRO : SES SOCIÉTÉS, OU SES PARTIES PRENANTES (§118.184) ─────────────────────

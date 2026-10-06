@@ -143,30 +143,17 @@ suite("Congés — N+1 → RH → DG depuis « Mon espace »", () => {
     expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id: salarieEmpId } })).leaveBalanceDays)).toBe(30);
   });
 
-  it("les RH ne peuvent pas sauter la marche du DG : approuver les fait passer à DG", async () => {
+  it("MARCHE 2 — les RH accordent : plus de marche DG (Direction, 06/10) ; c'est LÀ que le solde se débite", async () => {
     ACTOR = await actorFor(rhUserId, "DIRECTION");
-    const fd = new FormData(); fd.set("id", leaveId); fd.set("decision", "APPROVED");
-    expect((await decideLeave(fd)).ok).toBe(true);
-
-    const l = await prisma.leaveRequest.findUniqueOrThrow({ where: { id: leaveId } });
-    expect(l.stage).toBe("DG");
-    expect(l.status).toBe("PENDING"); // TOUJOURS pas accordé
-    expect(l.hrDecidedById).toBe(rhUserId);
-    expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id: salarieEmpId } })).leaveBalanceDays)).toBe(30);
-  });
-
-  it("MARCHE 3 — le DG accorde : c'est LÀ, et là seulement, que le solde se débite", async () => {
-    ACTOR = await actorFor(dgUserId, "GENERAL_MANAGER");
     const fd = new FormData(); fd.set("id", leaveId); fd.set("decision", "APPROVED");
     expect((await decideLeave(fd)).ok).toBe(true);
 
     const l = await prisma.leaveRequest.findUniqueOrThrow({ where: { id: leaveId } });
     expect(l.status).toBe("APPROVED");
     expect(l.stage).toBe("DONE");
-    expect(l.dgDecidedById).toBe(dgUserId);
+    expect(l.hrDecidedById).toBe(rhUserId);
     expect(Number((await prisma.employee.findUniqueOrThrow({ where: { id: salarieEmpId } })).leaveBalanceDays)).toBe(20);
   });
-
   it("le SUPER ADMIN supprime la demande — et le solde débité est RESTITUÉ", async () => {
     ACTOR = await actorFor(adminUserId, "SUPER_ADMIN");
     const fd = new FormData(); fd.set("kind", "LEAVE_REQUEST"); fd.set("id", leaveId);

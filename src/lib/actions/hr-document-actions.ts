@@ -196,7 +196,7 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
   const typeRaw = fdStr(formData, "type");
   const type = (typeRaw && REQUEST_TYPES.includes(typeRaw as HrRequestType) ? typeRaw : "WORK_CERTIFICATE") as HrRequestType;
 
-  // UN CONGÉ N'EST PAS UN DOCUMENT À PRÉPARER : c'est une décision qui monte N+1 → RH → DG.
+  // UN CONGÉ N'EST PAS UN DOCUMENT À PRÉPARER : c'est une décision qui monte N+1 → RH.
   // Quelle que soit la porte d'entrée (ce formulaire, « Mon espace », ou l'assistant IA), il
   // n'existe qu'UNE demande de congé. Sans ce renvoi, un congé déposé ici échappait à la file
   // de validation, aux « Absents aujourd'hui » et au solde.

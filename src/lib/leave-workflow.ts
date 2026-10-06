@@ -1,5 +1,6 @@
 /**
- * CIRCUIT DE VALIDATION D'UN CONGÉ — trois marches successives : **N+1 → RH → DG**.
+ * CIRCUIT DE VALIDATION D'UN CONGÉ — deux marches : **N+1 → RH** (la marche DG est supprimée — Direction, 06/10 ;
+ * une demande déjà arrivée à la DG avant ce changement reste tranchable par elle et s'y accorde).
  *
  * Chacune répond à une question que les autres ne savent pas trancher : le responsable direct
  * connaît la charge de l'équipe et l'absence tolérable, les RH le solde acquis et le droit
@@ -36,7 +37,7 @@ export const LEAVE_STAGE_LABELS: Record<LeaveStage, string> = {
 
 /** L'étape qui suit, quand la marche courante approuve. */
 export function nextStage(stage: LeaveStage): LeaveStage {
-  return nextChainStage(stage);
+  return nextChainStage(stage, { sansDG: true });
 }
 
 /**
@@ -53,12 +54,12 @@ export function canDecideLeave(state: LeaveState, decider: LeaveDecider): { ok: 
 }
 
 /**
- * L'état APRÈS une décision. Approuver fait monter d'une marche ; la dernière (DG) accorde
+ * L'état APRÈS une décision. Approuver fait monter d'une marche ; la dernière (RH) accorde
  * définitivement — et c'est là, et là seulement, que le solde se débite. Refuser clôt le
  * circuit sur-le-champ.
  */
 export function applyLeaveDecision(stage: LeaveStage, decision: "APPROVED" | "REJECTED"): LeaveTransition {
-  return applyChainDecision(stage, decision);
+  return applyChainDecision(stage, decision, { sansDG: true });
 }
 
 /** Qui doit être prévenu de l'arrivée d'une demande à cette étape (rôles de repli). */

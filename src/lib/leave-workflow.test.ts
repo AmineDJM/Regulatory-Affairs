@@ -16,9 +16,10 @@ const dg = { id: "u-dg", isManager: false, isHr: false, isDg: true };
 const pending = (stage: LeaveStage) => ({ status: "PENDING" as const, stage, requesterUserId: employee.id });
 
 describe("nextStage", () => {
-  it("monte marche par marche puis s'arrête", () => {
+  it("monte marche par marche puis s'arrête — aux RH : plus de marche DG (Direction, 06/10)", () => {
     expect(nextStage("MANAGER")).toBe("HR");
-    expect(nextStage("HR")).toBe("DG");
+    expect(nextStage("HR")).toBe("DONE");
+    // Une demande arrivée à la DG avant le changement s'y accorde.
     expect(nextStage("DG")).toBe("DONE");
     expect(nextStage("DONE")).toBe("DONE");
   });
@@ -67,13 +68,13 @@ describe("canDecideLeave", () => {
 });
 
 describe("applyLeaveDecision", () => {
-  it("n'accorde le congé qu'à la dernière marche", () => {
+  it("n'accorde le congé qu'à la dernière marche — les RH", () => {
     const a = applyLeaveDecision("MANAGER", "APPROVED");
     expect(a).toEqual({ stage: "HR", status: "PENDING", granted: false });
     const b = applyLeaveDecision("HR", "APPROVED");
-    expect(b).toEqual({ stage: "DG", status: "PENDING", granted: false });
-    const c = applyLeaveDecision("DG", "APPROVED");
-    expect(c).toEqual({ stage: "DONE", status: "APPROVED", granted: true });
+    expect(b).toEqual({ stage: "DONE", status: "APPROVED", granted: true });
+    // Une demande restée à la DG (d'avant le changement) s'y accorde encore.
+    expect(applyLeaveDecision("DG", "APPROVED")).toEqual({ stage: "DONE", status: "APPROVED", granted: true });
   });
 
   it("un refus arrête tout, à n'importe quelle marche", () => {
@@ -83,7 +84,7 @@ describe("applyLeaveDecision", () => {
   });
 
   it("le solde n'est débité qu'une fois : une seule transition porte granted", () => {
-    const path: LeaveStage[] = ["MANAGER", "HR", "DG"];
+    const path: LeaveStage[] = ["MANAGER", "HR"];
     const granted = path.map((s) => applyLeaveDecision(s, "APPROVED").granted).filter(Boolean);
     expect(granted).toHaveLength(1);
   });
