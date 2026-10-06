@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -9,7 +7,6 @@ import { PageHeader } from "@/components/shared/page-header";
 import { toNumber } from "@/lib/utils";
 import { PayrollMatrix, type PayrollRow, type PayrollCell } from "./payroll-matrix";
 import { VirementsPaie, type CarteEntite, type MoisCarte } from "./virements-paie";
-import { BackLink } from "@/components/shared/back-link";
 import { defaultEmployerCost } from "@/lib/hr/payroll-cost";
 import { entryCost } from "@/lib/hr/payroll-cost";
 import { masseMensuelleParEntite, type LigneMasseMensuelle } from "@/lib/hr/payroll-mass";
@@ -18,13 +15,15 @@ import { RattacherSansEntite, type SalarieSansEntite } from "./rattacher-sans-en
 import { etatVirement, etatSalaire, moisDeLEntite, saisiAvantLeCentre, type VirementDuMois, type EtatSalaire } from "@/lib/hr/virement-paie";
 import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
 import { getMyCompanies, myCompanyWhere } from "@/lib/company";
+import { getRhData } from "@/lib/queries/hr";
+import { AdvanceApprovals, type AdvanceRow } from "../advance-approvals";
 
 export const dynamic = "force-dynamic";
 
 /** Onglet Paie des RH : matrice employés × mois, « Payé » + fiche, transfert budget. */
 export default async function PaiePage({ searchParams }: { searchParams: { year?: string } }) {
   const user = await requireModule("RH");
-  if (!userCan(user, "RH", "UPDATE")) redirect("/rh");
+  if (!userCan(user, "RH", "UPDATE")) redirect("/mon-dossier");
 
   const year = Math.min(2100, Math.max(2020, Number(searchParams.year) || new Date().getFullYear()));
 
@@ -201,11 +200,16 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
     }),
   }));
 
+  // Les avances se TRANCHENT avec le droit de valider des RH — la même règle que `decideAdvance`.
+  const avances: AdvanceRow[] | null = userCan(user, "RH", "VALIDATE")
+    ? (await getRhData(user.id)).advances.map((a) => ({
+        id: a.id, employee: a.employee.fullName, amount: Number(a.amount),
+        reason: a.reason, status: a.status, createdAt: a.createdAt.toISOString(),
+      }))
+    : null;
+
   return (
     <div className="space-y-5">
-      <BackLink href="/rh">
-        <ArrowLeft className="h-4 w-4" /> Ressources humaines
-      </BackLink>
       <PageHeader
         title={`Paie ${year}`}
         description="Un clic sur un mois pour saisir le salaire (coût employeur, net, fiche de paie). Puis, entité par entité, « Envoyer la paie au centre » avec la somme des salaires à virer : le centre de paiement l'autorise, les Finances la virent, et chaque salarié est prévenu au virement."
@@ -225,6 +229,16 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
       />
 
       <PayrollMatrix year={year} rows={rows} />
+
+      {/* LES AVANCES SUR SALAIRE — venues de l'ancien tableau de bord des RH (Direction, 06/10) : c'est de l'argent versé
+          au salarié, elles se tranchent donc à côté de sa paie. */}
+      {avances && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Avances sur salaire</h2>
+          <p className="text-xs text-muted-foreground">Une fois approuvée, un ordre de dépense est transmis au comptable pour règlement.</p>
+          <AdvanceApprovals rows={avances} />
+        </section>
+      )}
     </div>
   );
 }

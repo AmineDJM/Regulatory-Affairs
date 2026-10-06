@@ -103,25 +103,35 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
     const childActive = kids.some((c) => [c.href, ...(c.match ?? [])]
       .some((p) => pathname === p || pathname.startsWith(p + "/")));
     const opened = childActive || (open[item.href] ?? false);
+    // UN GROUPE n'est PAS un écran (Direction, 06/10 : « le menu Ressources humaines ne devrait plus être cliquable, ce
+    // sont ses modules ») : son libellé déplie ses sous-modules, la flèche suffit — aucun lien, aucun état « actif ».
+    const enGroupe = Boolean(item.groupe) && kids.length > 0;
+    const classeLibelle = cn(
+      "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 text-sm font-medium transition-colors",
+      nested ? "pl-9 pr-3" : "px-3",
+      depth > 1 && "pl-12",
+      active && !enGroupe ? "bg-sidebar-active text-white" : "text-sidebar-muted hover:bg-sidebar-active/60 hover:text-white",
+    );
+    const contenuLibelle = (
+      <>
+        <Icon name={item.icon} className="h-4 w-4 shrink-0" />
+        <span className="truncate">{item.label}</span>
+        {item.href === "/messages"
+          ? <MessagesNavBadge initial={messagingUnread} />
+          : badge > 0 ? <NavBadge count={badge} /> : null}
+      </>
+    );
 
     return (
       <li key={item.href}>
         <div className="flex items-stretch">
-          <Link
-            href={item.href}
-            className={cn(
-              "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 text-sm font-medium transition-colors",
-              nested ? "pl-9 pr-3" : "px-3",
-              depth > 1 && "pl-12",
-              active ? "bg-sidebar-active text-white" : "text-sidebar-muted hover:bg-sidebar-active/60 hover:text-white",
-            )}
-          >
-            <Icon name={item.icon} className="h-4 w-4 shrink-0" />
-            <span className="truncate">{item.label}</span>
-            {item.href === "/messages"
-              ? <MessagesNavBadge initial={messagingUnread} />
-              : badge > 0 ? <NavBadge count={badge} /> : null}
-          </Link>
+          {enGroupe ? (
+            <button type="button" onClick={() => toggle(item.href, !opened)} aria-expanded={opened} className={cn(classeLibelle, "text-left")}>
+              {contenuLibelle}
+            </button>
+          ) : (
+            <Link href={item.href} className={classeLibelle}>{contenuLibelle}</Link>
+          )}
           {/* LA FLÈCHE DES SOUS-MODULES — séparée du lien : on doit pouvoir ouvrir le parent
               SANS déplier, et déplier sans quitter la page où l'on est. */}
           {kids.length > 0 && (

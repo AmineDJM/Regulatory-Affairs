@@ -145,7 +145,8 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     if (!n.tabs) {
       if (moduleOuvert(n)) acc.push(kids.length ? { ...n, children: kids } : { ...n, children: undefined });
       // UN GROUPE s'ouvre par ses sous-modules : sans le module du parent, il mène au premier enfant ouvert.
-      else if (n.groupe && kids.length > 0) acc.push({ ...n, href: kids[0].href, children: kids.length > 1 ? kids : undefined });
+      // Il garde ses sous-modules même s'il n'en reste qu'un : un groupe n'est jamais un lien (Direction, 06/10).
+      else if (n.groupe && kids.length > 0) acc.push({ ...n, href: kids[0].href, children: kids });
       return acc;
     }
     // Entrées fusionnées (`tabs`) : visibles si l'utilisateur a accès à au moins un onglet ; le

@@ -195,8 +195,16 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
 function DrawerItem({ item, pathname, nested = false }: { item: NavItem; pathname: string; nested?: boolean }) {
   const paths = [item.href, ...(item.match ?? [])];
   const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  // UN GROUPE n'est pas un écran (Direction, 06/10) : un simple intitulé au-dessus de ses sous-modules.
+  const enGroupe = Boolean(item.groupe) && (item.children ?? []).length > 0;
   return (
     <li>
+      {enGroupe ? (
+        <p className={cn("flex items-center gap-2.5 py-2.5 text-sm font-medium text-sidebar-muted", nested ? "pl-9 pr-3" : "px-3")}>
+          <Icon name={item.icon} className="h-4 w-4 shrink-0" />
+          <span className="truncate">{item.label}</span>
+        </p>
+      ) : (
       <Link
         href={item.href}
         className={cn(
@@ -208,6 +216,7 @@ function DrawerItem({ item, pathname, nested = false }: { item: NavItem; pathnam
         <Icon name={item.icon} className="h-4 w-4 shrink-0" />
         <span className="truncate">{item.label}</span>
       </Link>
+      )}
       {/* Les SOUS-MODULES suivent leur parent : ils sont peu nombreux et toujours visibles ici —
           une flèche de plus dans un tiroir déjà déplié n'ajouterait qu'un clic. */}
       {(item.children ?? []).length > 0 && (

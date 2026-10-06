@@ -8,7 +8,7 @@ import { userCan } from "@/lib/rbac";
  * L'ancien « Visites & segmentation » a été retiré ; la route survit parce qu'elle vit dans des
  * favoris, des notifications et des liens collés en conversation. Elle mène désormais :
  *   • le TERRAIN (qui peut saisir une visite) vers « Ma journée » — sa tournée et sa saisie ;
- *   • tous les autres vers l'ANNUAIRE, qui est ce qu'ils venaient chercher.
+ *   • tous les autres vers le PLAN DE TOURNÉE (l'annuaire n'est plus un onglet du module — Direction, 06/10).
  *
  * Un délégué qui tombait sur l'annuaire devait comprendre seul où noter sa visite. C'est ce
  * détour-là — trois écrans pour un geste quotidien — qui faisait ressortir le carnet papier.
@@ -18,5 +18,5 @@ import { userCan } from "@/lib/rbac";
  */
 export default async function MedicalEntryPage() {
   const user = await requireModule("MEDICAL");
-  redirect(userCan(user, "MEDICAL", "CREATE") ? "/medical/ma-journee" : "/medical/annuaire");
+  redirect(userCan(user, "MEDICAL", "CREATE") ? "/medical/ma-journee" : "/medical/plan-de-tournee");
 }

@@ -9,6 +9,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { DEMANDES_RH_TABS } from "@/lib/labels";
 import { LeaveApprovals } from "@/components/hr/leave-approvals";
+import { KpiCard } from "@/components/shared/kpi-card";
 import { FileDemandesRh } from "../[id]/hr-dossier";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ export const metadata = { title: "Demandes RH — AMD Internal OS" };
  * « DEMANDES RH » — le sous-module des demandes des salariés (Direction, 06/10 : « qui recevra uniquement les demandes RH
  * et les congés »). Ce qui attend une décision des RH, traité SUR PLACE : les demandes « Mon dossier RH » (attestations,
  * ordres de mission, notes de frais, entrevues) et les congés et absences arrivés à la marche des RH. Les salariés eux-
- * mêmes sont dans « Employés », la paie dans « RH » : chacun son droit, réglable dans la console.
+ * mêmes sont dans « Employés », la paie dans « RH » : chacun son droit, réglable dans la console. Il reçoit aussi la part
+ * « demandes » de l'ancien tableau de bord des RH (Direction, 06/10) : combien attendent, d'un coup d'œil.
  */
 export default async function DemandesRhPage() {
   const user = await requireModule("HR_REQUESTS");
@@ -29,10 +31,15 @@ export default async function DemandesRhPage() {
     peutTrancherConges ? getLeavesToDecide(user) : Promise.resolve([]),
     referenceOrdreMissionSuggeree(),
   ]);
+  const aTraiter = demandes.length; // la file ne porte que les demandes ouvertes (en attente, en cours)
   return (
     <div className="space-y-5">
       <PageHeader title="Demandes RH" description="Les demandes des salariés et les congés qui attendent les ressources humaines — traités ici." />
       <ModuleTabs tabs={tabs} />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <KpiCard label="Demandes à traiter" value={aTraiter} icon="Inbox" tone={aTraiter > 0 ? "warning" : "default"} />
+        {peutTrancherConges && <KpiCard label="Congés à trancher" value={conges.length} icon="Hourglass" tone={conges.length > 0 ? "warning" : "default"} />}
+      </div>
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes à traiter ({demandes.length})</h2>
         <FileDemandesRh
