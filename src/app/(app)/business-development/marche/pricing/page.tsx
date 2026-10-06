@@ -57,7 +57,7 @@ export default async function MarketPricingPage({ searchParams }: { searchParams
               <CardContent className="space-y-3">
                 <StatBlock stats={res.ville} />
                 <div className="overflow-x-auto">
-                  <Table mobileCards>
+                  <Table>
                     <TableHeader><TableRow><TableHead>Produit</TableHead><TableHead>Présentation</TableHead><TableHead>Laboratoire</TableHead><TableHead className="text-right">Volume</TableHead><TableHead className="text-right">Prix / boîte</TableHead><TableHead className="text-right">Croissance</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {res.villeRows.slice(0, 60).map((r, i) => (
@@ -87,7 +87,7 @@ export default async function MarketPricingPage({ searchParams }: { searchParams
               <CardContent className="space-y-3">
                 <StatBlock stats={res.hospital} />
                 <div className="overflow-x-auto">
-                  <Table mobileCards>
+                  <Table>
                     <TableHeader><TableRow><TableHead>Produit</TableHead><TableHead>Fournisseur</TableHead><TableHead className="text-right">Quantité</TableHead><TableHead className="text-right">Prix unitaire</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead>Réception</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {res.hospitalRows.slice(0, 60).map((r, i) => (

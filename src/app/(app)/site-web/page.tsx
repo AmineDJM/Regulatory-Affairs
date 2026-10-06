@@ -139,7 +139,7 @@ export default async function SiteWebPage() {
             description="Publiez un article ou une offre d'emploi : il apparaîtra ici avec son état, puis « En ligne » dès que le site aura confirmé."
           />
         ) : (
-          <div className="sm:surface sm:overflow-hidden">
+          <div className="surface overflow-hidden">
             <Table mobileCards>
               <TableHeader>
                 <TableRow>
@@ -249,7 +249,7 @@ export default async function SiteWebPage() {
       {journal.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Journal des derniers envois</h2>
-          <div className="sm:surface sm:overflow-hidden">
+          <div className="surface overflow-hidden">
             <Table mobileCards>
               <TableHeader>
                 <TableRow>

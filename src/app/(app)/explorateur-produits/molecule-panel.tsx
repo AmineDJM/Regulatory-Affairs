@@ -146,7 +146,7 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
           </div>
           {/* Au téléphone, un laboratoire = une carte : sept colonnes ne tiennent pas dans 360 px. */}
           <div className="p-2 sm:p-0">
-            <Table mobileCards>
+            <Table>
               <thead className="bg-secondary/50 text-xs text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Laboratoire</th>
@@ -161,7 +161,7 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
               <tbody className="sm:divide-y sm:divide-border">
                 {data.competitors.slice(0, 25).map((c, i) => (
                   <tr key={c.lab}>
-                    <td data-sans-etiquette className="px-3 py-2 max-sm:!justify-start">
+                    <td data-sans-etiquette className="px-3 py-2">
                       <span className="flex items-center gap-2">
                         <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: seriesColor(i) }} aria-hidden />
                         <span className="font-medium">{c.lab}</span>

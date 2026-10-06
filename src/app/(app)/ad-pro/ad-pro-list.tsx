@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { FilterX, SlidersHorizontal } from "lucide-react";
+import { FilterX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { Table } from "@/components/ui/table";
@@ -41,7 +41,6 @@ const EMPTY: Filters = {
 
 const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
 /** Le même filtre au téléphone : plus haut, police ≥ 16 px (pas de zoom iOS). */
-const champMobile = "mt-1 h-10 w-full rounded-md border border-input bg-card px-3 text-base text-foreground outline-none focus:ring-1 focus:ring-ring";
 const pastille = "inline-flex min-h-9 items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors sm:min-h-0";
 
 export function AdProList({ rows }: { rows: AdProRequest[] }) {
@@ -109,31 +108,8 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
         )}
       </div>
 
-      {/* AU TÉLÉPHONE, chaque demande devient une carte et l'en-tête du tableau — sa rangée de filtres
-          comprise — disparaît : les MÊMES filtres se replient ici. La nature reste aux pastilles. */}
-      <details className="surface p-3 sm:hidden">
-        <summary className="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-medium">
-          <SlidersHorizontal className="h-4 w-4 text-muted-foreground" /> Filtres{active ? " (actifs)" : ""}
-        </summary>
-        <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-muted-foreground">
-          <label>Référence<input value={f.reference} onChange={set("reference")} placeholder="Filtrer" className={champMobile} /></label>
-          <label>Objet<input value={f.title} onChange={set("title")} placeholder="Filtrer" className={champMobile} /></label>
-          <label>Bénéficiaire<input value={f.beneficiary} onChange={set("beneficiary")} placeholder="Filtrer" className={champMobile} /></label>
-          <label>Montant minimum<input type="number" inputMode="decimal" value={f.minAmount} onChange={set("minAmount")} placeholder="≥" className={champMobile} /></label>
-          <label>Demandeur<input value={f.requester} onChange={set("requester")} placeholder="Filtrer" className={champMobile} /></label>
-          <label>À partir du<input type="date" value={f.dateFrom} onChange={set("dateFrom")} className={champMobile} /></label>
-          <label>
-            État
-            <select value={f.state} onChange={set("state")} className={champMobile}>
-              <option value="">Tous</option>
-              {statesPresent.map((s) => <option key={s} value={s}>{AD_PRO_STATE[s].label}</option>)}
-            </select>
-          </label>
-        </div>
-      </details>
-
-      <div className="surface p-1.5 sm:p-0">
-        <Table mobileCards className="table-clean sm:min-w-[64rem]">
+      <div className="surface overflow-x-auto">
+        <Table className="table-clean min-w-[64rem]">
           <thead className="border-b border-border">
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-3 pt-2 text-left font-medium">Référence</th>

@@ -79,7 +79,7 @@ export default async function DossiersPage() {
       ) : (
         <Card>
           <CardContent className="p-0">
-            <Table mobileCards>
+            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Sujet</TableHead>

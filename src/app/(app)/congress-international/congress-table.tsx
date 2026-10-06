@@ -12,7 +12,7 @@ export function CongressTable({ rows, basePath, showType }: { rows: CongressList
   }
   return (
     <div className="surface overflow-hidden">
-      <Table mobileCards>
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Événement</TableHead>

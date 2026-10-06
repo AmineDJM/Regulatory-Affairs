@@ -99,7 +99,7 @@ interface LigneSaisie {
   verifiee: boolean;
 }
 /** L'intitulé d'un champ de ligne, visible seulement au téléphone (ligne en carte) : au bureau, l'en-tête du tableau le porte. */
-const intituleMobile = "mb-1 block text-xs font-medium text-muted-foreground sm:hidden";
+const intituleMobile = "hidden";
 /** Un bouton au libellé long passe à la ligne au lieu de sortir de l'écran (le bouton est `nowrap` par défaut). */
 const aLaLigne = "h-auto min-h-9 whitespace-normal py-1.5 sm:h-auto sm:min-h-8";
 const LIGNE_VIDE: LigneSaisie ={ reference: "", unit: "", quantity: "", unitPrice: "", action: "", article: "", lue: null, verifiee: false };
@@ -264,8 +264,8 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
 
       {/* AU TÉLÉPHONE, UNE LIGNE DE DEVIS = UNE CARTE (classe `mobile-cards`) : chaque champ sous son intitulé,
           pleine largeur. Huit colonnes de saisie qui glissent de côté ne se remplissent pas au pouce. */}
-      <div className="sm:overflow-x-auto">
-        <table className="mobile-cards w-full text-sm sm:min-w-[880px]">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[880px]">
           <thead>
             <tr className="text-left text-xs text-muted-foreground">
               <th className="py-1 pr-2 font-medium">Référence / désignation</th>
@@ -355,7 +355,7 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
             })}
           </tbody>
           {/* `block` au téléphone : la feuille de style des cartes ne traite pas le pied de tableau. */}
-          <tfoot className="block sm:table-footer-group">
+          <tfoot className="">
             <tr>
               <td colSpan={6} className="pt-2">
                 <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => setLignes((ls) => [...ls, { ...LIGNE_VIDE }])}><Plus className="h-4 w-4" /> Ajouter une ligne</Button>
@@ -485,8 +485,8 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                 )}
               </div>
             </div>
-            <div className="p-2 sm:overflow-x-auto sm:p-0">
-              <table className="mobile-cards w-full text-sm sm:min-w-[520px]">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[520px]">
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground">
                     {canSelect && <th className="w-8 px-3 py-1.5" />}
@@ -524,7 +524,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                     );
                   })}
                 </tbody>
-                <tfoot className="block sm:table-footer-group">
+                <tfoot className="">
                   <tr className="border-t border-border text-xs">
                     <td colSpan={canSelect ? 5 : 4} className="px-3 py-1.5 text-right text-muted-foreground">
                       Total du devis — HT {formatDzd(t.ht)} · TVA {formatDzd(t.tva)}{t.taxe ? ` · ${q.extraTaxLabel ?? "Taxe"} ${formatDzd(t.taxe)}` : ""}

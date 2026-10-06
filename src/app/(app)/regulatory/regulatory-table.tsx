@@ -764,25 +764,8 @@ export function RegulatoryTable({
         <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{assignError}</p>
       )}
 
-      {/* AU TÉLÉPHONE, chaque dossier devient une carte et l'en-tête disparaît — avec lui la
-          ligne de filtres. On la rend donc ici, en liste, branchée sur les MÊMES filtres. */}
-      <details className="rounded-xl border border-border bg-card sm:hidden">
-        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2.5 text-sm font-medium">
-          <Filter className="h-4 w-4 text-muted-foreground" /> Filtrer les colonnes
-          {anyFilter && <span className="ml-auto rounded-full bg-primary/10 px-2 text-xs text-primary">actifs</span>}
-        </summary>
-        <div className="grid grid-cols-1 gap-2 border-t border-border p-3">
-          {visibleCols.filter((c) => c.key !== "targetDate" && c.key !== "targetSubmissionDate").map((c) => (
-            <label key={c.key} className="grid gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {c.header}
-              {filterControl(c, "h-10 w-full")}
-            </label>
-          ))}
-        </div>
-      </details>
-
-      <div className="sm:surface">
-        <Table mobileCards className="sm:min-w-[960px]">
+      <div className="surface overflow-x-auto">
+        <Table className="min-w-[960px]">
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
               {visibleCols.map((c) => <th key={c.key} className="whitespace-nowrap px-3 py-2 font-medium">{c.header}</th>)}

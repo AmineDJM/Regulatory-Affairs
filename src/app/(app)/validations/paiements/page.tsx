@@ -77,8 +77,8 @@ export default async function PaymentRequestsPage() {
   );
 
   const Rows = ({ rows, who }: { rows: typeof mine; who?: (id: string) => string }) => (
-    <div className="surface p-0 sm:overflow-x-auto">
-      <Table mobileCards>
+    <div className="surface overflow-x-auto p-0">
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>

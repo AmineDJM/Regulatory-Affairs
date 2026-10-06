@@ -103,7 +103,7 @@ export function ExpenseTable({
       ) : (
         // Une ligne = une dépense : au téléphone, chaque dépense devient une carte (intitulés repris de l'en-tête).
         <div className="px-3 pb-3 sm:px-0 sm:pb-0">
-          <Table mobileCards className="sm:min-w-[52rem]">
+          <Table className="min-w-[52rem]">
             <TableHeader className="border-y border-border bg-secondary/40">
               <TableRow>
                 <TableHead scope="col" className="px-4">Dépense</TableHead>

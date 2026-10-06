@@ -466,8 +466,8 @@ export function StocksView({
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="surface p-0 sm:overflow-x-auto">
-                  <Table mobileCards>
+                <div className="surface overflow-x-auto p-0">
+                  <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>

@@ -405,7 +405,7 @@ function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMe
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
       {/* Une remise par ligne : au téléphone, une carte par remise plutôt qu'un tableau à tirer. */}
       <div className="sm:rounded-xl sm:border sm:border-border">
-        <Table mobileCards className="sm:min-w-[34rem]">
+        <Table className="min-w-[34rem]">
           <TableHeader className="bg-secondary/40">
             <TableRow>
               <TableHead scope="col" className="h-8">Remise</TableHead>

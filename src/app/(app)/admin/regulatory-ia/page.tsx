@@ -87,7 +87,7 @@ export default async function RegulatoryIaAdminPage() {
                   Un plafond atteint ARRÊTE les analyses économiques du dossier concerné : les appels sont
                   refusés avant dépense, et l&apos;écran d&apos;analyse le dit.
                 </p>
-                <Table mobileCards className="sm:min-w-[42rem]">
+                <Table className="min-w-[42rem]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Dossier</TableHead>

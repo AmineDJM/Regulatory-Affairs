@@ -169,7 +169,7 @@ export function CatalogueEcran({ articles, droits }: { articles: ArticleCatalogu
                 </p>
               ) : (
                 <div className="surface overflow-hidden">
-                  <Table mobileCards className="sm:min-w-[560px]">
+                  <Table className="min-w-[560px]">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Référence</TableHead>

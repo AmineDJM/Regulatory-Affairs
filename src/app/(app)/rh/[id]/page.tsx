@@ -258,7 +258,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
               {employee.leaveRequests.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">Aucune demande de congé.</p>
               ) : (
-                <Table mobileCards>
+                <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Type</TableHead><TableHead>Période</TableHead>

@@ -49,11 +49,11 @@ export function FieldsManager({
         </Select>
       </div>
 
-      <div className="sm:surface sm:overflow-hidden">
+      <div className="surface overflow-hidden">
         {fieldsForType.length === 0 ? (
           <div className="p-4"><EmptyState icon="Columns3" title="Aucun champ personnalisé" description="Ajoutez une colonne ci-dessous." /></div>
         ) : (
-          <Table mobileCards>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Libellé</TableHead>
@@ -68,7 +68,7 @@ export function FieldsManager({
             <TableBody>
               {fieldsForType.map((d) => (
                 <TableRow key={d.id}>
-                  <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{d.label}</TableCell>
+                  <TableCell data-sans-etiquette className="font-medium">{d.label}</TableCell>
                   <TableCell><code className="text-xs [overflow-wrap:anywhere]">{d.key}</code></TableCell>
                   <TableCell><Badge tone="neutral" dot={false}>{TYPES.find((t) => t.value === d.type)?.label ?? d.type}</Badge></TableCell>
                   <TableCell className="text-xs text-muted-foreground">{d.options || "—"}</TableCell>

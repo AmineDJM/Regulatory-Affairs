@@ -41,7 +41,7 @@ export function AdvanceApprovals({ rows }: { rows: AdvanceRow[] }) {
   }
   return (
     <div className="surface overflow-hidden">
-      <Table mobileCards>
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Employé</TableHead>

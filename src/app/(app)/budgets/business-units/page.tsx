@@ -121,8 +121,8 @@ export default async function BusinessUnitBudgetsPage({ searchParams }: { search
       ) : (
         // Une ligne par gamme : au téléphone, chaque gamme devient une carte (intitulés repris de l'en-tête),
         // le consolidé une dernière carte aux intitulés écrits à la main — le pied n'est pas étiqueté d'office.
-        <div className="surface sm:overflow-hidden">
-          <Table mobileCards className="tabular-nums">
+        <div className="surface overflow-hidden">
+          <Table className="tabular-nums">
             <TableHeader>
               <TableRow>
                 <TableHead>Gamme</TableHead>

@@ -71,8 +71,8 @@ export function ImportMappingSheet({
         </div>
 
         {/* Au téléphone, chaque colonne du fichier devient une carte : nom, exemples, puis le choix. */}
-        <div className="rounded-xl border border-input max-sm:border-0">
-          <Table mobileCards>
+        <div className="rounded-xl border border-input">
+          <Table>
             <TableHeader className="text-xs text-muted-foreground">
               <TableRow>
                 <TableHead className="px-2.5 py-2 font-medium normal-case tracking-normal">Colonne du fichier</TableHead>
@@ -86,7 +86,7 @@ export function ImportMappingSheet({
                 const o = ORIGINE[p.origin] ?? ORIGINE.aucune;
                 return (
                   <TableRow key={p.index} className="align-top">
-                    <TableCell className="px-2.5 py-2 max-sm:!justify-start" data-sans-etiquette>
+                    <TableCell className="px-2.5 py-2" data-sans-etiquette>
                       <div className="min-w-0">
                         <div className="font-medium [overflow-wrap:anywhere]">{p.header || <span className="text-muted-foreground">(sans titre)</span>}</div>
                         <span className={cn("mt-0.5 inline-block rounded px-1.5 py-0.5 text-[0.6875rem] font-medium", o.classe)}>
@@ -99,7 +99,7 @@ export function ImportMappingSheet({
                         {p.sample.length ? p.sample.map((s, k) => <div key={k}>{s}</div>) : <span>—</span>}
                       </div>
                     </TableCell>
-                    <TableCell className="px-1 py-2 text-muted-foreground max-sm:!hidden" data-sans-etiquette><ArrowRight className="h-3.5 w-3.5" /></TableCell>
+                    <TableCell className="px-1 py-2 text-muted-foreground" data-sans-etiquette><ArrowRight className="h-3.5 w-3.5" /></TableCell>
                     <TableCell className="px-2.5 py-2">
                       <select
                         value={choix[i] ?? ""}

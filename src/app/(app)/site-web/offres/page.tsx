@@ -95,7 +95,7 @@ export default async function OffresPage() {
             : "Les offres publiées par les RH apparaîtront ici."}
         />
       ) : (
-        <div className="sm:surface sm:overflow-hidden">
+        <div className="surface overflow-hidden">
           <Table mobileCards>
             <TableHeader>
               <TableRow>

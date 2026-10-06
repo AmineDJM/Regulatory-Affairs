@@ -204,7 +204,7 @@ export default async function AdminPage() {
       <Card>
         <CardHeader><CardTitle>Comptes & accès</CardTitle></CardHeader>
         <CardContent className="p-0">
-          <Table mobileCards className="max-sm:p-3">
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Utilisateur</TableHead>
@@ -218,7 +218,7 @@ export default async function AdminPage() {
             <TableBody>
               {users.map((u) => (
                 <TableRow key={u.id}>
-                  <TableCell data-sans-etiquette className="max-sm:!justify-start">
+                  <TableCell data-sans-etiquette className="">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <Avatar name={u.name} color={u.avatarColor} size="sm" />
                       <div className="min-w-0 text-left"><p className="font-medium">{u.name}</p><p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{u.email}</p></div>
@@ -275,8 +275,8 @@ export default async function AdminPage() {
             </div>
 
 
-            <div className="sm:overflow-x-auto">
-              <Table mobileCards>
+            <div className="overflow-x-auto">
+              <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Utilisateur</TableHead>
@@ -293,7 +293,7 @@ export default async function AdminPage() {
                       const pct = Math.min(100, (usage.bytes / quotaBytes) * 100);
                       return (
                         <TableRow key={u.id}>
-                          <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{u.name}</TableCell>
+                          <TableCell data-sans-etiquette className="font-medium">{u.name}</TableCell>
                           <TableCell className="text-right text-muted-foreground">{usage.files}</TableCell>
                           <TableCell className="text-right font-medium">{fmtBytes(usage.bytes)}</TableCell>
                           <TableCell>

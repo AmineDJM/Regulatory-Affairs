@@ -29,7 +29,7 @@ export function TenderLogistics({ tenderId, orders, canEdit }: { tenderId: strin
     <div className="space-y-2">
       <h3 className="flex items-center gap-2 text-base font-semibold"><Truck className="h-4 w-4 text-primary" /> Logistique — acheminement (client : PCH)</h3>
       <div className="rounded-lg border border-border">
-        <Table mobileCards className="sm:min-w-[560px]">
+        <Table className="min-w-[560px]">
           <TableHeader>
             <TableRow><TableHead>Bon de commande</TableHead><TableHead>Arrivée prévue</TableHead><TableHead>Arrivée réelle</TableHead><TableHead className="text-center">Reçu</TableHead></TableRow>
           </TableHeader>

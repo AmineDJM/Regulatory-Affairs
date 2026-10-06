@@ -264,7 +264,7 @@ function JournalArticle({ a, mouvements, ctx }: { a: ArticleVue; mouvements: Mou
   if (!mouvements.length) return <p className="text-xs text-muted-foreground">Aucun mouvement.</p>;
   // Une ligne = un mouvement : au téléphone, une carte par mouvement plutôt qu'un tableau à faire glisser.
   return (
-    <Table mobileCards className="sm:min-w-[640px]">
+    <Table className="min-w-[640px]">
       <TableHeader>
         <TableRow>
           <TableHead>Date</TableHead>
@@ -639,7 +639,7 @@ function DetailArticle({ a, ctx, detenteurId }: { a: ArticleVue; ctx: Ctx; deten
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted-foreground">Lots</p>
         {a.lots.length === 0 ? <p className="text-xs text-muted-foreground">Aucun lot.</p> : (
-          <Table mobileCards className="sm:min-w-[600px]">
+          <Table className="min-w-[600px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Lot</TableHead>
@@ -706,7 +706,7 @@ export function VueGenerale({ ctx }: { ctx: Ctx }) {
       <BarreFiltre fl={fl} setFl={setFl} articles={actifs} />
       {liste.length === 0 ? <Vide>Aucun article ne correspond.</Vide> : (
         // Une ligne = un article : une carte au téléphone ; le détail déplié suit la carte de son article.
-        <Table mobileCards className="sm:min-w-[760px]">
+        <Table className="min-w-[760px]">
           <TableHeader>
             <TableRow>
               <TableHead>Article</TableHead>

@@ -36,13 +36,13 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
       <form className="flex gap-2"><Input name="q" defaultValue={q} placeholder="Nom, DCI, référence ou alias…" className="w-full sm:w-80" /></form>
       {/* Au téléphone, un produit = une carte (le nom en titre, les autres colonnes étiquetées). */}
       <div className="sm:surface">
-        <Table mobileCards>
+        <Table>
           <thead className="border-b border-border text-left text-xs text-muted-foreground"><tr><th className="px-3 py-2">Produit</th><th className="px-3 py-2">Référence</th><th className="px-3 py-2">DCI</th><th className="px-3 py-2">Business Units</th><th className="px-3 py-2">Cycle de vie</th></tr></thead>
           <tbody>
             {produits.length === 0 && <tr><td colSpan={5} data-sans-etiquette className="px-3 py-4 text-muted-foreground">Aucun produit{q ? ` pour « ${q} »` : ""}.</td></tr>}
             {produits.map((p) => (
               <tr key={p.id} className="border-b border-border/60">
-                <td data-sans-etiquette className="px-3 py-2 max-sm:!justify-start"><span><Link href={`/produits/${p.id}`} className="font-medium text-primary hover:underline">{p.canonicalName}</Link>{!p.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactif)</span>}</span></td>
+                <td data-sans-etiquette className="px-3 py-2"><span><Link href={`/produits/${p.id}`} className="font-medium text-primary hover:underline">{p.canonicalName}</Link>{!p.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactif)</span>}</span></td>
                 <td className="px-3 py-2 text-muted-foreground">{p.code}</td>
                 <td className="px-3 py-2">{p.dci}</td>
                 <td className="px-3 py-2">{[...new Set(p.promoProfiles.map((x) => x.businessUnit?.name).filter(Boolean))].join(", ") || "—"}</td>

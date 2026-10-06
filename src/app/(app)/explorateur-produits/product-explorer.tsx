@@ -168,8 +168,8 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
             </div>
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Map())}>Tout désélectionner</Button>
           </CardHeader>
-          <CardContent className="p-3 pt-0 sm:overflow-x-auto sm:p-2">
-            <Table mobileCards>
+          <CardContent className="overflow-x-auto p-0 sm:p-2">
+            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Produit</TableHead><TableHead>Laboratoire</TableHead>
@@ -182,7 +182,7 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
               <TableBody>
                 {selectedArr.map((p) => (
                   <TableRow key={p.key}>
-                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">
+                    <TableCell data-sans-etiquette className="font-medium">
                       <div className="min-w-0">
                         <span className="flex flex-wrap items-center gap-1.5">{p.brand}<SegmentBadge segment={p.segment} /></span>
                         <span className="block text-xs font-normal text-muted-foreground">{p.pres}</span>
@@ -226,11 +226,11 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
             {total > results.length ? ` — ${results.length} plus fortes valeurs affichées (affinez la recherche)` : ""}. Cliquez « + » pour ajouter à la comparaison.
           </CardDescription>
         </CardHeader>
-        <CardContent className="p-3 pt-0 sm:overflow-x-auto sm:p-2">
+        <CardContent className="overflow-x-auto p-0 sm:p-2">
           {results.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">Aucun produit ne correspond à ces critères.</p>
           ) : (
-            <Table mobileCards>
+            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10"></TableHead>
@@ -253,7 +253,7 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
                           {on ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
                         </button>
                       </TableCell>
-                      <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">
+                      <TableCell data-sans-etiquette className="font-medium">
                         <div className="min-w-0">
                           <span className="flex flex-wrap items-center gap-1.5">{p.brand}<SegmentBadge segment={p.segment} /></span>
                           <span className="block text-xs font-normal text-muted-foreground">{p.pres}{p.cls ? ` · ${p.cls}` : ""}</span>

@@ -73,7 +73,7 @@ export default async function EnregistrementPage() {
         <CardHeader><CardTitle className="flex items-center gap-2"><Coins className="h-4 w-4 text-primary" /> Droits d'enregistrement (bordereau de versement — E-TASDJIL)</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {/* Au téléphone, chaque type de produit devient une carte : quatre montants côte à côte ne tiennent pas. */}
-          <Table mobileCards>
+          <Table>
               <thead>
                 <tr className="border-b border-border text-left text-muted-foreground">
                   <th className="py-1.5 pr-3 font-medium">Type de produit</th>

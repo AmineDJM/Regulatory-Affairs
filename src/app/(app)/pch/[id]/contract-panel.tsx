@@ -106,7 +106,7 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
           </div>
 
           {c.lignes.length > 0 && (
-            <Table mobileCards>
+            <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Ligne contractuelle</TableHead>

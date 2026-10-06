@@ -67,7 +67,7 @@ export function PurchaseJournal({ rows, tronque }: { rows: JournalRow[]; tronque
       </div>
 
       {/* Une ligne par geste : au téléphone chaque geste devient une carte, sa copie complète s'ouvre dessous. */}
-      <Table mobileCards className="max-sm:p-3 sm:min-w-[52rem]">
+      <Table className="min-w-[52rem]">
           <TableHeader>
             <TableRow>
               <TableHead>Quand</TableHead>

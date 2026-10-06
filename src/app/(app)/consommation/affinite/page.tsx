@@ -59,10 +59,10 @@ export default async function AffinitePage({ searchParams }: { searchParams?: { 
       )}
       {!cfg && <p className="surface p-4 text-sm text-muted-foreground">Aucune affinité n&apos;est réglée pour ce produit : aucun marché ni aucune période n&apos;est supposé.</p>}
       {cfg && resultat && (
-        <section className="surface p-4 max-sm:border-0 max-sm:bg-transparent max-sm:p-0">
+        <section className="surface p-4">
           <p className="mb-2 text-sm">{PERIODE_LABELS[cfg.periode]}{resultat.fenetre ? ` — ${resultat.fenetre.libelle}` : " — aucune donnée validée dans le marché"}</p>
           {/* Une ligne = un établissement : une carte au téléphone. */}
-          <Table mobileCards>
+          <Table>
             <TableHeader className="bg-transparent">
               <TableRow><TableHead className="px-2">Établissement</TableHead><TableHead className="px-2">Affinité</TableHead><TableHead className="px-2">Produit</TableHead><TableHead className="px-2">Marché</TableHead><TableHead className="px-2">Unité</TableHead><TableHead className="px-2">Lignes exclues (autre unité)</TableHead></TableRow>
             </TableHeader>

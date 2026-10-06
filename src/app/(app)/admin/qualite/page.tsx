@@ -95,8 +95,8 @@ export default async function QualitePage({ searchParams }: { searchParams?: { s
       {constats.length === 0 ? (
         <EmptyState title="Rien dans ce filtre" description="Le moteur n'a aucun constat à montrer ici. Un balayage complet tourne chaque nuit ; les règles financières toutes les heures." />
       ) : (
-        <div className="sm:overflow-x-auto sm:rounded-xl sm:border">
-          <Table mobileCards data-testid="qualite-table">
+        <div className="overflow-x-auto rounded-xl border">
+          <Table data-testid="qualite-table">
             <TableHeader>
               <TableRow><TableHead className="p-3">Criticité</TableHead><TableHead className="p-3">Constat</TableHead><TableHead className="p-3">Famille · règle</TableHead><TableHead className="p-3">Confiance</TableHead><TableHead className="p-3">Résolution</TableHead><TableHead className="p-3">Vu</TableHead><TableHead className="p-3">Geste</TableHead></TableRow>
             </TableHeader>
@@ -104,7 +104,7 @@ export default async function QualitePage({ searchParams }: { searchParams?: { s
               {constats.map((c) => (
                 <TableRow key={c.id} className="align-top" data-testid="qualite-ligne" data-regle={c.regle} data-status={c.status}>
                   <TableCell className="sm:p-3"><Badge tone={TON[c.criticite]}>{LIBELLE_CRITICITE[c.criticite]}</Badge></TableCell>
-                  <TableCell data-sans-etiquette className="max-w-xl max-sm:!justify-start sm:p-3">
+                  <TableCell data-sans-etiquette className="max-w-xl sm:p-3">
                     <div className="min-w-0">
                       <p className="font-medium">{c.href ? <Link href={c.href} className="hover:underline">{c.titre}</Link> : c.titre}</p>
                       <p className="mt-0.5 text-muted-foreground">{c.detail}</p>

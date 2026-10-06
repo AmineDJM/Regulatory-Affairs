@@ -58,8 +58,8 @@ export function EntitiesManager({ rows }: { rows: EntityRow[] }) {
         <Button onClick={openNew} className="w-full sm:w-auto"><Plus className="h-4 w-4" /> Nouvelle entité</Button>
       </div>
 
-      <div className="sm:surface sm:overflow-x-auto sm:p-0">
-        <Table mobileCards>
+      <div className="surface overflow-x-auto p-0">
+        <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Entité</TableHead>
@@ -74,7 +74,7 @@ export function EntitiesManager({ rows }: { rows: EntityRow[] }) {
           <TableBody>
             {rows.map((r) => (
               <TableRow key={r.id} className={r.isActive ? "" : "opacity-60"}>
-                <TableCell data-sans-etiquette className="py-2 max-sm:!justify-start">
+                <TableCell data-sans-etiquette className="py-2">
                   <span className="inline-flex items-center gap-2 font-medium">
                     <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: r.color || "#64748b" }} />
                     {r.name}
@@ -104,7 +104,7 @@ export function EntitiesManager({ rows }: { rows: EntityRow[] }) {
               </TableRow>
             ))}
             {rows.length === 0 && (
-              <TableRow><TableCell colSpan={7} data-sans-etiquette className="py-6 text-center text-muted-foreground max-sm:!justify-center">Aucune entité. Créez-en une pour commencer.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} data-sans-etiquette className="py-6 text-center text-muted-foreground">Aucune entité. Créez-en une pour commencer.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

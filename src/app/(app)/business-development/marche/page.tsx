@@ -85,7 +85,7 @@ export default async function MarketOverviewPage() {
       <Card>
         <CardHeader><CardTitle>Classes thérapeutiques porteuses</CardTitle><CardDescription>Top 40 par valeur de marché (MAT, ville)</CardDescription></CardHeader>
         <CardContent className="overflow-x-auto p-0 sm:p-2">
-          <Table mobileCards>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Classe (ATC4)</TableHead><TableHead className="text-right">Valeur</TableHead>
@@ -113,7 +113,7 @@ export default async function MarketOverviewPage() {
       <Card>
         <CardHeader><CardTitle>Laboratoires leaders</CardTitle><CardDescription>Top 40 par valeur (ville)</CardDescription></CardHeader>
         <CardContent className="overflow-x-auto p-0 sm:p-2">
-          <Table mobileCards>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="text-right">#</TableHead><TableHead>Laboratoire</TableHead>

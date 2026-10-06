@@ -139,7 +139,7 @@ export default async function RecrutementPage() {
         // Au téléphone, chaque demande devient une carte (intitulés repris de l'en-tête) ; au bureau,
         // le tableau garde sa largeur et défile dans son cadre.
         <div className="surface p-2 sm:p-0">
-          <Table mobileCards className="border-collapse sm:min-w-[54rem]">
+          <Table className="border-collapse min-w-[54rem]">
             <TableHeader className="bg-transparent">
               <TableRow className="hover:bg-transparent">
                 <TableHead>Référence</TableHead>

@@ -38,7 +38,7 @@ export default async function PiecesPage() {
 
   const Rows = ({ rows, who, label }: { rows: { id: string; reference: string; label: string; status: string; dueDate: Date | null; entityType: string; createdAt: Date }[]; who: (i: number) => string; label: string }) => (
     <div className="surface overflow-hidden p-0">
-      <Table mobileCards>
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>

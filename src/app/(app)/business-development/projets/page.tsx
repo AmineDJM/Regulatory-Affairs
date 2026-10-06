@@ -186,7 +186,7 @@ export default async function BdProjetsPage() {
                       colonne « Projet », rangez-y les dossiers concernés.
                     </p>
                   ) : (
-                    <Table mobileCards className="sm:min-w-[52rem]">
+                    <Table className="min-w-[52rem]">
                       <TableHeader>
                         <TableRow>
                           <TableHead>Référence</TableHead>
