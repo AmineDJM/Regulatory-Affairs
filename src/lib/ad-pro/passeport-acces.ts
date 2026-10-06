@@ -29,6 +29,11 @@ export async function peutLirePasseportDuSujet(
   if (!sujet) return false;
   const membre = sujet.assignedToId === userId || sujet.participantIds.includes(userId);
   if (!membre) return false;
-  // La pièce désigne-t-elle un VOYAGEUR de ce poste ? Sinon ce n'est pas un passeport.
-  return (await prisma.adProVoyageur.count({ where: { id: doc.stepKey, itemId: doc.entityId } })) > 0;
+  // La pièce désigne-t-elle un VOYAGEUR — ou une FICHE HÔTELLERIE (Direction, 06/10) — de ce poste ?
+  // Sinon ce n'est pas une pièce d'identité de personne prise en charge.
+  const [voyageur, hebergement] = await Promise.all([
+    prisma.adProVoyageur.count({ where: { id: doc.stepKey, itemId: doc.entityId } }),
+    prisma.adProHebergement.count({ where: { id: doc.stepKey, itemId: doc.entityId } }),
+  ]);
+  return voyageur + hebergement > 0;
 }

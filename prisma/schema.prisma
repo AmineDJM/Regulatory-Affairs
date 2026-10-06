@@ -2384,6 +2384,8 @@ model AdProItem {
   reservationDossier   Dossier?        @relation("AdProItemReservation", fields: [reservationDossierId], references: [id], onDelete: SetNull)
   /// Les voyageurs d'un poste « billetterie » (§118.175).
   voyageurs            AdProVoyageur[]
+  /// Les fiches hôtellerie d'un poste « hôtellerie » — une par personne logée (Direction, 06/10).
+  hebergements         AdProHebergement[]
 
   position           Int                      @default(0)
   createdById        String?
@@ -2472,6 +2474,37 @@ model AdProVoyageurDevis {
   createdAt   DateTime       @default(now())
 
   @@index([voyageurId])
+}
+
+/// UNE FICHE HÔTELLERIE D'UN POSTE « HÔTELLERIE » (Direction, 06/10).
+///
+/// « Si c'est la prise en charge de l'hôtellerie, on fait une fiche hôtellerie pour chaque
+/// personne. » Même forme que le voyageur : un nom OBLIGATOIRE, tout le reste facultatif (on loge
+/// un médecin avant de connaître l'hôtel). Pas de devis par personne dans cette version : le devis
+/// du poste suffit.
+///
+/// La PIÈCE D'IDENTITÉ n'est pas une colonne : c'est un `Document` du poste dont `stepKey` est
+/// l'identifiant de la fiche — même chemin que le passeport d'un voyageur.
+model AdProHebergement {
+  id          String    @id @default(cuid())
+  itemId      String
+  item        AdProItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  nom         String
+  prenom      String?
+  hotel       String?
+  ville       String?
+  dateArrivee DateTime?
+  dateDepart  DateTime?
+  /// Libellé libre (Single, Double, Twin, Suite… — liste proposée par `ad-pro/hebergements.ts`).
+  typeChambre String?
+  notes       String?
+  position    Int       @default(0)
+  createdById String?
+  updatedById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([itemId])
 }
 
 /// HISTORIQUE DES DÉCISIONS D'UN POSTE — « autant de fois qu'il le faut » : une demande de

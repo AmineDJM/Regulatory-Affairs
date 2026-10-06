@@ -60,6 +60,9 @@ import {
   lireVoyageur, lireEtapes, nomComplet, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation,
   type SaisieVoyageur, type VoyageurLu,
 } from "@/lib/ad-pro/voyageurs";
+import {
+  lireHebergement, changementsHebergement, porteDesHebergements, refusChangementNatureFiches, type SaisieHebergement, type HebergementLu,
+} from "@/lib/ad-pro/hebergements";
 import { cloreSujetVivant, createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
 import { gesteVisaPoste, memePrestataire, type EtatBcPoste, type GesteVisaPoste } from "@/lib/ad-pro/bc-poste";
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
@@ -138,6 +141,8 @@ interface ParentInfo {
    * cloisonnée du bureau (§118.154).
    */
   companyId?: string | null;
+  /** Un sponsoring INDIRECT : les fiches par personne de ses postes sont facultatives (Direction, 06/10). */
+  indirect?: boolean;
 }
 
 type AdProModule = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "EVENTS";
@@ -171,7 +176,7 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
     load: async (id) => {
       const r = await prisma.sponsoringRequest.findUnique({
         where: { id },
-        select: { id: true, reference: true, institution: true, status: true, requesterId: true, closedAt: true, companyId: true },
+        select: { id: true, reference: true, institution: true, status: true, requesterId: true, closedAt: true, companyId: true, nature: true },
       });
       if (!r) return null;
       const etat = etatPostesSponsoring(r.status, r.closedAt);
@@ -179,7 +184,7 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
         id: r.id, ref: r.reference, beneficiary: r.institution,
         decided: etat.decide, tardif: etat.tardif, clos: etat.clos, closedByClosure: etat.closParLaCloture,
         refusee: r.status === "REFUSED" || r.status === "CANCELLED",
-        requesterId: r.requesterId, companyId: r.companyId,
+        requesterId: r.requesterId, companyId: r.companyId, indirect: r.nature === "INDIRECT",
       };
     },
   },
@@ -447,7 +452,7 @@ async function loadItem(id: string, user: SessionUser) {
       expenseOrderId: true, promoMaterialId: true, status: true, budgetKind: true,
       budgetCategoryId: true, orderStage: true, adminRequestId: true, orderRequestedById: true,
       orderRequestedAt: true, orderDirectionAt: true, orderVisaAmount: true, orderVisaSupplier: true,
-      reservationDossierId: true, opsDecidedAt: true, orderNote: true,
+      reservationDossierId: true, opsDecidedAt: true, orderNote: true, repartitionId: true,
       sponsoringId: true, congressNationalId: true, congressInternationalId: true, eventId: true,
     },
   });
@@ -455,6 +460,25 @@ async function loadItem(id: string, user: SessionUser) {
   const owner = parentOf(item);
   if (!owner || !(await demandeVisible(user, owner.parent, owner.id))) return null;
   return { item, owner };
+}
+
+/**
+ * LES FICHES PAR PERSONNE D'UN POSTE (Direction, 06/10) : ses voyageurs (billetterie) ou ses fiches
+ * hôtellerie (hôtellerie). `undefined` hors de ces deux natures — la règle ne s'y applique pas.
+ */
+async function compterFichesPersonnes(item: { id: string; kind: AdProItemKind }): Promise<number | undefined> {
+  if (porteDesVoyageurs(item.kind)) return prisma.adProVoyageur.count({ where: { itemId: item.id } });
+  if (porteDesHebergements(item.kind)) return prisma.adProHebergement.count({ where: { itemId: item.id } });
+  return undefined;
+}
+
+/**
+ * LA PRISE EN CHARGE PASSE-T-ELLE PAR UN SPONSORING INDIRECT ? Un poste né de « Répartir par nature »
+ * (`repartitionId`), ou ajouté directement sur un sponsoring de nature INDIRECT. Là, les fiches
+ * hôtellerie et voyageur par personne ne sont pas obligatoires (Direction, 06/10).
+ */
+function priseEnChargeIndirecte(item: { repartitionId: string | null }, info: ParentInfo | null): boolean {
+  return item.repartitionId != null || Boolean(info?.indirect);
 }
 
 // ───────────────────── Le bon de commande d'un poste : visa, pièces établies, secrétariat (§118.187) ─────────────────────
@@ -821,6 +845,14 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
         || item.expenseOrderId != null || item.orderStage !== "NONE" || item.adminRequestId != null || item.promoMaterialId != null,
     });
     if (refus) return { ok: false, error: refus };
+    // LES FICHES PAR PERSONNE (Direction, 06/10) : une billetterie qui a des voyageurs, une hôtellerie
+    // qui a des fiches ne changent pas de nature — les fiches deviendraient invisibles, sans être perdues.
+    const [voyageurs, hebergements] = await Promise.all([
+      prisma.adProVoyageur.count({ where: { itemId: id } }),
+      prisma.adProHebergement.count({ where: { itemId: id } }),
+    ]);
+    const refusFiches = refusChangementNatureFiches(item.kind, kind, { voyageurs, hebergements });
+    if (refusFiches) return { ok: false, error: refusFiches };
   }
   if ((wantsAllocate && amountGranted != null && amountGranted > 0) || (amountEstimated != null && amountEstimated > 0)) {
     const refus = refusArgentSurPosteStock(kind ?? item.kind, "un montant");
@@ -1657,18 +1689,21 @@ export async function submitAdProItem(_prev: ActionResult | undefined, formData:
   const clos = await refusSiClos(owner.parent, owner.id, { partir: true });
   if (clos) return { ok: false, error: clos };
 
+  const info = await PARENTS[owner.parent].load(owner.id);
   const check = canSubmitItem({
     status: item.status,
     amountEstimated: item.amountEstimated != null ? toNumber(item.amountEstimated) : null,
     amountGranted: item.amountGranted != null ? toNumber(item.amountGranted) : null,
     kind: item.kind,
     lignesStock: item.kind === "STOCK_MATERIAL" ? await prisma.adProStockLine.count({ where: { itemId: id } }) : 0,
+    // UNE FICHE PAR PERSONNE (Direction, 06/10) — facultative dans un sponsoring indirect.
+    fichesPersonnes: await compterFichesPersonnes(item),
+    priseEnChargeIndirecte: priseEnChargeIndirecte(item, info),
   });
   if (!check.ok) return { ok: false, error: check.reason ?? "Soumission impossible." };
 
   const note = fdStr(formData, "note");
   const amount = item.amountGranted ?? item.amountEstimated;
-  const info = await PARENTS[owner.parent].load(owner.id);
   const corps = `${info?.ref ?? "Opération"} — ${ITEM_KIND_LABELS[item.kind]} « ${item.label} »${amount != null ? ` (${toNumber(amount).toLocaleString("fr-FR")} DZD)` : ""}`;
   const lien = `${PARENTS[owner.parent].path}/${owner.id}`;
 
@@ -2958,6 +2993,127 @@ export async function retirerVoyageur(formData: FormData): Promise<ActionResult>
   await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${nomComplet(v)} » retiré du poste « ${item.label} ».`);
   revalidate(owner.parent, owner.id);
   return { ok: true, message: `Voyageur retiré.${devis > 0 ? ` Son devis reste sur le poste (case « Devis / pro forma »).` : ""}${sujet}` };
+}
+
+// ───────────────────────── Hôtellerie : une fiche par personne logée (Direction, 06/10) ─────────────────────────
+
+/** Le poste « hôtellerie » d'une fiche, avec son opération — le point d'entrée des actions par fiche. */
+async function chargerHebergement(id: string, user: SessionUser) {
+  const h = await prisma.adProHebergement.findUnique({
+    where: { id },
+    select: { id: true, itemId: true, nom: true, prenom: true, hotel: true, ville: true, dateArrivee: true, dateDepart: true, typeChambre: true, notes: true },
+  });
+  if (!h) return null;
+  const found = await loadItem(h.itemId, user);
+  return found ? { hebergement: h, ...found } : null;
+}
+
+const hebergementLu = (h: HebergementLu): HebergementLu => ({
+  nom: h.nom, prenom: h.prenom, hotel: h.hotel, ville: h.ville, dateArrivee: h.dateArrivee, dateDepart: h.dateDepart, typeChambre: h.typeChambre, notes: h.notes,
+});
+
+/**
+ * AJOUTER UNE FICHE HÔTELLERIE à un poste « hôtellerie » — « une fiche hôtellerie pour chaque
+ * personne ». Un NOM suffit ; la pièce d'identité et les autres documents se joignent dès la
+ * création, rangés comme ceux d'un voyageur (documents du poste, `stepKey` = la fiche). Offert
+ * aussi sur une demande clôturée : c'est une précision d'exécution, pas un arbitrage.
+ */
+export async function ajouterHebergement(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const itemId = fdStr(formData, "itemId");
+  if (!itemId) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(itemId, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (!porteDesHebergements(item.kind)) return { ok: false, error: "Seul un poste « hôtellerie » porte des fiches hôtellerie." };
+
+  const lu = lireHebergement({
+    nom: fdStr(formData, "nom"), prenom: fdStr(formData, "prenom"), hotel: fdStr(formData, "hotel"), ville: fdStr(formData, "ville"),
+    dateArrivee: fdStr(formData, "dateArrivee"), dateDepart: fdStr(formData, "dateDepart"), typeChambre: fdStr(formData, "typeChambre"), notes: fdStr(formData, "notes"),
+  });
+  if (!lu.ok) return { ok: false, error: lu.error };
+  const last = await prisma.adProHebergement.findFirst({ where: { itemId }, orderBy: { position: "desc" }, select: { position: true } });
+  const cree = await prisma.adProHebergement.create({
+    data: { itemId, ...lu.hebergement, position: (last?.position ?? 0) + 1, createdById: user.id, updatedById: user.id },
+    select: { id: true },
+  });
+  const pieces: { file: File; category: "ID_DOCUMENT" | "SUPPORTING_DOC" }[] = [
+    ...formData.getAll("pieceIdentite").filter((v): v is File => v instanceof File && v.size > 0).map((file) => ({ file, category: "ID_DOCUMENT" as const })),
+    ...formData.getAll("documents").filter((v): v is File => v instanceof File && v.size > 0).map((file) => ({ file, category: "SUPPORTING_DOC" as const })),
+  ];
+  const echecs: string[] = [];
+  let piece = false;
+  if (pieces.length > 0) {
+    const refus = await validateAttachments(pieces.map((p) => p.file));
+    if (refus) echecs.push(refus);
+    else {
+      for (const p of pieces) {
+        const r = await persistUploadedDocument(user.id, {
+          entityType: "AD_PRO_ITEM", entityId: itemId, category: p.category, confidentiality: "INTERNAL", stepKey: cree.id, file: p.file,
+        }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "dépôt impossible", documentId: undefined }));
+        if (r.ok) piece ||= p.category === "ID_DOCUMENT";
+        else echecs.push(`${p.file.name} : ${r.error ?? "dépôt impossible"}`);
+      }
+    }
+  }
+  const joints = pieces.length - echecs.length;
+  await audit(user, owner.parent, owner.id, "UPDATE", `Fiche hôtellerie « ${nomComplet(lu.hebergement)} » ajoutée au poste « ${item.label} »${pieces.length > 0 ? ` — ${joints} document(s) joint(s)` : ""}.`);
+  revalidate(owner.parent, owner.id);
+  return {
+    ok: true, id: cree.id,
+    message: `Fiche hôtellerie ajoutée${joints > 0 ? ` avec ${joints} document${joints > 1 ? "s" : ""}${piece ? " (pièce d'identité comprise)" : ""}` : ""}.${echecs.length > 0 ? ` Non joint : ${echecs.join(" ; ")} — joignez-le depuis la fiche.` : ""}`,
+  };
+}
+
+/** MODIFIER UNE FICHE HÔTELLERIE — seules les clés PRÉSENTES s'écrivent (§118.152c). */
+export async function modifierHebergement(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Fiche hôtellerie non précisée." };
+  const found = await chargerHebergement(id, user);
+  if (!found) return { ok: false, error: "Fiche hôtellerie introuvable." };
+  const { hebergement: h, item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+
+  const jour = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  // SEULES LES CLÉS PRÉSENTES S'ÉCRIVENT (§118.152c) — chaque champ nommé en clair, pour que le contrat des actions le lise.
+  const lu = lireHebergement({
+    nom: formData.has("nom") ? fdStr(formData, "nom") : h.nom,
+    prenom: formData.has("prenom") ? fdStr(formData, "prenom") : h.prenom,
+    hotel: formData.has("hotel") ? fdStr(formData, "hotel") : h.hotel,
+    ville: formData.has("ville") ? fdStr(formData, "ville") : h.ville,
+    dateArrivee: formData.has("dateArrivee") ? fdStr(formData, "dateArrivee") : jour(h.dateArrivee),
+    dateDepart: formData.has("dateDepart") ? fdStr(formData, "dateDepart") : jour(h.dateDepart),
+    typeChambre: formData.has("typeChambre") ? fdStr(formData, "typeChambre") : h.typeChambre,
+    notes: formData.has("notes") ? fdStr(formData, "notes") : h.notes,
+  });
+  if (!lu.ok) return { ok: false, error: lu.error };
+  const changements = changementsHebergement(hebergementLu(h), lu.hebergement);
+  if (changements.length === 0) return { ok: true, id, message: "Rien n'a changé." };
+
+  await prisma.adProHebergement.update({ where: { id }, data: { ...lu.hebergement, updatedById: user.id } });
+  await audit(user, owner.parent, owner.id, "UPDATE", `Fiche hôtellerie « ${nomComplet(h)} » du poste « ${item.label} » modifiée — ${changements.join(" ; ")}.`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id, message: "Fiche hôtellerie modifiée." };
+}
+
+/**
+ * RETIRER UNE FICHE HÔTELLERIE. Sa pièce d'identité, si elle a été déposée, RESTE parmi les pièces
+ * du poste — comme le passeport d'un voyageur retiré : elle se retire depuis son aperçu.
+ */
+export async function retirerHebergement(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Fiche hôtellerie non précisée." };
+  const found = await chargerHebergement(id, user);
+  if (!found) return { ok: false, error: "Fiche hôtellerie introuvable." };
+  const { hebergement: h, item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  await prisma.adProHebergement.delete({ where: { id } });
+  await audit(user, owner.parent, owner.id, "UPDATE", `Fiche hôtellerie « ${nomComplet(h)} » retirée du poste « ${item.label} ».`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, message: "Fiche hôtellerie retirée." };
 }
 
 /**

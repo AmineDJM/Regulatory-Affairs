@@ -1165,6 +1165,8 @@ X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable
   "budget-envelope-actions:changerSocieteEcriture",
   // PRÉPARER LE DOSSIER D'UN ENVOI DE LA MESSAGERIE : le composeur dépose ensuite les fichiers par la file du Drive.
   "messaging-actions:preparerDepotMessagerie",
+  // LES FICHES HÔTELLERIE D'UN POSTE (une par personne) : des gestes de la carte du poste, comme les voyageurs.
+  "ad-pro-item-actions:ajouterHebergement", "ad-pro-item-actions:modifierHebergement", "ad-pro-item-actions:retirerHebergement",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "

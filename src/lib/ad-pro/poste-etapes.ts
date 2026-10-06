@@ -1,6 +1,9 @@
 import type { AdProItemKind, AdProItemOrderStage, AdProItemStatus } from "@prisma/client";
 import type { EtapeBC } from "@/lib/bons-de-commande/regle";
 import type { DroitsValidation } from "@/lib/ad-pro/validation-poste";
+// Seul import de valeur : un module PUR, sûr pour le navigateur — la règle des fiches par personne
+// tient en un endroit, lu par l'action et par la carte (Direction, 06/10).
+import { refusFichesPersonnes } from "@/lib/ad-pro/hebergements";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -13,7 +16,7 @@ import type { DroitsValidation } from "@/lib/ad-pro/validation-poste";
  * n'a pas encore été accordée » sous un poste encore en brouillon). La personne lisait tout pour
  * trouver la seule chose qu'elle pouvait faire.
  *
- * La règle tient ici, PURE (aucun import de valeur) : la frise d'un poste — chiffré → Direction →
+ * La règle tient ici, PURE (seul import de valeur : la règle pure des fiches par personne) : la frise d'un poste — chiffré → Direction →
  * budget → bon de commande → paiement — et, pour la personne qui regarde, LE geste suivant, ou ce
  * qu'on attend et de qui. L'écran n'invente rien : il affiche ce que cette fonction rend. Les
  * gestes secondaires (modifier, pièces, demandes au secrétariat, historique, retirer) vivent dans
@@ -79,6 +82,13 @@ export interface FaitsPoste {
    * reste celui d'avant.
    */
   devisAGenerer?: number;
+  /**
+   * Combien de FICHES PERSONNES le poste porte — voyageurs (billetterie) et fiches hôtellerie
+   * (hôtellerie), Direction 06/10. Absent : non compté — aucune attente n'en naît.
+   */
+  fichesPersonnes?: number;
+  /** Le poste vit dans un sponsoring INDIRECT : ses fiches par personne sont facultatives. */
+  priseEnChargeIndirecte?: boolean;
 }
 
 /** Ce que la personne qui regarde peut faire — calculé au serveur, jamais deviné ici. */
@@ -145,6 +155,10 @@ export function faitsDuPoste(r: {
   pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[]; devis?: readonly { annulee?: boolean }[] };
   /** Les devis du poste, lus avec leurs lignes (`DevisDePosteVue`) — seul l'état de leur BC compte ici. */
   devisLignes?: readonly { etat: string }[];
+  /** Les voyageurs (billetterie) et fiches hôtellerie (hôtellerie) du poste — seul leur nombre compte ici. */
+  voyageurs?: readonly unknown[];
+  hebergements?: readonly unknown[];
+  priseEnChargeIndirecte?: boolean;
 }): FaitsPoste {
   return {
     kind: r.kind, status: r.status, amountEstimated: r.amountEstimated, amountGranted: r.amountGranted,
@@ -154,6 +168,9 @@ export function faitsDuPoste(r: {
     bc: r.pieces?.bc ? (r.pieces.bc.etape ?? "HORS_CIRCUIT") : null, factures: r.pieces?.factures.length ?? 0,
     devis: (r.pieces?.devis ?? []).filter((d) => !d.annulee).length,
     devisAGenerer: (r.devisLignes ?? []).filter((d) => d.etat === "A_GENERER").length,
+    // Un poste ne porte que l'une des deux listes (la nature le décide) : la somme est son compte.
+    fichesPersonnes: r.voyageurs || r.hebergements ? (r.voyageurs?.length ?? 0) + (r.hebergements?.length ?? 0) : undefined,
+    priseEnChargeIndirecte: r.priseEnChargeIndirecte,
   };
 }
 
@@ -302,6 +319,10 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
       };
     }
     if (!chiffre(p)) return { geste: { cle: "CHIFFRER", libelle: "Chiffrer le poste" }, attente: null };
+    // UNE FICHE PAR PERSONNE (Direction, 06/10) — la même règle que `canSubmitItem` : jamais
+    // « Soumettre » quand l'action refuserait (§118.83).
+    const fiches = refusFichesPersonnes({ kind: p.kind, fichesPersonnes: p.fichesPersonnes, priseEnChargeIndirecte: p.priseEnChargeIndirecte });
+    if (fiches) return { geste: null, attente: fiches };
     return { geste: { cle: "SOUMETTRE", libelle: p.status === "DRAFT" ? "Soumettre pour validation" : "Resoumettre pour validation" }, attente: null };
   }
 

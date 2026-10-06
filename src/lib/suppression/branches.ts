@@ -270,6 +270,8 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   AdProStockLine: ["article du stock demandé", "articles du stock demandés"],
   // Les voyageurs d'un poste de billetterie (§118.175) : ils partent avec leur poste, et reviennent avec lui.
   AdProVoyageur: ["voyageur", "voyageurs"],
+  // Les fiches hôtellerie d'un poste d'hôtellerie (Direction, 06/10) : même sort que les voyageurs.
+  AdProHebergement: ["fiche hôtellerie", "fiches hôtellerie"],
   AdProItemPiece: ["pièce de poste", "pièces de poste"],
   AdProVoyageurDevis: ["devis de voyageur", "devis de voyageurs"],
   // Le devis d'un poste lu par Luna (§118.206) : la fiche structurée et ses lignes partent avec la pièce.
@@ -294,6 +296,8 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   AdProGateVisa: ["visa", "visas"],
   ValidationRequest: ["demande de validation", "demandes de validation"],
   ValidationStep: ["étape de validation", "étapes de validation"],
+  ValidationParticipant: ["participant à la demande de validation", "participants à la demande de validation"],
+  LeaveEscalation: ["avis demandé au N+1", "avis demandés au N+1"],
   ValidationItemDecision: ["décision de ligne validée", "décisions de lignes validées"],
   PaymentRequest: ["demande de paiement", "demandes de paiement"],
   PaymentPiece: ["pièce de paiement", "pièces de paiement"],

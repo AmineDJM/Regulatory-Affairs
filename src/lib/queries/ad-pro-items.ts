@@ -16,6 +16,8 @@ import { porteDesVoyageurs, refusRetraitReservation, lireEtapes } from "@/lib/ad
 import { splitMulti } from "@/lib/ad-pro/pickers";
 import { bcVivantsDesPostes, refusAnnulationBcDuPoste } from "@/lib/ad-pro/bc-etablis";
 import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
+import type { HebergementVue } from "@/components/ad-pro/hebergements-bloc";
+import { porteDesHebergements } from "@/lib/ad-pro/hebergements";
 import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
 import { devisDesPostes } from "@/lib/queries/ad-pro-devis-poste";
 import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";
@@ -57,21 +59,31 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
   // LA BILLETTERIE (§118.175) : ses voyageurs, leurs passeports, le sujet de réservation, et les
   // noms que la demande porte déjà — chargés seulement s'il y a un poste qui en a l'usage.
   const billetterie = rawItems.filter((i) => porteDesVoyageurs(i.kind)).map((i) => i.id);
+  // L'HÔTELLERIE (Direction, 06/10) : une fiche par personne logée, ses documents par `stepKey`, comme un voyageur.
+  const hotellerie = rawItems.filter((i) => porteDesHebergements(i.kind)).map((i) => i.id);
+  const aFiches = [...billetterie, ...hotellerie];
   const sujetsIds = rawItems.map((i) => i.reservationDossierId).filter((x): x is string => Boolean(x));
-  const [voyageurRows, passeportRows, sujetRows, nomsSuggeres] = await Promise.all([
+  const [voyageurRows, passeportRows, sujetRows, nomsSuggeres, hebergementRows, sponsoringIndirect] = await Promise.all([
     billetterie.length
       ? prisma.adProVoyageur.findMany({ where: { itemId: { in: billetterie } }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] })
       : Promise.resolve([]),
-    billetterie.length
+    aFiches.length
       ? prisma.document.findMany({
-          where: { entityType: "AD_PRO_ITEM", entityId: { in: billetterie }, stepKey: { not: null } },
+          where: { entityType: "AD_PRO_ITEM", entityId: { in: aFiches }, stepKey: { not: null } },
           select: { id: true, name: true, stepKey: true, fileKey: true, category: true }, orderBy: { createdAt: "asc" },
         })
       : Promise.resolve([]),
     sujetsIds.length
       ? prisma.dossier.findMany({ where: { id: { in: sujetsIds } }, select: { id: true, reference: true, status: true } })
       : Promise.resolve([]),
-    billetterie.length ? nomsDeLaDemande(parent, parentId) : Promise.resolve([] as string[]),
+    aFiches.length ? nomsDeLaDemande(parent, parentId) : Promise.resolve([] as string[]),
+    hotellerie.length
+      ? prisma.adProHebergement.findMany({ where: { itemId: { in: hotellerie } }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] })
+      : Promise.resolve([]),
+    // UN SPONSORING INDIRECT : les fiches par personne de ses postes sont facultatives (Direction, 06/10).
+    parent === "SPONSORING" && aFiches.length
+      ? prisma.sponsoringRequest.findUnique({ where: { id: parentId }, select: { nature: true } }).then((s) => s?.nature === "INDIRECT")
+      : Promise.resolve(false),
   ]);
   // LES DOCUMENTS D'UN VOYAGEUR : le passeport (catégorie « pièce d'identité ») et tout autre document
   // (visa, assurance, justificatif…). Tous sont des pièces du poste désignées par le voyageur (`stepKey`).
@@ -125,6 +137,15 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
       trajet: v.trajet, transport: v.transport, devis: devisDe.get(v.id) ?? [],
     });
     voyageursDe.set(v.itemId, l);
+  }
+  const hebergementsDe = new Map<string, HebergementVue[]>();
+  for (const h of hebergementRows) {
+    const l = hebergementsDe.get(h.itemId) ?? [];
+    l.push({
+      id: h.id, nom: h.nom, prenom: h.prenom, hotel: h.hotel, ville: h.ville, dateArrivee: iso(h.dateArrivee), dateDepart: iso(h.dateDepart),
+      typeChambre: h.typeChambre, notes: h.notes, piecesIdentite: passeportsDe.get(h.id) ?? [], autresDocuments: autresDocsDe.get(h.id) ?? [],
+    });
+    hebergementsDe.set(h.itemId, l);
   }
   const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference, statut: String(d.status) }]));
 
@@ -216,7 +237,9 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
       return sujet ? { id: sujet.id, reference: sujet.reference, refusRetrait: refusRetraitReservation({ sujet: sujet.statut, orderStage: String(i.orderStage) }) } : null;
     })(),
     voyageurs: voyageursDe.get(i.id) ?? [],
-    nomsSuggeres: porteDesVoyageurs(i.kind) ? nomsSuggeres : [],
+    hebergements: hebergementsDe.get(i.id) ?? [],
+    priseEnChargeIndirecte: i.repartitionId != null || sponsoringIndirect,
+    nomsSuggeres: porteDesVoyageurs(i.kind) || porteDesHebergements(i.kind) ? nomsSuggeres : [],
     orderStage: i.orderStage,
     opsDecidedAt: i.opsDecidedAt?.toISOString() ?? null,
     opsDecisionNote: i.opsDecisionNote,

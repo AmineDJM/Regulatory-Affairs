@@ -75,6 +75,8 @@ suite("Postes Ad & Pro — ceux qui décident sont prévenus (validation et lect
     const r = await addAdProItem(undefined, fd({ parent: "CONGRESS_NATIONAL", parentId: congres, label: `${RUN} Billet d'avion`, kind: "TICKETING", amountEstimated: "45000", budgetKind: "ADDITIONAL" }));
     expect(r.ok, JSON.stringify(r)).toBe(true);
     expect(await recues("GENERIC")).toBe(1);
+    // UNE BILLETTERIE SE SOUMET AVEC AU MOINS UN VOYAGEUR (Direction, 06/10).
+    await prisma.adProVoyageur.create({ data: { itemId: r.ok ? r.id! : "", nom: "Haddad", prenom: "Amel" } });
     const s = await submitAdProItem(undefined, fd({ id: r.ok ? r.id! : "" }));
     expect(s.ok, JSON.stringify(s)).toBe(true);
     // DEUX TEMPS (§118.204) : la soumission demande la validation à la Direction des opérations — la
