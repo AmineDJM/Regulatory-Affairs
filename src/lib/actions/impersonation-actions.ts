@@ -1,7 +1,6 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -34,14 +33,19 @@ export async function startImpersonation(formData: FormData): Promise<ActionResu
     actorId: session.user.id, action: "LOGIN", module: "Administration",
     summary: `Vue exacte démarrée — ${target.name}`,
   });
-  redirect("/mon-espace");
+  // PAS DE `redirect()` ICI (Direction, 06/10 : « je prends la peau de Leila, et c'est toujours Amine Djouamai qui
+  // s'affiche en haut ; je dois tout rafraîchir ») : une redirection d'action est une navigation DOUCE — Next ne
+  // recharge que la page, et garde la coque (barre du haut, menu, bandeau) rendue pour l'administrateur. Le bouton
+  // recharge donc la page ENTIÈRE (`window.location`), coque comprise, rendue pour la personne visualisée.
+  return { ok: true, message: "/mon-espace" };
 }
 
-export async function stopImpersonation(): Promise<void> {
+/** Quitte la « Vue exacte ». Même raison : le bouton recharge toute la page (la coque redevient celle de l'administrateur). */
+export async function stopImpersonation(): Promise<ActionResult> {
   const session = await auth();
   cookies().set(IMPERSONATE_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
   if (session?.user?.id) {
     await recordAudit({ actorId: session.user.id, action: "LOGOUT", module: "Administration", summary: "Vue exacte terminée" });
   }
-  redirect("/admin");
+  return { ok: true, message: "/admin" };
 }

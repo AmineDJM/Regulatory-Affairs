@@ -141,6 +141,8 @@ export async function chargerFeuillePraticiens(
     specialite?: string | null;
     /** La vue des fiches ARCHIVÉES (suppression réversible). */
     archives?: boolean;
+    /** Montrer aussi les spécialités sans médecin (pour qui gère le référentiel). */
+    specialitesVides?: boolean;
   },
 ): Promise<FeuillePraticiens | null> {
   // L'annuaire ouvert : « general » = ceux qui ne sont rangés nulle part, un identifiant = cet
@@ -233,6 +235,7 @@ export async function chargerFeuillePraticiens(
   const { specialites: annuairesSpecialite, sansSpecialite: sansSpecialiteCount } = annuairesParSpecialite(
     parSpecialite.map((g) => ({ specialtyId: g.specialtyId, count: g._count._all })),
     specialtyRefs,
+    opts.specialitesVides === true,
   );
 
   const countByDirectory = new Map(directoryCounts.map((c) => [c.directoryId as string, c._count._all]));

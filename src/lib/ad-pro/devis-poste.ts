@@ -44,9 +44,9 @@ export interface LigneDevisPoste {
 
 export interface EnteteDevisPoste {
   /**
-   * En POUR CENT (19), TEL QU'IMPRIMÉ. `null` : le devis n'indique aucune TVA — elle n'est JAMAIS devinée
-   * (Direction, 06/10 : « la TVA n'était pas écrite, l'IA ne doit pas deviner, juste retranscrire »). Sans
-   * elle les montants restent HORS TAXE et le bon de commande ne se génère pas : on la saisit depuis le papier.
+   * En POUR CENT (19), TEL QU'IMPRIMÉ. `null` : le devis n'indique aucune TVA — elle n'est JAMAIS devinée, et
+   * « s'il n'y a pas de TVA renseignée, il n'y a pas de TVA » (Direction, 06/10) : comptée 0, le bon de commande
+   * se génère sans TVA, et les montants sont ceux du papier.
    */
   tvaRate: number | null;
   extraTaxLabel: string | null;
@@ -250,9 +250,9 @@ export function etapeDEnsemble(etapes: readonly (EtapeBC | null)[]): EtapeBC | n
 export function refusDepassement(totalTtc: number, accorde: number | null, totalHt?: number, tvaIndiquee = true): string | null {
   if (accorde == null || !(accorde > 0)) return null;
   if (cents(totalTtc) <= cents(accorde)) return null;
-  // TVA NON INDIQUÉE sur le devis : on n'invente pas de TTC. Le total est HORS TAXE, et la phrase le dit.
+  // AUCUNE TVA INDIQUÉE sur le devis = aucune TVA : le total est celui du papier, et la phrase le dit.
   if (!tvaIndiquee) {
-    return `Les lignes validées pour ce poste totalisent ${formatDzd(totalTtc)} HT (le devis n'indique pas de TVA), au-delà des ${formatDzd(accorde)} accordés (+${formatDzd(totalTtc - accorde)}). `
+    return `Les lignes validées pour ce poste totalisent ${formatDzd(totalTtc)} (aucune TVA indiquée sur le devis), au-delà des ${formatDzd(accorde)} accordés (+${formatDzd(totalTtc - accorde)}). `
       + "Demandez une révision du poste pour relever le montant accordé, ou décochez une ligne.";
   }
   // LE MONTANT ACCORDÉ S'ENTEND TTC — et le devis s'imprime HT : un devis de 400 000 HT pèse 476 000 TTC à 19 %.
@@ -275,9 +275,8 @@ export function refusDepassement(totalTtc: number, accorde: number | null, total
 export const TAUX_TVA_PCT_ADMIS: readonly number[] = [0, 9, 19];
 
 export function refusTauxDuDevis(tvaRate: number | null): string | null {
-  if (tvaRate === null) {
-    return "Ce devis n'indique pas de TVA, et la plateforme ne la devine pas : saisissez le taux imprimé sur le papier (0, 9 ou 19 %) dans « Corriger les lignes ».";
-  }
+  // PAS DE TVA IMPRIMÉE = PAS DE TVA (Direction, 06/10) : le bon de commande se génère sans TVA, comme le devis.
+  if (tvaRate === null) return null;
   if (TAUX_TVA_PCT_ADMIS.some((t) => Math.abs(t - tvaRate) < 1e-9)) return null;
   return `Le taux de TVA du devis (${tvaRate} %) n'existe pas en Algérie : un bon de commande porte 0, 9 ou 19 %. Corrigez-le dans les lignes du devis (« Corriger les lignes »).`;
 }
@@ -330,6 +329,21 @@ export interface LigneAEcrire {
  * LES LIGNES QUE LA LECTURE PROPOSE → les lignes du devis. Un chiffre illisible reste `null` (jamais
  * deviné) ; ce qu'il faut vérifier sur le papier voyage avec la ligne, dit à la personne.
  */
+/**
+ * LES RÉSERVES DE LECTURE ENCORE VRAIES. Une réserve « « DZD 300,000.00 » : des caractères inattendus » a été écrite
+ * par une version du lecteur qui ne comprenait pas la devise en préfixe ; le lecteur actuel lit ce montant. La garder
+ * affichée en orange sur une ligne juste ferait douter de tout le devis : on ne garde que les réserves qu'un nombre
+ * lisible ne dément pas. `lisible` : le lecteur de montants actuel (`montantLu`), injecté pour garder ce module pur.
+ */
+export function reservesEncoreVraies(aVerifier: string | null, lisible: (texte: string) => number | null): string | null {
+  if (!aVerifier) return null;
+  const gardees = aVerifier.split(" ; ").filter((r) => {
+    const m = r.match(/^« (.+) » : des caractères inattendus/);
+    return !(m && lisible(m[1]) !== null);
+  });
+  return gardees.length > 0 ? gardees.join(" ; ") : null;
+}
+
 export function lignesDepuisLaLecture(
   lues: readonly { rang: number; reference: string; unit: string | null; quantity: number | null; unitPrice: number | null; notes: string[] }[],
 ): LigneAEcrire[] {

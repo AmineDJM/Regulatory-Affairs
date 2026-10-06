@@ -22,7 +22,11 @@ export interface TrashItem {
   emportes: string[];
 }
 
-export function TrashList({ items }: { items: TrashItem[] }) {
+export function TrashList({ items, peutDetruire = true }: {
+  items: TrashItem[];
+  /** Détruire pour de bon (irréversible) reste au seul Super Admin : la corbeille du directeur des opérations restaure seulement. */
+  peutDetruire?: boolean;
+}) {
   const router = useRouter();
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
@@ -60,9 +64,9 @@ export function TrashList({ items }: { items: TrashItem[] }) {
                 <BoutonDecisif size="sm" variant="outline" disabled={busyId !== null} onClick={() => run(it, "restore")} confirmation={`restaurer ${it.label} « ${it.name} »${it.emportes.length ? ` avec ${it.emportes.join(", ")}` : ""}`}>
                   {busyId === it.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Restaurer
                 </BoutonDecisif>
-                <BoutonDecisif size="sm" variant="outline" disabled={busyId !== null} onClick={() => run(it, "destroy")} className="text-destructive hover:bg-destructive/10" confirmation={`détruire DÉFINITIVEMENT ${it.label} « ${it.name} » (irréversible)`}>
+                {peutDetruire && <BoutonDecisif size="sm" variant="outline" disabled={busyId !== null} onClick={() => run(it, "destroy")} className="text-destructive hover:bg-destructive/10" confirmation={`détruire DÉFINITIVEMENT ${it.label} « ${it.name} » (irréversible)`}>
                   <Flame className="h-4 w-4" /> Détruire
-                </BoutonDecisif>
+                </BoutonDecisif>}
               </div>
             )}
           </div>

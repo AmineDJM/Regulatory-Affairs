@@ -13,15 +13,13 @@ export const metadata = { title: "Marketing cockpit — Spécialités — AMD In
  * part au marketing — ils peuvent ajouter, supprimer, modifier ».
  *
  * C'est le MÊME écran que Annuaires › Spécialités (`EcranSpecialites` : même chargeur, mêmes
- * actions, même règle) — pas une seconde implémentation. La porte est celle de la force de vente
- * (le module qui monte l'onglet), PUIS `peutGererSpecialites` : la Direction Marketing n'a de la
- * Force de vente que la lecture, et le droit de gérer le référentiel lui est donné par cette règle
- * précise, pas en élargissant le module — qui lui ouvrirait les Business Units, les affectations
- * et les paramètres de la force de vente (§118.16).
+ * actions, même règle) — pas une seconde implémentation. La porte est le module MARKETING_COCKPIT (réglé dans
+ * Administration › Accès), PUIS `peutGererSpecialites` : le droit de gérer le référentiel est donné par cette règle
+ * précise, pas en élargissant un module (§118.16).
  */
 export default async function MarketingSpecialitesPage() {
-  const user = await requireModule("SALES_PLANNING");
-  if (!peutGererSpecialites(user, "VIEW")) redirect("/dashboard?denied=SALES_PLANNING");
+  const user = await requireModule("MARKETING_COCKPIT");
+  if (!peutGererSpecialites(user, "VIEW")) redirect("/dashboard?denied=MARKETING_COCKPIT");
   return (
     <div className="space-y-5">
       <EnTeteMarketingCockpit

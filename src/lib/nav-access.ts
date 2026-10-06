@@ -7,6 +7,7 @@ import { featureEnabled } from "@/lib/features";
 import { loadReportingLine } from "@/lib/departments";
 import { managesAnyone } from "@/lib/hr/reporting-line";
 import { prisma } from "@/lib/prisma";
+import { estDirecteurDesOperations } from "@/lib/suppression/delegation";
 
 /**
  * CE QU'UNE PERSONNE A LE DROIT D'OUVRIR — la réponse, une fois, pour tous les écrans.
@@ -102,6 +103,8 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     // tout le monde ; c'est CE prédicat — le même que l'écran, les actions, les outils et le
     // moteur — qui décide de l'entrée. Une entrée que la page refuserait n'est pas envoyée.
     adamMissions: peutPiloterMissionsAdam(user),
+    // LA CORBEILLE DE SES MODULES — au directeur des opérations (le Super Admin a la sienne dans l'Administration).
+    corbeilleOps: user.role !== "SUPER_ADMIN" && estDirecteurDesOperations(user),
     // ADAM (assistant + chief of staff) : le Super Admin seul (§118.153). La palette suit le menu.
     adam: peutVoirAdam(user),
   };

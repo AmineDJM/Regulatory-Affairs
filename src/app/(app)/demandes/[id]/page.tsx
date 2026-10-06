@@ -1,3 +1,4 @@
+import { suppressionPermise } from "@/lib/suppression/delegation";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -150,7 +151,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
           <StatusBadge map={ADMIN_REQUEST_STATUS} value={req.status} />
           <div className="flex items-center gap-2">
             <ReminderButton defaultTitle={`Demande ${req.reference} — ${req.title}`} link={`/demandes/${req.id}`} entityType="ADMIN_REQUEST" entityId={req.id} />
-            <SuperAdminDeleteButton kind="ADMIN_REQUEST" id={req.id} name={`${req.reference} — ${req.title}`} enabled={user.role === "SUPER_ADMIN"} />
+            <SuperAdminDeleteButton kind="ADMIN_REQUEST" id={req.id} name={`${req.reference} — ${req.title}`} enabled={suppressionPermise(user, "ADMIN_REQUEST")} />
           </div>
         </div>
       </div>

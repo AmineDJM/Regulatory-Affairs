@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { annuaireDeLecture, proposerLecture } from "@/lib/pieces-lues/service";
 import { lectureDevisPromo } from "@/lib/pieces-lues/prerempli-devis-promo";
 import { lignesDepuisLaLecture } from "@/lib/ad-pro/devis-poste";
+import { identiteUtilisable } from "@/lib/pieces-lues/emetteur";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -75,6 +76,9 @@ export async function ingererDevisDuPoste(i: {
       quoteDate: p.quoteDate ? new Date(`${p.quoteDate}T00:00:00.000Z`) : null,
       lectureId: lecture.lectureId,
       lectureNote: lecture.noteMethode.slice(0, 600),
+      // L'IDENTITÉ DU FOURNISSEUR, RECOPIÉE DU PAPIER — c'est elle que le bon de commande porte quand le fournisseur
+      // n'a pas de fiche dans l'annuaire (sinon « le fournisseur de ce devis n'est pas nommé » alors qu'il l'est).
+      fournisseurLu: identiteUtilisable(r.proposition.emetteur) ? (r.proposition.emetteur as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
     };
     const ecrites = await prisma.$transaction(async (tx) => {
       const existant = await tx.adProDevis.findUnique({ where: { legalDocumentId: i.legalDocumentId }, select: { id: true, _count: { select: { lignes: true } } } });
@@ -95,6 +99,13 @@ export async function ingererDevisDuPoste(i: {
       return lignes.length;
     });
     if (ecrites === null) return { ok: false, raison: "Ce devis a déjà ses lignes : elles ne sont pas relues sans le dire." };
+    // Le NOM du fournisseur sur la pièce, s'il n'y en avait pas : celui que le papier imprime (jamais un nom deviné).
+    if (identiteUtilisable(r.proposition.emetteur)) {
+      await prisma.legalDocument.updateMany({
+        where: { id: i.legalDocumentId, OR: [{ counterparty: null }, { counterparty: "" }] },
+        data: { counterparty: r.proposition.emetteur.nom },
+      });
+    }
     return { ok: true, nbLignes: ecrites, note: lecture.noteMethode, reserves: p.reserves, sansLignes: lecture.sansLignes };
   } catch (err) {
     console.error("[devis-poste] lecture impossible", err);

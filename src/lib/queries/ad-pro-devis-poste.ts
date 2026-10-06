@@ -3,9 +3,20 @@ import { toNumber } from "@/lib/utils";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import type { EtapeBC } from "@/lib/bons-de-commande/regle";
 import {
-  decisionBcDuDevis, ecartAvecLeTotalImprime, refusValidationLigne, totauxDuDevisLu, totauxValides, lignesValidees,
+  decisionBcDuDevis, ecartAvecLeTotalImprime, refusValidationLigne, totauxDuDevisLu, totauxValides, lignesValidees, reservesEncoreVraies,
   type BcActifDuDevis, type EnteteDevisPoste, type EtatBcDuDevis, type LigneDevisPoste,
 } from "@/lib/ad-pro/devis-poste";
+import { IDENTITE_VIDE, identiteUtilisable, type IdentiteEmetteur } from "@/lib/pieces-lues/emetteur";
+import { montantLu } from "@/lib/pieces-lues/montants";
+
+/** L'identité gardée en base (JSON) → sa forme typée, ou `null` si elle ne nomme personne. */
+function identiteGardee(brut: unknown): IdentiteEmetteur | null {
+  if (!brut || typeof brut !== "object") return null;
+  const o = brut as Record<string, unknown>;
+  const s = (k: keyof IdentiteEmetteur) => (typeof o[k] === "string" && (o[k] as string).trim() ? (o[k] as string).trim() : null);
+  const id: IdentiteEmetteur = { ...IDENTITE_VIDE, nom: s("nom"), adresse: s("adresse"), nif: s("nif"), rc: s("rc"), rib: s("rib"), telephone: s("telephone"), email: s("email") };
+  return identiteUtilisable(id) ? id : null;
+}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -49,6 +60,8 @@ export interface DevisDePosteVue {
   reference: string | null;
   fournisseur: string | null;
   fournisseurId: string | null;
+  /** L'identité du fournisseur RECOPIÉE du devis (sans fiche d'annuaire) — ce que le bon de commande porte. */
+  fournisseurLu: IdentiteEmetteur | null;
   annule: boolean;
   /** Le premier fichier du devis (un `Document`) — ce qu'on ouvre, et ce que Luna relit. */
   fichierId: string | null;
@@ -78,7 +91,8 @@ function ligneDeBase(l: {
     id: l.id, position: l.position, reference: l.reference, unit: l.unit,
     quantity: l.quantity != null ? toNumber(l.quantity as never) : null,
     unitPrice: l.unitPrice != null ? toNumber(l.unitPrice as never) : null,
-    lue: l.lue, aVerifier: l.aVerifier, validatedItemId: l.validatedItemId, bcId: l.bcId,
+    // Une réserve écrite par un lecteur plus ancien, que le lecteur actuel dément, n'est plus affichée.
+    lue: l.lue, aVerifier: reservesEncoreVraies(l.aVerifier, montantLu), validatedItemId: l.validatedItemId, bcId: l.bcId,
   };
 }
 
@@ -97,7 +111,7 @@ export async function devisDesPostes(itemIds: readonly string[]): Promise<Map<st
             id: true, title: true, reference: true, counterparty: true, status: true, cancelledAt: true,
             devisPoste: {
               select: {
-                supplierId: true, tvaRate: true, extraTaxLabel: true, extraTaxRate: true, announcedTotal: true,
+                supplierId: true, tvaRate: true, extraTaxLabel: true, extraTaxRate: true, announcedTotal: true, fournisseurLu: true,
                 quoteDate: true, lectureId: true, lectureNote: true,
                 lignes: {
                   orderBy: { position: "asc" },
@@ -167,6 +181,7 @@ export async function devisDesPostes(itemIds: readonly string[]): Promise<Map<st
     const bcRefParId = new Map(bcVivants.map((b) => [b.legalDocument.id, b.legalDocument.reference?.trim() || b.legalDocument.title]));
     const vue: DevisDePosteVue = {
       pieceId: d.id, titre: d.title, reference: d.reference, fournisseur: d.counterparty, fournisseurId: entreeBase?.supplierId ?? null,
+      fournisseurLu: identiteGardee(entreeBase?.fournisseurLu),
       annule, fichierId: premierFichier.get(d.id) ?? null, structure: lignes.length > 0,
       entete: {
         ...entete, quoteDate: entreeBase?.quoteDate ? entreeBase.quoteDate.toISOString().slice(0, 10) : null,

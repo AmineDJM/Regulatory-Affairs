@@ -1462,7 +1462,7 @@ export interface NavItem {
    * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
    * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1613,10 +1613,10 @@ export const STOCK_PROMO_TABS: NavTab[] = [
  * change : « Messages » suit la Force de vente, « Spécialités » la règle `peutGererSpecialites`.
  */
 export const MARKETING_COCKPIT_TABS: NavTab[] = [
-  { module: "SALES_PLANNING", label: "Messages", href: "/marketing-cockpit/messages" },
+  { module: "MARKETING_COCKPIT", label: "Messages", href: "/marketing-cockpit/messages" },
   // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.209) — même écran qu'Annuaires › Spécialités.
   // Porte du module Force de vente (la page l'exige) ET règle du référentiel : `specialites-fdv`.
-  { module: "SALES_PLANNING", label: "Spécialités", href: "/marketing-cockpit/specialites", regle: "specialites-fdv" },
+  { module: "MARKETING_COCKPIT", label: "Spécialités", href: "/marketing-cockpit/specialites", regle: "specialites-fdv" },
 ];
 // Module « Drive » (Drive personnel). L'onglet « Documents » a été retiré (tout est consolidé
 // dans le Drive + les catégories partagées ; on y glisse des dossiers à la souris).
@@ -1726,6 +1726,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   // Finances (§118.176). Le libellé suit le menu : c'est sous ce nom qu'on le cherche dans la
   // console pour l'ouvrir à quelqu'un.
   PURCHASE_ORDERS: "Bons de commande",
+  MARKETING_COCKPIT: "Marketing cockpit",
 };
 
 /**
@@ -2013,7 +2014,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   // MARKETING COCKPIT — Messages et Spécialités, déplacés depuis Force de vente (06/10).
-  { module: "SALES_PLANNING", label: "Marketing cockpit", href: "/marketing-cockpit/messages", icon: "Megaphone", group: "Pôles", pole: "SALES_MARKETING", tabs: MARKETING_COCKPIT_TABS, match: ["/marketing-cockpit"] },
+  { module: "MARKETING_COCKPIT", label: "Marketing cockpit", href: "/marketing-cockpit/messages", icon: "Megaphone", group: "Pôles", pole: "SALES_MARKETING", tabs: MARKETING_COCKPIT_TABS, match: ["/marketing-cockpit"] },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/consulting"] },
   // LE STOCK PROMOTIONNEL — son propre sous-module (§118.173), et plus un onglet d'Ad & Pro.
@@ -2067,6 +2068,9 @@ export const NAVIGATION: NavItem[] = [
   // L'ENTREPRISE est un pôle métier (Moyens généraux / Finances / RH / Budgets). Les
   // confondre, c'est envoyer un directeur financier dans les réglages techniques.
   { module: "ADMIN", label: "Console d'Administration", href: "/admin", icon: "Settings", group: "Système", tabs: ADMIN_TABS },
+  // LA CORBEILLE DE SES MODULES — le directeur des opérations y récupère ce qui a été supprimé chez lui (06/10).
+  // Le module WORKSPACE est à tout le monde : c'est la garde `corbeilleOps` qui ouvre l'entrée.
+  { module: "WORKSPACE", label: "Corbeille", href: "/corbeille", icon: "Trash2", group: "Système", gate: "corbeilleOps" },
 ];
 
 /**

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { enSerie } from "@/lib/refs";
+import { identiteEmetteurDuTexte, fusionnerIdentite, type IdentiteEmetteur } from "@/lib/pieces-lues/emetteur";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { BUDGET_CARACTERES, decouperPourLecture } from "@/lib/pch/extraction";
 import { CARACTERES_MIN, disponibiliteLecturePieces, phraseCoupeDuTexte, structurerParModele } from "@/lib/lecture-pieces-ia";
@@ -124,6 +125,8 @@ export interface PropositionDeLecture {
   appariement: ResultatAppariement | null;
   /** Les désignations qui portent un motif d'injection : signalées, jamais suivies (§104.10). */
   suspectes: { rang: number; designation: string; motifs: string[] }[];
+  /** L'IDENTITÉ DE L'ÉMETTEUR recopiée du papier (étiquettes imprimées), complétée par le modèle — jamais devinée. */
+  emetteur: IdentiteEmetteur;
 }
 
 export type ResultatProposition = { ok: true; proposition: PropositionDeLecture } | { ok: false; error: string };
@@ -293,6 +296,10 @@ export async function proposerLecture(args: {
         ? apparierLignes(chiffrees.map((x) => ({ designation: x.designation, quantite: x.quantite, prixUnitaire: x.prixUnitaire })), contexte.lignesAttendues)
         : null,
       suspectes: (piece?.lignes ?? []).filter((x) => x.suspecte.length > 0).map((x) => ({ rang: x.rang, designation: x.designation, motifs: x.suspecte })),
+      emetteur: fusionnerIdentite(
+        identiteEmetteurDuTexte(l.texte),
+        piece?.fournisseur ? { nom: piece.fournisseur.nom, adresse: piece.fournisseur.adresse, nif: piece.fournisseur.nif, rc: piece.fournisseur.rc } : null,
+      ),
     },
   };
 }

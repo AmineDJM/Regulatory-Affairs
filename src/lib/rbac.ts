@@ -95,6 +95,11 @@ export const MODULES = [
   // Composer un bon de commande reste un geste de Legal ou des Finances : il écrit au registre et
   // engage une société, ce module ne l'ouvre pas.
   "PURCHASE_ORDERS",
+  // MARKETING_COCKPIT : le cockpit de la Direction Marketing (Sales & Marketing) — les MESSAGES que le KAM porte au
+  // médecin et le référentiel des SPÉCIALITÉS. Un module À PART de la Force de vente (Direction, 06/10 : « fais-en un
+  // module à part, avec ses accès gérables depuis la console d'admin ») : le Super Admin l'ouvre ou le ferme, et en
+  // règle les gestes, personne par personne dans Administration › Accès.
+  "MARKETING_COCKPIT",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -250,7 +255,9 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // LE STOCK PROMOTIONNEL (décision de la Direction, 01/10/2026) : « la vue globale du stock
     // promotionnel, mais aussi la gestion du matériel de ses équipes — les superviseurs en dessous
     // de lui et les KAM ». Le module ouvre l'écran ; la règle dit QUI sont ses équipes.
-    PROMO_STOCK: CONTRIBUTE,
+    // + SUPPRIMER (Direction, 06/10 : « suppression, récupération… des modules qu'il gère ») : un article supprimé
+    // part à la corbeille, d'où il le récupère lui-même (`suppression/delegation.ts`).
+    PROMO_STOCK: MANAGE,
     // Les BONS DE COMMANDE (§118.176) : il lisait les Finances, donc il voyait la file — il la voit
     // encore, sans signer.
     PURCHASE_ORDERS: BC_LECTEUR,
@@ -420,6 +427,19 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
   if (role === "SUPER_ADMIN") continue;
   const matrice = PERMISSIONS[role];
   if (matrice.REGULATORY?.includes("VIEW") && !matrice.BD_PROJECTS) matrice.BD_PROJECTS = ["VIEW"];
+}
+
+/**
+ * « MARKETING COCKPIT » PAR DÉFAUT — les mêmes personnes qu'hier (Direction, 06/10). Ses écrans vivaient dans la Force
+ * de vente : chaque rôle qui avait la Force de vente reçoit, par défaut, les mêmes gestes sur le cockpit — personne ne
+ * perd l'écran le jour où il devient un module. Ce n'est qu'un DÉFAUT : la console le règle ensuite personne par
+ * personne, indépendamment de la Force de vente. (Écrire un message et gérer les spécialités gardent leurs règles
+ * propres : `peutEcrireMessagesPromo`, `peutGererSpecialites`.)
+ */
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (role === "SUPER_ADMIN") continue;
+  const matrice = PERMISSIONS[role];
+  if (matrice.SALES_PLANNING && !matrice.MARKETING_COCKPIT) matrice.MARKETING_COCKPIT = [...matrice.SALES_PLANNING];
 }
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];

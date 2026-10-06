@@ -38,7 +38,7 @@ export interface FaitsStock {
   /** Super Admin en rôle PRINCIPAL — c'est le seul qui « peut gérer ce qu'il veut ». */
   superAdmin: boolean;
   /** Le droit de module `PROMO_STOCK`, tel que la console l'a réglé pour cette personne. */
-  module: { voir: boolean; creer: boolean; modifier: boolean };
+  module: { voir: boolean; creer: boolean; modifier: boolean; /** Supprimer (réversible) un article — directeur des opérations. */ supprimer?: boolean };
   /** La portée du module vaut TOUT (réglable dans la console) : la vue globale du stock. */
   vueGlobale: boolean;
   /** La cheffe de la Direction Marketing (ou le Super Admin) : elle tient le magasin central. */

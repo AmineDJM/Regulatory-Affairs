@@ -98,8 +98,14 @@ export const BoutonDecisif = React.forwardRef<HTMLButtonElement, BoutonDecisifPr
     onKeyDown?.(e);
   }
 
-  const classesArme = arme ? "w-auto h-auto min-h-8 whitespace-normal py-1.5 ring-2 ring-ring ring-offset-1" : undefined;
-  const contenu = arme ? libelle : children;
+  // UN BOUTON-ICÔNE (« × », corbeille…) NE S'ÉLARGIT PAS EN PHRASE : armé dans une case étroite, il écrivait
+  // « Confirmer : … ? » par-dessus le texte voisin (Direction, 06/10 : « ça se superpose, ça baisse l'UX »). Il
+  // garde son icône, s'entoure d'un anneau, et la question s'ouvre dans une BULLE posée sous lui, au-dessus du reste.
+  const iconeSeule = !childrenOntDuTexte(children);
+  const classesArme = arme
+    ? (iconeSeule ? "ring-2 ring-ring ring-offset-1" : "w-auto h-auto min-h-8 whitespace-normal py-1.5 ring-2 ring-ring ring-offset-1")
+    : undefined;
+  const contenu = arme && !iconeSeule ? libelle : children;
   const communs = {
     ...props,
     ref: poserRef,
@@ -132,7 +138,33 @@ export const BoutonDecisif = React.forwardRef<HTMLButtonElement, BoutonDecisifPr
       ) : (
         <Button {...communs} className={cn(className, (pleine || etire) && "flex-1", classesArme)}>{contenu}</Button>
       )}
-      {arme && (
+      {arme && iconeSeule && (
+        <span
+          role="dialog"
+          aria-label={libelle}
+          className="absolute right-0 top-full z-50 mt-1 flex w-max max-w-[16rem] flex-col gap-2 rounded-lg border border-border bg-popover p-2.5 text-left text-xs text-popover-foreground shadow-lg"
+        >
+          <span className="whitespace-normal break-words font-medium">{libelle}</span>
+          <span className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => desarmer(true)}
+              className="inline-flex min-h-7 items-center rounded-[var(--radius)] px-2 text-muted-foreground hover:bg-secondary hover:text-foreground focus-ring"
+            >
+              Annuler
+            </button>
+            {/* Confirmer = le second clic sur le bouton d'origine : même règle, même action, même formulaire. */}
+            <button
+              type="button"
+              onClick={() => ref.current?.click()}
+              className="inline-flex min-h-7 items-center rounded-[var(--radius)] bg-destructive px-2.5 font-medium text-destructive-foreground hover:opacity-90 focus-ring"
+            >
+              Confirmer
+            </button>
+          </span>
+        </span>
+      )}
+      {arme && !iconeSeule && (
         <button
           type="button"
           onClick={() => desarmer(true)}

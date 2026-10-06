@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { userCan, peutAnnuaire, annuaireOuvertParConsole, type SessionUser } from "@/lib/rbac";
+import { userCan, peutAnnuaire, annuaireOuvertParConsole, peutGererSpecialites, type SessionUser } from "@/lib/rbac";
 import { chargerFeuillePraticiens, type FiltreGrade } from "@/lib/queries/annuaires";
 import { AnnuaireGrid } from "@/app/(app)/medical/annuaire/annuaire-grid";
 import { DirectoryBar } from "@/app/(app)/medical/annuaire/directory-bar";
@@ -37,8 +37,17 @@ export async function FeuillePraticiensHub({
   // ouvrir la modification des FICHES n'ouvre pas le droit de réorganiser le référentiel.
   const canManageStructure = userCan(user, "MEDICAL", "UPDATE");
 
+  // MÉDECINS : PLUS D'ANNUAIRES NOMMÉS NI D'« ANNUAIRE GÉNÉRAL » (Direction, 06/10 : « enlève tous les praticiens et
+  // trucs généraux, garde la rubrique des spécialités ») — la feuille se range par SPÉCIALITÉ, et c'est tout.
+  const medecins = grade === "medecins";
+  const gerer = {
+    creer: peutGererSpecialites(user, "CREATE"),
+    modifier: peutGererSpecialites(user, "UPDATE"),
+    supprimer: peutGererSpecialites(user, "DELETE"),
+  };
   const feuille = await chargerFeuillePraticiens(user, {
-    annuaire, grade, canManage: canManageStructure,
+    annuaire: medecins ? null : annuaire, grade, canManage: canManageStructure,
+    specialitesVides: medecins && (gerer.creer || gerer.modifier || gerer.supprimer),
     entier: annuaireOuvertParConsole(user, cle, "VIEW"),
     // L'annuaire par spécialité ne concerne que les médecins ; l'archivage, les deux grades.
     specialite: grade === "medecins" ? specialite : null,
@@ -54,17 +63,19 @@ export async function FeuillePraticiensHub({
   return (
     <div className="space-y-5">
       <EnTeteAnnuaires user={user} description={description} />
-      <DirectoryBar
-        directories={feuille.directories}
-        current={annuaire}
-        companies={feuille.companies}
-        generalCount={feuille.generalCount}
-        canManage={canManageStructure}
-        people={feuille.people}
-        basePath={basePath}
-      />
+      {!medecins && (
+        <DirectoryBar
+          directories={feuille.directories}
+          current={annuaire}
+          companies={feuille.companies}
+          generalCount={feuille.generalCount}
+          canManage={canManageStructure}
+          people={feuille.people}
+          basePath={basePath}
+        />
+      )}
       <BarreSpecialites
-        basePath={basePath} annuaire={annuaire}
+        basePath={basePath} annuaire={medecins ? null : annuaire} gerer={medecins ? gerer : undefined}
         specialites={feuille.annuairesSpecialite} sansSpecialite={feuille.sansSpecialiteCount}
         ouverte={feuille.specialiteOuverte} archives={feuille.archives} archivesCount={feuille.archivesCount}
         avecSpecialites={grade === "medecins"}

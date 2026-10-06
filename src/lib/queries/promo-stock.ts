@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { loadReportingLine } from "@/lib/departments";
 import { subtreeOf, flattenTree } from "@/lib/hr/team-tree";
 import { userCan, moduleScope, rolesWithModule, anyRoleFilter, getAccess, type SessionUser } from "@/lib/rbac";
+import { suppressionPermise } from "@/lib/suppression/delegation";
 import { companyScopedWhere, getMyCompanies, companyOptions } from "@/lib/company";
 import { cheffesMarketingActuelles } from "@/lib/queries/promo-circuit";
 import { ROLES_DIRECTEUR_DES_OPERATIONS } from "@/lib/promo-material/validateurs";
@@ -67,6 +68,8 @@ export async function faitsStock(user: SessionUser): Promise<FaitsStock> {
       voir: superAdmin || userCan(user, "PROMO_STOCK", "VIEW"),
       creer: superAdmin || userCan(user, "PROMO_STOCK", "CREATE"),
       modifier: superAdmin || userCan(user, "PROMO_STOCK", "UPDATE"),
+      // Le bouton commun de suppression (corbeille) — la MÊME règle que l'action (`suppressionPermise`).
+      supprimer: suppressionPermise(user, "PROMO_STOCK_ITEM"),
     },
     vueGlobale: superAdmin || moduleScope(user, "PROMO_STOCK") === "ALL",
     gereLeMagasin: superAdmin || cheffes.includes(user.id),

@@ -1,4 +1,6 @@
-import type { AdProItemKind } from "@prisma/client";
+import { Prisma, type AdProItemKind } from "@prisma/client";
+import { texteDeLaLecture } from "@/lib/pieces-lues/lecture-fichier";
+import { identiteEmetteurDuTexte, identiteUtilisable } from "@/lib/pieces-lues/emetteur";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { emettreDocumentDrive, reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
@@ -65,7 +67,10 @@ export interface BilanGeneration {
 }
 
 /** Le fournisseur tel que le BC l'imprime : la fiche de l'annuaire quand le devis la désigne, sinon le nom seul. */
-export async function tiersDuDevis(d: Pick<DevisDePosteVue, "fournisseurId" | "fournisseur">, itemSupplier: string | null) {
+export async function tiersDuDevis(
+  d: Pick<DevisDePosteVue, "fournisseurId" | "fournisseur" | "fournisseurLu" | "pieceId"> & { entete: { lectureId: string | null } },
+  itemSupplier: string | null,
+) {
   if (d.fournisseurId) {
     const f = await prisma.companyContact.findUnique({
       where: { id: d.fournisseurId },
@@ -75,6 +80,33 @@ export async function tiersDuDevis(d: Pick<DevisDePosteVue, "fournisseurId" | "f
       const adresse = [f.address, [f.city, f.wilaya].filter(Boolean).join(", ")].filter((x) => x && x.trim()).join("\n") || null;
       return { ok: true as const, tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email }, annuaire: true };
     }
+  }
+  // SANS FICHE D'ANNUAIRE : l'identité RECOPIÉE DU DEVIS (raison sociale, adresse, NIF, RC, RIB…) — c'est ce que le
+  // fournisseur a imprimé, et c'est ce que le bon de commande doit porter (Direction, 06/10).
+  let lu = d.fournisseurLu;
+  // UN DEVIS LU AVANT CETTE ÉVOLUTION n'a pas gardé l'identité : on la RECOPIE du texte déjà lu (sans relire le fichier,
+  // sans toucher aux lignes validées), et on la garde pour les fois suivantes.
+  if (!lu?.nom && d.entete.lectureId) {
+    const texte = await texteDeLaLecture(d.entete.lectureId).catch(() => null);
+    const recopiee = texte ? identiteEmetteurDuTexte(texte) : null;
+    if (identiteUtilisable(recopiee)) {
+      lu = recopiee;
+      await prisma.adProDevis.updateMany({
+        where: { legalDocumentId: d.pieceId },
+        data: { fournisseurLu: recopiee as unknown as Prisma.InputJsonValue },
+      }).catch(() => undefined);
+      await prisma.legalDocument.updateMany({
+        where: { id: d.pieceId, OR: [{ counterparty: null }, { counterparty: "" }] },
+        data: { counterparty: recopiee.nom },
+      }).catch(() => undefined);
+    }
+  }
+  if (lu?.nom) {
+    return {
+      ok: true as const,
+      tiers: { nom: lu.nom, adresse: lu.adresse, rc: lu.rc, nif: lu.nif, rib: lu.rib, telephone: lu.telephone, email: lu.email },
+      annuaire: false,
+    };
   }
   const nom = d.fournisseur?.trim() || itemSupplier?.trim() || "";
   if (!nom) {

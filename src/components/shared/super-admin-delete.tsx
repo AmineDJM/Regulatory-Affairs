@@ -182,8 +182,8 @@ export function ConfirmationSuppression({
       onClose={() => !busy && onClose()}
       title="Supprimer définitivement"
       description={reserveAuSuperAdmin
-        ? "Action réservée au Super Admin — réversible depuis la corbeille."
-        : "Réversible : le Super Admin peut restaurer depuis la corbeille."}
+        ? "Réservé au Super Admin (et au directeur des opérations pour ses modules) — réversible depuis la corbeille."
+        : "Réversible : l'élément se restaure depuis la corbeille."}
     >
       <div className="space-y-4">
         <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
