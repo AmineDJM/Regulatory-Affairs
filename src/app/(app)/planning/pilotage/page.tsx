@@ -128,8 +128,8 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
           </p>
         ) : (
           // Une ligne = un KAM : au téléphone, chaque KAM devient une carte (intitulés repris de l'en-tête).
-          <div className="sm:overflow-hidden sm:rounded-xl sm:border sm:border-border">
-            <Table mobileCards className="sm:min-w-[620px]">
+          <div className="overflow-hidden rounded-xl border border-border">
+            <Table className="min-w-[620px]">
               <TableHeader className="bg-muted/50">
                 <TableRow>
                   <TableHead className="px-2">KAM</TableHead>
@@ -298,7 +298,7 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
               lire ici, ce sont les deux <em>anomalies</em> signalées.
             </p>
             {/* Une ligne = un produit : cartes au téléphone, tableau au-delà. */}
-            <Table mobileCards className="border-collapse sm:min-w-[720px]">
+            <Table className="border-collapse min-w-[720px]">
               <TableHeader className="bg-secondary/40">
                 <TableRow>
                   <TableHead className="px-2">Produit</TableHead>

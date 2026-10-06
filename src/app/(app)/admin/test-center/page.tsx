@@ -187,7 +187,7 @@ export default async function TestCenterPage() {
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">Historique ({runs.length})</CardTitle></CardHeader>
         <CardContent>
-          <Table mobileCards>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Run</TableHead><TableHead>Mode</TableHead><TableHead>Certification</TableHead><TableHead>Statut</TableHead><TableHead>Score</TableHead>
@@ -207,7 +207,7 @@ export default async function TestCenterPage() {
                   <TableCell className="py-1.5 text-muted-foreground">{fmt(r.startedAt)}</TableCell>
                 </TableRow>
               ))}
-              {runs.length === 0 && <TableRow><TableCell colSpan={8} data-sans-etiquette className="py-3 text-center text-muted-foreground max-sm:!justify-center">Aucun run.</TableCell></TableRow>}
+              {runs.length === 0 && <TableRow><TableCell colSpan={8} data-sans-etiquette className="py-3 text-center text-muted-foreground">Aucun run.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </CardContent>

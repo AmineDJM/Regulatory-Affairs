@@ -86,7 +86,7 @@ export default async function BusinessUnit360Page({ params, searchParams }: { pa
           {s.produits.map((p) => { const m = syn.parProduit[p.productId]; return m ? <p key={p.productId} className="text-sm text-muted-foreground"><span className="font-medium text-foreground">{p.nom}</span> {(["A", "B", "C", "D", "EN_ATTENTE", "NON_CIBLE"] as const).map((k) => `${ETAT_LABELS[k]} ${m[k]}`).join(" · ")}</p> : null; })}
           {cycle && cycle.parKam.length > 0 && (
             <div className="surface">
-              <Table mobileCards>
+              <Table>
                 <TableHeader><TableRow><TableHead>KAM</TableHead><TableHead>P1</TableHead><TableHead>Requis</TableHead><TableHead>Réalisé</TableHead><TableHead>Capacité</TableHead><TableHead>Utilisation</TableHead><TableHead>H sous-visités</TableHead></TableRow></TableHeader>
                 <TableBody>{cycle.parKam.map((k) => <TableRow key={k.repId}><TableCell data-sans-etiquette className="font-medium">{k.nom}</TableCell><TableCell>{k.p1}</TableCell><TableCell>{Math.round(k.requis * 10) / 10}</TableCell><TableCell>{k.realise}</TableCell><TableCell>{k.capacite ?? "—"}</TableCell><TableCell>{k.utilisation === null ? "—" : `${Math.round(k.utilisation * 100)} %`}</TableCell><TableCell>{k.hSousVisites}</TableCell></TableRow>)}</TableBody>
               </Table>

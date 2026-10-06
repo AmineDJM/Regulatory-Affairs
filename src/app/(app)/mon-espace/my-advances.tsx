@@ -39,7 +39,7 @@ export function MyAdvances({ advances }: { advances: AdvanceItem[] }) {
   }
   return (
     <div className="surface overflow-hidden">
-      <Table mobileCards>
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>

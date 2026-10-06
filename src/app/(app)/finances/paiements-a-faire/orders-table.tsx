@@ -299,10 +299,10 @@ export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null, budge
     return <EmptyState icon="ReceiptText" title={emptyLabel ?? "Aucun ordre de dépense"} description="Les ordres autorisés par le centre de paiement apparaîtront ici." />;
   }
   return (
-    <div className="surface sm:overflow-hidden">
+    <div className="surface overflow-hidden">
       {/* Au téléphone, chaque ordre devient une carte : montant, échéance et gestes de décaissement
           se lisent sans tirer le tableau vers la gauche. */}
-      <Table mobileCards>
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>

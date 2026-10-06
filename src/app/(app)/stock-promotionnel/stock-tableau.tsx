@@ -143,7 +143,7 @@ export function VueTableau({ ctx }: { ctx: Ctx }) {
 
 function TableArticles({ lignes, entetes }: { lignes: { id: string; libelle: string; colonnes: string[] }[]; entetes: string[] }) {
   return (
-    <Table mobileCards className="sm:min-w-[420px]">
+    <Table className="min-w-[420px]">
       <TableHeader>
         <TableRow>
           <TableHead>Article</TableHead>

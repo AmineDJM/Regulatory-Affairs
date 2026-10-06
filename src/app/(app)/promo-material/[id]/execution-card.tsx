@@ -228,8 +228,8 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
       )}
       {/* Au téléphone, chaque ligne du BC devient une carte (classe `mobile-cards`, intitulés en `data-label`) :
           saisir quantité et prix dans un tableau qui glisse de côté se fait mal au pouce. */}
-      <div className="sm:overflow-x-auto">
-        <table className="mobile-cards w-full text-sm sm:min-w-[620px]">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[620px]">
           <thead>
             <tr className="text-left text-xs text-muted-foreground">
               <th className="py-1 pr-2 font-medium">Ligne du BC</th>
@@ -427,8 +427,8 @@ function Facture({ id, f, agir, canReceive, options }: {
       </div>
 
       {detail && (
-        <div className="sm:overflow-x-auto">
-          <table className="mobile-cards w-full text-xs sm:min-w-[560px]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs min-w-[560px]">
             <thead>
               <tr className="text-left text-muted-foreground">
                 <th className="py-1 pr-2 font-medium">Ligne</th>

@@ -75,7 +75,7 @@ export default async function AdProOtherPage() {
         />
       ) : (
         <div className="surface p-1.5 sm:p-0">
-          <Table mobileCards>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Référence</TableHead>

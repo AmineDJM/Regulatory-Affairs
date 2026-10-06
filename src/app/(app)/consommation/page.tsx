@@ -59,8 +59,8 @@ export default async function ConsommationPage() {
       </details>
       {peutImporter && <TeleverserConsommation />}
       {/* Une ligne = un fichier importé : une carte au téléphone. */}
-      <div className="surface max-sm:border-0 max-sm:bg-transparent">
-        <Table mobileCards>
+      <div className="surface">
+        <Table>
           <TableHeader className="bg-transparent">
             <TableRow><TableHead>Fichier</TableHead><TableHead>Statut</TableHead><TableHead>Lignes</TableHead><TableHead>Sûres</TableHead><TableHead>À revoir</TableHead><TableHead>Doublons</TableHead><TableHead>Importé le</TableHead></TableRow>
           </TableHeader>

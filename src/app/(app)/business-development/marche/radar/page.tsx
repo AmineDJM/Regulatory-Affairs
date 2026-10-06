@@ -53,7 +53,7 @@ export default async function MarketRadarPage({ searchParams }: { searchParams: 
           </div>
           <Card>
             <CardContent className="overflow-x-auto p-0 sm:p-2">
-              <Table mobileCards>
+              <Table>
                 <TableHeader><TableRow><TableHead>DCI</TableHead><TableHead className="text-right">Marché (USD)</TableHead><TableHead className="text-right">Croissance</TableHead><TableHead className="text-right">Importateurs</TableHead><TableHead>Labos importateurs</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {white.rows.map((r) => (
@@ -83,7 +83,7 @@ export default async function MarketRadarPage({ searchParams }: { searchParams: 
           <p className="text-xs text-muted-foreground">AMM initiales des 6 derniers mois, marché ≥ $500k, ≤ 2 concurrents (fabricants + importateurs).</p>
           <Card>
             <CardContent className="overflow-x-auto p-0 sm:p-2">
-              <Table mobileCards>
+              <Table>
                 <TableHeader><TableRow><TableHead>DCI</TableHead><TableHead>Dernière AMM</TableHead><TableHead className="text-right">Marché (USD)</TableHead><TableHead className="text-right">Croissance</TableHead><TableHead className="text-right">Concurrents</TableHead><TableHead>Sources</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {neu.rows.length === 0 ? <TableRow><TableCell colSpan={6} data-sans-etiquette className="py-8 text-center text-sm text-muted-foreground">Aucune nouvelle AMM correspondant aux critères.</TableCell></TableRow> : neu.rows.map((r) => (
@@ -114,7 +114,7 @@ export default async function MarketRadarPage({ searchParams }: { searchParams: 
           <p className="text-xs text-muted-foreground">Échéance estimée = dernière décision + 5 ans de validité, dans une fenêtre de −6 à +24 mois.</p>
           <Card>
             <CardContent className="overflow-x-auto p-0 sm:p-2">
-              <Table mobileCards>
+              <Table>
                 <TableHeader><TableRow><TableHead>Échéance</TableHead><TableHead>Produit</TableHead><TableHead>DCI</TableHead><TableHead>Laboratoire</TableHead><TableHead>Origine</TableHead><TableHead>Forme / Dosage</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {exp.rows.slice(0, 300).map((r, i) => (

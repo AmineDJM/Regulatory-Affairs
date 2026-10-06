@@ -70,7 +70,7 @@ export function WorkflowVersionHistory({ rows }: { rows: WorkflowVersionRow[] })
         <h2 className="text-sm font-semibold">Historique des circuits (restaurable)</h2>
       </div>
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-      <Table mobileCards>
+      <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Circuit</TableHead>
@@ -86,7 +86,7 @@ export function WorkflowVersionHistory({ rows }: { rows: WorkflowVersionRow[] })
               const key = `${r.category}:${r.version}`;
               return (
                 <TableRow key={key}>
-                  <TableCell data-sans-etiquette className="py-1.5 font-medium max-sm:!justify-start sm:font-normal">{r.categoryLabel}</TableCell>
+                  <TableCell data-sans-etiquette className="py-1.5 font-medium sm:font-normal">{r.categoryLabel}</TableCell>
                   <TableCell className="py-1.5 font-medium">v{r.version}</TableCell>
                   <TableCell className="py-1.5 sm:max-w-[220px] sm:truncate">{r.name}</TableCell>
                   <TableCell className="py-1.5">{r.stepCount}</TableCell>

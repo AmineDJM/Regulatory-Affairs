@@ -102,8 +102,8 @@ export function Panel({ strategieId, produits, lignes, zones, reglesPubliees, pe
         <span className="col-span-2 text-xs text-muted-foreground">{visibles.length} / {lignes.length}</span>
       </div>
       {/* Une ligne = un praticien : une carte au téléphone (toucher la carte ouvre sa fiche juste en dessous). */}
-      <div className="surface max-sm:border-0 max-sm:bg-transparent">
-        <Table mobileCards>
+      <div className="surface">
+        <Table>
           <TableHeader className="bg-transparent">
             <TableRow>
               <TableHead>Praticien</TableHead>
@@ -143,7 +143,7 @@ export function Panel({ strategieId, produits, lignes, zones, reglesPubliees, pe
                 {ouverte === l.doctorId && (
                   <TableRow className="bg-secondary/20 hover:bg-secondary/20">
                     {/* La fiche occupe toute la carte : `block` au téléphone, cellule de tableau au-delà. */}
-                    <TableCell data-sans-etiquette colSpan={6 + produits.length} className="py-3 max-sm:!block">
+                    <TableCell data-sans-etiquette colSpan={6 + produits.length} className="py-3">
                       <Fiche strategieId={strategieId} ligne={l} produits={produits} peutModifier={peutModifier} peutDeroger={peutDeroger} />
                     </TableCell>
                   </TableRow>

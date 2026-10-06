@@ -133,7 +133,7 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
         <p className="surface p-4 text-sm text-muted-foreground">Aucun bon de commande. Ajoutez les bons reçus de la PCH.</p>
       ) : (
         <div className="surface overflow-x-auto">
-          <Table mobileCards>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Référence</TableHead><TableHead>Produits</TableHead><TableHead className="text-right">Qté</TableHead>

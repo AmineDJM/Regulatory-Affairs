@@ -35,7 +35,7 @@ export function ContractsTable({ contracts }: { contracts: LigneContrat[] }) {
     <div className="surface overflow-hidden p-0">
       {/* Au téléphone, chaque contrat devient une carte : chaque cellule n'a qu'UN enfant, pour que
           l'intitulé reste à gauche et la valeur (avec ses compléments) à droite. */}
-      <Table mobileCards>
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>

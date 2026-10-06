@@ -62,7 +62,7 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
               <Card>
                 <CardContent className="overflow-x-auto p-0 sm:p-2">
-                  <Table mobileCards>
+                  <Table>
                     <TableHeader><TableRow><TableHead className="text-right">#</TableHead><TableHead>Laboratoire</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead className="text-right">Part</TableHead><TableHead className="text-right">Croissance</TableHead><TableHead className="text-right">Produits</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {cc.labs.map((l, i) => (
@@ -82,7 +82,7 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
               <Card>
                 <CardContent className="overflow-x-auto p-0 sm:p-2">
-                  <Table mobileCards>
+                  <Table>
                     <TableHeader><TableRow><TableHead>Produit</TableHead><TableHead>Laboratoire</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead className="text-right">Part</TableHead><TableHead className="text-right">Croissance</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {cc.products.slice(0, 60).map((p) => (
@@ -117,7 +117,7 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
               <Card>
                 <CardContent className="overflow-x-auto p-0 sm:p-2">
-                  <Table mobileCards>
+                  <Table>
                     <TableHeader><TableRow><TableHead>Classe (ATC4)</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead className="text-right">Croissance</TableHead><TableHead className="text-right">Produits</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {lp.byClass.map((c) => (
@@ -135,7 +135,7 @@ export default async function MarketCompetitionPage({ searchParams }: { searchPa
 
               <Card>
                 <CardContent className="overflow-x-auto p-0 sm:p-2">
-                  <Table mobileCards>
+                  <Table>
                     <TableHeader><TableRow><TableHead>Produit</TableHead><TableHead>Présentation</TableHead><TableHead>Classe</TableHead><TableHead className="text-right">Valeur</TableHead><TableHead className="text-right">Croissance</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {lp.products.slice(0, 80).map((p, i) => (

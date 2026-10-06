@@ -19,7 +19,7 @@ const SECONDARY_OPTIONS = Object.entries(ROLE_LABELS).filter(([v]) => v !== "SUP
  */
 export function RolesTable({ users, canManage }: { users: RoleRowData[]; canManage: boolean }) {
   return (
-    <Table mobileCards className="max-sm:p-3">
+    <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Utilisateur</TableHead>
@@ -56,7 +56,7 @@ function RoleRow({ u, canManage }: { u: RoleRowData; canManage: boolean }) {
 
   return (
     <TableRow>
-      <TableCell data-sans-etiquette className="max-sm:!justify-start">
+      <TableCell data-sans-etiquette className="">
         <div className="min-w-0 text-left">
           <p className="font-medium">{u.name}</p>
           <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{u.email}</p>

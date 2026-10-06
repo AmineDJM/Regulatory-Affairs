@@ -111,8 +111,8 @@ export default async function RevueImportPage({ params, searchParams }: { params
         ))}
       </nav>
       {/* Une ligne lue = une carte au téléphone ; la source (feuille · ligne) en tête de carte. */}
-      <div className="surface max-sm:border-0 max-sm:bg-transparent">
-        <Table mobileCards className="text-xs">
+      <div className="surface">
+        <Table className="text-xs">
           <TableHeader className="bg-transparent">
             <TableRow><TableHead className="px-2">Source</TableHead><TableHead className="px-2">Période</TableHead><TableHead className="px-2">Établissement</TableHead><TableHead className="px-2">Produit</TableHead><TableHead className="px-2">Quantité source</TableHead><TableHead className="px-2">Normalisée</TableHead><TableHead className="px-2">Confiance</TableHead><TableHead className="px-2">Statut</TableHead><TableHead className="px-2">Remarques</TableHead></TableRow>
           </TableHeader>

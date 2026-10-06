@@ -98,7 +98,7 @@ export default async function ProcessIntelligencePage() {
           {o.topBlockers.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">Aucun dossier en cours.</p>
           ) : (
-            <Table mobileCards className="max-sm:p-3">
+            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Objet</TableHead><TableHead>Module</TableHead><TableHead>Statut</TableHead>
@@ -108,7 +108,7 @@ export default async function ProcessIntelligencePage() {
               <TableBody>
                 {o.topBlockers.map((b) => (
                   <TableRow key={b.key}>
-                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start"><span className="min-w-0"><Link href={b.link} className="hover:underline">{b.label}</Link>{b.reference && <span className="ml-1 text-xs text-muted-foreground">{b.reference}</span>}</span></TableCell>
+                    <TableCell data-sans-etiquette className="font-medium"><span className="min-w-0"><Link href={b.link} className="hover:underline">{b.label}</Link>{b.reference && <span className="ml-1 text-xs text-muted-foreground">{b.reference}</span>}</span></TableCell>
                     <TableCell className="text-muted-foreground">{b.moduleName}</TableCell>
                     <TableCell><Badge tone="neutral" dot={false}>{b.statusLabel}</Badge></TableCell>
                     <TableCell className="text-muted-foreground">{b.ownerName ?? "— non assigné"}</TableCell>
@@ -126,18 +126,18 @@ export default async function ProcessIntelligencePage() {
         <Card>
           <CardHeader><CardTitle>Par module</CardTitle></CardHeader>
           <CardContent className="p-0">
-            <Table mobileCards className="max-sm:p-3">
+            <Table>
               <TableHeader><TableRow><TableHead>Module</TableHead><TableHead className="text-right">En cours</TableHead><TableHead className="text-right">Âge moyen</TableHead><TableHead className="text-right">Bloqués</TableHead></TableRow></TableHeader>
               <TableBody>
                 {o.byModule.map((m) => (
                   <TableRow key={m.moduleKey}>
-                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{m.moduleName}</TableCell>
+                    <TableCell data-sans-etiquette className="font-medium">{m.moduleName}</TableCell>
                     <TableCell className="text-right">{m.count}</TableCell>
                     <TableCell className={cn("text-right tabular-nums", ageTone(m.avgAge))}>{m.avgAge} j</TableCell>
                     <TableCell className="text-right">{m.stuck > 0 ? <Badge tone="warning" dot={false}>{m.stuck}</Badge> : "0"}</TableCell>
                   </TableRow>
                 ))}
-                {o.byModule.length === 0 && <TableRow><TableCell colSpan={4} data-sans-etiquette className="text-center text-sm text-muted-foreground max-sm:!justify-center">Aucune donnée.</TableCell></TableRow>}
+                {o.byModule.length === 0 && <TableRow><TableCell colSpan={4} data-sans-etiquette className="text-center text-sm text-muted-foreground">Aucune donnée.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent>

@@ -569,7 +569,7 @@ export function AnnuaireGrid({
   const [q, setQ] = React.useState("");
   const [bySpecialty, setBySpecialty] = React.useState(false);
   // Choix d'affichage au téléphone seulement (cartes ou feuille) ; le bureau garde toujours la feuille.
-  const [vueMobile, setVueMobile] = React.useState<"cartes" | "feuille">("cartes");
+  const [vueMobile, setVueMobile] = React.useState<"cartes" | "feuille">("feuille");
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [colonnesOuvertes, setColonnesOuvertes] = React.useState(false);

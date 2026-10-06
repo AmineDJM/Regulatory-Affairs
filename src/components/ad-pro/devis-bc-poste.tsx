@@ -301,7 +301,7 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
         // Au téléphone, chaque ligne du devis devient une carte (classe `mobile-cards` de globals.css) :
         // six colonnes ne tiennent pas en 360 px, et la case « Valider » doit rester sous le pouce.
         <div className="overflow-x-auto">
-          <table className="mobile-cards w-full text-left sm:min-w-[34rem]">
+          <table className="w-full text-left min-w-[34rem]">
             <thead className="text-[0.6875rem] text-muted-foreground">
               <tr><th className="w-8 py-1">Valider</th><th>Référence / désignation</th><th>Unité</th><th className="text-right">Qté</th><th className="text-right">PU HT</th><th className="text-right">Total HT</th></tr>
             </thead>
@@ -344,15 +344,15 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
         <div className="space-y-1.5">
           <div className="overflow-x-auto">
             {/* Au téléphone : une carte par ligne, l'intitulé AU-DESSUS de son champ (pleine largeur). */}
-            <table className="mobile-cards w-full text-left sm:min-w-[34rem]">
+            <table className="w-full text-left min-w-[34rem]">
               <thead className="text-[0.6875rem] text-muted-foreground"><tr><th>Référence / désignation</th><th className="w-20">Unité</th><th className="w-20">Qté</th><th className="w-24">PU HT</th></tr></thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={`${r.id}-${i}`} className="align-top">
-                    <td className="pr-1 max-sm:flex-col max-sm:items-stretch max-sm:gap-1" data-label="Référence / désignation"><input className={champ} value={r.reference} onChange={(e) => modifier(i, "reference", e.target.value)} aria-label={`Référence de la ligne ${i + 1}`} /></td>
-                    <td className="pr-1 max-sm:flex-col max-sm:items-stretch max-sm:gap-1" data-label="Unité"><input className={champ} value={r.unit} onChange={(e) => modifier(i, "unit", e.target.value)} aria-label={`Unité de la ligne ${i + 1}`} /></td>
-                    <td className="pr-1 max-sm:flex-col max-sm:items-stretch max-sm:gap-1" data-label="Qté"><input className={champ} inputMode="decimal" value={r.quantity} onChange={(e) => modifier(i, "quantity", e.target.value)} aria-label={`Quantité de la ligne ${i + 1}`} /></td>
-                    <td className="max-sm:flex-col max-sm:items-stretch max-sm:gap-1" data-label="PU HT"><input className={champ} inputMode="decimal" value={r.unitPrice} onChange={(e) => modifier(i, "unitPrice", e.target.value)} aria-label={`Prix unitaire HT de la ligne ${i + 1}`} /></td>
+                    <td className="pr-1" data-label="Référence / désignation"><input className={champ} value={r.reference} onChange={(e) => modifier(i, "reference", e.target.value)} aria-label={`Référence de la ligne ${i + 1}`} /></td>
+                    <td className="pr-1" data-label="Unité"><input className={champ} value={r.unit} onChange={(e) => modifier(i, "unit", e.target.value)} aria-label={`Unité de la ligne ${i + 1}`} /></td>
+                    <td className="pr-1" data-label="Qté"><input className={champ} inputMode="decimal" value={r.quantity} onChange={(e) => modifier(i, "quantity", e.target.value)} aria-label={`Quantité de la ligne ${i + 1}`} /></td>
+                    <td className="" data-label="PU HT"><input className={champ} inputMode="decimal" value={r.unitPrice} onChange={(e) => modifier(i, "unitPrice", e.target.value)} aria-label={`Prix unitaire HT de la ligne ${i + 1}`} /></td>
                   </tr>
                 ))}
               </tbody>

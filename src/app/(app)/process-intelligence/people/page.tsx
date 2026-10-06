@@ -62,17 +62,17 @@ export default async function PeopleWorkloadPage() {
         <Card>
           <CardHeader><CardTitle>Charge par département</CardTitle></CardHeader>
           <CardContent className="p-0">
-            <Table mobileCards className="max-sm:p-3">
+            <Table>
               <TableHeader><TableRow><TableHead>Département</TableHead><TableHead className="text-right">Charge</TableHead><TableHead className="text-right">Retards</TableHead></TableRow></TableHeader>
               <TableBody>
                 {w.byDepartment.map((d) => (
                   <TableRow key={d.department}>
-                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{d.department}</TableCell>
+                    <TableCell data-sans-etiquette className="font-medium">{d.department}</TableCell>
                     <TableCell className="text-right tabular-nums">{d.total}</TableCell>
                     <TableCell className="text-right">{d.overdue > 0 ? <Badge tone="danger" dot={false}>{d.overdue}</Badge> : "0"}</TableCell>
                   </TableRow>
                 ))}
-                {w.byDepartment.length === 0 && <TableRow><TableCell colSpan={3} data-sans-etiquette className="text-center text-sm text-muted-foreground max-sm:!justify-center">Aucune donnée.</TableCell></TableRow>}
+                {w.byDepartment.length === 0 && <TableRow><TableCell colSpan={3} data-sans-etiquette className="text-center text-sm text-muted-foreground">Aucune donnée.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent>
@@ -83,8 +83,8 @@ export default async function PeopleWorkloadPage() {
       <Card>
         <CardHeader><CardTitle>Charge détaillée par personne</CardTitle></CardHeader>
         <CardContent className="p-0">
-          <div className="sm:overflow-x-auto">
-            <Table mobileCards className="max-sm:p-3">
+          <div className="overflow-x-auto">
+            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Personne</TableHead><TableHead>Département</TableHead>
@@ -97,7 +97,7 @@ export default async function PeopleWorkloadPage() {
               <TableBody>
                 {w.rows.map((r) => (
                   <TableRow key={r.userId}>
-                    <TableCell data-sans-etiquette className="font-medium max-sm:!justify-start">{r.name}</TableCell>
+                    <TableCell data-sans-etiquette className="font-medium">{r.name}</TableCell>
                     <TableCell className="text-muted-foreground">{r.department ?? "—"}</TableCell>
                     <TableCell className="text-right">{r.openTasks}</TableCell>
                     <TableCell className={cn("text-right", r.overdueTasks > 0 && "font-semibold text-destructive")}>{r.overdueTasks}</TableCell>

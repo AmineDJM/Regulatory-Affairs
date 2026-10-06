@@ -188,7 +188,7 @@ function LigneResultat({ c, page, peutCorriger }: { c: ComptageVue; page: PageSt
       </button>
       {ouvert && (
         <div className="border-t border-border px-3 py-2">
-          <Table mobileCards className="sm:min-w-[480px]">
+          <Table className="min-w-[480px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Article</TableHead>

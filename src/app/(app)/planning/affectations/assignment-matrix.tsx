@@ -232,7 +232,7 @@ export function AssignmentMatrix({
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">Synthèse par produit (KAM visibles)</CardTitle></CardHeader>
         <CardContent className="p-0">
-          <Table mobileCards>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Produit</TableHead>

@@ -74,7 +74,7 @@ export default async function MarketOpportunitiesPage({ searchParams }: { search
 
       <Card>
         <CardContent className="overflow-x-auto p-0 sm:p-2">
-          <Table mobileCards>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="text-right">Score</TableHead><TableHead>DCI</TableHead>

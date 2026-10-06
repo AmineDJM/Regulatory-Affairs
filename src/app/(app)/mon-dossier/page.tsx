@@ -98,7 +98,7 @@ export default async function MonDossierPage() {
               // fichier ne se trie pas, ne se compare pas, et deux dépôts nommés pareil sont
               // indiscernables. La nature, la période et la date sont les trois colonnes qu'on lit.
               <div className="p-3 sm:p-0">
-                <Table mobileCards>
+                <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nature</TableHead>

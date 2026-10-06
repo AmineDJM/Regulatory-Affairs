@@ -52,8 +52,8 @@ export default async function PromoMaterialPage() {
       {items.length === 0 ? (
         <EmptyState icon="Megaphone" title="Aucun dossier" description={canCreate ? "Créez une demande de matériel promotionnel pour démarrer." : "Les dossiers de matériel promotionnel apparaîtront ici."} />
       ) : (
-        <div className="surface p-2 sm:overflow-x-auto sm:p-0">
-          <Table mobileCards>
+        <div className="surface overflow-x-auto p-0">
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Référence</TableHead><TableHead>Campagne</TableHead><TableHead>Articles</TableHead><TableHead>Agence</TableHead>

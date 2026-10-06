@@ -51,7 +51,7 @@ export default async function ArticlesPage() {
           description={ecrit ? "Rédigez le premier : il reste un brouillon, invisible du site, tant que vous ne le publiez pas." : "Les articles rédigés par l'équipe apparaîtront ici."}
         />
       ) : (
-        <div className="sm:surface sm:overflow-hidden">
+        <div className="surface overflow-hidden">
           <Table mobileCards>
             <TableHeader>
               <TableRow>

@@ -283,7 +283,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
               </p>
             )}
             {/* Au téléphone, chaque pièce devient une carte : six colonnes ne tiennent pas dans 360 px. */}
-            <Table mobileCards>
+            <Table>
                 <thead>
                   <tr className="border-b border-border text-left text-xs text-muted-foreground">
                     <th className="py-1.5 pr-3 font-medium">Fichier &amp; nom proposé</th>
@@ -301,7 +301,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
                     const inline = INLINE_EXT.has(doc.ext.toLowerCase());
                     return (
                       <tr key={doc.id} className="border-b border-border/60 align-top">
-                        <td data-sans-etiquette className="py-1.5 pr-3 max-sm:!justify-start">
+                        <td data-sans-etiquette className="py-1.5 pr-3">
                           <div className="min-w-0 max-w-full">
                           <span className="block max-w-[22rem] truncate font-medium" title={doc.originalPath}>{doc.originalFilename}</span>
                           {doc.approvedFilename ? (

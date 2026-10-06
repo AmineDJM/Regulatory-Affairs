@@ -50,8 +50,8 @@ export function CyclesVue({ strategieId, cycles, cycle, peutGerer, moi }: {
             </div>
           )}
           {/* Une ligne = un KAM, puis un praticien : des cartes au téléphone, des tableaux au-delà. */}
-          <div className="surface max-sm:border-0 max-sm:bg-transparent">
-            <Table mobileCards>
+          <div className="surface">
+            <Table>
               <TableHeader className="bg-transparent">
                 <TableRow><TableHead>KAM</TableHead><TableHead>Praticiens</TableHead><TableHead>P1</TableHead><TableHead>Requis</TableHead><TableHead>Réalisé</TableHead><TableHead>Restant</TableHead><TableHead>Capacité</TableHead><TableHead>Utilisation</TableHead><TableHead>H sous-visités</TableHead></TableRow>
               </TableHeader>
@@ -73,8 +73,8 @@ export function CyclesVue({ strategieId, cycles, cycle, peutGerer, moi }: {
               </TableBody>
             </Table>
           </div>
-          <div className="surface max-sm:border-0 max-sm:bg-transparent">
-            <Table mobileCards>
+          <div className="surface">
+            <Table>
               <TableHeader className="bg-transparent">
                 <TableRow><TableHead>Praticien</TableHead><TableHead>Priorité</TableHead><TableHead>Segments</TableHead><TableHead>Visites requises</TableHead><TableHead>Réalisées</TableHead></TableRow>
               </TableHeader>

@@ -26,8 +26,8 @@ export function ProductMarkets({ rows }: { rows: ProductMarketRow[] }) {
           <Badge tone="neutral">{rows.length}</Badge>
         </div>
       </CardHeader>
-      <CardContent className="p-3 pt-0 sm:overflow-x-auto sm:p-0">
-        <Table mobileCards>
+      <CardContent className="overflow-x-auto p-0 sm:p-0">
+        <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Marché</TableHead><TableHead>Niveau</TableHead><TableHead>Lot</TableHead>

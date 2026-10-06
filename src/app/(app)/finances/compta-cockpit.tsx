@@ -55,8 +55,8 @@ export function ComptaCockpit({ d, resultat, periode }: { d: ComptaData; resulta
 
 function ItemTable({ items, thirdLabel, href }: { items: ComptaItem[]; thirdLabel: string; href: string }) {
   return (
-    <div className="surface sm:overflow-x-auto">
-      <Table mobileCards>
+    <div className="surface overflow-x-auto">
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Référence</TableHead>
