@@ -167,8 +167,10 @@ describe("une entrée de menu porte le MÊME module que sa page", () => {
     expect(mg.tabs ?? [], "le module n'a pas d'onglets").toEqual([]);
     expect(mg.children ?? [], "le module n'a pas de sous-menus").toEqual([]);
     const espace = NAVIGATION.find((n) => n.href === "/mon-espace")!;
-    expect(espace.match).toContain("/mon-espace/annuaire");
-    expect((espace.tabs ?? []).map((t) => t.href)).toContain("/mon-espace/annuaire");
+    // 06/10 : l'annuaire n'est plus un onglet de « Mon espace » ni de la Promotion médicale (il vit dans Annuaires).
+    expect((espace.tabs ?? []).map((t) => t.href)).not.toContain("/mon-espace/annuaire");
+    const medical = NAVIGATION.find((n) => n.module === "MEDICAL" && (n.tabs ?? []).length > 0)!;
+    expect((medical.tabs ?? []).map((t) => t.href)).not.toContain("/medical/annuaire");
   });
 });
 

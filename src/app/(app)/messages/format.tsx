@@ -86,8 +86,13 @@ function escapeRegExp(s: string): string {
 export function buildInlineRegex(memberNames: string[]): RegExp {
   const names = [...new Set(memberNames.filter(Boolean))].sort((a, b) => b.length - a.length).map(escapeRegExp);
   const mention = names.length ? `|(@(?:${names.join("|")}))` : "";
-  return new RegExp(`(\\*\\*[^*]+\\*\\*)|(__[^_]+__)|(\\*[^*]+\\*)|(https?:\\/\\/[^\\s]+)${mention}`, "g");
+  // (5) LIEN INTERNE — un chemin de l'ERP (« /regulatory/… ») que le partage par messagerie écrit sous l'objet partagé.
+  // Il commence en début de mot et par une lettre : « 1/2 » ou « A/B » ne sont pas des liens.
+  return new RegExp(`(\\*\\*[^*]+\\*\\*)|(__[^_]+__)|(\\*[^*]+\\*)|(https?:\\/\\/[^\\s]+)|((?<![\\w/.:])\\/[a-z][\\w\\-/?=&.%#]*)${mention}`, "g");
 }
+
+/** Une ligne qui n'est QU'UN chemin interne de l'ERP (« /regulatory/cmr… »). */
+const CHEMIN_INTERNE = /^\/[a-z][\w\-/?=&.%#]*$/;
 
 function inlineNoCode(text: string, regex: RegExp, keyBase: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
@@ -109,8 +114,14 @@ function inlineNoCode(text: string, regex: RegExp, keyBase: string): React.React
       );
     else if (m[5])
       out.push(
-        <span key={key} className="rounded bg-accent px-1 font-medium text-accent-foreground">
+        <a key={key} href={m[5]} className="text-primary underline underline-offset-2 hover:opacity-80">
           {m[5]}
+        </a>,
+      );
+    else if (m[6])
+      out.push(
+        <span key={key} className="rounded bg-accent px-1 font-medium text-accent-foreground">
+          {m[6]}
         </span>,
       );
     last = m.index + m[0].length;
@@ -119,11 +130,26 @@ function inlineNoCode(text: string, regex: RegExp, keyBase: string): React.React
   return out;
 }
 
-/** Rendu enrichi d'un corps de message (markdown léger + liens + mentions, multi-lignes). */
+/**
+ * Rendu enrichi d'un corps de message (markdown léger + liens + mentions, multi-lignes).
+ *
+ * L'OBJET PARTAGÉ EST CLIQUABLE (Direction, 06/10) : le partage écrit « Dossier réglementaire : REG-… » puis, à la ligne,
+ * le chemin de l'objet. Ce couple devient UN lien — le libellé mène à l'objet, le chemin brut n'est plus affiché.
+ */
 export function renderRich(body: string, memberNames: string[]): React.ReactNode {
   const regex = buildInlineRegex(memberNames);
   const lines = body.split("\n");
   return lines.map((line, li) => {
+    const suivante = lines[li + 1]?.trim() ?? "";
+    if (CHEMIN_INTERNE.test(line.trim()) && li > 0 && lines[li - 1].trim()) return null;
+    if (line.trim() && CHEMIN_INTERNE.test(suivante)) {
+      return (
+        <React.Fragment key={`l-${li}`}>
+          {li > 0 && <br />}
+          <a href={suivante} className="font-medium underline underline-offset-2 hover:opacity-80">{line}</a>
+        </React.Fragment>
+      );
+    }
     // Découpe d'abord les portions `code` (inline), le reste passe par la regex.
     const segments = line.split(/(`[^`]+`)/g);
     const nodes = segments.map((seg, si) => {

@@ -44,20 +44,34 @@ const isActive = (pathname: string, targets: string[]) =>
 
 /** Une tuile du tiroir — un module. `nested` marque un sous-module (rangé sous son parent). */
 function Tile({
-  item, pathname, badge, nested = false, children,
+  item, pathname, badge, nested = false, children, onDeplier,
 }: {
   item: NavItem; pathname: string; badge: number; nested?: boolean; children?: React.ReactNode;
+  /** UN GROUPE (Direction, 06/10) : la tuile n'est pas un lien, elle déplie ses sous-modules. */
+  onDeplier?: () => void;
 }) {
-  const active = isActive(pathname, [item.href, ...(item.match ?? [])]);
+  const active = isActive(pathname, [item.href, ...(item.match ?? [])]) && !onDeplier;
+  const classe = cn(
+    "relative flex flex-col items-center gap-1.5 rounded-2xl border px-2 py-3.5 text-center transition active:scale-95",
+    active ? "border-primary/50 bg-primary/10 text-primary" : "border-border bg-card text-foreground",
+    nested && "border-dashed bg-secondary/30",
+  );
+  if (onDeplier) {
+    return (
+      <button type="button" onClick={onDeplier} className={classe}>
+        <Icon name={item.icon} className="h-6 w-6" />
+        <span className="text-[0.6875rem] font-medium leading-tight">{item.label}</span>
+        {badge > 0 && (
+          <span className="absolute right-1.5 top-1.5 min-w-[1.125rem] rounded-full bg-destructive px-1 text-[0.625rem] font-bold leading-[1.125rem] text-destructive-foreground">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+        {children}
+      </button>
+    );
+  }
   return (
-    <Link
-      href={item.href}
-      className={cn(
-        "relative flex flex-col items-center gap-1.5 rounded-2xl border px-2 py-3.5 text-center transition active:scale-95",
-        active ? "border-primary/50 bg-primary/10 text-primary" : "border-border bg-card text-foreground",
-        nested && "border-dashed bg-secondary/30",
-      )}
-    >
+    <Link href={item.href} className={classe}>
       <Icon name={item.icon} className="h-6 w-6" />
       <span className="text-[0.6875rem] font-medium leading-tight">{item.label}</span>
       {badge > 0 && (
@@ -165,10 +179,19 @@ export function MobileTabBar({
         const pastillesEnfants = pastillesDesEntrees(kids, moduleBadges, modulesComptes(item, proprietaires), proprietaires);
         return (
           <React.Fragment key={item.href}>
-            <Tile item={item} pathname={pathname} badge={pastilles[rang]}>
+            <Tile
+              item={item} pathname={pathname} badge={pastilles[rang]}
+              onDeplier={item.groupe && kids.length > 0 ? () => toggle(item.href, !opened) : undefined}
+            >
               {/* LA FLÈCHE, SUR MOBILE AUSSI — les sous-modules ne doivent pas être
-                  réservés à l'ordinateur : c'est au téléphone qu'on cherche vite. */}
-              {kids.length > 0 && (
+                  réservés à l'ordinateur : c'est au téléphone qu'on cherche vite. Un groupe se déplie
+                  par la tuile entière : sa flèche n'est qu'un repère (pas de bouton dans un bouton). */}
+              {kids.length > 0 && item.groupe && (
+                <span className="absolute bottom-1 right-1 p-1 text-muted-foreground" aria-hidden>
+                  <Icon name="ChevronDown" className={cn("h-3.5 w-3.5 transition-transform", opened ? "" : "-rotate-90")} />
+                </span>
+              )}
+              {kids.length > 0 && !item.groupe && (
                 <button
                   type="button"
                   onClick={(e) => { e.preventDefault(); toggle(item.href, !opened); }}

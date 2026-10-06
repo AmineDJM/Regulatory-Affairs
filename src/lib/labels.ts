@@ -1515,11 +1515,8 @@ export const WORKSPACE_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Aujourd'hui", href: "/aujourdhui", feature: "home_today" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
-  // L'ANNUAIRE — un onglet à part, et à sa place. Les numéros de l'imprimeur, du transitaire et
-  // de l'agence de voyage vivaient dans les téléphones de trois personnes, puis derrière le
-  // module des Moyens généraux : deux façons différentes de les rendre introuvables. Ici, tout
-  // le monde les LIT ; les corriger demande toujours le droit correspondant.
-  { module: "WORKSPACE", label: "Annuaire", href: "/mon-espace/annuaire" },
+  // PLUS D'ONGLET « ANNUAIRE » (Direction, 06/10 : « enlève Annuaire de Mon espace ») : les carnets vivent dans le
+  // module Annuaires. La page `/mon-espace/annuaire` reste servie — liens et notifications y pointent encore.
   // Les ordres de mission et les pièces demandées ne sont PLUS des onglets : ils s'affichent
   // en SECTIONS dans « Mon espace » (les pages /missions et /pieces survivent — liens et
   // notifications y pointent encore).
@@ -1779,7 +1776,7 @@ export const MEDICAL_TABS: NavTab[] = [
   // qui n'a que la LECTURE du module — l'onglet s'affiche donc sur le droit de voir, et ce que
   // chacun y FAIT vient de la règle du coaching (`lib/coaching/acces.ts`).
   { module: "MEDICAL", label: "Coaching", href: "/medical/coaching" },
-  { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire" },
+  // PLUS D'ONGLET « ANNUAIRE » (Direction, 06/10) : les praticiens se tiennent dans Annuaires › Médecins / Pharmaciens.
   // PLUS D'ONGLET « ÉTABLISSEMENTS » ICI (décision de la Direction, 09/2026 — §118.138) : « on
   // les crée et on les gère depuis les Annuaires ». Le référentiel des hôpitaux ne vit donc plus
   // qu'à UN endroit, Administration › Annuaires › Établissements. Deux portes vers le même
@@ -1829,7 +1826,7 @@ export const SITE_WEB_TABS: NavTab[] = [
 export const NAVIGATION: NavItem[] = [
   // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
   // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-travail", "/mon-dossier", "/missions", "/directives", "/pieces", "/mon-espace/annuaire"] },
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-travail", "/mon-dossier", "/missions", "/directives", "/pieces"] },
   { module: "WORKSPACE", label: "Agenda", href: "/calendar", icon: "CalendarDays", group: "Pilotage", tabs: AGENDA_TABS, match: ["/meetings"] },
   // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —
   // page plein écran avec dictée vocale et lecture de pièces jointes.

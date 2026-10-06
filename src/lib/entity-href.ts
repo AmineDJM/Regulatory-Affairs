@@ -36,7 +36,7 @@ export function entityHref(type: string | null | undefined, id: string | null | 
     // contrat et le bon de commande dont elle découle.
     case "INVOICE": return `/legal/${id}`;
     // Une avance sur salaire se lit sur la fiche de l'employé, pas sur un écran à elle.
-    case "SALARY_ADVANCE": return "/rh";
+    case "SALARY_ADVANCE": return "/rh/paie"; // les avances se tranchent à côté de la paie (06/10)
     // LE VIREMENT DE LA PAIE D'UNE ENTITÉ (§118.176) se lit sur la paie : la carte de son entité y
     // dit ce qui est saisi, envoyé, viré. Le centre qui l'autorise doit pouvoir l'ouvrir.
     case "PAYROLL": return "/rh/paie";

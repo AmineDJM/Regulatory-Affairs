@@ -220,7 +220,7 @@ describe("l'analyse d'un contrat de travail se nomme pareil partout où elle se 
     // CV qui n'existe pas ici. Le geste se nomme UNE fois, à l'identique, aux trois endroits où il
     // se refuse : la création d'un salarié, sa fiche, et l'action elle-même.
     const geste = "l'analyse automatique d'un contrat de travail";
-    for (const f of ["src/app/(app)/rh/page.tsx", "src/app/(app)/rh/[id]/employee-form.tsx", "src/lib/actions/hr-actions.ts"]) {
+    for (const f of ["src/app/(app)/rh/equipe/page.tsx", "src/app/(app)/rh/[id]/employee-form.tsx", "src/lib/actions/hr-actions.ts"]) {
       const src = readFileSync(join(process.cwd(), f), "utf8");
       expect(src.includes(`"${geste}"`), `${f} : le refus doit nommer « ${geste} »`).toBe(true);
       expect(src.includes("l'analyse automatique d'un CV"), `${f} : nomme encore une analyse de CV`).toBe(false);
