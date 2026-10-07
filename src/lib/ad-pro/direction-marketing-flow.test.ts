@@ -10,6 +10,8 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
 import { platformScope } from "@/lib/company";
 import { peutEcrireMessagesPromo } from "@/lib/sfe/tournee";
+import { peutEcrireMessagesCockpit } from "@/lib/marketing-cockpit/acces";
+import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { accesAuxPiecesLegalDetaille, canAccessEntity } from "@/lib/entity-access";
 import { chargerPiecesLiees } from "@/lib/queries/chaine-des-pieces";
@@ -142,17 +144,18 @@ suite("la Direction Marketing : la force de vente en lecture, ce qui l'attend, e
     expect(etape.actorRoles).toContain("PRODUCT_MANAGER");
   });
 
-  it("DM-01 — LA FORCE DE VENTE EN LECTURE : l'écran des messages s'ouvre, l'écriture reste une décision du Super Admin", async () => {
+  it("DM-01 — SES MESSAGES : la Direction Marketing les écrit par défaut dans son cockpit, sans gagner la Force de vente", async () => {
     const dm = await actorFor(u.dm);
-    expect(userCan(dm, "SALES_PLANNING", "VIEW"), "elle lit les messages pré-définis").toBe(true);
+    expect(userCan(dm, "SALES_PLANNING", "VIEW"), "elle lit la Force de vente").toBe(true);
     expect(userCan(dm, "SALES_PLANNING", "UPDATE"), "lire n'est pas configurer la force de vente").toBe(false);
-    // Les auteurs par défaut sont une liste VIDE : l'écran le DIT et nomme le geste qui accorde.
-    expect(peutEcrireMessagesPromo(dm, [])).toBe(false);
+    // Par défaut (07/10), la liste des auteurs CONTIENT la Direction Marketing ; le Super Admin peut la retirer.
+    expect(peutEcrireMessagesCockpit(dm, DEFAULT_APP_SETTINGS.promoMessageAuthorRoles, "CREATE")).toBe(true);
+    expect(peutEcrireMessagesCockpit(dm, [], "CREATE"), "liste vidée par le Super Admin : plus d'écriture").toBe(false);
     expect(peutEcrireMessagesPromo(dm, ["PRODUCT_MANAGER"]), "le geste du Super Admin suffit").toBe(true);
     // Le témoin : un rôle sans rapport n'y gagne rien.
     expect(userCan(await actorFor(u.fin), "SALES_PLANNING", "VIEW")).toBe(false);
-    // Le point d'appel : c'est bien ce module qui garde l'écran.
-    expect(readFileSync("src/app/(app)/marketing-cockpit/messages/page.tsx", "utf8")).toMatch(/requireModule\("SALES_PLANNING"\)/);
+    // Le point d'appel : c'est bien le module du cockpit qui garde l'écran.
+    expect(readFileSync("src/app/(app)/marketing-cockpit/page.tsx", "utf8")).toMatch(/requireModule\("MARKETING_COCKPIT"\)/);
   });
 
   it("DM-03 — À ARBITRER : le sponsoring posé sur SON étape, le contrat et l'autre demande qui l'attendent", async () => {

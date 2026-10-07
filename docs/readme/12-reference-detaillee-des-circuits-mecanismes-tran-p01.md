@@ -1019,6 +1019,15 @@ visiteurs, et **recharge** ses contenus depuis l'ERP à chaque démarrage. Le co
 - **Le site se recharge depuis l'ERP** (`GET /api/site-web/v1/contenus`, signé sur la chaîne vide) : les corps
   exacts que la file enverrait, recalculés depuis la base. Un hébergement **sans disque** (plan gratuit de Render) ne
   perd donc plus rien à un redémarrage — le disque persistant n'est plus une condition de mise en service.
+- **L'audience du site** (Direction, 07/10) : le site inclut `<script src="https://<ERP>/api/site-web/v1/audience.js" defer>`
+  (balise à copier dans Administration › Site web (connexion), encart « Mesure d'audience »). Le script envoie pages
+  vues, clics (Postuler, `tel:`, `mailto:`, WhatsApp, externes, téléchargements, `data-adventum-track`) et temps passé
+  à `POST /api/site-web/v1/audience` — seule route PUBLIQUE de `v1/` qui écrive : porte = l'**origine** du site
+  (`porteAudience`), 120 événements/min par IP, validation stricte, écriture dans `SiteAnalyticsEvent` seule (cliquet
+  `liaison-portes.test.ts`). Sans cookie : `visitor` = sha256(sel du jour + IP + agent), ni IP ni agent gardés. Tableau
+  de bord `/site-web/audience` (onglet « Audience », droit de VUE du module) ; purge à 13 mois par le battement.
+  Code : `lib/site-web/audience-calc.ts` (PUR), `audience-collecte.ts`, `audience.ts` (requêtes groupées),
+  `audience-script.ts` ; format détaillé : `docs/site-web-audience.md`.
 - **La santé du site** (`GET /health`, une fois l'heure, ou « Vérifier la connexion ») dit à l'écran ce que le site
   dit de lui-même : clé reconnue, adresse de l'ERP connue, envois signés, candidatures en attente d'envoi, disque de
   secours. Un nouveau `bootId` (le site a redémarré) déclenche un rapprochement immédiat.

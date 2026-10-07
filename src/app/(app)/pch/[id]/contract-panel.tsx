@@ -121,7 +121,7 @@ export function ContractPanel({ tenderId, contrats, lignesAo, aDesGagnes, canPch
                     <TableRow key={l.id}>
                       <TableCell data-sans-etiquette className="font-medium [overflow-wrap:anywhere]">
                         {l.designation}
-                        {l.produit && <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] text-primary">{l.produit.code}</span>}
+                        {l.produit && <Link href={`/produits/${l.produit.id}`} title={l.produit.nom} className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] text-primary hover:underline">{l.produit.code}</Link>}
                       </TableCell>
                       <TableCell className={`text-right tabular-nums ${l.quantityUnits < 0 ? "text-destructive" : ""}`}>
                         {l.surAvenant && l.quantityUnits > 0 ? "+" : ""}{formatNumber(l.quantityUnits)}

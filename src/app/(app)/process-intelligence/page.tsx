@@ -1,170 +1,144 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { getProcessOverview } from "@/lib/queries/process-intelligence";
-import { runIntelligencePulse, getPulse } from "@/lib/adventum/pulse";
-import { PulseStrip } from "@/components/adventum/pulse-strip";
-import { ModuleTabs } from "@/components/shared/module-tabs";
 import { BRAIN_TABS } from "@/lib/labels";
-import { PageHeader } from "@/components/shared/page-header";
-import { KpiCard } from "@/components/shared/kpi-card";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { PiTabs } from "./pi-tabs";
-import { AiSynthesis } from "./ai-synthesis";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { PageHeader } from "@/components/shared/page-header";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getCircuitsView, getPeopleView, getPlatformView, periodeDe, PERIODES, type Periode } from "@/lib/queries/process-intelligence";
+import { Circuits } from "./circuits";
+import { Personnes, SelecteurPeriode } from "./personnes";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Process Intelligence — AMD Internal OS" };
 
-const ageTone = (d: number) => (d >= 21 ? "text-destructive" : d >= 14 ? "text-warning" : "text-muted-foreground");
+const VUES = ["circuits", "personnes", "plateforme"] as const;
+type Vue = (typeof VUES)[number];
 
-export default async function ProcessIntelligencePage() {
+/**
+ * PROCESS INTELLIGENCE (refonte 07/10, maquette validée). Le temps RÉELLEMENT passé à chaque étape, lu dans les
+ * journaux des circuits (`lib/process/mining.ts`) — et non plus « l'âge depuis la dernière modification ». Trois
+ * vues : Circuits, Personnes, Plateforme ; période 30 j / 90 j / 12 mois (`?p=`). Super Admin.
+ */
+export default async function ProcessIntelligencePage({ searchParams }: { searchParams?: { vue?: string; p?: string } }) {
   const user = await requireModule("PROCESS_INTELLIGENCE");
-  // Analyse EN CONTINU : rafraîchit l'instantané (auto-débounce 1×/h) puis lit la tendance.
-  await runIntelligencePulse();
-  const [o, pulse] = await Promise.all([getProcessOverview(), getPulse()]);
+  const vue: Vue = (VUES as readonly string[]).includes(searchParams?.vue ?? "") ? (searchParams!.vue as Vue) : "circuits";
+  const periode = periodeDe(searchParams?.p);
+  const lien = (v: Vue) => {
+    const q = new URLSearchParams();
+    if (v !== "circuits") q.set("vue", v);
+    if (periode.cle !== "90j") q.set("p", periode.cle);
+    const s = q.toString();
+    return `/process-intelligence${s ? `?${s}` : ""}`;
+  };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <ModuleTabs tabs={BRAIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
-      <PageHeader title="Process Intelligence" description="Où la société ralentit : durées par étape, blocages, dossiers sans action et validations en attente. Réservé au Super Admin." />
-      <PiTabs />
+      <PageHeader title="Process Intelligence" description={`${periode.label} · temps réellement passé à chaque étape`}>
+        <SelecteurPeriode valeur={periode.cle} options={PERIODES.map((p) => ({ cle: p.cle, label: p.label }))} />
+      </PageHeader>
 
-      <PulseStrip pulse={pulse} />
+      <nav className="-mx-3 flex gap-1 overflow-x-auto border-b border-border px-3 sm:mx-0 sm:px-0" aria-label="Vues de Process Intelligence">
+        {([["circuits", "Circuits"], ["personnes", "Personnes"], ["plateforme", "Plateforme"]] as const).map(([cle, label]) => (
+          <Link key={cle} href={lien(cle)} aria-current={vue === cle ? "page" : undefined}
+            className={cn("shrink-0 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors sm:py-2", vue === cle ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+            {label}
+          </Link>
+        ))}
+      </nav>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Dossiers en cours" value={o.stats.inProgress} icon="GitBranch" />
-        <KpiCard label="Bloqués (>14 j)" value={o.stats.stuck} icon="AlertTriangle" tone={o.stats.stuck > 0 ? "warning" : "default"} />
-        <KpiCard label="Échéances dépassées" value={o.stats.overdue} icon="CalendarX" tone={o.stats.overdue > 0 ? "danger" : "default"} />
-        <KpiCard label="Validations en attente" value={o.stats.validationsPending} icon="ShieldAlert" tone={o.stats.validationsPending > 0 ? "warning" : "default"} />
-      </div>
+      {vue === "circuits" && <VueCircuits periode={periode.cle} />}
+      {vue === "personnes" && <Personnes lignes={await getPeopleView(periode.cle)} />}
+      {vue === "plateforme" && <VuePlateforme periode={periode.cle} />}
+    </div>
+  );
+}
 
-      <AiSynthesis scope="overview" />
+async function VueCircuits({ periode }: { periode: Periode }) {
+  const v = await getCircuitsView(periode);
+  return <Circuits circuits={v.circuits} stuckDays={v.stuckDays} />;
+}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* Alertes */}
-        <Card>
-          <CardHeader><CardTitle>Alertes ({o.alerts.length})</CardTitle></CardHeader>
-          <CardContent className="p-0">
-            {o.alerts.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">Aucune alerte. Tout avance dans les délais. 👍</p>
-            ) : (
-              <ul className="divide-y divide-border">
-                {o.alerts.map((a, i) => (
-                  <li key={i}>
-                    <Link href={a.link} className="flex items-start gap-2.5 px-4 py-2.5 hover:bg-secondary/40">
-                      <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", a.level === "danger" ? "bg-destructive" : a.level === "warning" ? "bg-warning" : "bg-primary")} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{a.title}</p>
-                        <p className="line-clamp-2 break-words text-xs text-muted-foreground sm:truncate">{a.detail}</p>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+const nombre = (n: number) => n.toLocaleString("fr-FR");
+const duree = (ms: number | null) => (ms === null ? "—" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`);
+const usd = (x: number | null) => (x === null ? "—" : `${x.toFixed(2).replace(".", ",")} $`);
+const quand = (iso: string | null) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Algiers" }) : "—");
 
-        {/* Étapes les plus lentes */}
-        <Card>
-          <CardHeader><CardTitle>Étapes les plus lentes</CardTitle></CardHeader>
-          <CardContent className="space-y-2.5">
-            {o.bottleneckStages.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Pas assez de données.</p>
-            ) : (
-              o.bottleneckStages.map((s) => (
-                <div key={s.label}>
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="min-w-0 truncate">{s.label}</span>
-                    <span className={cn("font-semibold tabular-nums", ageTone(s.avgAge))}>{s.avgAge} j</span>
-                  </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
-                    <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.min(s.avgAge * 3, 100)}%` }} />
-                  </div>
-                  <p className="text-[0.6875rem] text-muted-foreground">{s.count} dossier{s.count > 1 ? "s" : ""}</p>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+function Carte({ titre, info, children }: { titre: string; info?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="surface overflow-hidden rounded-xl">
+      <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <h2 className="text-sm font-semibold">{titre}</h2>
+        {info && <InfoBulle>{info}</InfoBulle>}
+      </header>
+      {children}
+    </section>
+  );
+}
 
-      {/* Top blocages */}
-      <Card>
-        <CardHeader><CardTitle>Top blocages — dossiers les plus lents</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          {o.topBlockers.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">Aucun dossier en cours.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Objet</TableHead><TableHead>Module</TableHead><TableHead>Statut</TableHead>
-                  <TableHead>Responsable</TableHead><TableHead className="text-right">Sans action</TableHead>
+async function VuePlateforme({ periode }: { periode: Periode }) {
+  const v = await getPlatformView(periode);
+  return (
+    <div className="space-y-4">
+      <Carte titre="Adoption par module" info={<>Pages vues et personnes distinctes sur la période ; la tendance compare la seconde moitié de la période à la première.</>}>
+        <Table>
+          <TableHeader><TableRow><TableHead className="sticky left-0 z-10 bg-muted/90">Module</TableHead><TableHead className="text-right">Pages vues</TableHead><TableHead className="text-right">Personnes</TableHead><TableHead className="text-right">Tendance</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {v.adoption.map((a) => (
+              <TableRow key={a.module || "—"}>
+                <TableCell className="sticky left-0 z-10 whitespace-nowrap bg-card">{a.label}</TableCell>
+                <TableCell className="text-right tabular-nums">{nombre(a.vues)}</TableCell>
+                <TableCell className="text-right tabular-nums">{a.utilisateurs}</TableCell>
+                <TableCell className={cn("text-right tabular-nums", a.tendance !== null && a.tendance < -0.2 ? "text-destructive" : a.tendance !== null && a.tendance > 0.2 ? "text-success" : "text-muted-foreground")}>
+                  {a.tendance === null ? "—" : `${a.tendance >= 0 ? "+" : "−"}${Math.abs(Math.round(a.tendance * 100))} %`}
+                </TableCell>
+              </TableRow>
+            ))}
+            {v.adoption.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">Aucune page vue enregistrée.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Carte>
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+        <Carte titre="Tâches automatiques" info={<>Les planifications et leurs passages sur la période : échecs, durée médiane, dernière erreur.</>}>
+          <Table>
+            <TableHeader><TableRow><TableHead className="sticky left-0 z-10 bg-muted/90">Tâche</TableHead><TableHead className="text-right">Passages</TableHead><TableHead className="text-right">Échecs</TableHead><TableHead className="text-right">Durée</TableHead><TableHead>Dernier</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {v.taches.map((t) => (
+                <TableRow key={t.id}>
+                  <TableCell className="sticky left-0 z-10 bg-card">
+                    <span className="block whitespace-nowrap">{t.nom}{t.statut !== "ACTIVE" && <span className="text-muted-foreground"> · en pause</span>}</span>
+                    {t.derniereErreur && <span className="block max-w-[18rem] truncate text-xs text-destructive" title={t.derniereErreur}>{t.derniereErreur}</span>}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{t.passages}</TableCell>
+                  <TableCell className={cn("text-right tabular-nums", t.echecs > 0 && "font-medium text-destructive")}>{t.echecs}</TableCell>
+                  <TableCell className="text-right tabular-nums">{duree(t.dureeMedianeMs)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">{quand(t.dernierPassage)}</TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {o.topBlockers.map((b) => (
-                  <TableRow key={b.key}>
-                    <TableCell data-sans-etiquette className="font-medium"><span className="min-w-0"><Link href={b.link} className="hover:underline">{b.label}</Link>{b.reference && <span className="ml-1 text-xs text-muted-foreground">{b.reference}</span>}</span></TableCell>
-                    <TableCell className="text-muted-foreground">{b.moduleName}</TableCell>
-                    <TableCell><Badge tone="neutral" dot={false}>{b.statusLabel}</Badge></TableCell>
-                    <TableCell className="text-muted-foreground">{b.ownerName ?? "— non assigné"}</TableCell>
-                    <TableCell className={cn("text-right font-semibold tabular-nums", ageTone(b.ageDays))}>{b.ageDays} j{b.overdue && " ⚠"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Par module + validations en attente */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Par module</CardTitle></CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader><TableRow><TableHead>Module</TableHead><TableHead className="text-right">En cours</TableHead><TableHead className="text-right">Âge moyen</TableHead><TableHead className="text-right">Bloqués</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {o.byModule.map((m) => (
-                  <TableRow key={m.moduleKey}>
-                    <TableCell data-sans-etiquette className="font-medium">{m.moduleName}</TableCell>
-                    <TableCell className="text-right">{m.count}</TableCell>
-                    <TableCell className={cn("text-right tabular-nums", ageTone(m.avgAge))}>{m.avgAge} j</TableCell>
-                    <TableCell className="text-right">{m.stuck > 0 ? <Badge tone="warning" dot={false}>{m.stuck}</Badge> : "0"}</TableCell>
-                  </TableRow>
-                ))}
-                {o.byModule.length === 0 && <TableRow><TableCell colSpan={4} data-sans-etiquette className="text-center text-sm text-muted-foreground">Aucune donnée.</TableCell></TableRow>}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Validations en attente ({o.pendingValidations.length})</CardTitle></CardHeader>
-          <CardContent className="p-0">
-            {o.pendingValidations.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">Aucune validation en attente.</p>
-            ) : (
-              <ul className="divide-y divide-border">
-                {o.pendingValidations.slice(0, 12).map((v) => (
-                  <li key={v.id}>
-                    <Link href={v.link} className="flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/40">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{v.title}</p>
-                        <p className="text-xs text-muted-foreground">{v.reference}{v.validatorName ? ` · ${v.validatorName}` : ""}</p>
-                      </div>
-                      <span className={cn("shrink-0 text-sm font-semibold tabular-nums", ageTone(v.ageDays))}>{v.ageDays} j</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+              ))}
+              {v.taches.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">Aucune tâche planifiée.</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </Carte>
+        <Carte titre="Luna et IA, par fonction" info={<>Appels, erreurs, latence médiane et coût sur la période (journal des tours, sinon des appels de modèle).</>}>
+          <Table>
+            <TableHeader><TableRow><TableHead className="sticky left-0 z-10 bg-muted/90">Fonction</TableHead><TableHead className="text-right">Appels</TableHead><TableHead className="text-right">Erreurs</TableHead><TableHead className="text-right">Latence</TableHead><TableHead className="text-right">Coût</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {v.ia.map((x) => (
+                <TableRow key={x.feature}>
+                  <TableCell className="sticky left-0 z-10 whitespace-nowrap bg-card">{x.feature}</TableCell>
+                  <TableCell className="text-right tabular-nums">{nombre(x.appels)}</TableCell>
+                  <TableCell className={cn("text-right tabular-nums", x.appels > 0 && x.erreurs / x.appels > 0.1 && "font-medium text-destructive")}>{x.erreurs}</TableCell>
+                  <TableCell className="text-right tabular-nums">{duree(x.latenceMedianeMs)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{usd(x.coutUsd)}</TableCell>
+                </TableRow>
+              ))}
+              {v.ia.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">Aucun appel IA sur la période.</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </Carte>
       </div>
     </div>
   );

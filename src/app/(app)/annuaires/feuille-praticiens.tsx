@@ -49,7 +49,7 @@ export async function FeuillePraticiensHub({
   };
   const feuille = await chargerFeuillePraticiens(user, {
     annuaire: medecins ? null : annuaire, grade, canManage: canManageStructure,
-    // La GESTION des spécialités a une porte unique, Marketing cockpit (Direction, 06/10) : la barre ne les liste que si elles ont des médecins.
+    // La GESTION des spécialités a une porte unique, Annuaires › Spécialités (Direction, 07/10) : la barre ne les liste que si elles ont des médecins.
     specialitesVides: false,
     entier: annuaireOuvertParConsole(user, cle, "VIEW"),
     // L'annuaire par spécialité ne concerne que les médecins ; l'archivage, les deux grades.
@@ -89,7 +89,7 @@ export async function FeuillePraticiensHub({
         avecSpecialites={grade === "medecins"}
       />
       {medecins && (gerer.creer || gerer.modifier || gerer.supprimer) && (
-        <p className="text-xs text-muted-foreground">Ajouter, renommer ou supprimer une spécialité se fait dans <Link href="/marketing-cockpit/specialites" className="text-primary underline">Marketing cockpit › Spécialités</Link>.</p>
+        <p className="text-xs text-muted-foreground">Ajouter, renommer ou supprimer une spécialité se fait dans <Link href="/annuaires/specialites" className="text-primary underline">Annuaires › Spécialités</Link>.</p>
       )}
       <AnnuaireGrid
         archives={feuille.archives}

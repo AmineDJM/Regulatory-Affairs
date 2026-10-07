@@ -14,11 +14,13 @@ import {
   openRecruitmentSourcing, closeRecruitmentRequest, addRecruitmentCandidate,
   moveRecruitmentCandidate, onboardRecruitment,
   renvoyerDemandeRecrutement, resoumettreDemandeRecrutement, rouvrirDemandeRecrutement, annulerEmbaucheRecrutement,
+  commenterDemandeRecrutement,
 } from "@/lib/actions/recruitment-actions";
 import { RECRUITMENT_CONTRACTS, CONTRACT_LABEL } from "@/lib/recruitment/request-flow";
 import type { ActionResult } from "@/lib/actions/types";
 import { useKeyedAction as useAction } from "@/components/shared/use-action";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 /**
  * LES GESTES DU CIRCUIT DE RECRUTEMENT.
@@ -47,24 +49,99 @@ const fd = (entries: Record<string, string | undefined>) => {
 
 // ───────────────────────────── Validation hiérarchique ─────────────────────────────
 
-export function ChainDecisionPanel({ id, stepLabel }: { id: string; stepLabel: string }) {
+export interface PersonneChoisie { id: string; name: string }
+
+/**
+ * LA DÉCISION DE LA CHAÎNE. Quand c'est le DG / Super Admin qui CONCLUT la chaîne (`exigeSuivi`, calculé par la
+ * page avec la règle que l'action rejoue — `decisionDuSommetExigeSuivi`), il désigne le N+1 de la future recrue et
+ * au moins une personne en charge du suivi (Direction, 07/10) : « Valider » reste fermé tant qu'ils manquent.
+ */
+export function ChainDecisionPanel({ id, stepLabel, exigeSuivi = false, utilisateurs = [], n1ParDefaut = null }: {
+  id: string; stepLabel: string;
+  exigeSuivi?: boolean; utilisateurs?: PersonneChoisie[]; n1ParDefaut?: string | null;
+}) {
   const { busy, error, run } = useAction();
   const [reason, setReason] = React.useState("");
+  const [n1, setN1] = React.useState(n1ParDefaut ?? "");
+  const [suivi, setSuivi] = React.useState<string[]>([]);
+  const [filtre, setFiltre] = React.useState("");
+  const manque = exigeSuivi && (!n1 || suivi.length === 0);
+  const plie = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const visibles = utilisateurs.filter((u) => !filtre.trim() || plie(u.name).includes(plie(filtre.trim()))).slice(0, 40);
+
+  /** L'accord, et — quand le DG conclut — le N+1 et le suivi qu'il désigne. */
+  const accord = () => {
+    const f = fd({ id, decision: "APPROVED", reason });
+    if (exigeSuivi) {
+      f.set("futureManagerId", n1);
+      for (const s of suivi) f.append("followerIds", s);
+    }
+    return f;
+  };
 
   return (
     <div className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-3 sm:p-4">
-      <div>
-        <p className="text-sm font-semibold">Votre validation est attendue</p>
-        <p className="text-xs text-muted-foreground">{stepLabel}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">Votre validation est attendue</p>
+          <p className="text-xs text-muted-foreground">{stepLabel}</p>
+        </div>
+        <InfoBulle label="Comment se décide une marche">
+          Valider fait monter la demande d&apos;une marche ; la dernière l&apos;envoie aux RH. La direction peut trancher
+          d&apos;en haut : les marches non consultées sont marquées comme telles. Renvoyer ou refuser exige un motif.
+        </InfoBulle>
       </div>
+      {exigeSuivi && (
+        <div className="grid grid-cols-1 gap-3 rounded-lg border border-border bg-card p-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label className="text-xs">N+1 de la future recrue</Label>
+            <select
+              value={n1} onChange={(e) => setN1(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-base sm:text-sm"
+            >
+              <option value="">— Choisir —</option>
+              {utilisateurs.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">En charge du suivi ({suivi.length})</Label>
+            <Input value={filtre} onChange={(e) => setFiltre(e.target.value)} placeholder="Chercher une personne…" className="h-9 text-sm" />
+            {suivi.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {suivi.map((s) => (
+                  <button
+                    key={s} type="button" onClick={() => setSuivi((v) => v.filter((x) => x !== s))}
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2 py-0.5 text-xs"
+                  >
+                    {utilisateurs.find((u) => u.id === s)?.name ?? "—"} <X className="h-3 w-3" />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="max-h-40 overflow-y-auto rounded-md border border-border">
+              {visibles.map((u) => (
+                <label key={u.id} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm hover:bg-secondary/50">
+                  <input
+                    type="checkbox" checked={suivi.includes(u.id)}
+                    onChange={(e) => setSuivi((v) => (e.target.checked ? [...v, u.id] : v.filter((x) => x !== u.id)))}
+                  />
+                  <span className="min-w-0 truncate">{u.name}</span>
+                </label>
+              ))}
+              {visibles.length === 0 && <p className="px-2 py-1.5 text-xs text-muted-foreground">Personne.</p>}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="space-y-1">
         <Label className="text-xs">Motif (obligatoire pour refuser ou renvoyer)</Label>
         <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex. Budget non prévu cette année." className="h-9 text-sm" />
       </div>
       <div className="flex flex-wrap gap-2">
         <BoutonDecisif
-          size="sm" disabled={busy !== null}
-          onClick={() => run("ok", () => decideRecruitmentStep(fd({ id, decision: "APPROVED", reason })))}
+          size="sm" disabled={busy !== null || manque}
+          title={manque ? "Désignez le N+1 de la future recrue et au moins une personne en charge du suivi." : undefined}
+          onClick={() => run("ok", () => decideRecruitmentStep(accord()))}
         >
           {busy === "ok" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Valider
         </BoutonDecisif>
@@ -121,7 +198,10 @@ export function HrPanel({ id, canAsk, canOpen, canReject, canReturn }: {
 
       {canAsk && (
         <div className="space-y-1">
-          <Label className="text-xs">Demander une précision au demandeur</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-xs">Demander une précision au demandeur</Label>
+            <InfoBulle align="left">La demande retourne au demandeur tant qu&apos;il n&apos;a pas répondu : elle quitte votre file.</InfoBulle>
+          </div>
           <Textarea
             value={question} onChange={(e) => setQuestion(e.target.value)} rows={2}
             placeholder="Compétences attendues ? Fourchette tenable ? Date de début ferme ?"
@@ -138,9 +218,6 @@ export function HrPanel({ id, canAsk, canOpen, canReject, canReturn }: {
               Demander
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            La demande retourne au demandeur tant qu&apos;il n&apos;a pas répondu : elle quitte votre file.
-          </p>
         </div>
       )}
 
@@ -302,12 +379,14 @@ export function OnboardPanel({ id, hiredName, external, canCancelHire }: {
   const [motif, setMotif] = React.useState("");
   return (
     <div className="space-y-2 rounded-xl border border-success/40 bg-success/5 p-3 sm:p-4">
-      <p className="text-sm font-semibold">{hiredName} est recruté</p>
-      <p className="text-xs text-muted-foreground">
-        {external
-          ? "Consulting : intervenant EXTERNE. Aucune fiche employé n'est créée — il n'entre ni dans l'effectif, ni dans la paie, ni dans l'organigramme."
-          : "Créez la fiche employé : elle sera pré-remplie depuis la demande (poste, direction, contrat, dates) et depuis le candidat. Le salaire réel et le compte applicatif se complètent ensuite depuis les RH."}
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold">{hiredName} est recruté</p>
+        <InfoBulle>
+          {external
+            ? "Consulting : intervenant EXTERNE. Aucune fiche employé n'est créée — il n'entre ni dans l'effectif, ni dans la paie, ni dans l'organigramme."
+            : "La fiche employé est pré-remplie depuis la demande (poste, direction, contrat, dates, N+1 désigné par la direction) et depuis le candidat. Le salaire réel et le compte applicatif se complètent ensuite depuis les RH."}
+        </InfoBulle>
+      </div>
       <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => run("on", () => onboardRecruitment(fd({ id })))}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <IdCard className="h-4 w-4" />}
         {external ? "Clôturer — consultant externe" : "Créer la fiche employé"}
@@ -379,7 +458,13 @@ export function CorrigerDemandePanel({ id, besoin }: { id: string; besoin: Besoi
         void run("corr", () => resoumettreDemandeRecrutement(f));
       }}
     >
-      <p className="text-sm font-semibold">Corriger et renvoyer</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold">Corriger et renvoyer</p>
+        <InfoBulle>
+          Un autre poste, un autre contrat, plus de postes, une rémunération relevée ou un contrat plus long font
+          repartir la validation depuis la première marche ; le reste revient là d&apos;où la demande vous a été renvoyée.
+        </InfoBulle>
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1 sm:col-span-2">
           <Label className="text-xs">Intitulé du poste</Label>
@@ -432,15 +517,33 @@ export function CorrigerDemandePanel({ id, besoin }: { id: string; besoin: Besoi
           />
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Un autre poste, un autre contrat, plus de postes, une rémunération relevée ou un contrat plus long font
-        repartir la validation depuis la première marche ; le reste revient là d&apos;où la demande vous a été renvoyée.
-      </p>
       <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={busy !== null || !changements.trim()}>
         {busy === "corr" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Corriger et renvoyer
       </Button>
       <ErrorLine error={error} />
     </form>
+  );
+}
+
+/** ÉCRIRE AU FIL — qui est partie à la demande (`abilities().comment`), le suivi désigné par le DG compris. */
+export function FilForm({ id }: { id: string }) {
+  const { busy, error, run } = useAction();
+  const [texte, setTexte] = React.useState("");
+  return (
+    <div className="space-y-1.5">
+      <Textarea value={texte} onChange={(e) => setTexte(e.target.value)} rows={2} placeholder="Votre message…" className="text-sm" />
+      <div className="flex justify-end">
+        <Button
+          size="sm" variant="outline" disabled={busy !== null || !texte.trim()}
+          onClick={async () => {
+            if (await run("fil", () => commenterDemandeRecrutement(fd({ id, texte })))) setTexte("");
+          }}
+        >
+          {busy === "fil" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer
+        </Button>
+      </div>
+      <ErrorLine error={error} />
+    </div>
   );
 }
 

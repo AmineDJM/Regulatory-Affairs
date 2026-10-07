@@ -82,13 +82,20 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-const ligne = (page: Page, nom: string) => page.locator("div.flex.items-center.gap-1").filter({ hasText: nom });
+// LA LISTE est l'onglet « Rapports » de la Promotion médicale (Direction, 07/10) : une ligne du tableau ouvre la FEUILLE du
+// rapport, et c'est la feuille qui porte l'icône de suppression.
+const LISTE = "/medical/rapports";
+async function ouvrirLigne(page: Page, nom: string) {
+  await page.getByRole("button", { name: new RegExp(`Ouvrir le rapport — ${nom}`) }).click();
+  return page.getByRole("dialog");
+}
+const ligne = (page: Page, nom: string) => page.getByRole("button", { name: new RegExp(`Ouvrir le rapport — ${nom}`) });
 
 test("DOUBLE CONFIRMATION — un seul clic ne supprime rien ; Échap désarme ; le second clic supprime, vers la corbeille", async ({ page }) => {
   test.setTimeout(120_000);
   await login(page, EMAIL.kam);
-  await aller(page, "/field-reports");
-  await ligne(page, NOM_BROUILLON).getByTestId("supprimer-rapport").click();
+  await aller(page, LISTE);
+  await (await ouvrirLigne(page, NOM_BROUILLON)).getByTestId("supprimer-rapport").click();
   // Étape 1 : la fenêtre dit ce qui part — la pièce jointe — et que c'est réversible.
   await expect(page.getByText("Part aussi avec lui")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("1 pièce jointe")).toBeVisible();
@@ -119,8 +126,9 @@ test("DOUBLE CONFIRMATION — un seul clic ne supprime rien ; Échap désarme ; 
 test("REFUS AVANT LE CLIC — le seul rapport d'une visite planifiée : la fenêtre le dit, le bouton ne s'arme pas", async ({ page }) => {
   test.setTimeout(90_000);
   await login(page, EMAIL.kam);
-  await aller(page, "/field-reports");
-  await ligne(page, NOM_VISITE).getByTestId("supprimer-rapport").click();
+  // Le compte rendu d'une visite n'est pas une ligne à part de la liste (il est rattaché à sa visite) : sa FICHE porte l'icône.
+  await aller(page, `${LISTE}/${visiteReportId}`);
+  await page.getByTestId("supprimer-rapport").click();
   await expect(page.getByRole("alert").filter({ hasText: /seul rapport de la visite/ })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Oui, supprimer définitivement" })).toBeDisabled();
   expect(await prisma.fieldReport.count({ where: { id: visiteReportId } })).toBe(1);
@@ -139,11 +147,11 @@ test("RESTAURATION — le Super Admin rend le rapport avec sa pièce jointe, pui
   expect((await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "FIELD_REPORT", sourceId: brouillonId } })).restoredAt).not.toBeNull();
 
   // La fiche : le bouton de l'en-tête, même fenêtre, même double confirmation, retour à la liste.
-  await aller(page, `/field-reports/${brouillonId}`);
+  await aller(page, `${LISTE}/${brouillonId}`);
   await page.getByTestId("supprimer-rapport").click();
   await expect(page.getByText("1 pièce jointe")).toBeVisible({ timeout: 15_000 });
   await cliquerDecisif(page.getByRole("button", { name: "Oui, supprimer définitivement" }));
-  await page.waitForURL(/\/field-reports$/, { timeout: 20_000 });
+  await page.waitForURL(/\/medical\/rapports$/, { timeout: 20_000 });
   expect(await prisma.fieldReport.count({ where: { id: brouillonId } })).toBe(0);
 });
 
@@ -151,8 +159,12 @@ test("TÉLÉPHONE — l'icône de la corbeille tient dans l'écran à 375 px, sa
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 375, height: 800 });
   await login(page, EMAIL.kam);
-  await aller(page, "/field-reports");
-  const icone = ligne(page, NOM_VISITE).getByTestId("supprimer-rapport");
+  // Le TABLEAU reste un tableau au téléphone : il défile dans son cadre, la page, elle, ne défile pas.
+  await aller(page, LISTE);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "la liste ne fait pas défiler la page").toBe(true);
+  // (Le brouillon est parti aux étapes précédentes : la fiche du compte rendu de visite porte l'icône.)
+  await aller(page, `${LISTE}/${visiteReportId}`);
+  const icone = page.getByTestId("supprimer-rapport");
   await expect(icone).toBeVisible({ timeout: 15_000 });
   const box = await icone.boundingBox();
   expect(box && box.x >= 0 && box.x + box.width <= 375, "l'icône est dans l'écran").toBe(true);

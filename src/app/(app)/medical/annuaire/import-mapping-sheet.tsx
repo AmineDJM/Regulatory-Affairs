@@ -65,12 +65,7 @@ export function ImportMappingSheet({
       description={`${fileName} — ${rowCount} ligne(s) vers ${directoryName}. Rien n'est encore importé.`}
     >
       <div className="space-y-3">
-        <div className="rounded-lg border border-input bg-muted/40 p-2.5 text-xs text-muted-foreground">
-          Chaque colonne du fichier va vers une colonne de l&apos;annuaire. Ce qui est laissé sur
-          <strong className="text-foreground"> « Ne pas importer » </strong> est ignoré — sans perte pour le fichier d&apos;origine.
-        </div>
-
-        {/* Au téléphone, chaque colonne du fichier devient une carte : nom, exemples, puis le choix. */}
+        {/* Plus de bandeau d'aide (Direction, 07/10) : « Ne pas importer » dit de lui-même ce qu'il fait. */}
         <div className="rounded-xl border border-input">
           <Table>
             <TableHeader className="text-xs text-muted-foreground">

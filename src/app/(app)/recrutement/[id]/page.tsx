@@ -1,30 +1,33 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Paperclip, CheckCircle2, XCircle, CircleDashed, MinusCircle, Globe, ArrowRight } from "lucide-react";
+import { ArrowLeft, Paperclip, CheckCircle2, XCircle, CircleDashed, MinusCircle, Megaphone } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { BackLink } from "@/components/shared/back-link";
+import { MenuDossier } from "@/components/shared/menu-dossier";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import {
   abilities, chainProgress, currentStep, CONTRACT_LABEL, CANDIDATE_LABEL, CANDIDATE_TONE,
   STAGE_LABEL, STAGE_TONE, salaryRange, needsOnboarding, candidateRank, canDecideStep, reouverture,
+  decisionDuSommetExigeSuivi, friseDuRecrutement, statutDuRecrutement,
   type ChainStep, type RecruitmentStage, type RecruitmentContract, type CandidateStatus,
 } from "@/lib/recruitment/request-flow";
+import { emploiticConfigure } from "@/lib/recruitment/diffusion";
 import { etatAffiche, publicationsDe, suspensionEnVigueur } from "@/lib/site-web/etat";
 import { posteOuvert } from "@/lib/site-web/contenus";
 import { peutPublierOffres } from "@/lib/site-web/acces";
-import { EtatPublicationBadge } from "@/components/site-web/etat-badge";
 import {
   ChainDecisionPanel, CancelRequestButton, HrPanel, AnswerInfoForm,
   AddCandidateButton, CandidateActions, OnboardPanel, CloseRequestButton,
-  CorrigerDemandePanel, RouvrirPanel,
+  CorrigerDemandePanel, RouvrirPanel, FilForm,
 } from "./panels";
+import { DiffusionCard, type EtatCanalAffiche } from "./diffusion";
 
 export const dynamic = "force-dynamic";
 
@@ -46,16 +49,30 @@ const APPROVAL_TEXT = {
   SKIPPED: "n'a pas été consulté (décision prise plus haut)",
 } as const;
 
+const TON_STATUT = {
+  info: "border-primary/30 bg-primary/10 text-primary",
+  succes: "border-success/30 bg-success/10 text-success",
+  attente: "border-warning/40 bg-warning/10 text-warning",
+  refus: "border-destructive/30 bg-destructive/5 text-destructive",
+  neutre: "border-border bg-secondary/40 text-foreground",
+} as const;
+
+/** « Yacine Habes » → « Y. Habes » : la frise n'a la place que d'un nom court. */
+function nomCourt(nom: string): string {
+  const p = nom.trim().split(/\s+/);
+  return p.length > 1 ? `${p[0]![0]}. ${p.slice(1).join(" ")}` : nom;
+}
+
 /**
- * LE DOSSIER D'UN RECRUTEMENT — le besoin, son parcours, et les candidats.
+ * LE DOSSIER D'UN RECRUTEMENT — le besoin, son parcours, sa diffusion, et les candidats.
  *
- * Un seul écran pour tout le circuit, parce que c'est une seule affaire : le directeur y suit sa
- * demande, chaque validateur y voit ce qu'ont dit les précédents, les RH y instruisent, et les
- * candidats y avancent. Éclater cela en quatre écrans aurait obligé chacun à savoir lequel
- * ouvrir — et personne n'aurait su où en était le poste sans le demander.
+ * Un seul écran pour tout le circuit (Direction, 07/10 : module à part sous les RH) : n'importe qui y suit sa
+ * demande, chaque validateur y voit ce qu'ont dit les précédents, le DG y désigne le N+1 de la future recrue et le
+ * suivi, les RH y instruisent et DIFFUSENT l'offre (site, LinkedIn, Emploitic, autre), et les candidats y avancent.
  *
- * Ce qui s'AFFICHE dépend de la place de chacun : les capacités sont calculées une fois, ici,
- * par le même `abilities()` que le serveur revérifie ensuite.
+ * Règles d'écran de la Direction : la frise et la phrase « état — chez qui » en tête, UN geste principal visible
+ * (le panneau de la personne qu'on attend), le reste dans « ⋯ », l'explication dans les ⓘ. Ce qui s'AFFICHE est
+ * calculé ici, une fois, par le même `abilities()` que le serveur revérifie ensuite.
  */
 export default async function RecruitmentPage({ params }: { params: { id: string } }) {
   const user = await requireModule("RECRUITMENT");
@@ -66,8 +83,11 @@ export default async function RecruitmentPage({ params }: { params: { id: string
     where: { id: params.id },
     include: {
       requester: { select: { name: true } },
-      department: { select: { name: true } },
+      department: { select: { name: true, head: { select: { userId: true } } } },
       company: { select: { name: true, shortName: true } },
+      futureManager: { select: { name: true } },
+      followers: { orderBy: { createdAt: "asc" }, select: { userId: true, user: { select: { name: true } } } },
+      channelPosts: true,
       approvals: {
         orderBy: { order: "asc" },
         include: { approver: { select: { name: true } } },
@@ -88,11 +108,12 @@ export default async function RecruitmentPage({ params }: { params: { id: string
   }));
   const untouched = steps.every((s) => s.status === "PENDING");
   const hired = req.candidates.find((c) => c.status === "HIRED");
+  const decideur = { userId: user.id, isTop: viewer.isTop };
   // Les MÊMES faits que les actions (§118.192) : qui peut trancher la marche, un recrutement prononcé, une
   // embauche encore sans fiche — un bouton visible est un geste que l'action acceptera.
   const can = abilities(stage, viewer, {
     chainUntouched: untouched, hasHire: Boolean(hired),
-    peutTrancherLaMarche: canDecideStep(stage, steps, { userId: user.id, isTop: viewer.isTop }).ok,
+    peutTrancherLaMarche: canDecideStep(stage, steps, decideur).ok,
     aRecrute: Boolean(hired),
     embaucheSansFiche: Boolean(hired) && hired?.employeeId == null,
   });
@@ -102,21 +123,28 @@ export default async function RecruitmentPage({ params }: { params: { id: string
       ? `Elle repartira à la marche qui l'a refusée (${steps.find((s) => s.order === ouRouvrir.marche)?.approverName ?? "—"}), et à elle seule.`
       : ouRouvrir.vers === "HR_REVIEW" ? "Elle reviendra aux RH, qui l'avaient refusée." : "Le poste sera de nouveau ouvert."
     : null;
-  const [renvoyePar, fil] = await Promise.all([
+  const active = currentStep(steps);
+  const progress = chainProgress(steps);
+  const myTurn = stage === "CHAIN" && (active?.approverId === user.id || viewer.isTop);
+  // LE DG QUI CONCLUT DÉSIGNE LE N+1 ET LE SUIVI (Direction, 07/10) — la règle que l'action rejoue.
+  const exigeSuivi = myTurn && decisionDuSommetExigeSuivi(stage, steps, decideur);
+
+  const [renvoyePar, fil, utilisateurs] = await Promise.all([
     req.returnedById ? prisma.user.findUnique({ where: { id: req.returnedById }, select: { name: true } }) : Promise.resolve(null),
-    // L'HISTOIRE DE LA DEMANDE (§118.192) : refus, renvois, corrections, réouvertures — ce que les gestes
-    // suivants effacent des champs du moment (le motif du renvoi, la décision rouverte) reste lisible ici.
+    // L'HISTOIRE DE LA DEMANDE (§118.192) : refus, renvois, corrections, réouvertures, messages.
     prisma.comment.findMany({
       where: { entityType: "RECRUITMENT_REQUEST", entityId: req.id },
       orderBy: { createdAt: "asc" },
       select: { id: true, body: true, createdAt: true, author: { select: { name: true } } },
     }),
+    exigeSuivi
+      ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+      : Promise.resolve([] as { id: string; name: string }[]),
   ]);
-  const active = currentStep(steps);
-  const progress = chainProgress(steps);
-  const myTurn = stage === "CHAIN" && (active?.approverId === user.id || viewer.isTop);
+  // Le N+1 proposé : le chef du département demandé, à défaut le demandeur.
+  const n1ParDefaut = exigeSuivi ? (req.department?.head?.userId ?? req.requesterId) : null;
 
-  // L'OFFRE SUR LE SITE (§118.158) — son état tel que le SITE l'a confirmé, pour qui publie les offres.
+  // LA DIFFUSION (§118.158, Direction 07/10) — l'offre du site telle que le SITE l'a confirmée, et les autres canaux.
   const publieOffres = peutPublierOffres(user);
   const offreSite = publieOffres
     ? await prisma.jobPosting.findUnique({ where: { recruitmentRequestId: req.id }, select: { id: true, published: true } })
@@ -124,6 +152,11 @@ export default async function RecruitmentPage({ params }: { params: { id: string
   const etatOffre = offreSite
     ? etatAffiche((await publicationsDe("JOB", [offreSite.id])).get(offreSite.id) ?? null, offreSite.published, await suspensionEnVigueur())
     : null;
+  const canal = (c: string): EtatCanalAffiche => {
+    const p = req.channelPosts.find((x) => x.channel === c);
+    return { statut: p?.status ?? null, contenu: p?.content ?? null, url: p?.url ?? null, erreur: p?.error ?? null, publieLe: p?.publishedAt?.toISOString() ?? null };
+  };
+  const montrerDiffusion = publieOffres && (can.diffuse || Boolean(offreSite) || req.channelPosts.length > 0);
 
   const [documents, cvs] = await Promise.all([
     prisma.document.findMany({
@@ -159,13 +192,27 @@ export default async function RecruitmentPage({ params }: { params: { id: string
       || a.fullName.localeCompare(b.fullName),
   );
 
+  // LA FRISE ET LA PHRASE « ÉTAT — CHEZ QUI ».
+  const frise = friseDuRecrutement(stage, steps.map((s) => ({ ...s, approverName: nomCourt(s.approverName ?? "—") })), {
+    returnedFrom: req.returnedFrom as RecruitmentStage | null,
+  });
+  const aVous = myTurn
+    || ((stage === "RETURNED" || stage === "INFO_REQUESTED") && viewer.isRequester)
+    || (stage === "HR_REVIEW" && (can.openSourcing || can.askInfo));
+  const statut = statutDuRecrutement(stage, { waitingOn: active?.approverName ?? null, requesterName: req.requester?.name ?? null, aVous });
+  const suivi = req.followers.map((f) => f.user?.name ?? "—");
+
+  // « ⋯ » — les gestes secondaires : retirer, clôturer sans suite, rouvrir.
+  const peutClore = (viewer.isHr || viewer.isTop) && (stage === "SOURCING" || stage === "ONBOARDING");
+  const gestesSecondaires = can.cancel || peutClore || Boolean(can.reopen && destinationReouverture);
+
   return (
     <div className="space-y-5">
       <BackLink href="/recrutement">
         <ArrowLeft className="h-4 w-4" /> Retour au recrutement
       </BackLink>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={STAGE_TONE[stage]} dot={false}>{STAGE_LABEL[stage]}</Badge>
@@ -180,22 +227,55 @@ export default async function RecruitmentPage({ params }: { params: { id: string
             {req.department ? ` · ${req.department.name}` : ""}
           </p>
         </div>
-        {can.cancel && <CancelRequestButton id={req.id} />}
+        {gestesSecondaires && (
+          <MenuDossier>
+            {can.cancel && <CancelRequestButton id={req.id} />}
+            {peutClore && <CloseRequestButton id={req.id} />}
+            {can.reopen && destinationReouverture && <RouvrirPanel id={req.id} destination={destinationReouverture} />}
+          </MenuDossier>
+        )}
       </div>
 
-      {/* RENVOYÉE POUR CORRECTION (§118.192) — dit à TOUS ceux qui ouvrent la fiche, pas seulement au
-          demandeur : un validateur qui l'ouvre doit savoir qu'elle n'attend pas sa décision. */}
-      {stage === "RETURNED" && (
-        <div className="space-y-1 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm sm:p-4">
-          <p className="font-semibold">
-            Renvoyée pour correction{renvoyePar ? ` par ${renvoyePar.name}` : ""}{req.returnedAt ? ` le ${formatDate(req.returnedAt)}` : ""}
-          </p>
-          {req.returnNote && <p className="whitespace-pre-wrap break-words">« {req.returnNote} »</p>}
-          <p className="text-xs text-muted-foreground">
-            La demande est chez {req.requester?.name ?? "son demandeur"}, qui la corrige et la renvoie — ou la retire.
-          </p>
-        </div>
-      )}
+      {/* LA DEMANDE — la frise, la phrase « état — chez qui », le N+1 et le suivi désignés par le DG. */}
+      <Card>
+        <CardContent className="space-y-3 pt-4">
+          <ol aria-label="Étapes de la demande" className="grid auto-cols-[minmax(6.5rem,1fr)] grid-flow-col gap-1.5 overflow-x-auto pb-1">
+            {frise.map((e) => (
+              <li
+                key={e.cle}
+                title={[e.titre, e.detail].filter(Boolean).join(" — ")}
+                className={cn(
+                  "min-w-0 border-t-[3px] pt-1.5 text-xs",
+                  e.etat === "done" ? "border-success text-success"
+                    : e.etat === "current" ? "border-primary text-primary"
+                      : e.etat === "rejected" ? "border-destructive text-destructive"
+                        : "border-border text-muted-foreground",
+                )}
+              >
+                <p className={cn("truncate", e.etat === "current" ? "font-semibold" : "font-medium")}>
+                  {e.etat === "done" ? "✓ " : e.etat === "current" ? "⏱ " : e.etat === "rejected" ? "✗ " : ""}{e.titre}
+                </p>
+                <p className="truncate text-[0.6875rem] opacity-90">{e.detail || " "}</p>
+              </li>
+            ))}
+          </ol>
+          <div className={cn("rounded-lg border px-3 py-2.5 sm:px-4", TON_STATUT[statut.ton])}>
+            <p className="font-semibold [overflow-wrap:anywhere]">{statut.phrase}</p>
+            {stage === "RETURNED" && req.returnNote && (
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-xs font-normal text-foreground">
+                « {req.returnNote} »{renvoyePar ? ` — ${renvoyePar.name}` : ""}{req.returnedAt ? `, le ${formatDate(req.returnedAt)}` : ""}
+              </p>
+            )}
+          </div>
+          {(req.futureManager || suivi.length > 0) && (
+            <p className="text-sm">
+              <span className="text-muted-foreground">N+1 :</span> <span className="font-medium">{req.futureManager?.name ?? "—"}</span>
+              <span className="text-muted-foreground"> · Suivi :</span> <span className="font-medium">{suivi.join(", ") || "—"}</span>
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {can.correct && (
         <CorrigerDemandePanel
           id={req.id}
@@ -216,8 +296,11 @@ export default async function RecruitmentPage({ params }: { params: { id: string
           stepLabel={
             active.approverId === user.id
               ? `Marche ${active.order} sur ${progress.total}.`
-              : `Marche ${active.order} sur ${progress.total} — normalement ${active.approverName}. Vous pouvez trancher d'en haut ; les marches non consultées seront marquées comme telles.`
+              : `Marche ${active.order} sur ${progress.total} — normalement ${active.approverName}.`
           }
+          exigeSuivi={exigeSuivi}
+          utilisateurs={utilisateurs}
+          n1ParDefaut={n1ParDefaut}
         />
       )}
 
@@ -234,6 +317,35 @@ export default async function RecruitmentPage({ params }: { params: { id: string
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
+          {montrerDiffusion && (
+            <Card>
+              <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+                <CardTitle className="flex items-center gap-2"><Megaphone className="h-4 w-4" /> Diffusion</CardTitle>
+                <InfoBulle label="Comment se diffuse une offre">
+                  Choisissez le ou les canaux. Le site publie l&apos;offre préparée (visible tant que le poste est ouvert).
+                  LinkedIn : Luna prépare un post selon l&apos;entité, vous le publiez vous-même puis le marquez publié.
+                  Emploitic s&apos;ouvrira quand son API sera configurée.
+                </InfoBulle>
+              </CardHeader>
+              <CardContent>
+                {offreSite?.published && !posteOuvert(stage) && (
+                  <p className="mb-2 text-xs text-warning">Poste non ouvert : l&apos;offre reste invisible sur le site.</p>
+                )}
+                <DiffusionCard
+                  id={req.id}
+                  peutAgir={can.diffuse}
+                  site={{
+                    offreId: offreSite?.id ?? null, publiee: offreSite?.published ?? false,
+                    libelle: etatOffre?.libelle ?? null, ton: etatOffre?.ton ?? "neutral", lien: etatOffre?.lien ?? null,
+                  }}
+                  linkedin={canal("LINKEDIN")}
+                  emploitic={{ ...canal("EMPLOITIC"), configure: emploiticConfigure(process.env) }}
+                  autre={canal("AUTRE")}
+                />
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader><CardTitle>Le besoin</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
@@ -250,22 +362,7 @@ export default async function RecruitmentPage({ params }: { params: { id: string
             </CardContent>
           </Card>
 
-          {fil.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle>Historique de la demande</CardTitle></CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                {fil.map((c) => (
-                  <div key={c.id} className="rounded-lg border border-border p-2.5">
-                    <p className="text-xs text-muted-foreground">{c.author?.name ?? "—"} · {formatDateTime(c.createdAt)}</p>
-                    <p className="mt-0.5 whitespace-pre-wrap break-words">{c.body}</p>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* LES PRÉCISIONS — le va-et-vient RH ↔ demandeur, question par question. C'est le cœur
-              du travail RH, pas une exception : il est donc historisé et relisible. */}
+          {/* LES PRÉCISIONS — le va-et-vient RH ↔ demandeur, question par question. */}
           {(req.infoRequests.length > 0 || can.answerInfo) && (
             <Card>
               <CardHeader><CardTitle>Précisions demandées par les RH</CardTitle></CardHeader>
@@ -297,8 +394,7 @@ export default async function RecruitmentPage({ params }: { params: { id: string
             </Card>
           )}
 
-          {/* LES CV REÇUS — le pipeline vit sur les PERSONNES : plusieurs candidats avancent en
-              parallèle, à des vitesses différentes. */}
+          {/* LES CV REÇUS — le pipeline vit sur les PERSONNES. */}
           {(stage === "SOURCING" || stage === "ONBOARDING" || candidates.length > 0) && (
             <Card>
               <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
@@ -307,9 +403,7 @@ export default async function RecruitmentPage({ params }: { params: { id: string
               </CardHeader>
               <CardContent className="space-y-2">
                 {candidates.length === 0 ? (
-                  <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-                    Aucun CV déposé. Les RH les déposent ici ; c&apos;est ensuite le demandeur qui présélectionne.
-                  </p>
+                  <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">Aucun CV déposé.</p>
                 ) : candidates.map((c) => (
                   <div key={c.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border p-3">
                     <div className="min-w-0">
@@ -344,6 +438,21 @@ export default async function RecruitmentPage({ params }: { params: { id: string
                     />
                   </div>
                 ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {(fil.length > 0 || can.comment) && (
+            <Card>
+              <CardHeader><CardTitle>Fil de la demande</CardTitle></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {fil.map((c) => (
+                  <div key={c.id} className="rounded-lg border border-border p-2.5">
+                    <p className="text-xs text-muted-foreground">{c.author?.name ?? "—"} · {formatDateTime(c.createdAt)}</p>
+                    <p className="mt-0.5 whitespace-pre-wrap break-words">{c.body}</p>
+                  </div>
+                ))}
+                {can.comment && <FilForm id={req.id} />}
               </CardContent>
             </Card>
           )}
@@ -397,43 +506,6 @@ export default async function RecruitmentPage({ params }: { params: { id: string
               )}
             </CardContent>
           </Card>
-
-          {publieOffres && (offreSite || !["CLOSED", "REJECTED", "CANCELLED"].includes(stage)) && (
-            <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4" /> Offre sur le site</CardTitle></CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                {offreSite && etatOffre ? (
-                  <>
-                    <EtatPublicationBadge etat={etatOffre} avecDetail />
-                    {offreSite.published && !posteOuvert(stage) && (
-                      <p className="text-xs text-warning">
-                        Le poste n&apos;est pas ouvert : l&apos;offre reste invisible sur le site{stage === "CLOSED" ? " — il est pourvu ou clos" : ""}.
-                      </p>
-                    )}
-                    <Link href={`/site-web/offres/${offreSite.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                      Ouvrir l&apos;offre <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-muted-foreground">
-                      {stage === "SOURCING"
-                        ? "Le poste est ouvert et n'est pas encore annoncé sur adventumdz.com/carrieres."
-                        : "Préparez l'offre dès maintenant : elle ne sera visible qu'à l'ouverture du poste."}
-                    </p>
-                    <Link href={`/site-web/offres/nouvelle?demande=${req.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                      Préparer l&apos;offre <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {(viewer.isHr || viewer.isTop) && (stage === "SOURCING" || stage === "ONBOARDING") && (
-            <CloseRequestButton id={req.id} />
-          )}
-          {can.reopen && destinationReouverture && <RouvrirPanel id={req.id} destination={destinationReouverture} />}
         </div>
       </div>
     </div>

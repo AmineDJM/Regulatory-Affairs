@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Wallet } from "lucide-react";
 import { requireUser } from "@/lib/session";
@@ -64,25 +65,26 @@ export default async function MoyensGenerauxPage({
     id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
   }));
 
-  // LES DEMANDES D'ACHAT ONT DÉMÉNAGÉ DANS « MON ESPACE » (2026-08).
-  //
-  // Demander un stylo et tenir la caisse d'un département sont deux métiers. Ce module est
-  // celui de ceux qui ACHÈTENT et qui DÉCAISSENT ; demander ce dont on a besoin pour
-  // travailler est un geste de tout le monde, au même titre que demander un congé ou une
-  // formation. Qui n'a pas la caisse n'a donc plus rien à faire ici — et on le lui dit,
-  // avec le chemin, plutôt que de lui laisser une page vide.
+  // LES DEMANDES D'ACHAT PASSENT PAR LE BUREAU DU SECRÉTARIAT (Direction, 07/10 — elles ont quitté
+  // « Mon espace »). Ce module est celui de ceux qui ACHÈTENT et qui DÉCAISSENT : qui n'a pas la
+  // caisse n'a rien à faire ici — on lui donne le chemin plutôt qu'une page vide.
   if (!userCan(user, "GENERAL_MEANS", "VIEW")) {
     return (
       <div className="space-y-5">
         <PageHeader
           title="Moyens généraux"
-          description="Ce module tient la caisse et le budget d'un département. Vos demandes d'achat, elles, se font désormais depuis « Mon espace »."
+          description="Ce module tient la caisse et le budget d'un département."
         />
         <EmptyState
           icon="ShoppingBasket"
-          title="Vos demandes d'achat sont dans « Mon espace »"
-          description="Demandez ce dont vous avez besoin pour travailler depuis votre espace — le circuit ne change pas : votre responsable valide, et l'achat suit."
+          title="Vos demandes d'achat passent par le Bureau du secrétariat"
+          description="Bureau du secrétariat › Nouvelle demande."
         />
+        {userCan(user, "ADMIN_REQUESTS", "VIEW") && (
+          <div className="flex justify-center">
+            <Link href="/demandes" className="text-sm font-medium text-primary hover:underline">Ouvrir le Bureau du secrétariat</Link>
+          </div>
+        )}
       </div>
     );
   }

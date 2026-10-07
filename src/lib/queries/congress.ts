@@ -101,6 +101,8 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
     // plusieurs jours aussi (décision du 04/10/2026 — `CongressNational.endDate`).
     endDate: (c as { endDate?: Date | null }).endDate?.toISOString() ?? null,
     eventType: (c as { eventType?: string }).eventType ?? null,
+    /** « DEMANDEUR » | « MEDECIN » — qui est à l'origine de l'événement (Direction, 07/10) ; `null` sur les demandes d'avant. */
+    initiative: c.initiative ?? null,
     requestStatus: c.requestStatus,
     estimatedBudget: dec(c.estimatedBudget),
     productManagerBudget: dec(c.productManagerBudget),

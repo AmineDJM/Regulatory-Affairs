@@ -102,6 +102,8 @@ export function refusDeConfirmation(
   proposees: readonly LigneProposee[],
   soumises: readonly LigneSoumise[],
   totalVerifie: boolean,
+  /** `caseGlobale` : l'écran atteste d'UNE case (son libellé) — le refus nomme cette case, une seule fois. */
+  opts: { caseGlobale?: string } = {},
 ): string | null {
   const { inconnus, doubles } = rangsFautifs(proposees, soumises);
   if (inconnus.length > 0 || doubles.length > 0) {
@@ -114,6 +116,9 @@ export function refusDeConfirmation(
   const nonCochees = soumises
     .map((s, i) => ({ s, position: i + 1 }))
     .filter(({ s }) => s.lue !== null && !s.verifiee);
+  if (opts.caseGlobale && (nonCochees.length > 0 || !totalVerifie)) {
+    return `Lecture non confirmée : cochez « ${opts.caseGlobale} » après avoir comparé les lignes lues au papier. Rien n'a été enregistré.`;
+  }
   const manques: string[] = [];
   if (nonCochees.length > 0) {
     const noms = nonCochees.map(({ s, position }) => `ligne ${position} (« ${court(s.designation)} »)`).join(", ");
@@ -172,6 +177,8 @@ function provenance(f: { methode: "texte" | "ocr"; confiance: number | null }): 
 export function phraseAuditConfirmation(
   faits: { methode: "texte" | "ocr"; confiance: number | null },
   verdicts: readonly VerdictDeLigne[],
+  /** L'écran a attesté d'UNE case pour toutes les lignes lues : l'audit ne prétend pas « une à une ». */
+  attestationGlobale = false,
 ): string {
   const n = (v: VerdictLigne) => verdicts.filter((x) => x.verdict === v).length;
   const lues = verdicts.filter((x) => x.verdict !== "AJOUTEE").length;
@@ -185,5 +192,5 @@ export function phraseAuditConfirmation(
     `${n("AJOUTEE")} ajoutée${n("AJOUTEE") > 1 ? "s" : ""}`,
     `${n("ECARTEE")} écartée${n("ECARTEE") > 1 ? "s" : ""}`,
   ].join(", ");
-  return `lignes lues ${par}, confirmées une à une : ${detail}`;
+  return `lignes lues ${par}, ${attestationGlobale ? "comparées au papier (attestation globale)" : "confirmées une à une"} : ${detail}`;
 }

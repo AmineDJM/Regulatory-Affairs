@@ -1,28 +1,39 @@
 import { refusAnnulationPieceInfoMed } from "@/lib/annulations/regles";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink, FileText, ShieldPlus, CheckCircle2, Clock, HandCoins } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, FileText, CheckCircle2, Clock } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { hasGlobalView, userCan, scopeCongressIntl, scopeCongressNational, scopeSponsoring } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getDeclaration, canViewDeclaration, sourceLink } from "@/lib/queries/medical-info";
+import { getDeclaration, canViewDeclaration, sourceLink, dernieresRelancesPieces } from "@/lib/queries/medical-info";
 import { peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { CommentThread } from "@/components/shared/comment-thread";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { MenuDossier } from "@/components/shared/menu-dossier";
 import { addMedicalInfoComment } from "@/lib/actions/medical-info-actions";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { MEDICAL_INFO_STATUS, DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
-import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton, DeclareDecisionCard, SlipsCard, AuthorityLocked } from "./panels";
-import { CIRCUIT_LABEL, CIRCUIT_HINT, DECLARATION_KIND_LABEL, isDeclarationKind } from "@/lib/medical-info/circuits";
+import { DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
+import {
+  CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton, DeclareDecisionCard, SlipsCard,
+  AuthorityLocked, DemanderPieceBouton, RelancerPieceButton,
+} from "./panels";
+import { Frise } from "./frise";
+import { CIRCUIT_LABEL, DECLARATION_KIND_LABEL, isDeclarationKind } from "@/lib/medical-info/circuits";
 import { canRequestDecision, declareMessage } from "@/lib/medical-info/declare-decision";
-import { canEditSlips, canRequestSlipsValidation, slipsMessage } from "@/lib/medical-info/slips";
+import { canEditSlips, canRequestSlipsValidation, slipStage, slipsMessage } from "@/lib/medical-info/slips";
 import { circuitStateOf, authoritiesOpen } from "@/lib/medical-info/circuit-state";
+import {
+  parcoursOf, libellePastille, carteAction, pharmacienPeutValider, peutRelancerPiece, joursDepuis, type BlocAction,
+} from "@/lib/medical-info/parcours";
+import { produitsDesDossiers } from "@/lib/medical-info/produits";
 import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
@@ -49,8 +60,9 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const carteFinances = !canManage && canDeliverSlips && etat.circuit === "PROMO" && etat.slips.some((sl) => sl.requestId);
   const lotEditable = canEditSlips(etat.lot);
   const isValidated = decl.status === "VALIDATED";
-  const isAwaitingDirection = decl.status === "AWAITING_DIRECTION";
   const isDirection = hasGlobalView(user.role);
+  // Instruire, c'est avant la validation finale : après, les gestes du pharmacien se referment.
+  const instruit = canManage && !isValidated;
   // UN PAIEMENT DE MATÉRIEL PROMOTIONNEL (§118.152) : la source déclarée est la FACTURE (une pièce
   // Legal), mais ce que le pharmacien instruit — le support à faire viser — vit sur le DOSSIER de
   // matériel promotionnel dont elle découle. On remonte la chaîne une fois : le lien, les pièces et
@@ -92,7 +104,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const amount = decl.amount != null ? toNumber(decl.amount) : null;
   const pendingCount = decl.requests.filter((r) => r.status === "PENDING").length;
 
-  const [documents, users, comments, sourceDocuments, requesterUser] = await Promise.all([
+  const [documents, users, comments, sourceDocuments, requesterUser, relances, produits] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: decl.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -116,7 +128,10 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
       orderBy: { createdAt: "desc" },
     }),
     decl.requesterId ? prisma.user.findUnique({ where: { id: decl.requesterId }, select: { name: true } }) : Promise.resolve(null),
+    pendingCount > 0 ? dernieresRelancesPieces(decl.id) : Promise.resolve(new Map<string, Date>()),
+    produitsDesDossiers([decl]),
   ]);
+  const produit = produits.get(decl.id) ?? null;
 
   const toDocItem = (d: (typeof documents)[number]): DocItem => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
@@ -124,297 +139,337 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   });
   const sourceDocItems: DocItem[] = sourceDocuments.map(toDocItem);
-
-  const docItems: DocItem[] = documents.map((d) => ({
-    id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
-    confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
-    createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
-  }));
+  const docItems: DocItem[] = documents.map(toDocItem);
   const docById = new Map(documents.map((d) => [d.id, d.name]));
   const commentItems = comments.map((c) => ({
     id: c.id, author: c.author?.name ?? "Utilisateur", authorId: c.authorId, body: c.body,
     createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null,
   }));
 
+  // ── OÙ EN EST-IL, ET QUE RESTE-T-IL À FAIRE POUR CELUI QUI REGARDE ────────────────────────
+  const parcours = parcoursOf({
+    circuit: etat.circuit, status: decl.status, createdAt: decl.createdAt, updatedAt: decl.updatedAt,
+    declare: etat.declare, declareRequestedAt: decl.declareRequestedAt, authorityRef: decl.authorityRef,
+    lot: etat.lot, slips: etat.slips, summary: etat.summary, skipped: etat.skipped, bvRequestedAt: decl.bvRequestedAt,
+    requests: decl.requests.map((r) => ({
+      id: r.id, status: r.status, createdAt: r.createdAt, fulfilledAt: r.fulfilledAt,
+      targetUserId: r.targetUserId, targetName: r.targetUser?.name ?? null,
+    })),
+    pharmacistValidatedAt: decl.pharmacistValidatedAt, validatedAt: decl.validatedAt, pharmacistName: decl.pharmacist?.name ?? null,
+  });
+  const mesPieces = isValidated ? [] : decl.requests.filter((r) => r.status === "PENDING" && r.targetUserId === user.id);
+  const carte = carteAction(parcours, {
+    gestionnaire: instruit,
+    direction: isDirection,
+    finances: carteFinances,
+    aDeposer: mesPieces.length,
+    aRemettre: etat.slips.some((sl) => slipStage(sl) === "PAYE"),
+  }, {
+    pharmacienPeutValider: pharmacienPeutValider({ ...etat, authorityRef: decl.authorityRef }),
+    autoritesOuvertes,
+  });
+  const blocsCarte = new Set<BlocAction>([...carte.principal, ...(carte.aussi ? [carte.aussi.bloc] : [])]);
+  const bonsDansLaCarte = blocsCarte.has("BONS") || blocsCarte.has("REMETTRE_QUITTANCE");
+  // Les pièces que la carte montre déjà ne se répètent pas dans la section « Pièces ».
+  const piecesDansLaCarte = new Set<string>([
+    ...mesPieces.map((r) => r.id),
+    ...(blocsCarte.has("PIECES_ATTENDUES") ? decl.requests.filter((r) => r.status === "PENDING").map((r) => r.id) : []),
+  ]);
+
+  // ── UNE DEMANDE DE PIÈCE, telle qu'elle se lit partout : à qui, depuis quand, les gestes permis.
+  const ligneDemande = (r: (typeof decl.requests)[number]) => {
+    const mine = r.targetUserId === user.id;
+    const jours = joursDepuis(r.createdAt);
+    const relancable = r.status === "PENDING" && !isValidated && !mine && r.targetUserId && (canManage || r.requestedById === user.id);
+    const relance = relancable
+      ? peutRelancerPiece(r, { userId: user.id, gestionnaire: canManage, derniereRelance: relances.get(r.id) ?? null })
+      : null;
+    return (
+      <li key={r.id} className="py-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{r.label}</p>
+            <p className="text-xs text-muted-foreground">
+              {mine ? "Demandée à vous" : `Demandée à ${r.targetUser?.name ?? "—"}`}
+              {r.status === "PENDING" && jours != null && <> · il y a {jours} j</>}
+              {r.fulfilledAt && <> · déposée le {formatDate(r.fulfilledAt.toISOString())}</>}
+            </p>
+            {r.note && <p className="mt-0.5 text-xs text-muted-foreground">Note : {r.note}</p>}
+            {r.status === "FULFILLED" && r.documentId && docById.has(r.documentId) && (
+              <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-success"><FileText className="h-3.5 w-3.5" /> {docById.get(r.documentId)}</p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {r.status !== "PENDING" && <StatusBadge map={DOC_REQUEST_STATUS} value={r.status} dot={false} />}
+            {relance && <RelancerPieceButton id={r.id} refus={relance.ok ? null : relance.raison} />}
+            {refusAnnulationPieceInfoMed(r, { userId: user.id, gestionnaire: canManage }) === null && <CancelRequestButton id={r.id} />}
+          </div>
+        </div>
+        {r.status === "PENDING" && mine && <FulfillForm requestId={r.id} />}
+        {/* Le pharmacien peut déposer à la place de la personne sollicitée — un geste replié. */}
+        {r.status === "PENDING" && !mine && canManage && (
+          <details className="mt-1">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Déposer à sa place</summary>
+            <FulfillForm requestId={r.id} />
+          </details>
+        )}
+      </li>
+    );
+  };
+
+  // LES BONS DE VERSEMENT — UN tableau, rendu une seule fois : celui du pharmacien (ses gestes du
+  // lot) ou celui des Finances (la seule remise). Les deux ne coexistent jamais à l'écran.
+  const blocBons = etat.circuit !== "PROMO" ? null : (
+    <>
+      {canManage && (
+        <SlipsCard
+          id={decl.id}
+          lot={etat.lot}
+          slips={etat.slips.map((sl) => ({
+            id: sl.id, label: sl.label, amount: sl.amount, note: sl.note,
+            requestId: sl.requestId, centralStatus: sl.centralStatus, orderStatus: sl.orderStatus,
+            deliveredAt: sl.deliveredAt, deliveredAtIso: sl.deliveredAt?.toISOString() ?? null,
+          }))}
+          summary={etat.summary}
+          canEdit={instruit && lotEditable}
+          canValidate={instruit && canRequestSlipsValidation(etat.lot, etat.slips).ok}
+          canManage={instruit}
+          canDeliver={canDeliverSlips}
+          canSkip={instruit && lotEditable && !etat.skipped && etat.slips.every((sl) => !sl.requestId)}
+          skipReason={etat.skipped ? decl.bvSkipReason : null}
+          validationHref={decl.bvValidationId ? `/validations/${decl.bvValidationId}` : null}
+        />
+      )}
+      {/* LES FINANCES REMETTENT LES QUITTANCES (audit 360°, I9) : le tableau des bons leur est
+          montré en lecture, avec le seul geste qui leur revient — « Quittance remise ». */}
+      {carteFinances && (
+        <SlipsCard
+          id={decl.id}
+          lot={etat.lot}
+          slips={etat.slips.map((sl) => ({
+            id: sl.id, label: sl.label, amount: sl.amount, note: sl.note,
+            requestId: sl.requestId, centralStatus: sl.centralStatus, orderStatus: sl.orderStatus,
+            deliveredAt: sl.deliveredAt, deliveredAtIso: sl.deliveredAt?.toISOString() ?? null,
+          }))}
+          summary={etat.summary}
+          canEdit={false}
+          canValidate={false}
+          canManage={false}
+          canDeliver
+          canSkip={false}
+          skipReason={etat.skipped ? decl.bvSkipReason : null}
+          validationHref={null}
+        />
+      )}
+    </>
+  );
+
+  const depot = autoritesOuvertes ? (
+    <div className="space-y-3">
+      <AuthorityForm id={decl.id} authorityRef={decl.authorityRef} authorityNotes={decl.authorityNotes} />
+      <div className="space-y-1.5 border-t border-border pt-3">
+        <p className="text-xs text-muted-foreground">Joindre un récépissé (facultatif)</p>
+        <DocumentUpload entityType="MEDICAL_INFO_DECLARATION" entityId={decl.id} categories={["SUPPORTING_DOC", "OTHER"]} compact />
+      </div>
+    </div>
+  ) : (
+    <AuthorityLocked message={etat.circuit === "EVENT"
+      ? declareMessage(etat.declare, { authorityRef: decl.authorityRef })
+      : slipsMessage(etat.lot, etat.summary)} />
+  );
+
+  const rendreBloc = (bloc: BlocAction): ReactNode => {
+    switch (bloc) {
+      case "PIECES_A_DEPOSER":
+        return <ul className="divide-y divide-border">{mesPieces.map(ligneDemande)}</ul>;
+      case "PIECES_ATTENDUES":
+        return <ul className="divide-y divide-border">{decl.requests.filter((r) => r.status === "PENDING" && r.targetUserId !== user.id).map(ligneDemande)}</ul>;
+      case "DECLARER":
+        return (
+          <DeclareDecisionCard
+            id={decl.id}
+            state={etat.declare}
+            authorityRef={decl.authorityRef}
+            canRequest={instruit && canRequestDecision(etat.declare)}
+            validationHref={decl.declareValidationId ? `/validations/${decl.declareValidationId}` : null}
+          />
+        );
+      case "BONS":
+      case "REMETTRE_QUITTANCE":
+        return blocBons;
+      case "DEPOT":
+        return depot;
+      case "VALIDER_PHARMACIEN":
+        return <ValidateButton id={decl.id} hasPending={pendingCount > 0} />;
+      case "VALIDER_DIRECTION":
+        return <DirectionValidateButton id={decl.id} amount={amount} />;
+    }
+  };
+  // « BONS » et « REMETTRE_QUITTANCE » montrent le même tableau : une seule fois.
+  const principal = carte.principal.filter((b, i, all) =>
+    !(b === "REMETTRE_QUITTANCE" && all.includes("BONS")) && all.indexOf(b) === i);
+
   return (
     <div className="space-y-5">
       <BackLink href="/information-medicale">
-        <ArrowLeft className="h-4 w-4" /> Retour à l'information médicale
+        <ArrowLeft className="h-4 w-4" /> Information médicale
       </BackLink>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-2">
-            <ShieldPlus className="h-5 w-5 shrink-0 text-primary" />
-            <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight">{decl.label}</h1>
-          </div>
+          <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight">
+            <span className="font-mono text-base text-muted-foreground">{decl.reference}</span> · {decl.label}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            <span className="font-mono">{decl.reference}</span> · {CIRCUIT_LABEL[etat.circuit]}
+            {CIRCUIT_LABEL[etat.circuit]}
             {" · "}
-            {isDeclarationKind(decl.declarationKind)
-              ? DECLARATION_KIND_LABEL[decl.declarationKind]
-              : sourceLabel}
+            {isDeclarationKind(decl.declarationKind) ? DECLARATION_KIND_LABEL[decl.declarationKind] : sourceLabel}
             {amount != null && <> · {formatCurrency(amount)}</>}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <StatusBadge map={MEDICAL_INFO_STATUS} value={decl.status} />
-          <SuperAdminDeleteButton kind="MEDICAL_INFO_DECLARATION" id={decl.id} name={decl.reference} enabled={user.role === "SUPER_ADMIN"} />
+          <Badge tone={parcours.ton}>{libellePastille(parcours)}</Badge>
+          {user.role === "SUPER_ADMIN" && (
+            <MenuDossier>
+              <SuperAdminDeleteButton kind="MEDICAL_INFO_DECLARATION" id={decl.id} name={decl.reference} enabled />
+            </MenuDossier>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* Colonne principale */}
-        <div className="space-y-5 lg:col-span-2">
-          {/* Synthèse */}
-          <Card>
-            <CardHeader><CardTitle>Événement déclaré</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
+      <Card>
+        <CardContent className="space-y-4 py-4">
+          <Frise etapes={parcours.etapes} />
+
+          <section className="space-y-3 border-t border-border pt-4" aria-labelledby="reste-a-faire">
+            <h2 id="reste-a-faire" className="text-sm font-semibold">Ce qu&apos;il reste à faire</h2>
+            {principal.map((b) => <div key={b}>{rendreBloc(b)}</div>)}
+            {carte.aussi && (
+              <details className="rounded-lg border border-border px-3 py-2">
+                <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">{carte.aussi.libelle}</summary>
+                <div className="pt-3">{rendreBloc(carte.aussi.bloc)}</div>
+              </details>
+            )}
+            {carte.attente && (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4 shrink-0" aria-hidden /> {carte.attente}
+              </p>
+            )}
+            {isValidated && (
+              <p className="flex items-center gap-2 text-sm text-success">
+                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+                Dossier validé{decl.validatedAt ? ` le ${formatDate(decl.validatedAt.toISOString())}` : ""}
+                {amount && amount > 0 ? " — ordre de dépense transmis au comptable" : ""}
+              </p>
+            )}
+            {instruit && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <DemanderPieceBouton declarationId={decl.id} users={users} />
+              </div>
+            )}
+          </section>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="divide-y divide-border py-1">
+          <Repli titre={`L'événement${amount != null ? ` · ${formatCurrency(amount)}` : ""}`}>
+            <div className="space-y-2 text-sm">
               <Row label="Type" value={sourceLabel} />
               <Row label="Demandeur (à la source)" value={requesterUser?.name ?? "—"} />
               <Row label="Budget accordé" value={amount != null ? formatCurrency(amount) : "—"} />
               <Row label="Bénéficiaire" value={decl.beneficiary ?? "—"} />
+              <div className="flex items-start justify-between gap-3">
+                <span className="shrink-0 text-muted-foreground">Produit</span>
+                <span className="min-w-0 break-words text-right font-medium">
+                  {!produit ? "—" : produit.id
+                    ? <Link href={`/produits/${produit.id}`} className="text-primary hover:underline">{produit.nom}</Link>
+                    : produit.nom}
+                  {produit && produit.autres > 0 && <span className="font-normal text-muted-foreground"> +{produit.autres}</span>}
+                </span>
+              </div>
               <Row label="Pharmacien responsable" value={decl.pharmacist?.name ?? "Non assigné"} />
               <Row label="Créé le" value={formatDate(decl.createdAt.toISOString())} />
+              {decl.authorityRef && <Row label="Référence ministère" value={decl.authorityRef} />}
+              {decl.authorityNotes && <Row label="Notes de déclaration" value={decl.authorityNotes} />}
               {decl.pharmacistValidatedAt && <Row label="Validé (pharmacien) le" value={formatDateTime(decl.pharmacistValidatedAt.toISOString())} />}
               {isValidated && decl.validatedAt && <Row label="Validé (Direction) le" value={formatDateTime(decl.validatedAt.toISOString())} />}
-              {link && canOpenSource && (
-                <div className="pt-1">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+                {link && canOpenSource && (
                   <Link href={link} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
                     <ExternalLink className="h-3.5 w-3.5" /> {promoSource ? "Voir le dossier de matériel promotionnel" : "Voir l'événement source"}
                   </Link>
+                )}
+                {decl.declareValidationId && !blocsCarte.has("DECLARER") && (
+                  <Link href={`/validations/${decl.declareValidationId}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+                    <FileText className="h-3.5 w-3.5" /> Décision « à déclarer ? »
+                  </Link>
+                )}
+              </div>
+            </div>
+          </Repli>
+
+          <Repli titre={`Pièces · ${docItems.length + sourceDocItems.length}`}>
+            <div className="space-y-4">
+              {decl.requests.some((r) => !piecesDansLaCarte.has(r.id)) && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Demandées</p>
+                  <ul className="divide-y divide-border">
+                    {decl.requests.filter((r) => !piecesDansLaCarte.has(r.id)).map(ligneDemande)}
+                  </ul>
                 </div>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Pièces demandées */}
-          <Card>
-            <CardHeader><CardTitle>Pièces requises</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {decl.requests.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Aucune pièce demandée pour l'instant.</p>
-              ) : (
-                <ul className="space-y-3">
-                  {decl.requests.map((r) => {
-                    const mine = r.targetUserId === user.id;
-                    return (
-                      <li key={r.id} className="rounded-lg border border-border p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium">{r.label}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Demandée à {r.targetUser?.name ?? "—"}
-                              {mine && <> (vous)</>}
-                              {r.fulfilledAt && <> · déposée le {formatDate(r.fulfilledAt.toISOString())}</>}
-                            </p>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            <StatusBadge map={DOC_REQUEST_STATUS} value={r.status} dot={false} />
-                            {refusAnnulationPieceInfoMed(r, { userId: user.id, gestionnaire: canManage }) === null && <CancelRequestButton id={r.id} />}
-                          </div>
-                        </div>
-                        {r.note && <p className="mt-1 text-xs text-muted-foreground">Note : {r.note}</p>}
-                        {r.status === "FULFILLED" && r.documentId && docById.has(r.documentId) && (
-                          <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-success"><FileText className="h-3.5 w-3.5" /> {docById.get(r.documentId)}</p>
-                        )}
-                        {r.status === "PENDING" && (mine || canManage) && <FulfillForm requestId={r.id} />}
-                      </li>
-                    );
-                  })}
-                </ul>
+              {docItems.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Déposées au dossier</p>
+                  <DocumentList documents={docItems} canDelete={canManage} canEdit={onlyofficeConfigured() && canManage} path={`/information-medicale/${decl.id}`} />
+                </div>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Documents joints à l'événement source (congrès / sponsoring) */}
-          {sourceDocItems.length > 0 && (
-            <Card>
-              <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
-                <CardTitle>{promoSource ? "Pièces du dossier (support, facture)" : "Documents de l'événement"}</CardTitle>
-                <span className="text-xs text-muted-foreground">{sourceLabel}</span>
-              </CardHeader>
-              <CardContent>
-                <DocumentList documents={sourceDocItems} canDelete={false} path={`/information-medicale/${decl.id}`} />
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Documents déposés */}
-          {docItems.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle>Documents déposés</CardTitle></CardHeader>
-              <CardContent>
-                <DocumentList documents={docItems} canDelete={canManage} canEdit={onlyofficeConfigured() && canManage} path={`/information-medicale/${decl.id}`} />
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Espace de discussion (pharmacien · Direction · parties prenantes) */}
-          <Card>
-            <CardHeader><CardTitle>Commentaires & échanges</CardTitle></CardHeader>
-            <CardContent>
-              <CommentThread
-                comments={commentItems}
-                action={addMedicalInfoComment}
-                hiddenFields={{ declarationId: decl.id }}
-                currentUserId={user.id}
-                canModerate={canManage}
-                updateAction={updateComment}
-                deleteAction={deleteComment}
-                path={`/information-medicale/${decl.id}`}
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Colonne latérale : actions du pharmacien */}
-        <div className="space-y-5">
-          {canManage && !isValidated && (
-            <>
-              <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4" /> Demander une pièce</CardTitle></CardHeader>
-                <CardContent><RequestDocForm declarationId={decl.id} users={users} /></CardContent>
-              </Card>
-              {/* LE CIRCUIT DU DOSSIER — et il n'y en a qu'UN à l'écran. Montrer les deux
-                  laisserait choisir, alors que la nature du dossier a déjà décidé. */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    {etat.circuit === "EVENT" ? <ShieldPlus className="h-4 w-4" /> : <HandCoins className="h-4 w-4" />}
-                    {etat.circuit === "EVENT" ? "Faut-il déclarer ?" : "Bons de versement"}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-xs text-muted-foreground">{CIRCUIT_HINT[etat.circuit]}</p>
-                  {etat.circuit === "EVENT" ? (
-                    <DeclareDecisionCard
-                      id={decl.id}
-                      state={etat.declare}
-                      authorityRef={decl.authorityRef}
-                      canRequest={canManage && canRequestDecision(etat.declare)}
-                      validationHref={decl.declareValidationId ? `/validations/${decl.declareValidationId}` : null}
-                    />
-                  ) : (
-                    <SlipsCard
-                      id={decl.id}
-                      lot={etat.lot}
-                      slips={etat.slips.map((sl) => ({
-                        id: sl.id, label: sl.label, amount: sl.amount, note: sl.note,
-                        requestId: sl.requestId, centralStatus: sl.centralStatus, orderStatus: sl.orderStatus,
-                        deliveredAt: sl.deliveredAt, deliveredAtIso: sl.deliveredAt?.toISOString() ?? null,
-                      }))}
-                      summary={etat.summary}
-                      canEdit={canManage && lotEditable}
-                      canValidate={canManage && canRequestSlipsValidation(etat.lot, etat.slips).ok}
-                      canManage={canManage}
-                      canDeliver={canDeliverSlips}
-                      canSkip={canManage && lotEditable && !etat.skipped && etat.slips.every((sl) => !sl.requestId)}
-                      skipReason={etat.skipped ? decl.bvSkipReason : null}
-                      validationHref={decl.bvValidationId ? `/validations/${decl.bvValidationId}` : null}
-                    />
-                  )}
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldPlus className="h-4 w-4" /> Dépôt au ministère</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  {/* FERMÉ tant que le circuit ne l'a pas ouvert. Le serveur applique la MÊME
-                      règle : masquer une carte est du confort, le refus est la règle. */}
-                  {autoritesOuvertes ? (
-                    <>
-                      <AuthorityForm id={decl.id} authorityRef={decl.authorityRef} authorityNotes={decl.authorityNotes} />
-                      <div className="space-y-1.5 border-t border-border pt-3">
-                        <p className="text-xs text-muted-foreground">Joindre un document (récépissé, accusé… — facultatif)</p>
-                        <DocumentUpload entityType="MEDICAL_INFO_DECLARATION" entityId={decl.id} categories={["SUPPORTING_DOC", "OTHER"]} compact />
-                      </div>
-                    </>
-                  ) : (
-                    <AuthorityLocked message={etat.circuit === "EVENT"
-                      ? declareMessage(etat.declare, { authorityRef: decl.authorityRef })
-                      : slipsMessage(etat.lot, etat.summary)} />
-                  )}
-                </CardContent>
-              </Card>
-              {!isAwaitingDirection && (
-                <Card className="border-success/40">
-                  <CardHeader><CardTitle className="flex items-center gap-2 text-base"><CheckCircle2 className="h-4 w-4 text-success" /> Validation (pharmacien)</CardTitle></CardHeader>
-                  <CardContent><ValidateButton id={decl.id} hasPending={pendingCount > 0} /></CardContent>
-                </Card>
+              {sourceDocItems.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {promoSource ? "Du dossier (support, facture)" : "De l'événement"}
+                  </p>
+                  <DocumentList documents={sourceDocItems} canDelete={false} path={`/information-medicale/${decl.id}`} />
+                </div>
               )}
-            </>
+              {decl.requests.length === 0 && docItems.length === 0 && sourceDocItems.length === 0 && (
+                <p className="text-sm text-muted-foreground">Aucune pièce.</p>
+              )}
+            </div>
+          </Repli>
+
+          {blocBons && !bonsDansLaCarte && (canManage || carteFinances) && (
+            <Repli titre={`Bons de versement · ${etat.summary.delivered}/${etat.summary.count} remis`}>{blocBons}</Repli>
           )}
 
-          {/* Direction : validation finale → ordre de dépense (comptable) */}
-          {isDirection && isAwaitingDirection && (
-            <Card className="border-success/50">
-              <CardHeader><CardTitle className="flex items-center gap-2 text-base"><CheckCircle2 className="h-4 w-4 text-success" /> Validation finale (Direction)</CardTitle></CardHeader>
-              <CardContent><DirectionValidateButton id={decl.id} amount={amount} /></CardContent>
-            </Card>
-          )}
-
-          {/* Validé par le pharmacien → en attente de la Direction (vue des autres) */}
-          {isAwaitingDirection && !isDirection && (
-            <Card className="border-warning/40">
-              <CardContent className="flex items-start gap-2 py-5 text-sm text-muted-foreground">
-                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                Validé par le pharmacien responsable. En attente de la <strong>validation finale de la Direction</strong> (pour le comptable).
-              </CardContent>
-            </Card>
-          )}
-
-          {isValidated && (
-            <Card className="border-success/40">
-              <CardContent className="space-y-2 py-5 text-sm">
-                <p className="flex items-center gap-2 font-medium text-success"><CheckCircle2 className="h-5 w-5" /> Déclaration validée</p>
-                <p className="text-muted-foreground">L'événement a été validé par le pharmacien responsable puis par la Direction.{amount && amount > 0 ? " L'ordre de dépense a été transmis au comptable." : ""}</p>
-                {decl.authorityRef && <p className="text-muted-foreground">Référence autorités : <span className="font-medium text-foreground">{decl.authorityRef}</span></p>}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* LES FINANCES REMETTENT LES QUITTANCES (audit 360°, I9) : la carte des bons leur est
-              montrée en lecture, avec le seul geste qui leur revient — « Quittance remise ». Elle
-              vivait dans le bloc du pharmacien, où elles n'entrent pas. */}
-          {carteFinances && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base"><HandCoins className="h-4 w-4" /> Bons de versement</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-xs text-muted-foreground">Une quittance réglée se remet au bureau du pharmacien : c&apos;est la remise, et non le règlement, qui ouvre la déclaration aux autorités.</p>
-                <SlipsCard
-                  id={decl.id}
-                  lot={etat.lot}
-                  slips={etat.slips.map((sl) => ({
-                    id: sl.id, label: sl.label, amount: sl.amount, note: sl.note,
-                    requestId: sl.requestId, centralStatus: sl.centralStatus, orderStatus: sl.orderStatus,
-                    deliveredAt: sl.deliveredAt, deliveredAtIso: sl.deliveredAt?.toISOString() ?? null,
-                  }))}
-                  summary={etat.summary}
-                  canEdit={false}
-                  canValidate={false}
-                  canManage={false}
-                  canDeliver
-                  canSkip={false}
-                  skipReason={etat.skipped ? decl.bvSkipReason : null}
-                  validationHref={null}
-                />
-              </CardContent>
-            </Card>
-          )}
-
-          {!canManage && !carteFinances && !isValidated && !isAwaitingDirection && (
-            <Card>
-              <CardContent className="flex items-start gap-2 py-5 text-sm text-muted-foreground">
-                <Clock className="mt-0.5 h-4 w-4 shrink-0" />
-                Le pharmacien responsable de l'information médicale instruit cette déclaration. Déposez les pièces qui vous sont demandées ci-contre.
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
+          <Repli titre={`Discussion · ${commentItems.length}`}>
+            <CommentThread
+              comments={commentItems}
+              action={addMedicalInfoComment}
+              hiddenFields={{ declarationId: decl.id }}
+              currentUserId={user.id}
+              canModerate={canManage}
+              updateAction={updateComment}
+              deleteAction={deleteComment}
+              path={`/information-medicale/${decl.id}`}
+            />
+          </Repli>
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+/** Une section repliée — ce qu'on lit à la demande. */
+function Repli({ titre, children }: { titre: string; children: ReactNode }) {
+  return (
+    <details className="group py-3">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium hover:text-primary [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden /> {titre}
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
   );
 }
 

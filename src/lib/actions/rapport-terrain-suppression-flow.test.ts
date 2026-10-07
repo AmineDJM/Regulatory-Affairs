@@ -153,7 +153,8 @@ suite("Rapport terrain — la suppression est réversible, gardée par ligne et 
     expect(pieces).toHaveLength(2);
     await comme("kamA");
     const res = await deleteFieldReport(form({ id: r.id }));
-    expect(res).toMatchObject({ ok: true, redirect: "/field-reports" });
+    // La liste vit sous Promotion médicale › Rapports (Direction, 07/10) — `/field-reports` y redirige.
+    expect(res).toMatchObject({ ok: true, redirect: "/medical/rapports" });
     expect(await existe(r.id)).toBe(false);
     expect(await prisma.fieldReportAttachment.count({ where: { reportId: r.id } })).toBe(0);
     // LES FICHIERS NE SONT PAS LIBÉRÉS : la restauration doit les retrouver.
@@ -446,23 +447,27 @@ suite("Rapport terrain — la suppression est réversible, gardée par ligne et 
  * le mécanisme doit être branché : l'écran, l'action, l'aperçu, la restauration.
  */
 describe("Rapport terrain — la suppression est branchée là où une personne la voit (§118.212)", () => {
-  it("la liste monte l'icône sur CHAQUE ligne, armée par la règle de l'action — et hors du lien de la ligne", () => {
-    const src = code("src/app/(app)/field-reports/page.tsx");
-    expect(src).toMatch(/<SupprimerRapport[\s\S]{0,200}enabled=\{r\.canDelete\}/);
+  // LA LISTE est l'onglet « Rapports » de la Promotion médicale (Direction, 07/10) : une ligne ouvre la FEUILLE du rapport,
+  // et c'est la feuille qui porte l'icône — armée par la règle de l'action, calculée par le chargeur.
+  it("la feuille d'une ligne de la liste monte l'icône, armée par la règle de l'action — hors du lien de la fiche", () => {
+    const src = code("src/app/(app)/medical/rapports/liste-rapports.tsx");
+    expect(src).toMatch(/<SupprimerRapport[\s\S]{0,200}enabled=\{ligne\.suppression !== null\}/);
     // L'icône est la SŒUR du lien : un bouton dans un lien déclenche deux gestes pour un clic.
-    const ligne = src.slice(src.indexOf("reports.map"));
-    expect(ligne.indexOf("</Link>"), "le lien existe").toBeGreaterThan(-1);
-    expect(ligne.indexOf("</Link>"), "le lien est refermé AVANT l'icône").toBeLessThan(ligne.indexOf("<SupprimerRapport"));
+    const feuille = src.slice(src.indexOf("function FicheRapport"));
+    expect(feuille.indexOf("</Link>"), "le lien existe").toBeGreaterThan(-1);
+    expect(feuille.indexOf("</Link>"), "le lien est refermé AVANT l'icône").toBeLessThan(feuille.indexOf("<SupprimerRapport"));
+    const chargeur = code("src/lib/queries/rapports-terrain-liste.ts");
+    expect(chargeur).toMatch(/suppression: peutSupprimerLeRapport\(user, r, entitePermise\(r\.companyId\)\)/);
   });
 
   it("la fiche monte le même bouton, pour qui a le droit (plus pour le seul Super Admin)", () => {
-    const src = code("src/app/(app)/field-reports/[id]/page.tsx");
+    const src = code("src/app/(app)/medical/rapports/[id]/page.tsx");
     expect(src).toMatch(/<SupprimerRapport[\s\S]{0,300}enabled=\{detail\.canDelete\}/);
     expect(src).not.toContain("SuperAdminDeleteButton");
   });
 
   it("le bouton passe par la fenêtre commune (double confirmation) — jamais un window.confirm", () => {
-    const src = code("src/app/(app)/field-reports/supprimer-rapport.tsx");
+    const src = code("src/app/(app)/medical/rapports/supprimer-rapport.tsx");
     expect(src).not.toContain("window.confirm(");
     expect(src).toMatch(/<ConfirmationSuppression[\s\S]{0,300}kind="FIELD_REPORT"[\s\S]{0,200}executer=\{deleteFieldReport\}/);
     const fenetre = code("src/components/shared/super-admin-delete.tsx");

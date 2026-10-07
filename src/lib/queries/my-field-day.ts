@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { clausePanelDuKam } from "@/lib/rbac";
-import { getSfeConfig, panelRequiredVisits } from "@/lib/sfe";
+import { getSfeConfig } from "@/lib/sfe";
+import { lettresDesPraticiens } from "@/lib/segmentation/lettres-service";
+import { requisDuPanel, requisDuPraticien } from "@/lib/segmentation/lettre-requise";
 import {
   buildTournee, carriedProducts, monthProgress,
   type CarriedProduct, type MonthProgress, type PanelDoctor, type TourneeItem,
@@ -81,25 +83,28 @@ export async function loadMyFieldDay(userId: string, today = new Date()): Promis
     visitsByDoctor.set(v.doctorId, (visitsByDoctor.get(v.doctorId) ?? 0) + 1);
   }
 
-  const panelDoctors: PanelDoctor[] = doctors.map((d) => ({
-    id: d.id, name: d.name, potential: String(d.potential),
-    specialty: d.specialty, institution: d.institution, wilaya: d.wilaya,
-    lastVisitAt: d.lastVisit,
-    visitsThisMonth: visitsByDoctor.get(d.id) ?? 0,
-  }));
+  // LA LETTRE PARTOUT (Direction, 07/10) : chaque praticien du panel porte sa lettre de segmentation et les visites
+  // qu'elle demande (stratégie de la BU du KAM d'abord, le palier de potentiel pour un praticien hors de toute
+  // stratégie). La tournée proposée et la cible du mois lisent CE requis — le seul.
+  const [lettres, profil] = await Promise.all([
+    lettresDesPraticiens(doctors.map((d) => d.id)),
+    prisma.salesRepProfile.findUnique({ where: { repId: userId }, select: { businessUnitId: true } }),
+  ]);
+  const buId = profil?.businessUnitId ?? null;
 
-  const panelByTier: Record<string, number> = {};
-  for (const d of panelDoctors) panelByTier[d.potential] = (panelByTier[d.potential] ?? 0) + 1;
+  const panelDoctors: PanelDoctor[] = doctors.map((d) => {
+    const r = requisDuPraticien(lettres.get(d.id), buId, String(d.potential), config.frequencyByTier);
+    return {
+      id: d.id, name: d.name, potential: String(d.potential), lettre: r.lettre, requis: r.visites,
+      specialty: d.specialty, institution: d.institution, wilaya: d.wilaya,
+      lastVisitAt: d.lastVisit,
+      visitsThisMonth: visitsByDoctor.get(d.id) ?? 0,
+    };
+  });
 
-  // LA CIBLE DU MOIS : ce que les affectations demandent, à défaut ce que le panel exige. Les
-  // affectations priment — c'est le plan que la Direction a posé pour CE cycle ; la fréquence
-  // du panel n'est que le repli quand personne n'a encore rien affecté.
-  const planned = cycle
-    ? await prisma.promotionAssignment.aggregate({
-        where: { cycleId: cycle.id, repId: userId }, _sum: { plannedVisits: true },
-      })
-    : null;
-  const target = planned?._sum.plannedVisits ?? 0;
+  // LA CIBLE DU MOIS = LE REQUIS DE LA SEGMENTATION — Σ des visites que demande chaque praticien du panel. Les visites
+  // prévues des affectations ne priment plus : c'était le quatrième « prévu » concurrent, et le pilotage ne le lit pas.
+  const target = Math.round(requisDuPanel(panelDoctors, lettres, buId, config.frequencyByTier));
 
   // Le produit CANONIQUE est la cible du lien de visite : un produit promu sans produit
   // canonique ne peut pas être coché (on ne saurait pas quoi relier) — on l'écarte plutôt que
@@ -117,7 +122,7 @@ export async function loadMyFieldDay(userId: string, today = new Date()): Promis
     produits,
     progress: monthProgress({
       done: visitsThisMonth.length,
-      target: target || panelRequiredVisits(panelByTier, config.frequencyByTier),
+      target,
       panelSize: doctors.length,
       covered: new Set(visitsThisMonth.map((v) => v.doctorId).filter(Boolean)).size,
       today,

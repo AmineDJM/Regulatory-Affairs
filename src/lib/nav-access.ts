@@ -119,9 +119,9 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
   // parent.
   //
   // UN ENFANT UNIQUE QUI EST LE PARENT LUI-MÊME N'EST PAS UN SOUS-MENU (§118.153). « Mon Équipe »
-  // porte deux enfants — l'équipe et le recrutement ; à qui n'a pas le recrutement, il n'en
+  // portait deux enfants — l'équipe et le recrutement ; à qui n'avait pas le recrutement, il n'en
   // restait qu'un, identique au parent : une flèche à déplier pour retrouver le lien qu'on
-  // venait de cliquer. Mesuré en parcours réel, chez chaque encadrant sans recrutement.
+  // venait de cliquer. (Le recrutement vit désormais sous les RH ; la règle reste, pour toute entrée.)
   const allowedChildren = (n: NavItem): NavItem[] => {
     const kids = (n.children ?? []).filter((c) => (!c.gate || gateOpen[c.gate]) && moduleOuvert(c));
     return kids.length === 1 && kids[0].href === n.href ? [] : kids;

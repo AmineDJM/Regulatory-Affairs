@@ -197,3 +197,21 @@ export async function getHrRequestQueue(perimetre: Prisma.EmployeeWhereInput = {
   await attachThreads(items);
   return items;
 }
+
+/**
+ * LES DEMANDES RÉCEMMENT PRÊTES — le filtre « Prêtes » de « Demandes RH » (Direction, 07/10) : ce qui a été préparé,
+ * remis ou accordé ces 30 derniers jours, dans le MÊME périmètre que la file (`clauseSalariesVisibles`), les plus récentes
+ * d'abord, bornées à 50. Rien de plus que ce que l'écran voyait déjà sur les fiches des mêmes salariés.
+ */
+export async function getHrRequestsPretes(perimetre: Prisma.EmployeeWhereInput = {}, jours = 30): Promise<HrQueueItem[]> {
+  const depuis = new Date(Date.now() - jours * 86_400_000);
+  const rows = await prisma.hrDocumentRequest.findMany({
+    where: { status: { in: ["READY", "DELIVERED", "APPROVED"] }, updatedAt: { gte: depuis }, employee: perimetre },
+    orderBy: { updatedAt: "desc" },
+    include: { employee: { select: { id: true, fullName: true, position: true } }, fulfilment: { select: { id: true } } },
+    take: 50,
+  });
+  const items: HrQueueItem[] = rows.map((r) => ({ ...mapReq(r), employeeId: r.employee.id, employeeName: r.employee.fullName, employeePosition: r.employee.position }));
+  await attachThreads(items);
+  return items;
+}

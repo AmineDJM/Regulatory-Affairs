@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Download, FileSpreadsheet, ListChecks, Minus, Plus, Settings2, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowRight, FileSpreadsheet, ListChecks, Minus, Plus, Settings2, TrendingDown, TrendingUp } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -16,6 +16,7 @@ import { syntheseParAxe, syntheseParCollaborateur } from "@/lib/coaching/synthes
 import { formaterJour } from "@/lib/coaching/dates";
 import { tonsDuNiveau } from "@/components/coaching/fiche-grille";
 import { cn } from "@/lib/utils";
+import { EntreeMenu, MenuPlus } from "../menu-plus";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Coaching — AMD Internal OS" };
@@ -69,35 +70,28 @@ export default async function CoachingPage({ searchParams }: { searchParams?: { 
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <PageHeader
-        title="Coaching — tournées en double"
-        description="La fiche d'évaluation des compétences terrain, remplie par le manager après une tournée en double, sur la grille administrée par le directeur des opérations."
-      >
-        <Link href="/medical/coaching/grille">
-          <Button variant="outline" size="sm">
-            {l.administre ? <Settings2 className="h-4 w-4" /> : <ListChecks className="h-4 w-4" />}
-            {l.administre ? "Administrer la grille" : "Grille d'évaluation"}
-          </Button>
-        </Link>
-        {(equipe.length > 0 || mesEvaluations.length > 0) && (
-          <a href={exportHref}>
-            <Button variant="outline" size="sm"><FileSpreadsheet className="h-4 w-4" /> Exporter le suivi (Excel)</Button>
-          </a>
-        )}
+      {/* UN GESTE PRINCIPAL (« Nouvelle fiche ») ; la grille et l'export du suivi dans « ⋯ » (Direction, 07/10).
+          La version de la grille en vigueur se lit dans l'entrée du menu, plus dans un bandeau. */}
+      <PageHeader title="Coaching">
         {coachables.length > 0 && (
           <Link href="/medical/coaching/nouvelle">
-            <Button size="sm"><Plus className="h-4 w-4" /> Nouvelle fiche</Button>
+            <Button size="sm" className="h-10 sm:h-8"><Plus className="h-4 w-4" /> Nouvelle fiche</Button>
           </Link>
         )}
+        <MenuPlus label="Autres actions du coaching">
+          <EntreeMenu href="/medical/coaching/grille">
+            {l.administre ? <Settings2 className="h-4 w-4" /> : <ListChecks className="h-4 w-4" />}
+            {l.administre ? "Administrer la grille" : "Grille d'évaluation"}
+            {courante.version > 0 && <span className="ml-auto text-xs text-muted-foreground">v{courante.version}</span>}
+          </EntreeMenu>
+          {(equipe.length > 0 || mesEvaluations.length > 0) && (
+            <EntreeMenu href={exportHref} brut>
+              <FileSpreadsheet className="h-4 w-4" /> Exporter le suivi (Excel)
+            </EntreeMenu>
+          )}
+        </MenuPlus>
       </PageHeader>
       <ModuleTabs tabs={await visibleTabs(user, MEDICAL_TABS)} />
-
-      <p className="rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm text-muted-foreground">
-        Grille en vigueur : <span className="font-medium text-foreground">version {courante.version}</span>
-        {courante.version > 0 && <> — {courante.grille.axes.length} axes, total sur {courante.grille.axes.length * 4}</>}
-        {courante.auteur && <>, publiée par {courante.auteur} le {courante.createdAt.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" })}</>}.
-        {l.administre && <> Vous administrez cette grille (direction des opérations).</>}
-      </p>
 
       {encadre && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -133,11 +127,7 @@ export default async function CoachingPage({ searchParams }: { searchParams?: { 
         <section className="space-y-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes fiches de coaching</h2>
           {mesEvaluations.length === 0 ? (
-            <EmptyState
-              icon="ClipboardList"
-              title="Aucune fiche de coaching à votre nom pour l'instant"
-              description="Après une tournée en double, votre manager remplit la fiche ; vous êtes prévenu dès qu'elle est finalisée."
-            />
+            <EmptyState icon="ClipboardList" title="Aucune fiche de coaching à votre nom" />
           ) : (
             <ListeFiches fiches={mesEvaluations} colonneCollaborateur={false} />
           )}
@@ -149,7 +139,7 @@ export default async function CoachingPage({ searchParams }: { searchParams?: { 
         <section className="space-y-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Suivi par collaborateur</h2>
           <div className="surface overflow-hidden">
-            <Table mobileCards>
+            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Collaborateur</TableHead>
@@ -231,25 +221,17 @@ export default async function CoachingPage({ searchParams }: { searchParams?: { 
                   <option value="DRAFT">Brouillons</option>
                 </select>
               </label>
-              <Button type="submit" size="sm" variant="secondary">Filtrer</Button>
-              {(filtreCollaborateur || filtreStatut) && <Link href="/medical/coaching" className="inline-flex min-h-9 items-center text-xs text-primary hover:underline sm:min-h-0 sm:pb-2">Réinitialiser</Link>}
+              <Button type="submit" size="sm" variant="secondary" className="h-10 sm:h-9">Filtrer</Button>
+              {(filtreCollaborateur || filtreStatut) && <Link href="/medical/coaching" className="inline-flex min-h-10 items-center text-xs text-primary hover:underline sm:min-h-0 sm:pb-2">Réinitialiser</Link>}
             </form>
           </div>
           {equipe.length === 0 ? (
-            <EmptyState
-              icon="ClipboardCheck"
-              title="Aucune fiche de coaching"
-              description={coachables.length > 0
-                ? "Après une tournée en double, remplissez la fiche : « Nouvelle fiche », en haut de la page."
-                : "Aucune fiche n'est visible dans votre périmètre."}
-            />
+            <EmptyState icon="ClipboardCheck" title="Aucune fiche de coaching" />
           ) : (
             <ListeFiches fiches={equipe} colonneCollaborateur />
           )}
           {liste.tronque && (
-            <p className="text-xs text-muted-foreground">
-              Liste limitée aux 300 tournées les plus récentes — filtrez par collaborateur, ou exportez le suivi pour tout voir.
-            </p>
+            <p className="text-xs text-muted-foreground">300 tournées les plus récentes — filtrez, ou exportez le suivi (⋯).</p>
           )}
         </section>
       )}
@@ -278,7 +260,8 @@ function Jauge({ total, max }: { total: number; max: number }) {
 function ListeFiches({ fiches, colonneCollaborateur }: { fiches: FicheListee[]; colonneCollaborateur: boolean }) {
   return (
     <div className="surface overflow-hidden">
-      <Table mobileCards>
+      {/* UN TABLEAU RESTE UN TABLEAU au téléphone : il défile dans son cadre (Direction, 07/10). */}
+      <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Tournée</TableHead>
@@ -297,20 +280,13 @@ function ListeFiches({ fiches, colonneCollaborateur }: { fiches: FicheListee[]; 
               <TableCell label="Manager">{f.manager ?? "—"}</TableCell>
               <TableCell label="Total">{f.total === null || f.max === null ? <Badge tone="danger">Grille illisible</Badge> : <Jauge total={f.total} max={f.max} />}</TableCell>
               <TableCell label="Statut">
-                <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <Badge tone={f.status === "FINALIZED" ? "success" : "warning"}>{f.status === "FINALIZED" ? "Finalisée" : "Brouillon"}</Badge>
-                  <span className="text-[11px] text-muted-foreground">grille v{f.gridVersion}</span>
-                </span>
+                <Badge tone={f.status === "FINALIZED" ? "success" : "warning"}>{f.status === "FINALIZED" ? "Finalisée" : "Brouillon"}</Badge>
               </TableCell>
+              {/* UN GESTE PAR LIGNE : ouvrir la fiche. Son classeur Excel se télécharge depuis la fiche (⋯). */}
               <TableCell label="Fiche" className="text-right">
-                <span className="inline-flex items-center gap-4 sm:gap-3">
-                  <a href={`/api/medical/coaching/${f.id}/export`} className="inline-flex min-h-9 items-center gap-1 text-xs text-muted-foreground hover:text-foreground sm:min-h-0" title="Télécharger la fiche (Excel)">
-                    <Download className="h-3.5 w-3.5" /> Excel
-                  </a>
-                  <Link href={`/medical/coaching/${f.id}`} className="inline-flex min-h-9 items-center gap-1 text-primary hover:underline sm:min-h-0">
-                    Ouvrir <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </span>
+                <Link href={`/medical/coaching/${f.id}`} className="inline-flex min-h-10 items-center gap-1 whitespace-nowrap text-primary hover:underline sm:min-h-0">
+                  Ouvrir <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
               </TableCell>
             </TableRow>
           ))}

@@ -1,5 +1,6 @@
 "use server";
 
+import { deposerLettreDevis, phraseDepotLettre } from "@/lib/demande-devis-depot";
 import { CHEMIN_STOCK_PROMO, lienStockPromo } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import type { AdProItemKind, AdProItemOrderStage, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
@@ -2077,6 +2078,12 @@ export async function demanderPieceSecretariat(_prev: ActionResult | undefined, 
     // `onDelete: SetNull` utile et évite une migration de colonne pour rien.
     if (nature === "DEVIS") {
       await prisma.adProItem.update({ where: { id }, data: { adminRequestId: request.id, updatedById: user.id } });
+      // LA LETTRE DE DEMANDE DE DEVIS (Direction, 07/10) — rédigée par Luna, PDF et Word sur papier en-tête, posée sur le
+      // poste (étape « Demande de devis ») et sur la demande au secrétariat. Son échec ne retient pas la demande.
+      await deposerLettreDevis(user, [{ entityType: "AD_PRO_ITEM", entityId: item.id }, { entityType: "ADMIN_REQUEST", entityId: request.id }], {
+        titre: item.label, brief: null, reference: info.ref, societeId: info.companyId ?? null,
+        articles: [{ designation: `${ITEM_KIND_LABELS[item.kind]} — ${item.label}`, quantite: null, unite: null, prestations: [], precision: note ?? null, produits: [] }],
+      }).catch(() => null);
     }
     await notifyRoles(["DIRECTION_ASSISTANT", "SUPER_ADMIN"], {
       type: "ASSIGNMENT",
@@ -2092,6 +2099,34 @@ export async function demanderPieceSecretariat(_prev: ActionResult | undefined, 
     console.error("[ad-pro-item] demande de pièce impossible", err);
     return { ok: false, error: `La demande de ${spec.libelle.toLowerCase()} n'a pas pu être créée.` };
   }
+}
+
+/**
+ * GÉNÉRER LA LETTRE DE DEMANDE DE DEVIS D'UN POSTE (Direction, 07/10) — sans passer par le secrétariat : le demandeur
+ * l'envoie lui-même à ses agences. Rédigée par Luna, sur le papier en-tête de la société de l'opération, en PDF et Word,
+ * déposée sous l'étape « Demande de devis » du poste. La précision saisie (`note`) guide la rédaction.
+ */
+export async function genererDemandeDevisPoste(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const note = fdStr(formData, "note");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent) && !canAllocate(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const refusStock = refusArgentSurPosteStock(item.kind, "un devis, un bon de commande ou une facture");
+  if (refusStock) return { ok: false, error: refusStock };
+  const info = await PARENTS[owner.parent].load(owner.id);
+  if (!info) return { ok: false, error: "Opération introuvable." };
+  const r = await deposerLettreDevis(user, [{ entityType: "AD_PRO_ITEM", entityId: item.id }], {
+    titre: item.label, brief: null, reference: info.ref, societeId: info.companyId ?? null,
+    articles: [{ designation: `${ITEM_KIND_LABELS[item.kind]} — ${item.label}`, quantite: null, unite: null, prestations: [], precision: note ?? null, produits: [] }],
+  });
+  if (!r.ok) return { ok: false, error: r.error };
+  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de devis générée pour le poste « ${item.label} ».`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, message: phraseDepotLettre(r) };
 }
 
 /** Référence d'une demande administrative — même forme que le module (DEM-année-n). */

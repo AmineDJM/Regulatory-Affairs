@@ -118,9 +118,8 @@ export function totauxDeLaSelection(devis: readonly DevisLu[]): Totaux & { devis
 /**
  * LA RETRANSCRIPTION TOMBE-T-ELLE JUSTE ? Le total imprimé sur le devis contre la somme des lignes
  * recopiées. `null` quand aucun total n'a été saisi : on ne déclare pas d'écart sur ce qu'on n'a
- * pas lu (§118.16) — c'est `manquesDeRetranscription` qui exige ce total, en le NOMMANT, au lieu
- * que son absence passe pour un accord. Tolérance d'un dinar : les devis arrondissent leurs lignes,
- * pas toujours pareil.
+ * pas lu (§118.16) — le total est FACULTATIF (Direction, 07/10) : vide, pas de contrôle de total.
+ * Tolérance d'un dinar : les devis arrondissent leurs lignes, pas toujours pareil.
  */
 export function ecartDeRetranscription(d: DevisLu): { annonce: number; calcule: number; ecart: number } | null {
   if (d.announcedTotal == null) return null;
@@ -136,11 +135,10 @@ export function ecartDeRetranscription(d: DevisLu): { annonce: number; calcule: 
  * - au moins un devis, et chacun a au moins une ligne ;
  * - chaque devis a son FOURNISSEUR choisi dans l'annuaire (c'est lui qui donne son identité au BC) ;
  * - chaque devis a son SCAN : une retranscription sans sa source ne se vérifie pas ;
- * - chaque devis a son TOTAL HT IMPRIMÉ : le contrôle à un dinar près se SAUTAIT quand le champ
- *   restait vide, et « Retranscription terminée » passait sans que rien ait été comparé — alors
- *   que la règle se disait toujours appliquée. Un zéro de trop ne s'attrape que contre le papier ;
  * - aucune ligne à quantité nulle ou à prix négatif ;
- * - aucun écart entre le total annoncé et la somme des lignes — l'écart est dit, avec son montant.
+ * - quand le TOTAL HT IMPRIMÉ est saisi, aucun écart avec la somme des lignes — l'écart est dit,
+ *   avec son montant. Ce total n'est PLUS exigé (Direction, 07/10 : « ne doit pas être obligatoire ») :
+ *   vide, il n'y a pas de contrôle de total, et ce n'est pas un manque.
  */
 export function manquesDeRetranscription(devis: readonly DevisLu[]): string[] {
   if (devis.length === 0) return ["aucun devis n'est retranscrit"];
@@ -150,9 +148,6 @@ export function manquesDeRetranscription(devis: readonly DevisLu[]): string[] {
     if (d.lines.length === 0) manques.push(`« ${nom} » n'a aucune ligne`);
     if (!d.supplierId) manques.push(`« ${nom} » : choisissez le fournisseur dans l'annuaire (il donne son adresse, son RC et son NIF au bon de commande)`);
     if (!d.documentId) manques.push(`« ${nom} » : joignez le scan du devis — une retranscription sans sa source ne se vérifie pas`);
-    if (d.announcedTotal == null) {
-      manques.push(`« ${nom} » : saisissez le total HT imprimé sur le devis — c'est contre lui que la retranscription se contrôle, à un dinar près`);
-    }
     const fausses = d.lines.filter((l) => !(Number(l.quantity) > 0) || Number(l.unitPrice) < 0 || !l.reference.trim());
     if (fausses.length > 0) manques.push(`« ${nom} » : ${fausses.length} ligne(s) sans référence, à quantité nulle ou à prix négatif`);
     const ecart = ecartDeRetranscription(d);

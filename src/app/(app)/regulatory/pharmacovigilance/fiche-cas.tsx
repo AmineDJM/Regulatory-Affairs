@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MessagesSquare, Paperclip, Search, ShieldAlert, Users } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import type { SessionUser } from "@/lib/rbac";
+import { userCan, type SessionUser } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { BackLink } from "@/components/shared/back-link";
@@ -20,7 +21,7 @@ import { ParticipantsCasPv } from "./participants-pv";
 /**
  * LA FICHE D'UN CAS DE PHARMACOVIGILANCE (Direction, 06/10) — ce qui a été signalé, où en est l'instruction, et en bas
  * l'ÉCHANGE entre le KAM, Regulatory et les personnes ajoutées. Deux routes la montrent : Regulatory
- * (`/regulatory/pharmacovigilance/[id]`) et le KAM depuis ses Rapports terrain (`/field-reports/pharmacovigilance/[id]`) —
+ * (`/regulatory/pharmacovigilance/[id]`) et le KAM depuis Promotion médicale › Rapports (`/medical/rapports/pharmacovigilance/[id]`) —
  * une fiche, deux portes, la même règle (`lecteurDuCasPv`).
  */
 export async function FicheCasPv({ user, id, retour, base }: {
@@ -73,6 +74,9 @@ export async function FicheCasPv({ user, id, retour, base }: {
     : [];
   const participants = cas.participants.map((p) => ({ userId: p.userId, nom: nom(p.userId) }));
   const estDeclarant = cas.reporterId === user.id;
+  // LE PRODUIT MÈNE À SA FICHE PRODUITS 360 — son canonique, ou celui du produit de BU choisi au signalement.
+  const produitId = cas.productId ?? (cas.promoProductId ? (await prisma.promoProduct.findUnique({ where: { id: cas.promoProductId }, select: { productId: true } }))?.productId ?? null : null);
+  const lienProduit = produitId && userCan(user, "PRODUCTS", "VIEW") ? `/produits/${produitId}` : null;
 
   return (
     <div className="space-y-5">
@@ -112,7 +116,7 @@ export async function FicheCasPv({ user, id, retour, base }: {
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> Le signalement</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-              <Info label="Produit">{cas.productLabel}</Info>
+              <Info label="Produit">{lienProduit ? <Link href={lienProduit} className="text-primary hover:underline">{cas.productLabel}</Link> : cas.productLabel}</Info>
               <Info label="Établissement">{cas.institutionName}</Info>
               <Info label="Date de survenue">{formatDate(cas.occurredOn)}</Info>
               <Info label="Signalé le">{formatDateTime(cas.createdAt)}</Info>

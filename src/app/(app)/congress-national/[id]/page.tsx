@@ -14,7 +14,8 @@ import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { type DocItem } from "@/components/documents/document-list";
 import { CONGRESS_REQUEST_STATUS } from "@/lib/labels";
-import { CongressDetailView } from "../../congress-international/congress-detail-view";
+import { CongressDetailView, AccompagnantsDeLaPriseEnCharge } from "../../congress-international/congress-detail-view";
+import { CartePriseEnCharge } from "@/components/care/carte-prise-en-charge";
 import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { toNumber } from "@/lib/utils";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
@@ -26,7 +27,6 @@ import { InvolvementConversations } from "@/components/ad-pro/involvement-conver
 import { CarePanel } from "@/components/care/care-panel";
 import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
@@ -123,13 +123,20 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_NATIONAL" sourceId={detail.id} title={detail.name} />}
         <SupprimerDemandeAdPro kind="CONGRESS_NATIONAL" id={detail.id} name={detail.name} enabled={await peutSupprimerUneDemandeAdPro(user, "CONGRESS_NATIONAL", detail.id)} />
       </PageHeader>
-      {/* « + Pièce jointe » vit dans la carte « Informations » de la vue détaillée (audit n° 18). */}
-      {/* LES PROFESSIONNELS PROPOSÉS POUR LA PRISE EN CHARGE — la seule liste de qui est pris en
-          charge (décision du 04/10/2026), et leurs pièces juste dessous. Avant le reste : c'est la
-          question qu'on se pose en ouvrant l'écran. */}
-      <Card>
-        <CardHeader><CardTitle>Professionnels proposés pour la prise en charge</CardTitle></CardHeader>
-        <CardContent>
+      {/* LA PRISE EN CHARGE EN UNE CARTE (Direction, 07/10) — la même que l'international. */}
+      <CartePriseEnCharge
+        evenement={{ eventType: detail.eventType, location: detail.location, date: detail.date, endDate: detail.endDate, requester: detail.requester, initiative: detail.initiative }}
+        pieces={{
+          entityType: "CONGRESS_NATIONAL", entityId: detail.id, documents: docItems,
+          peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
+          canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+          path: `/congress-national/${detail.id}`,
+        }}
+        beneficiaires={care.beneficiaries}
+        devis={care.quotes.map((q) => ({ id: q.id, status: q.status, amountDzd: q.amountDzd, cellIds: q.cellIds }))}
+        postes={items.map((i) => ({ amountGranted: i.amountGranted, status: i.status }))}
+        enveloppe={congress?.finalAmount != null ? toNumber(congress.finalAmount) : null}
+        professionnels={
           <CarePanel
             scope="NATIONAL"
             requestId={detail.id}
@@ -140,25 +147,10 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
             canEdit={canEditCare}
             canDecide={canAllocate}
             promoOptions={carePromos}
+            resume={false}
           />
-        </CardContent>
-      </Card>
-
-      <CongressDetailView
-        piecesJointes={{
-          entityType: "CONGRESS_NATIONAL", entityId: detail.id, documents: docItems,
-          peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
-          canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
-          path: `/congress-national/${detail.id}`,
-        }}
-        detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty}
-        entityType="CONGRESS_NATIONAL" entityId={detail.id} documents={docItems}
-        canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`}
-        missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions}
-        currentUserId={user.id}
-        involvementThreads={[]}
-        canModerate={hasGlobalView(user)}
-        itemsPanel={
+        }
+        couverture={
           <AdProItemsPanel
             parent="CONGRESS_NATIONAL"
             parentId={detail.id}
@@ -169,15 +161,12 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
             canAllocate={canAllocate}
             promoOptions={promoOptions}
             plan={{ hasBooth: congress?.hasBooth, hasSymposium: congress?.hasSymposium }}
-            // LE BUDGET ET LES FINANCES MANQUAIENT ICI, et seulement ici : `budgetOptions` était
-            // CHARGÉ plus haut et jamais passé, donc la demande de BC d'un poste restait bloquée
-            // (« choisissez d'abord le budget ») sur la seule fiche où l'on ne pouvait pas le
-            // choisir — et le bouton « Émettre (Finances) » n'y apparaissait jamais (§118.148).
             budgetOptions={budgetOptions}
             materiel={materielStock}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
             canViserBC={siegeAuCentreAdPro(user)}
             contexte={contexte}
+            resume={false}
           />
         }
       />
@@ -185,12 +174,16 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
       {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
       <PiecesLegalDeLaDemande spectateur={user} entityType="CONGRESS_NATIONAL" entityId={detail.id} />
 
+      <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_NATIONAL" entityId={detail.id} missionUsers={missionUsers} />
       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
           impliquées : un seul espace (la vue détaillée ne les rend plus à part). */}
       <EspaceDiscussion>
         <AdProDiscussionCard entityType="CONGRESS_NATIONAL" entityId={detail.id} user={user} />
         <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
       </EspaceDiscussion>
+
+      {/* EN BAS, PLEINE LARGEUR (Direction, 07/10). */}
+      <AccompagnantsDeLaPriseEnCharge entityType="CONGRESS_NATIONAL" entityId={detail.id} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} path={`/congress-national/${detail.id}`} />
 
     </div>
   );

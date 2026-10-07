@@ -75,7 +75,8 @@ export function DirectoryBar({
           <BookUser className="h-4 w-4 text-primary" /> Annuaires
         </h2>
         {canManage && (
-          <Button size="sm" variant="outline" className="ml-auto" onClick={() => { setErr(null); setAdding(true); }}>
+          // Discret : le geste principal de l'écran est dans la feuille (ajouter une fiche) — Direction, 07/10.
+          <Button size="sm" variant="ghost" className="ml-auto h-10 sm:h-8" onClick={() => { setErr(null); setAdding(true); }}>
             <Plus className="h-4 w-4" /> Nouvel annuaire
           </Button>
         )}
@@ -139,14 +140,6 @@ export function DirectoryBar({
           Annuaire général <span className="text-xs">({generalCount})</span>
         </Link>
       </div>
-
-      {directories.length === 0 && (
-        <p className="text-xs text-muted-foreground">
-          {canManage
-            ? "Un seul annuaire pour l'instant. Créez « Cardiologues Centre », « Prescripteurs Oncologie », « Congrès 2026 »… — un import destiné à une campagne n'a pas à polluer la liste de tout le monde."
-            : "Aucun annuaire nommé n'a encore été créé."}
-        </p>
-      )}
 
       {adding && (
         <DirectorySheet
@@ -215,7 +208,7 @@ function AccessSheet({
   return (
     <Sheet
       open onClose={() => !busy && onClose()} width="md" title={`Accès — ${directory.name}`}
-      description="Aucun nom coché : annuaire ouvert à tout le module. Des noms cochés : personne d'autre ne le voit — ni ses praticiens dans la vue « Tous »."
+      description="Aucun nom coché : ouvert à tout le module."
     >
       <form action={onSubmit} className="space-y-4">
         <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
@@ -248,10 +241,7 @@ function DirectorySheet({
   onSubmit: (fd: FormData) => Promise<void>;
 }) {
   return (
-    <Sheet
-      open onClose={() => !busy && onClose()} width="md" title={title}
-      description="Un annuaire range, il n'autorise pas : la portée du délégué et le cloisonnement par entité ne changent pas."
-    >
+    <Sheet open onClose={() => !busy && onClose()} width="md" title={title}>
       <form action={onSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="md-name">Nom de l&apos;annuaire</Label>

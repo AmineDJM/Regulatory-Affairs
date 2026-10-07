@@ -7,14 +7,14 @@ import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Check, X, Loader2, MessageSquare, ArrowRight, SkipForward, Undo2, Send, Ban } from "lucide-react";
 import type { EntityType } from "@prisma/client";
 import { advanceWorkflow, resoumettreDemande, retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
-import type { WorkflowView } from "@/lib/queries/workflow";
-import { SCOPE_LABELS, POWER_LABELS } from "@/lib/workflow/types";
+import type { WorkflowView, WorkflowEventView, WorkflowStepView } from "@/lib/queries/workflow";
+import { SCOPE_LABELS } from "@/lib/workflow/types";
 import { ROLE_LABELS, EXPENSE_ORDER_STATUS } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 const STATUS_TONE: Record<string, { label: string; tone: "success" | "danger" | "warning" | "neutral" }> = {
@@ -29,13 +29,70 @@ function rolesText(roles: string[]): string {
   return roles.map((r) => ROLE_LABELS[r] ?? r).join(", ");
 }
 
+/** QUI tient une étape, en un mot. */
+function acteurDe(s: WorkflowStepView): string {
+  return s.actorScope === "ROLE" ? rolesText(s.actorRoles) || "—" : SCOPE_LABELS[s.actorScope];
+}
+
+/** Une case de la frise horizontale de « La demande ». */
+export interface EtapeDeFrise {
+  cle: string;
+  titre: string;
+  /** Sous le titre : « date · personne » pour une étape faite, qui la tient sinon. */
+  detail?: string | null;
+  etat: "done" | "current" | "todo" | "rejected";
+}
+
+/** La phrase « état — chez qui », et ce qui vient ensuite. */
+export interface StatutDeLaDemande {
+  phrase: string;
+  ensuite?: string | null;
+  ton?: "info" | "succes" | "attente" | "refus" | "neutre";
+}
+
+const TON_STATUT: Record<NonNullable<StatutDeLaDemande["ton"]>, string> = {
+  info: "border-primary/30 bg-primary/10 text-primary",
+  succes: "border-success/30 bg-success/10 text-success",
+  attente: "border-warning/40 bg-warning/10 text-warning",
+  refus: "border-destructive/30 bg-destructive/5 text-destructive",
+  neutre: "border-border bg-secondary/40 text-foreground",
+};
+
+/** « Yacine Habes » → « Y. Habes » : la frise n'a la place que d'un nom court. */
+function nomCourt(nom: string | null): string | null {
+  if (!nom) return null;
+  const p = nom.trim().split(/\s+/);
+  return p.length > 1 ? `${p[0]![0]}. ${p.slice(1).join(" ")}` : nom;
+}
+
+const jourCourt = (iso: string) => formatDate(iso, { day: "numeric", month: "short" });
+
+/** Les gestes qui FONT une étape (et non un commentaire en passant). */
+const GESTES_D_ETAPE = new Set(["APPROVE", "REJECT", "OPINION_AGAINST", "SKIP", "AUTO_SKIP", "AUTO_APPROVE_REQUESTER"]);
+
 /**
  * Panneau générique piloté par la **définition de workflow** configurée (Administration).
  * Affiche la frise dynamique, l'action disponible pour le spectateur à l'étape courante,
  * l'issue (montant accordé / ordre de dépense) et l'historique. Remplace les anciens
  * panneaux de décision spécifiques de Sponsoring / Congrès / Événements.
+ *
+ * RENDU COMPACT (`compact`, Direction 07/10 — la carte « La demande ») : une frise HORIZONTALE, une phrase
+ * « état — chez qui » et, dedans, les gestes de l'étape courante. Mêmes gestes, mêmes actions, mêmes règles ;
+ * l'historique n'y figure pas (il vit dans « Traçabilité », pour le Super Admin — `HistoriqueDuCircuit`),
+ * ni le retrait (la page le range dans « ⋯ » — `WithdrawForm`).
  */
-export function WorkflowPanel({ entityType, entityId, view }: { entityType: EntityType; entityId: string; view: WorkflowView }) {
+export function WorkflowPanel({ entityType, entityId, view, compact = false, suite = [], statut = null, gestes = null }: {
+  entityType: EntityType;
+  entityId: string;
+  view: WorkflowView;
+  compact?: boolean;
+  /** Compact : les étapes de la demande APRÈS le circuit (le sponsoring : postes, validation finale), ajoutées à la frise. */
+  suite?: EtapeDeFrise[];
+  /** Compact : la phrase de statut quand la page en sait plus que le circuit (le circuit est fini, la suite se joue ailleurs). */
+  statut?: StatutDeLaDemande | null;
+  /** Compact : des gestes propres à la page, rangés sous ceux de l'étape (validation finale, appel, relance…). */
+  gestes?: React.ReactNode;
+}) {
   // LE RAFRAÎCHISSEMENT EST SUIVI (§118.172) : tant que les données d'après n'ont pas remplacé
   // l'écran, ses gestes restent fermés — sinon un second clic agirait sur l'état d'avant.
   const { enCours, rafraichir } = useRafraichir();
@@ -108,51 +165,9 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
     (!!a?.requireCategory && !category) ||
     (!!a?.requireNote && !note.trim());
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="min-w-0 text-sm font-medium text-muted-foreground">{view.definitionName}</p>
-        <Badge tone={st.tone} dot={false}>{st.label}</Badge>
-      </div>
-
-      {/* Frise dynamique dérivée de la définition */}
-      <ol className="space-y-3">
-        {view.steps.map((s, i) => {
-          const tone =
-            s.state === "done" ? "bg-success text-success-foreground"
-              : s.state === "current" ? "bg-warning text-warning-foreground"
-                : s.state === "rejected" ? "bg-destructive text-destructive-foreground"
-                  : "bg-secondary text-muted-foreground";
-          const actor = s.actorScope === "ROLE" ? rolesText(s.actorRoles) || "—" : SCOPE_LABELS[s.actorScope];
-          return (
-            <li key={s.slug} className="flex gap-3">
-              <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${tone}`}>
-                {s.state === "rejected" ? "✗" : s.state === "done" ? "✓" : i + 1}
-              </div>
-              <div className="min-w-0 flex-1 border-b border-border pb-3 last:border-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <p className="font-medium">{s.title}</p>
-                  {/* Détails techniques du circuit (qui/pouvoirs/description) : Super Admin uniquement. */}
-                  {view.isSuperAdmin && (
-                    <>
-                      <span className="text-xs text-muted-foreground">· {actor}</span>
-                      {s.assignRole && <Badge tone="neutral" dot={false}>désigne : {ROLE_LABELS[s.assignRole] ?? s.assignRole}</Badge>}
-                      {s.confidential && <Badge tone="warning" dot={false}>confidentiel</Badge>}
-                    </>
-                  )}
-                </div>
-                {view.isSuperAdmin && s.description && <p className="mt-0.5 text-xs text-muted-foreground">{s.description}</p>}
-                {view.isSuperAdmin && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {s.powers.map((p) => <span key={p} className="rounded bg-secondary px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">{POWER_LABELS[p]}</span>)}
-                    {s.emitExpenseOrder && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-primary">→ dépense</span>}
-                  </div>
-                )}
-
-                {/* Action disponible à l'étape courante */}
-                {a && a.slug === s.slug && (
-                  <div className="mt-3 rounded-lg border border-border bg-secondary/30 p-2.5 sm:p-3">
-                    {!mode ? (
+  // LES GESTES DE L'ÉTAPE COURANTE — un seul jeu de boutons et un seul formulaire, montés par les deux rendus
+  // (la frise verticale d'origine, ou l'encart de statut de « La demande »).
+  const boutons = a ? (
                       // Au téléphone : une issue par ligne, pleine largeur, à hauteur de pouce — rien ne déborde à droite.
                       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                         {canApprove && <Button size="sm" variant="success" className="h-11 text-sm sm:h-8 sm:text-xs" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Approuver</Button>}
@@ -163,7 +178,8 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                         {canSkip && <Button size="sm" variant="outline" onClick={() => setMode("skip")}><SkipForward className="h-4 w-4" /> Sauter l&apos;étape</Button>}
                         {canComment && <Button size="sm" variant="ghost" onClick={() => setMode("comment")}><MessageSquare className="h-4 w-4" /> Commenter</Button>}
                       </div>
-                    ) : (
+  ) : null;
+  const formulaire = a ? (
                       <div className="space-y-2">
                         {mode === "reject" && !actionIsLast && (
                           <p className="rounded bg-warning/10 px-2 py-1.5 text-xs text-warning">
@@ -267,15 +283,11 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                           <Button size="sm" variant="ghost" onClick={() => { resetForm(); setErr(null); }}>Annuler</Button>
                         </div>
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+  ) : null;
 
+  // LE MOTIF ET LA RESOUMISSION — communs aux deux rendus.
+  const motifEtReprise = (
+    <>
       {/* LE MOTIF QUE LE DEMANDEUR DOIT LIRE (§118.186, R03) — un renvoi qui l'attend, ou le refus
           qui a clos sa demande. Hors de l'historique privilégié : il lui est adressé. */}
       {view.motif && (
@@ -293,6 +305,133 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
         </div>
       )}
       {view.peutResoumettre && <ResubmitForm entityType={entityType} entityId={entityId} />}
+    </>
+  );
+
+  // L'ORDRE DE DÉPENSE émis à l'issue d'un accord global — commun aux deux rendus.
+  const ordre = view.outcome?.expenseOrder ? (
+            <p className="mt-1 flex flex-wrap items-center gap-2">
+              Ordre de dépense <span className="font-mono text-xs">{view.outcome.expenseOrder.reference}</span>
+              <StatusBadge map={EXPENSE_ORDER_STATUS} value={view.outcome.expenseOrder.status} dot={false} />
+              <span className="tabular-nums">{formatCurrency(view.outcome.expenseOrder.amount)}</span>
+              <Link href="/finances/paiements-a-faire" className="inline-flex min-h-9 items-center px-1 text-primary hover:underline sm:min-h-0 sm:px-0">Voir</Link>
+            </p>
+  ) : null;
+
+  if (compact) {
+    // ── LA FRISE HORIZONTALE : la demande déposée, les étapes de SON parcours, puis ce que la page ajoute. ──
+    const creation = view.events.find((e) => e.action === "CREATE");
+    const quand = (e: WorkflowEventView | undefined) => (e ? [jourCourt(e.createdAt), nomCourt(e.actorName)].filter(Boolean).join(" · ") : null);
+    const frise: EtapeDeFrise[] = [
+      ...(creation ? [{ cle: "__demande__", titre: "Demande", detail: quand(creation), etat: "done" as const }] : []),
+      ...view.steps.map((s): EtapeDeFrise => {
+        const fait = [...view.events].reverse().find((e) => e.stepTitle === s.title && GESTES_D_ETAPE.has(e.action));
+        const detail = s.state === "done" || s.state === "rejected" ? quand(fait)
+          : s.state === "current" ? (view.assigneeName ?? acteurDe(s))
+            : acteurDe(s);
+        return { cle: s.slug, titre: s.title, detail, etat: s.state };
+      }),
+      ...suite,
+    ];
+
+    // ── LA PHRASE « état — chez qui », et ce qui vient ensuite (la page peut la dire mieux : `statut`). ──
+    const courante = view.steps.find((s) => s.state === "current") ?? null;
+    const apres = courante ? view.steps.slice(view.steps.indexOf(courante) + 1).find((s) => s.state === "todo") ?? null : null;
+    const suiteAttendue = suite.find((x) => x.etat !== "done") ?? null;
+    const parDefaut: StatutDeLaDemande =
+      view.status === "IN_PROGRESS" ? {
+        phrase: courante ? `${courante.title} — ${a ? "à vous d'agir" : `chez ${view.assigneeName ?? acteurDe(courante)}`}` : "En cours",
+        ensuite: apres ? `${apres.title} (${acteurDe(apres)})` : suiteAttendue?.titre ?? null,
+        ton: "info",
+      }
+        : view.status === "RETURNED" ? { phrase: "À corriger — chez le demandeur", ensuite: courante ? `retour à « ${courante.title} »` : null, ton: "attente" }
+          : view.status === "APPROVED" ? { phrase: "Approuvée", ensuite: suiteAttendue?.titre ?? null, ton: "succes" }
+            : view.status === "REJECTED" ? { phrase: "Refusée", ton: "refus" }
+              : { phrase: st.label, ton: "neutre" };
+    const s = statut ?? parDefaut;
+
+    return (
+      <div className="space-y-3">
+        <ol aria-label="Étapes de la demande" className="grid auto-cols-[minmax(6.5rem,1fr)] grid-flow-col gap-1.5 overflow-x-auto pb-1">
+          {frise.map((e) => (
+            <li
+              key={e.cle}
+              title={[e.titre, e.detail].filter(Boolean).join(" — ")}
+              className={cn(
+                "min-w-0 border-t-[3px] pt-1.5 text-xs",
+                e.etat === "done" ? "border-success text-success"
+                  : e.etat === "current" ? "border-primary text-primary"
+                    : e.etat === "rejected" ? "border-destructive text-destructive"
+                      : "border-border text-muted-foreground",
+              )}
+            >
+              <p className={cn("truncate", e.etat === "current" ? "font-semibold" : "font-medium")}>
+                {e.etat === "done" ? "✓ " : e.etat === "current" ? "⏱ " : e.etat === "rejected" ? "✗ " : ""}{e.titre}
+              </p>
+              <p className="truncate text-[0.6875rem] opacity-90">{e.detail || " "}</p>
+            </li>
+          ))}
+        </ol>
+
+        <div className={cn("rounded-lg border px-3 py-2.5 sm:px-4", TON_STATUT[s.ton ?? "info"])}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <p className="min-w-0 font-semibold [overflow-wrap:anywhere]">
+              {s.phrase}
+              {s.ensuite && <span className="block text-xs font-normal opacity-90">Ensuite : {s.ensuite}</span>}
+            </p>
+            {!mode && boutons}
+          </div>
+          {mode && formulaire && <div className="mt-3 rounded-lg border border-border bg-card p-3 text-foreground">{formulaire}</div>}
+        </div>
+
+        {gestes}
+        {motifEtReprise}
+        {ordre && <div className="text-sm">{ordre}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="min-w-0 text-sm font-medium text-muted-foreground">{view.definitionName}</p>
+        <Badge tone={st.tone} dot={false}>{st.label}</Badge>
+      </div>
+
+      {/* Frise dynamique dérivée de la définition */}
+      <ol className="space-y-3">
+        {view.steps.map((s, i) => {
+          const tone =
+            s.state === "done" ? "bg-success text-success-foreground"
+              : s.state === "current" ? "bg-warning text-warning-foreground"
+                : s.state === "rejected" ? "bg-destructive text-destructive-foreground"
+                  : "bg-secondary text-muted-foreground";
+          return (
+            <li key={s.slug} className="flex gap-3">
+              <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${tone}`}>
+                {s.state === "rejected" ? "✗" : s.state === "done" ? "✓" : i + 1}
+              </div>
+              <div className="min-w-0 flex-1 border-b border-border pb-3 last:border-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="font-medium">{s.title}</p>
+                  {/* QUI tient l'étape, en un mot. Le reste (pouvoirs, description de la règle, « → dépense ») ne s'affiche plus
+                      sur la fiche (Direction, 07/10) : il se lit et se règle dans Administration › Circuits. */}
+                  <span className="text-xs text-muted-foreground">· {acteurDe(s)}</span>
+                </div>
+
+                {/* Action disponible à l'étape courante */}
+                {a && a.slug === s.slug && (
+                  <div className="mt-3 rounded-lg border border-border bg-secondary/30 p-2.5 sm:p-3">
+                    {!mode ? boutons : formulaire}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
+      {motifEtReprise}
 
       {a === null && view.status === "IN_PROGRESS" && (
         <p className="text-sm text-muted-foreground">
@@ -320,14 +459,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
       {view.outcome && !view.outcome.tenue && (view.outcome.grantedAmount != null || view.outcome.expenseOrder) && (
         <div className="rounded-lg border border-border bg-secondary/30 p-3 text-sm">
           {view.outcome.grantedAmount != null && <p>Montant accordé : <span className="font-semibold">{formatCurrency(view.outcome.grantedAmount)}</span></p>}
-          {view.outcome.expenseOrder ? (
-            <p className="mt-1 flex flex-wrap items-center gap-2">
-              Ordre de dépense <span className="font-mono text-xs">{view.outcome.expenseOrder.reference}</span>
-              <StatusBadge map={EXPENSE_ORDER_STATUS} value={view.outcome.expenseOrder.status} dot={false} />
-              <span className="tabular-nums">{formatCurrency(view.outcome.expenseOrder.amount)}</span>
-              <Link href="/finances/paiements-a-faire" className="inline-flex min-h-9 items-center px-1 text-primary hover:underline sm:min-h-0 sm:px-0">Voir</Link>
-            </p>
-          ) : view.status === "APPROVED" ? (
+          {ordre ? ordre : view.status === "APPROVED" ? (
             <p className="mt-1 text-xs text-muted-foreground">En cours de traitement (information médicale / Finances).</p>
           ) : null}
         </div>
@@ -342,19 +474,29 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
       {view.canViewHistory && view.events.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Historique</p>
-          <ul className="space-y-1.5">
-            {view.events.map((e, i) => (
-              <li key={i} className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                <span className="font-medium text-foreground">{e.actorName ?? "—"}</span> · {e.stepTitle} ·{" "}
-                {LIBELLE_ACTION[e.action] ?? "commenté"}
-                {e.amount != null ? ` · ${formatCurrency(e.amount)}` : ""}
-                {e.note ? ` — ${e.note}` : ""} <span className="opacity-70">({formatDateTime(e.createdAt)})</span>
-              </li>
-            ))}
-          </ul>
+          <HistoriqueDuCircuit events={view.events} />
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * L'HISTORIQUE DU CIRCUIT — qui a fait quoi, et quand. Sur les fiches Sponsoring et Événements (Direction, 07/10), il quitte
+ * la carte « La demande » pour « Traçabilité », et seulement pour le Super Admin : la page décide qui le voit.
+ */
+export function HistoriqueDuCircuit({ events }: { events: WorkflowEventView[] }) {
+  return (
+    <ul className="space-y-1.5">
+      {events.map((e, i) => (
+        <li key={i} className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          <span className="font-medium text-foreground">{e.actorName ?? "—"}</span> · {e.stepTitle} ·{" "}
+          {LIBELLE_ACTION[e.action] ?? "commenté"}
+          {e.amount != null ? ` · ${formatCurrency(e.amount)}` : ""}
+          {e.note ? ` — ${e.note}` : ""} <span className="opacity-70">({formatDateTime(e.createdAt)})</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -414,7 +556,12 @@ function ResubmitForm({ entityType, entityId }: { entityType: EntityType; entity
  * plus après le geste : on quitte la page vers la liste au lieu de la rafraîchir (elle s'afficherait
  * « Introuvable »).
  */
-function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entityId: string }) {
+export function WithdrawForm({ entityType, entityId, dansUnMenu = false }: {
+  entityType: EntityType;
+  entityId: string;
+  /** Rangé dans le menu « ⋯ » de la fiche (rendu compact) : sans le filet de séparation du panneau. */
+  dansUnMenu?: boolean;
+}) {
   const router = useRouter();
   const [pending, start] = React.useTransition();
   const [open, setOpen] = React.useState(false);
@@ -435,13 +582,13 @@ function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entity
   });
   if (!open) {
     return (
-      <div className="border-t border-border pt-3">
-        <Button size="sm" variant="ghost" onClick={() => setOpen(true)}><Ban className="h-4 w-4" /> Retirer la demande</Button>
+      <div className={dansUnMenu ? undefined : "border-t border-border pt-3"}>
+        <Button size="sm" variant={dansUnMenu ? "outline" : "ghost"} className={dansUnMenu ? "w-full justify-start" : undefined} onClick={() => setOpen(true)}><Ban className="h-4 w-4" /> Retirer la demande</Button>
       </div>
     );
   }
   return (
-    <div className="space-y-2 border-t border-border pt-3">
+    <div className={dansUnMenu ? "space-y-2" : "space-y-2 border-t border-border pt-3"}>
       <p className="text-xs text-muted-foreground">
         La demande sera SUPPRIMÉE, avec ses postes, ses pièces et ce qui en découle (circuit, validations, ordres non réglés). Elle reste récupérable depuis la corbeille par le Super Admin ; le motif reste au journal.
       </p>

@@ -4,12 +4,13 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { userCan, clausePanelDuKam, type SessionUser } from "@/lib/rbac";
+import { type SessionUser } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
-import { lireRegles, STATUTS, SEGMENTS, type Statut } from "@/lib/segmentation/regles";
+import { lireRegles, STATUTS, SEGMENTS, LETTRES_FORCABLES, type Statut } from "@/lib/segmentation/regles";
 import { impactDesRegles, segmenterPraticien } from "@/lib/segmentation/moteur";
-import { apercuImport, appliquerImport, chargerFaits, chargerStrategie, type ApercuImport, type BilanImport } from "@/lib/segmentation/service";
+import { apercuImport, appliquerImport, chargerFaits, chargerStrategie, chargerSecteurs, type ApercuImport, type BilanImport } from "@/lib/segmentation/service";
 import { ouvrirCycle, cloreCycle } from "@/lib/segmentation/cycle-service";
+import { droitsSegmentation, porteeSegmentation, type DroitsSegmentation } from "@/lib/segmentation/droits";
 
 /**
  * SEGMENTATION STUDIO — les gestes. Chaque écriture vérifie le DROIT (module SEGMENTATION) et la PORTÉE
@@ -22,8 +23,7 @@ const MODULE = "SEGMENTATION";
 const CHEMIN = "/segmentation";
 
 function porteeDe(user: SessionUser): Prisma.MedicalDoctorWhereInput {
-  const m = user.access.modules.get(MODULE);
-  return !m || m.scope === "ALL" ? {} : clausePanelDuKam(user.id);
+  return porteeSegmentation(user);
 }
 
 async function dansLaPortee(user: SessionUser, doctorId: string): Promise<boolean> {
@@ -31,9 +31,20 @@ async function dansLaPortee(user: SessionUser, doctorId: string): Promise<boolea
   return n > 0;
 }
 
-async function exiger(action: "VIEW" | "UPDATE" | "CREATE" | "VALIDATE") {
+/**
+ * LE DROIT DU GESTE (Direction, 07/10) — lu par `droitsSegmentation` : Voir, Modifier (Q1, Q2, statut), Créer (panel),
+ * Valider (règles, import, stratégie), et FORCER une lettre, qui n'appartient qu'à qui le Super Admin l'a accordé
+ * (SEGMENTATION_POTENTIEL) — et qui ouvre alors tous les autres gestes.
+ */
+const GESTE: Record<"VIEW" | "UPDATE" | "CREATE" | "VALIDATE" | "FORCER", keyof DroitsSegmentation> = {
+  VIEW: "voir", UPDATE: "saisir", CREATE: "panel", VALIDATE: "valider", FORCER: "forcer",
+};
+
+async function exiger(action: "VIEW" | "UPDATE" | "CREATE" | "VALIDATE" | "FORCER") {
   const user = await requireUser();
-  if (!userCan(user, MODULE, action)) return { user, refus: "Action non autorisée sur la segmentation (Administration › Accès)." };
+  if (!droitsSegmentation(user)[GESTE[action]]) {
+    return { user, refus: action === "FORCER" ? "Forcer le potentiel demande l'autorisation du Super Admin (Administration › Accès)." : "Action non autorisée sur la segmentation (Administration › Accès)." };
+  }
   return { user, refus: null as string | null };
 }
 
@@ -251,7 +262,7 @@ export async function retirerDuPanel(strategieId: string, doctorId: string): Pro
 
 /** Pose une DÉROGATION motivée : la valeur calculée du moment est gardée à côté de la valeur posée. */
 export async function poserDerogation(input: { strategieId: string; doctorId: string; nature: "CIBLAGE" | "SEGMENT"; productId?: string | null; valeur: string; motif: string; expireLe?: string | null }): Promise<R> {
-  const { user, refus } = await exiger("CREATE");
+  const { user, refus } = await exiger("FORCER");
   if (refus) return { ok: false, error: refus };
   if (!(await dansLaPortee(user, input.doctorId))) return { ok: false, error: "Ce praticien n'est pas dans votre panel." };
   const motif = input.motif.replace(/\s+/g, " ").trim();
@@ -284,7 +295,7 @@ export async function poserDerogation(input: { strategieId: string; doctorId: st
 }
 
 export async function leverDerogation(id: string): Promise<R> {
-  const { user, refus } = await exiger("CREATE");
+  const { user, refus } = await exiger("FORCER");
   if (refus) return { ok: false, error: refus };
   const d = await prisma.segmentationDerogation.findUnique({ where: { id }, select: { doctorId: true, leveeLe: true, valeur: true } });
   if (!d || d.leveeLe) return { ok: false, error: "Dérogation introuvable ou déjà levée." };
@@ -293,6 +304,99 @@ export async function leverDerogation(id: string): Promise<R> {
   await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityType: "DOCTOR", entityId: d.doctorId, summary: `Dérogation levée (${d.valeur}) : le calcul s'applique de nouveau.` });
   revalidatePath(CHEMIN);
   return { ok: true };
+}
+
+// ───────────────────────────── La lettre forcée, le secteur, l'ajout au panel ─────────────────────────────
+
+/**
+ * FORCER LA LETTRE d'un praticien (produit #1) — H, A, B, C, D ou « non ciblé », motif obligatoire (Direction, 07/10).
+ * Réservé à qui le Super Admin l'a accordé. La décision précédente est LEVÉE (jamais effacée) ; la lettre calculée du
+ * moment est gardée à côté de la forcée, et le tout entre au journal.
+ */
+export async function forcerLettre(input: { strategieId: string; doctorId: string; lettre: string; motif: string }): Promise<R> {
+  const { user, refus } = await exiger("FORCER");
+  if (refus) return { ok: false, error: refus };
+  const lettre = (LETTRES_FORCABLES as readonly string[]).includes(input.lettre) ? input.lettre : null;
+  if (!lettre) return { ok: false, error: "Lettre inconnue (H, A, B, C, D ou non ciblé)." };
+  const motif = input.motif.replace(/\s+/g, " ").trim();
+  if (motif.length < 3) return { ok: false, error: "Le motif est obligatoire." };
+  const s = await chargerStrategie(input.strategieId);
+  if (!s) return { ok: false, error: "Stratégie introuvable." };
+  const p1 = s.produits[0]?.productId;
+  if (!p1) return { ok: false, error: "Classez d'abord un produit dans la stratégie." };
+  const { faits } = await chargerFaits(s.id, { id: input.doctorId });
+  const f = faits[0];
+  if (!f) return { ok: false, error: "Ce praticien n'est pas dans le panel de la stratégie." };
+  const calculee = s.regle?.regles ? segmenterPraticien({ ...f, derogations: [] }, s.regle.regles, new Date(), s.contexte).lettreCalculee : null;
+  const maintenant = new Date();
+  await prisma.$transaction([
+    prisma.segmentationDerogation.updateMany({
+      where: { strategieId: s.id, doctorId: input.doctorId, leveeLe: null, OR: [{ nature: "CIBLAGE" }, { nature: "SEGMENT", productId: p1 }] },
+      data: { leveeLe: maintenant, leveeParId: user.id },
+    }),
+    prisma.segmentationDerogation.create({
+      data: lettre === "NC"
+        ? { strategieId: s.id, doctorId: input.doctorId, nature: "CIBLAGE", productId: null, valeur: "NON_CIBLE", valeurCalculee: calculee, motif, auteurId: user.id }
+        : { strategieId: s.id, doctorId: input.doctorId, nature: "SEGMENT", productId: p1, valeur: lettre, valeurCalculee: calculee, motif, auteurId: user.id },
+    }),
+  ]);
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityType: "DOCTOR", entityId: input.doctorId, field: "potentiel-force", oldValue: calculee, newValue: lettre, summary: `Potentiel forcé à ${lettre === "NC" ? "non ciblé" : lettre} (calculé : ${calculee ?? "—"}) — ${motif}` });
+  revalidatePath(CHEMIN);
+  return { ok: true };
+}
+
+/** RENDRE LA LETTRE CALCULÉE : la décision manuelle en vigueur est levée (elle reste dans l'historique). */
+export async function rendreLettreCalculee(input: { strategieId: string; doctorId: string }): Promise<R> {
+  const { user, refus } = await exiger("FORCER");
+  if (refus) return { ok: false, error: refus };
+  const s = await chargerStrategie(input.strategieId);
+  if (!s) return { ok: false, error: "Stratégie introuvable." };
+  const p1 = s.produits[0]?.productId ?? null;
+  const n = await prisma.segmentationDerogation.updateMany({
+    where: { strategieId: s.id, doctorId: input.doctorId, leveeLe: null, OR: [{ nature: "CIBLAGE" }, { nature: "SEGMENT", productId: p1 }] },
+    data: { leveeLe: new Date(), leveeParId: user.id },
+  });
+  if (n.count === 0) return { ok: false, error: "Aucune lettre forcée sur ce praticien." };
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityType: "DOCTOR", entityId: input.doctorId, field: "potentiel-force", newValue: "calculé", summary: "Potentiel forcé levé : la lettre calculée s'applique de nouveau." });
+  revalidatePath(CHEMIN);
+  return { ok: true };
+}
+
+/** RANGER UNE FICHE DANS UN SECTEUR DE LA BU — ou la rendre au calcul (secteur de son établissement) avec `null`. */
+export async function changerSecteur(input: { strategieId: string; doctorId: string; secteurId: string | null }): Promise<R> {
+  const { user, refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const s = await prisma.segmentationStrategie.findUnique({ where: { id: input.strategieId }, select: { id: true, businessUnitId: true } });
+  if (!s) return { ok: false, error: "Stratégie introuvable." };
+  const secteurId = input.secteurId || null;
+  if (secteurId && !(await chargerSecteurs(s.businessUnitId)).some((x) => x.id === secteurId)) return { ok: false, error: "Ce secteur n'appartient pas à la BU." };
+  const r = await prisma.segmentationFiche.updateMany({ where: { strategieId: s.id, doctorId: input.doctorId }, data: { secteurId, updatedById: user.id } });
+  if (r.count === 0) return { ok: false, error: "Ce praticien n'est pas dans le panel de la stratégie." };
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityType: "DOCTOR", entityId: input.doctorId, field: "secteur", newValue: secteurId ?? "calculé", summary: secteurId ? "Fiche de segmentation rangée à la main dans un secteur." : "Secteur de la fiche rendu au calcul (établissement)." });
+  revalidatePath(CHEMIN);
+  return { ok: true };
+}
+
+export interface PraticienTrouve { id: string; nom: string; etablissement: string | null; specialite: string | null }
+
+/** Les praticiens de l'annuaire (dans sa portée) qui ne sont PAS encore au panel — pour les y ajouter. */
+export async function chercherPraticiensHorsPanel(input: { strategieId: string; q: string }): Promise<R<{ praticiens: PraticienTrouve[] }>> {
+  const { user, refus } = await exiger("CREATE");
+  if (refus) return { ok: false, error: refus };
+  const q = input.q.replace(/\s+/g, " ").trim();
+  if (q.length < 2) return { ok: true, praticiens: [] };
+  const docs = await prisma.medicalDoctor.findMany({
+    where: {
+      AND: [
+        porteeDe(user), { archivedAt: null },
+        { segmentationFiches: { none: { strategieId: input.strategieId, retireeLe: null } } },
+        { OR: [{ name: { contains: q, mode: "insensitive" } }, { institution: { contains: q, mode: "insensitive" } }, { institutionRef: { name: { contains: q, mode: "insensitive" } } }] },
+      ],
+    },
+    orderBy: { name: "asc" }, take: 20,
+    select: { id: true, name: true, institution: true, institutionRef: { select: { name: true } }, specialty: true, specialtyRef: { select: { name: true } } },
+  });
+  return { ok: true, praticiens: docs.map((d) => ({ id: d.id, nom: d.name, etablissement: d.institutionRef?.name ?? d.institution ?? null, specialite: d.specialtyRef?.name ?? d.specialty ?? null })) };
 }
 
 // ───────────────────────────── Spécialités visées par produit ─────────────────────────────

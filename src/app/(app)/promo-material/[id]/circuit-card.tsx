@@ -1,16 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, FileCheck2, Rocket, XCircle, Undo2, RotateCcw } from "lucide-react";
+import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, Clock, FileCheck2, Rocket, XCircle, Undo2, RotateCcw } from "lucide-react";
 import {
   startPromoCircuit, markQuoteReceived, validatePromoStep, refusePromoStep, completePromoTrack,
   renvoyerPromoStep, resoumettrePromoDemande,
 } from "@/lib/actions/promo-circuit-actions";
 import type { PromoTrack } from "@/lib/promo-material/circuit";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea, Label } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import type { ActionResult } from "@/lib/actions/types";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
@@ -113,16 +113,17 @@ export function PromoCircuitCard(p: Props) {
     if (!p.canStart) return null;
     return (
       <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Ce dossier suit encore l&apos;ancien parcours. Le circuit actuel peut prendre le relais : validation de la
-          demande (N+1, ou directrice marketing), devis demandés au secrétariat et retranscrits ligne à ligne,
-          choix des lignes, Direction Marketing (et Directeur Général au-dessus du seuil), puis bons de commande
-          générés, factures et paiements, et demande de visa à chaque paiement.
-        </p>
         <Err msg={err} />
-        <BoutonDecisif size="sm" onClick={() => run(() => startPromoCircuit(fd()))} disabled={saving}>
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />} Basculer sur le circuit actuel
-        </BoutonDecisif>
+        <div className="flex flex-wrap items-center gap-2">
+          <BoutonDecisif size="sm" onClick={() => run(() => startPromoCircuit(fd()))} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />} Basculer sur le circuit actuel
+          </BoutonDecisif>
+          <InfoBulle align="left" label="Ce que fait la bascule">
+            Ce dossier suit encore l&apos;ancien parcours. Le circuit actuel prend le relais : validation de la demande,
+            devis demandés au secrétariat et retranscrits, choix des lignes, Direction Marketing (et Directeur Général
+            au-dessus du seuil), puis bons de commande, factures, paiements et visa.
+          </InfoBulle>
+        </div>
       </div>
     );
   }
@@ -134,39 +135,47 @@ export function PromoCircuitCard(p: Props) {
   const total = Math.max(1, p.progressTotal);
 
   return (
-    <div className="space-y-4">
-      {/* La frise ENTIÈRE pour le PDG / Super Admin ; l'étape en cours pour les autres. */}
+    <div className="space-y-3">
+      {/* La frise ENTIÈRE pour le PDG / Super Admin — une barre horizontale qui défile dans son propre
+          conteneur au téléphone ; l'avancement seul pour les autres. Le statut est déjà dans l'en-tête. */}
       {p.showFull ? (
-        <ol className="flex flex-wrap items-center gap-x-1 gap-y-2">
-          {p.etapes.filter((e) => e.key !== "COMPLETED").map((e, i) => {
-            const isPast = !refused && (completed || (stepIndex >= 0 && stepIndex > i));
-            const isCurrent = p.state === e.key;
-            return (
-              <li key={e.key} className="flex items-center gap-1">
-                {i > 0 && <span className="mx-1 h-px w-4 bg-border" aria-hidden />}
-                <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
-                  isCurrent ? "bg-primary/10 font-medium text-primary ring-1 ring-primary/30"
-                  : isPast ? "text-muted-foreground"
-                  : "text-muted-foreground/60"
-                }`}>
-                  {isPast ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <Circle className="h-3 w-3" />}
-                  {e.label}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-      ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Badge tone={refused ? "danger" : completed ? "success" : "info"}>{p.stateLabel}</Badge>
-          <span className="text-xs text-muted-foreground">Étape {Math.min(p.progressStep, total)} / {total}</span>
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+          <ol className="flex w-max items-center gap-1">
+            {p.etapes.filter((e) => e.key !== "COMPLETED").map((e, i) => {
+              const isPast = !refused && (completed || (stepIndex >= 0 && stepIndex > i));
+              const isCurrent = p.state === e.key;
+              return (
+                <li key={e.key} className="flex shrink-0 items-center gap-1" aria-current={isCurrent ? "step" : undefined}>
+                  {i > 0 && <span className={`h-px w-3 ${isPast || isCurrent ? "bg-emerald-500/50" : "bg-border"}`} aria-hidden />}
+                  <span className={`flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
+                    isCurrent ? "bg-blue-500/10 font-medium text-blue-700 ring-1 ring-blue-500/30 dark:text-blue-300"
+                    : isPast ? "text-emerald-700 dark:text-emerald-400"
+                    : "text-muted-foreground/70"
+                  }`}>
+                    {isPast ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                      : isCurrent ? <Clock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                      : <Circle className="h-3 w-3" />}
+                    {e.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
         </div>
+      ) : (
+        <Progress value={(Math.min(p.progressStep, total) / total) * 100} />
       )}
 
-      <div className="space-y-1">
-        <Progress value={(Math.min(p.progressStep, total) / total) * 100} />
-        <p className="text-xs text-muted-foreground">En attente de : <span className="font-medium text-foreground">{p.waitingLabel}</span></p>
-      </div>
+      {/* UNE phrase : où en est le dossier, et chez qui. */}
+      <p className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+        <span className="flex min-w-0 items-start gap-1.5 [overflow-wrap:anywhere]">
+          {refused ? <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            : completed ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            : <Clock className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />}
+          {p.waitingLabel}
+        </span>
+        {!p.showFull && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">Étape {Math.min(p.progressStep, total)} / {total}</span>}
+      </p>
 
       {/* Les chantiers parallèles — chacun se CONSTATE sur ses pièces : ce qui manque est dit. */}
       {(inExec || completed) && (

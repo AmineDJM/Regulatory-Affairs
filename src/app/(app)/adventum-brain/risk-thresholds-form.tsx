@@ -1,55 +1,53 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Check, SlidersHorizontal } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { updateRiskThresholds } from "@/lib/actions/adventum-actions";
-import { THRESHOLD_FIELDS, type RiskThresholds } from "@/lib/adventum/risk-settings";
+import { THRESHOLD_FIELDS, type RiskThresholds } from "@/lib/adventum/risk-thresholds";
 
+/** « ⋯ › Seuils des détecteurs » — le réglage, dans une feuille (jamais sur la page). */
 export function RiskThresholdsForm({ initial }: { initial: RiskThresholds }) {
-  const [saving, setSaving] = React.useState(false);
-  const [saved, setSaved] = React.useState(false);
+  const [ouvert, setOuvert] = React.useState(false);
+  const [envoi, setEnvoi] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const { enCours, rafraichir } = useRafraichir();
 
   return (
-    <details className="surface group">
-      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3">
-        <span className="flex items-center gap-2 text-sm font-medium">
-          <SlidersHorizontal className="h-4 w-4 text-primary" /> Réglage des seuils du Risk Radar
-        </span>
-        <span className="text-xs text-muted-foreground">Ajustez quand un risque se déclenche</span>
-      </summary>
-      <form
-        action={async (fd) => { setSaving(true); const r = await updateRiskThresholds(fd); setSaving(false); if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 1800); } }}
-        className="border-t border-border px-4 py-4"
-      >
-        <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-          {THRESHOLD_FIELDS.map((f) => (
-            <label key={f.key} className="space-y-1">
-              <span className="block text-xs font-medium">{f.label}</span>
-              <span className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  name={f.key}
-                  defaultValue={initial[f.key]}
-                  min={f.min}
-                  max={f.max}
-                  className="h-10 w-24 rounded-lg border border-input bg-background px-2.5 text-base shadow-sm sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-                <span className="text-xs text-muted-foreground">{f.suffix}</span>
-              </span>
-              <span className="block text-[0.6875rem] leading-snug text-muted-foreground">{f.help}</span>
-            </label>
-          ))}
-        </div>
-        <div className="mt-4 flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-          {saved && <span className="flex items-center gap-1.5 text-sm text-success"><Check className="h-4 w-4" /> Seuils enregistrés</span>}
-          <Button type="submit" disabled={saving} className="w-full sm:w-auto">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Enregistrer les seuils
-          </Button>
-        </div>
-      </form>
-    </details>
+    <>
+      <button type="button" role="menuitem" onClick={() => setOuvert(true)} className="rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary">Seuils des détecteurs</button>
+      <Sheet open={ouvert} onClose={() => setOuvert(false)} title="Seuils des détecteurs" description="Quand un risque se déclenche." width="lg">
+        <form
+          action={async (fd) => {
+            setEnvoi(true); setErr(null);
+            const r = await updateRiskThresholds(fd);
+            setEnvoi(false);
+            if (r.ok) { setOuvert(false); rafraichir(); } else setErr(r.error ?? "Enregistrement impossible.");
+          }}
+          className="space-y-4"
+        >
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+            {THRESHOLD_FIELDS.map((f) => (
+              <label key={f.key} className="space-y-1" title={f.help}>
+                <span className="block text-xs font-medium">{f.label}</span>
+                <span className="flex items-center gap-1.5">
+                  <input
+                    type="number" inputMode="numeric" name={f.key} defaultValue={initial[f.key]} min={f.min} max={f.max}
+                    className="h-10 w-24 rounded-lg border border-input bg-background px-2.5 text-base shadow-sm sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground">{f.suffix}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          <div className="flex justify-end">
+            <Button type="submit" disabled={envoi || enCours}>{envoi && <Loader2 className="h-4 w-4 animate-spin" />}Enregistrer</Button>
+          </div>
+        </form>
+      </Sheet>
+    </>
   );
 }

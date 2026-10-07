@@ -119,7 +119,8 @@ describe("aucune fiche Ad & Pro ne laisse son téléverseur sans liste", () => {
         if (!/\bcategories:/.test(m[1])) manquants.push(`${chemin} → ${t[1]} (carte des détails)`);
       }
       // LES PRISES EN CHARGE (audit n° 18) : la page passe ses pièces à la vue détaillée, qui monte la carte.
-      for (const m of texte.matchAll(/piecesJointes=\{\{([\s\S]*?)\}\}/g)) {
+      // Depuis le 07/10, c'est « La prise en charge » (`CartePriseEnCharge`) qui reçoit ces pièces (`pieces={{ … }}`).
+      for (const m of texte.matchAll(/(?:piecesJointes|<CartePriseEnCharge[\s\S]*?pieces)=\{\{([\s\S]*?)\}\}/g)) {
         const t = m[1].match(/entityType:\s*"([A-Z_]+)"/);
         if (!t || !AD_PRO_ENTITY_TYPES.includes(t[1])) continue;
         vus.add(t[1]);

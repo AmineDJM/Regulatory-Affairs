@@ -17,6 +17,8 @@ import type { RecruitmentActor } from "./request-flow";
 export interface RecruitmentViewer extends RecruitmentActor {
   /** Est-il l'un des validateurs de la chaîne (quelle que soit la marche) ? */
   isApprover: boolean;
+  /** Suit-il ce recrutement (désigné par le DG), ou en est-il le futur N+1 ? */
+  isFollower: boolean;
 }
 
 /**
@@ -31,7 +33,11 @@ export async function recruitmentViewer(
 ): Promise<RecruitmentViewer | null> {
   const req = await prisma.recruitmentRequest.findUnique({
     where: { id: requestId },
-    select: { requesterId: true, approvals: { select: { approverId: true } } },
+    select: {
+      requesterId: true, futureManagerId: true,
+      approvals: { select: { approverId: true } },
+      followers: { where: { userId: user.id }, select: { id: true } },
+    },
   });
   if (!req) return null;
 
@@ -39,9 +45,11 @@ export async function recruitmentViewer(
   const isTop = isTopManagement(user);
   const isRequester = req.requesterId === user.id;
   const isApprover = req.approvals.some((a) => a.approverId === user.id);
+  // LE SUIVI DÉSIGNÉ PAR LE DG (Direction, 07/10) : les personnes en charge du suivi et le futur N+1 de la recrue.
+  const isFollower = req.followers.length > 0 || req.futureManagerId === user.id;
 
-  if (!isHr && !isTop && !isRequester && !isApprover) return null;
-  return { userId: user.id, isRequester, isHr, isTop, isApprover };
+  if (!isHr && !isTop && !isRequester && !isApprover && !isFollower) return null;
+  return { userId: user.id, isRequester, isHr, isTop, isApprover, isFollower };
 }
 
 /**
@@ -56,6 +64,8 @@ export function recruitmentScope(user: SessionUser) {
     OR: [
       { requesterId: user.id },
       { approvals: { some: { approverId: user.id } } },
+      { futureManagerId: user.id },
+      { followers: { some: { userId: user.id } } },
     ],
   };
 }

@@ -67,8 +67,17 @@ function importsDeLib(src: string): string[] {
   return noms.filter((n) => n !== "authentifierLeSite");
 }
 
+/**
+ * LES DEUX SEULES ROUTES PUBLIQUES de `v1/` (Direction, 07/10) : la mesure d'audience. Elle est
+ * appelée par le NAVIGATEUR des visiteurs du site, où aucune clé ne peut vivre — sa porte est
+ * l'ORIGINE du site (`porteAudience`). Liste EXACTE : une route ajoutée demain sous `v1/` sans
+ * `authentifierLeSite` reste une faute, et ces deux-là sont tenues par leurs propres règles plus bas.
+ */
+const PUBLIQUES = ["src/app/api/site-web/v1/audience/route.ts", "src/app/api/site-web/v1/audience.js/route.ts"];
+const unix = (f: string) => f.replace(/\\/g, "/");
+
 describe("Les routes que le site appelle", () => {
-  const routes = fichiers("src/app/api/site-web/v1", (f) => f.endsWith("route.ts"));
+  const routes = fichiers("src/app/api/site-web/v1", (f) => f.endsWith("route.ts")).filter((f) => !PUBLIQUES.includes(unix(f)));
 
   it("PLANCHER : les routes sont trouvées (un parcours cassé rendrait le cliquet vert en ne lisant rien)", () => {
     expect(routes.length, routes.join(", ")).toBeGreaterThanOrEqual(2);
@@ -107,6 +116,50 @@ describe("Les routes que le site appelle", () => {
     expect(autres.length).toBeGreaterThanOrEqual(1);
     const fautes = autres.filter((f) => !/\b(getCurrentUser|requireUser)\s*\(/.test(lire(f)));
     expect(fautes, fautes.join("\n")).toEqual([]);
+  });
+});
+
+describe("La mesure d'audience : publique, mais fermée par l'origine et cantonnée à sa table", () => {
+  const COLLECTE = "src/lib/site-web/audience-collecte.ts";
+
+  it("PRÉMISSE : les deux routes publiques existent (sinon les règles suivantes ne mesurent rien)", () => {
+    const toutes = fichiers("src/app/api/site-web/v1", (f) => f.endsWith("route.ts")).map(unix);
+    for (const p of PUBLIQUES) expect(toutes, p).toContain(p);
+  });
+
+  it("elles n'importent de l'ERP que la collecte et le script — jamais la base, jamais une clé", () => {
+    const fautes: string[] = [];
+    for (const f of PUBLIQUES) {
+      const src = lire(f);
+      if (/\bprisma\b/.test(src)) fautes.push(`${f} : accès direct à la base`);
+      for (const m of src.matchAll(/from\s*"(@\/[^"]+)"/g)) {
+        if (!["@/lib/site-web/audience-collecte", "@/lib/site-web/audience-calc", "@/lib/site-web/audience-script"].includes(m[1]!)) {
+          fautes.push(`${f} : importe ${m[1]}`);
+        }
+      }
+    }
+    expect(fautes, fautes.join("\n")).toEqual([]);
+  });
+
+  it("la route qui ÉCRIT ferme sa porte d'origine avant de lire le corps, et le refus arrête chaque handler", () => {
+    const src = lire(PUBLIQUES[0]!);
+    const re = /export\s+async\s+function\s+(POST|OPTIONS)\s*\(/g;
+    const pos = [...src.matchAll(re)].map((m) => ({ nom: m[1]!, debut: m.index! }));
+    expect(pos.map((p) => p.nom).sort()).toEqual(["OPTIONS", "POST"]);
+    for (const [i, p] of pos.entries()) {
+      const corps = src.slice(p.debut, pos[i + 1]?.debut ?? src.length);
+      const porte = corps.indexOf("porteAudience(");
+      expect(porte, `${p.nom} : aucune porte`).toBeGreaterThan(-1);
+      const avant = corps.slice(0, porte);
+      for (const interdit of ["request.text(", "JSON.parse(", "enregistrerAudience("]) expect(avant, `${p.nom} : « ${interdit} » avant la porte`).not.toContain(interdit);
+      expect(corps, `${p.nom} : le refus de la porte n'arrête pas le handler`).toMatch(/if\s*\(\s*!porte\.ok\s*\)\s*return/);
+    }
+  });
+
+  it("la collecte n'écrit QUE dans SiteAnalyticsEvent", () => {
+    const tables = [...lire(COLLECTE).matchAll(/\bprisma\.(\$?\w+)/g)].map((m) => m[1]);
+    expect(tables.length).toBeGreaterThan(0);
+    expect([...new Set(tables)]).toEqual(["siteAnalyticsEvent"]);
   });
 });
 

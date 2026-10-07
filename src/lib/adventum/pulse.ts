@@ -1,14 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { notifyRoles } from "@/lib/notify";
 import { getRisks, type Risk, type RiskLevel } from "./risks";
-import { getProcessOverview } from "@/lib/queries/process-intelligence";
+import { syncBrainRisks } from "./lifecycle";
+import { processPulseStats } from "@/lib/queries/process-intelligence";
 
 /**
  * Adventum Pulse — couche d'analyse EN CONTINU d'Adventum Brain + Process Intelligence.
  *
- * À intervalle horaire (déclenché par le tick planifié tant qu'au moins un utilisateur est actif,
- * et garanti frais à l'ouverture des cockpits), on calcule l'état RÉEL de la société — agrégats du
- * Risk Radar et de Process Intelligence — et on le PERSISTE (`IntelligenceSnapshot`). Deux effets :
+ * À intervalle horaire (déclenché par le battement du planificateur — JAMAIS au rendu d'une page : les
+ * cockpits lisent l'état gardé et s'ouvrent instantanément), on calcule l'état RÉEL de la société — risques
+ * (réconciliés dans `BrainRisk`, voir `lifecycle.ts`) et circuits — et on le PERSISTE (`IntelligenceSnapshot`) :
  *   1. Tendances : les cockpits comparent l'instantané courant au précédent (deltas + courbe).
  *   2. Alertes PROACTIVES : dès qu'un NOUVEAU risque critique apparaît (absent de l'instantané
  *      précédent), le Super Admin est notifié — même si personne n'a ouvert le module.
@@ -57,55 +58,51 @@ const ZERO: PulseCounts = { riskCritical: 0, riskHigh: 0, riskTotal: 0, stuck: 0
 export async function runIntelligencePulse(): Promise<void> {
   try {
     const bucket = hourBucket();
-    // Court-circuit rapide : l'instantané de cette heure existe déjà → rien à faire.
-    const already = await prisma.intelligenceSnapshot.findUnique({ where: { bucket }, select: { id: true } });
-    if (already) return;
-
-    // Calculs réels, tolérants aux pannes (un module en erreur ne bloque pas le reste).
-    const [risks, overview] = await Promise.all([
-      getRisks().catch((e) => { console.error("[pulse] getRisks failed", e); return [] as Risk[]; }),
-      getProcessOverview().catch((e) => { console.error("[pulse] getProcessOverview failed", e); return null; }),
-    ]);
-
-    const byLevel = (l: RiskLevel) => risks.filter((r) => r.level === l).length;
-    const byCategory: Record<string, number> = {};
-    for (const r of risks) byCategory[r.category] = (byCategory[r.category] ?? 0) + 1;
-    const criticalIds = risks.filter((r) => r.level === "critical").map((r) => r.id);
-    const topRisks: TopRisk[] = [...risks]
-      .sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])
-      .slice(0, 60)
-      .map((r) => ({ id: r.id, level: r.level, module: r.module, title: r.title, object: r.object, href: r.href }));
-    const detail: SnapshotDetail = { byCategory, criticalIds, topRisks };
-
-    const stats = overview?.stats ?? { inProgress: 0, stuck: 0, overdue: 0, validationsPending: 0 };
-
-    // Instantané précédent (avant création) pour le diff des nouveaux critiques.
-    const previous = await prisma.intelligenceSnapshot.findFirst({
-      orderBy: { createdAt: "desc" },
-      select: { detail: true },
-    });
-
+    // LA PASSE DE L'HEURE SE RÉSERVE D'ABORD (bucket unique) : deux processus ne calculent et ne réconcilient
+    // jamais la même heure en même temps — le second s'arrête ici.
     try {
-      await prisma.intelligenceSnapshot.create({
-        data: {
-          bucket,
-          riskCritical: byLevel("critical"), riskHigh: byLevel("high"),
-          riskMedium: byLevel("medium"), riskLow: byLevel("low"), riskTotal: risks.length,
-          inProgress: stats.inProgress, stuck: stats.stuck, overdue: stats.overdue,
-          validationsPending: stats.validationsPending,
-          detail: detail as unknown as object,
-        },
-      });
+      await prisma.intelligenceSnapshot.create({ data: { bucket } });
     } catch (e) {
-      // Un autre process a déjà écrit l'instantané de cette heure (bucket unique) → on s'arrête.
       if ((e as { code?: string }).code === "P2002") return;
       throw e;
     }
 
-    // Alerte proactive : nouveaux risques critiques vs l'instantané précédent (jamais au tout premier).
-    if (previous?.detail) {
-      const prevCritical = new Set((previous.detail as unknown as SnapshotDetail).criticalIds ?? []);
-      const fresh = risks.filter((r) => r.level === "critical" && !prevCritical.has(r.id));
+    // Calculs réels, tolérants aux pannes (un module en erreur ne bloque pas le reste).
+    const [risks, processStats] = await Promise.all([
+      getRisks().catch((e) => { console.error("[pulse] getRisks failed", e); return null; }),
+      processPulseStats().catch((e) => { console.error("[pulse] processPulseStats failed", e); return null; }),
+    ]);
+    // Un calcul en échec ne doit pas « résoudre » tous les risques ouverts : on ne réconcilie que sur un vrai calcul.
+    const premierPassage = (await prisma.brainRisk.count()) === 0;
+    const sync = risks ? await syncBrainRisks(risks) : null;
+    const liste: Risk[] = risks ?? [];
+
+    const byLevel = (l: RiskLevel) => liste.filter((r) => r.level === l).length;
+    const byCategory: Record<string, number> = {};
+    for (const r of liste) byCategory[r.category] = (byCategory[r.category] ?? 0) + 1;
+    const criticalIds = liste.filter((r) => r.level === "critical").map((r) => r.id);
+    const topRisks: TopRisk[] = [...liste]
+      .sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])
+      .slice(0, 60)
+      .map((r) => ({ id: r.id, level: r.level, module: r.module, title: r.title, object: r.object, href: r.href }));
+    const detail: SnapshotDetail = { byCategory, criticalIds, topRisks };
+    const stats = processStats ?? { inProgress: 0, stuck: 0, overdue: 0, validationsPending: 0 };
+
+    await prisma.intelligenceSnapshot.update({
+      where: { bucket },
+      data: {
+        riskCritical: byLevel("critical"), riskHigh: byLevel("high"),
+        riskMedium: byLevel("medium"), riskLow: byLevel("low"), riskTotal: liste.length,
+        inProgress: stats.inProgress, stuck: stats.stuck, overdue: stats.overdue,
+        validationsPending: stats.validationsPending,
+        detail: detail as unknown as object,
+      },
+    });
+
+    // Alerte proactive : les risques critiques que la réconciliation vient de CRÉER (un risque connu, ignoré ou
+    // déjà pris en charge ne resonne pas). Jamais au tout premier passage : tout y serait « nouveau ».
+    if (sync && !premierPassage) {
+      const fresh = sync.created.filter((r) => r.level === "critical");
       if (fresh.length > 0) {
         const lead = fresh.slice(0, 3).map((r) => `${r.module} — ${r.title}`).join(" · ");
         await notifyRoles(["SUPER_ADMIN"], {

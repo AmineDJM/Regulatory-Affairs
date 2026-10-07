@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -10,7 +12,7 @@ import { VirementsPaie, type CarteEntite, type MoisCarte } from "./virements-pai
 import { defaultEmployerCost } from "@/lib/hr/payroll-cost";
 import { entryCost } from "@/lib/hr/payroll-cost";
 import { masseMensuelleParEntite, type LigneMasseMensuelle } from "@/lib/hr/payroll-mass";
-import { MasseMensuelleTable, type ColonneMasse } from "./masse-mensuelle";
+import type { ColonneMasse } from "./masse-mensuelle";
 import { RattacherSansEntite, type SalarieSansEntite } from "./rattacher-sans-entite";
 import { etatVirement, etatSalaire, moisDeLEntite, saisiAvantLeCentre, type VirementDuMois, type EtatSalaire } from "@/lib/hr/virement-paie";
 import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
@@ -20,7 +22,11 @@ import { AdvanceApprovals, type AdvanceRow } from "../advance-approvals";
 
 export const dynamic = "force-dynamic";
 
-/** Onglet Paie des RH : matrice employés × mois, « Payé » + fiche, transfert budget. */
+/**
+ * Onglet Paie des RH (maquette « Paie », Direction 07/10) : en tête le mois en cours entité par
+ * entité (« Envoyer la paie »), puis la grille salariés × mois avec la masse salariale en pied,
+ * l'alerte des salariés sans entité, les avances à trancher.
+ */
 export default async function PaiePage({ searchParams }: { searchParams: { year?: string } }) {
   const user = await requireModule("RH");
   if (!userCan(user, "RH", "UPDATE")) redirect("/mon-dossier");
@@ -103,8 +109,11 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
     : [];
   const cartes: CarteEntite[] = entitesDeLaPaie.map((c) => {
     const label = c.shortName || c.name;
+    // L'EFFECTIF de l'entité (salariés actifs de la portée) — le « sur M » de la carte du mois.
+    const effectifEntite = employees.filter((emp) => emp.companyId === c.id);
     const mois: MoisCarte[] = Array.from({ length: 12 }, (_, i) => {
       const month = i + 1;
+      const saisis = effectifEntite.filter((emp) => byKey.get(`${emp.id}:${month}`)?.status === "PAID").length;
       const salaires = entries
         .filter((e) => e.month === month && e.employee?.companyId === c.id)
         .map((e) => ({ etat: etatDe(e), net: toNumber(e.net) }));
@@ -118,7 +127,10 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
           envoyeLe: v.createdAt.toISOString(),
           vireLe: v.paidAt ? v.paidAt.toISOString() : null,
         }));
-      return { ...moisDeLEntite({ entite: label, year, month, salaires, virements: duMois }), virements: duMois };
+      return {
+        ...moisDeLEntite({ entite: label, year, month, salaires, virements: duMois }),
+        virements: duMois, effectif: effectifEntite.length, saisis,
+      };
     });
     return { companyId: c.id, label, mois };
   });
@@ -126,8 +138,16 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
   const sansEntite = Array.from({ length: 12 }, (_, i) => entries.filter((e) => (
     e.month === i + 1 && !e.employee?.companyId && etatDe(e) === "SAISI"
   )).length);
+  // LE MOIS EN COURS : celui du calendrier pour l'année courante ; sinon le dernier mois où un
+  // salaire est saisi (à défaut décembre pour une année passée, janvier pour une année à venir).
   const maintenant = new Date();
-  const moisInitial = maintenant.getFullYear() === year ? maintenant.getMonth() + 1 : 12;
+  const anneeCourante = maintenant.getFullYear();
+  const moisCourant = anneeCourante === year ? maintenant.getMonth() + 1 : null;
+  const dernierMoisSaisi = entries.reduce((m, e) => (e.status === "PAID" && e.month > m ? e.month : m), 0);
+  const moisInitial = moisCourant ?? (dernierMoisSaisi || (year < anneeCourante ? 12 : 1));
+  // La grille : les 6 derniers mois jusqu'au mois courant (décembre pour une année passée).
+  const finFenetre = moisCourant ?? (year < anneeCourante ? 12 : 6);
+  const futurDes = moisCourant ? moisCourant + 1 : year < anneeCourante ? 13 : 1;
 
   // LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ ET MOIS PAR MOIS (Direction, 04/10/2026). C'est le
   // chiffre que chaque entité doit reconnaître comme le sien ; consolidé, il n'est celui d'aucune.
@@ -172,6 +192,8 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
   const rows: PayrollRow[] = employees.map((emp) => ({
     employeeId: emp.id,
     name: emp.fullName,
+    poste: emp.position ?? null,
+    companyId: emp.companyId ?? null,
     // Pré-remplissage : brut depuis le salaire brut de la fiche (à défaut le salaire de base), net depuis le net à payer.
     defaultGross: emp.grossSalary != null ? toNumber(emp.grossSalary) : emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
     // Ordre : le coût employeur de la fiche, à défaut le brut, à défaut le salaire de base — et
@@ -209,12 +231,23 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
     : null;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <PageHeader
         title={`Paie ${year}`}
-        description="Un clic sur un mois pour saisir le salaire (coût employeur, net, fiche de paie). Puis, entité par entité, « Envoyer la paie au centre » avec la somme des salaires à virer : le centre de paiement l'autorise, les Finances la virent, et chaque salarié est prévenu au virement."
+        description={entitesDeLaPaie.length > 0 ? entitesDeLaPaie.map((c) => c.shortName || c.name).join(" · ") : undefined}
+      >
+        <nav className="flex items-center gap-1.5" aria-label="Année de la paie">
+          <Link href={`/rh/paie?year=${year - 1}`} aria-label={`Année ${year - 1}`} className="rounded-md border border-border bg-card p-2.5 hover:bg-secondary sm:p-1.5"><ChevronLeft className="h-4 w-4" /></Link>
+          <span className="min-w-14 text-center text-sm font-semibold tabular-nums">{year}</span>
+          <Link href={`/rh/paie?year=${year + 1}`} aria-label={`Année ${year + 1}`} className="rounded-md border border-border bg-card p-2.5 hover:bg-secondary sm:p-1.5"><ChevronRight className="h-4 w-4" /></Link>
+        </nav>
+      </PageHeader>
+
+      {/* EN TÊTE, LE MOIS EN COURS — entité par entité : ce qui est saisi, la somme, « Envoyer la paie ». */}
+      <VirementsPaie
+        year={year} cartes={cartes} sansEntite={sansEntite} moisInitial={moisInitial}
+        budgetOptions={budgetOptions.map((b) => ({ id: b.id, label: b.label }))}
       />
-      {colonnesMasse.length > 0 && <MasseMensuelleTable year={year} colonnes={colonnesMasse} />}
 
       {sansEntiteSalaries.length > 0 && (
         <RattacherSansEntite
@@ -223,22 +256,17 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
         />
       )}
 
-      <VirementsPaie
-        year={year} cartes={cartes} sansEntite={sansEntite} moisInitial={moisInitial}
-        budgetOptions={budgetOptions.map((b) => ({ id: b.id, label: b.label }))}
+      {/* LA GRILLE salariés × mois — la masse salariale par entité est son pied (plus de carte à part). */}
+      <PayrollMatrix
+        year={year} rows={rows}
+        entites={entitesDeLaPaie.map((c) => ({ id: c.id, label: c.shortName || c.name }))}
+        colonnesMasse={colonnesMasse}
+        moisCourant={moisCourant} futurDes={futurDes} finFenetre={finFenetre}
       />
-
-      <PayrollMatrix year={year} rows={rows} />
 
       {/* LES AVANCES SUR SALAIRE — venues de l'ancien tableau de bord des RH (Direction, 06/10) : c'est de l'argent versé
           au salarié, elles se tranchent donc à côté de sa paie. */}
-      {avances && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Avances sur salaire</h2>
-          <p className="text-xs text-muted-foreground">Une fois approuvée, un ordre de dépense est transmis au comptable pour règlement.</p>
-          <AdvanceApprovals rows={avances} />
-        </section>
-      )}
+      {avances && <AdvanceApprovals rows={avances} />}
     </div>
   );
 }

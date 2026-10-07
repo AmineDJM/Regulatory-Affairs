@@ -8,6 +8,7 @@ import { recordAudit } from "@/lib/audit";
 import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 import { reaiguillerSurChangementDeSeuil, CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
 import { fdNum, type ActionResult } from "@/lib/actions/types";
+import { CHEMIN_APERCU_RAPPORTS, CHEMIN_RAPPORTS_TERRAIN } from "@/lib/chemins/rapports-terrain";
 import { normalizeHidden } from "@/lib/modules-visibility";
 import { COLONNES_REGULATORY, COLONNES_INAMOVIBLES, enTeteColonne } from "@/lib/vues/colonnes-regulatory";
 
@@ -324,7 +325,7 @@ export async function setPromoMessageAuthorRoles(formData: FormData): Promise<Ac
     summary: `Auteurs des messages Direction Marketing — ${roles.length} rôle(s) configuré(s)`,
   });
   revalidatePath("/admin");
-  revalidatePath("/marketing-cockpit/messages");
+  revalidatePath("/marketing-cockpit");
   return { ok: true };
 }
 
@@ -346,7 +347,8 @@ export async function setFieldReportsOverviewRoles(formData: FormData): Promise<
     summary: `Accès Overview Rapports terrain — ${roles.length} rôle(s) configuré(s)`,
   });
   revalidatePath("/admin");
-  revalidatePath("/field-reports/overview");
+  revalidatePath(CHEMIN_APERCU_RAPPORTS);
+  revalidatePath(CHEMIN_RAPPORTS_TERRAIN);
   return { ok: true };
 }
 

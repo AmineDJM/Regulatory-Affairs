@@ -252,6 +252,9 @@ suite("Mon Équipe : ce qui m'attend, qui manque, et des liens qui s'ouvrent", (
     ]);
 
     VOIT_PIPELINE = [users.voitPipe];
+    // dir SANS le module Recrutement : tout le monde l'a depuis que n'importe qui peut demander un poste (Direction,
+    // 07/10) — seul un BLOCAGE de la console le retire, et c'est ce cas que le banc éprouve plus bas.
+    await prisma.userAccess.create({ data: { userId: users.dir, module: "RECRUITMENT", canView: false } });
     const acteurs = await Promise.all(ROLES.map(async ([cle, role]) => [cle, await actorFor(users[cle], role)] as const));
     for (const [cle, a] of acteurs) A[cle] = a;
   }, 120_000);

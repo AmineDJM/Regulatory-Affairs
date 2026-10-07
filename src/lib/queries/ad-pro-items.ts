@@ -1,3 +1,4 @@
+import { ETAPE_DEMANDE_DEVIS } from "@/lib/ad-pro/demande-devis-lettre";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { getBudgetCategoryOptions } from "@/lib/queries/budget";
@@ -219,6 +220,15 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     demandesParPoste.set(d.linkedEntityId, liste);
   }
   const docsParPoste = new Map(docRows.map((d) => [d.entityId, d._count._all]));
+  // LES LETTRES DE DEMANDE DE DEVIS (Direction, 07/10) — l'étape « Demande de devis » du poste, la plus récente d'abord.
+  const lettres = await prisma.document.findMany({
+    where: { entityType: "AD_PRO_ITEM", entityId: { in: itemIds }, stepKey: ETAPE_DEMANDE_DEVIS },
+    select: { id: true, name: true, entityId: true, mimeType: true, createdAt: true }, orderBy: { createdAt: "desc" },
+  });
+  const lettresParPoste = new Map<string, { id: string; nom: string; pdf: boolean; le: string }[]>();
+  for (const d of lettres) {
+    lettresParPoste.set(d.entityId, [...(lettresParPoste.get(d.entityId) ?? []), { id: d.id, nom: d.name, pdf: d.mimeType === "application/pdf", le: d.createdAt.toISOString() }]);
+  }
   const promoById = new Map(promoRows.map((p) => [p.id, { reference: p.reference, title: p.title, status: statutDuDossier(p).libelle }]));
   const orderById = new Map(orderRows.map((o) => [o.id, { reference: o.reference, status: String(o.status) }]));
 
@@ -244,6 +254,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     // carte n'offre pas un geste que l'action refuserait (§118.83).
     refusAnnulationBc: refusAnnulationBcDuPoste(bcLegalParPoste.get(i.id) ?? []),
     documentCount: docsParPoste.get(i.id) ?? 0,
+    demandesDevis: lettresParPoste.get(i.id) ?? [],
     lignesStock: lignesParPoste.get(i.id) ?? [],
     repartitionId: i.repartitionId,
     reservation: (() => {

@@ -15,6 +15,10 @@ import { etatIntegration, etatLiaison, etatReprise } from "@/lib/site-web/etat";
 import { blocEnvironnement, cleEnAttente, origineDeLERP } from "@/lib/site-web/cles";
 import { peutGererLaLiaison } from "@/lib/site-web/acces";
 import { GesteIntegration } from "@/components/site-web/gestes-integration";
+import { BlocCle } from "@/components/site-web/bloc-cle";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { dernierEvenementRecu } from "@/lib/site-web/audience-collecte";
+import { ilYA } from "@/lib/site-web/audience-calc";
 import { CarteLiaison } from "./carte-liaison";
 
 export const dynamic = "force-dynamic";
@@ -44,21 +48,23 @@ export default async function AdminSiteWebPage() {
   const user = await requireUser();
   if (!peutGererLaLiaison(user)) redirect("/mon-espace");
 
-  const [integ, liaison, reprise] = await Promise.all([etatIntegration(), etatLiaison(), etatReprise()]);
+  const [integ, liaison, reprise, dernierAudience] = await Promise.all([
+    etatIntegration(), etatLiaison(), etatReprise(), dernierEvenementRecu().catch(() => null),
+  ]);
   const { config, blocage, compteurs, dernier } = integ;
-  // LE BLOC À COLLER. L'adresse de l'ERP est celle par laquelle il est RÉELLEMENT arrivé sur cet
-  // écran : c'est elle que le site devra appeler pour livrer les candidatures.
+  // L'adresse de l'ERP est celle par laquelle il est RÉELLEMENT arrivé sur cet écran : c'est elle
+  // que le site devra appeler pour livrer les candidatures, et d'où il chargera la mesure d'audience.
+  const h = headers();
+  const erp = origineDeLERP(process.env, {
+    hote: h.get("x-forwarded-host") ?? h.get("host"),
+    proto: h.get("x-forwarded-proto"),
+  });
+  const baliseAudience = erp ? `<script src="${erp}/api/site-web/v1/audience.js" defer></script>` : null;
+  // LE BLOC À COLLER.
   let bloc: string | null = null;
   if (liaison.attente) {
     const attente = await cleEnAttente();
-    if (attente) {
-      const h = headers();
-      const erp = origineDeLERP(process.env, {
-        hote: h.get("x-forwarded-host") ?? h.get("host"),
-        proto: h.get("x-forwarded-proto"),
-      });
-      bloc = blocEnvironnement({ cle: attente.cle, secret: attente.secret, erp });
-    }
+    if (attente) bloc = blocEnvironnement({ cle: attente.cle, secret: attente.secret, erp });
   }
   const sante = liaison.sante;
 
@@ -119,6 +125,31 @@ export default async function AdminSiteWebPage() {
             Le détail (écarts repoussés, contenus inconnus de l&apos;ERP, adresses en conflit) se lit avec les contenus, dans{" "}
             <Link href="/site-web" className="text-primary underline">Site web › Publication</Link>.
           </p>
+        </CardContent>
+      </Card>
+
+      {/* ── LA MESURE D'AUDIENCE (Direction, 07/10) — la balise à donner au développeur du site ─── */}
+      <Card id="audience" className="scroll-mt-20">
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            Mesure d&apos;audience
+            {dernierAudience
+              ? <Badge tone="success" dot>Dernier événement reçu {ilYA(dernierAudience)}</Badge>
+              : <Badge tone="warning" dot>Jamais reçu</Badge>}
+            <InfoBulle label="Ce que fait la balise">
+              À placer une fois dans le gabarit commun du site (avant &lt;/body&gt;). Sans cookie : pages vues, clics (Postuler, téléphone,
+              e-mail, WhatsApp, liens externes, téléchargements, éléments marqués data-adventum-track) et temps passé. Seule l&apos;origine du
+              site est acceptée.
+            </InfoBulle>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {baliseAudience
+            ? <BlocCle bloc={baliseAudience} libelle="Copier la balise" />
+            : <p className="text-muted-foreground">Adresse publique de l&apos;ERP inconnue : fixez APP_URL.</p>}
+          <Link href="/site-web/audience" className="inline-flex items-center gap-1 text-primary hover:underline">
+            Voir l&apos;audience <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
         </CardContent>
       </Card>
 

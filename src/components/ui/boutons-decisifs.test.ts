@@ -72,6 +72,12 @@ const POINTS: Point[] = [
   ["src/app/(app)/rh/[id]/hr-dossier.tsx", 'decide("REJECT")', 1],
   ["src/app/(app)/rh/[id]/hr-dossier.tsx", 'decideLeave("APPROVE")', 1],
   ["src/app/(app)/rh/[id]/hr-dossier.tsx", 'decideLeave("REJECT")', 1],
+  // La file « Demandes RH » (Direction, 07/10) : le panneau de traitement sous la ligne, et « ⋯ ».
+  ["src/app/(app)/rh/demandes/file-demandes-rh.tsx", "onClick={supprimer}", 1],
+  ["src/app/(app)/rh/demandes/file-demandes-rh.tsx", 'decider("APPROVE")', 1],
+  ["src/app/(app)/rh/demandes/file-demandes-rh.tsx", 'decider("APPROVE_NEXT")', 1],
+  ["src/app/(app)/rh/demandes/file-demandes-rh.tsx", "onClick={accorder}", 1],
+  ["src/app/(app)/rh/demandes/file-demandes-rh.tsx", "onClick={refuser}", 1],
   ["src/app/(app)/rh/paie/payroll-matrix.tsx", "undo(cell.entryId!", 1],
   ["src/app/(app)/rh/paie/virements-paie.tsx", "Envoyer la paie au centre", 1],
   // Plan de tournée, visites

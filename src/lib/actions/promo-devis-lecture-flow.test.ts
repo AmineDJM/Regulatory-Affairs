@@ -230,7 +230,7 @@ suite("Matériel promotionnel — le devis lu sur son scan, proposé puis confir
 
   /** Le formulaire que l'éditeur envoie après une lecture appliquée : les lignes lues (cochées ou non), le total, le scan. */
   async function formulaireConfirme(id: string, l: LectureDevisPromo, o: {
-    fichier?: File | null; cases?: string[]; totalVerifie?: boolean; prix?: string[]; ajout?: boolean; quoteId?: string;
+    fichier?: File | null; comparees?: boolean; prix?: string[]; ajout?: boolean; quoteId?: string;
   } = {}): Promise<FormData> {
     const article = await articleDe(id);
     const lues = l.prerempli.lignes;
@@ -243,8 +243,8 @@ suite("Matériel promotionnel — le devis lu sur son scan, proposé puis confir
       ligneAction: [...lues.map(() => "IMPRESSION"), ...(o.ajout ? ["LIVRAISON"] : [])],
       ligneArticle: [...lues.map((_, i) => (i === 0 ? article : "")), ...(o.ajout ? [""] : [])],
       ligneLue: [...lues.map((x) => String(x.rang)), ...(o.ajout ? [""] : [])],
-      ligneVerifiee: [...(o.cases ?? lues.map(() => "1")), ...(o.ajout ? ["0"] : [])],
-      totalVerifie: o.totalVerifie === false ? ["0"] : ["0", "1"],
+      // L'attestation UNIQUE de l'éditeur (Direction, 07/10) : un témoin « 0 », puis la case cochée.
+      lignesComparees: o.comparees === false ? ["0"] : ["0", "1"],
     });
     if (o.fichier !== null && o.fichier !== undefined) fd.set("scan", o.fichier);
     if (o.quoteId) fd.set("quoteId", o.quoteId);
@@ -332,19 +332,16 @@ suite("Matériel promotionnel — le devis lu sur son scan, proposé puis confir
     expect((c!.lignes as Array<{ verdict: string; rang: number | null }>).map((x) => [x.verdict, x.rang])).toEqual([["CONFIRMEE", 1], ["CORRIGEE", 2], ["AJOUTEE", null]]);
     expect(c!.controle).toMatchObject({ totalVerifie: true });
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { entityType: "PROMO_MATERIAL", entityId: id, summary: { startsWith: "Devis retranscrit" } } });
-    expect(audit.summary).toContain("lues par OCR (71 %), confirmées une à une");
+    expect(audit.summary).toContain("lues par OCR (71 %), comparées au papier (attestation globale)");
     expect(await pieces(id)).toMatchObject({ documents: 1 });
   });
 
-  it("UNE LIGNE LUE NON COCHÉE, PUIS LE TOTAL NON COCHÉ : refusés en le nommant — rien d'écrit, pas de scan orphelin", async () => {
+  it("LA CASE UNIQUE NON COCHÉE avec des lignes lues : refusée en la nommant — rien d'écrit, pas de scan orphelin", async () => {
     const id = await auxDevisDemandes("Ligne non cochée");
     const fichier = scan("non-cochee");
     const l = await lire(id, fichier);
-    const ligne = await enregistrerDevisPromo(await formulaireConfirme(id, l, { fichier, cases: ["1", "0"] }));
-    expect(err(ligne)).toContain("cochez « vérifiée » sur chaque ligne venue de la lecture");
-    expect(err(ligne)).toContain("ligne 2 (« Kakémono 80x200 »)");
-    const total = await enregistrerDevisPromo(await formulaireConfirme(id, l, { fichier, totalVerifie: false }));
-    expect(err(total)).toContain("cochez « total vérifié »");
+    const refus = await enregistrerDevisPromo(await formulaireConfirme(id, l, { fichier, comparees: false }));
+    expect(err(refus)).toContain("cochez « J'ai comparé les lignes au devis »");
     expect(await prisma.promoQuote.count({ where: { promoMaterialId: id } })).toBe(0);
     expect(await pieces(id), "la garde passe AVANT le dépôt du scan").toEqual({ documents: 0, binaires: 0 });
     expect(await confirmationsDe(l.lectureId)).toHaveLength(0);
@@ -433,18 +430,16 @@ suite("Matériel promotionnel — le devis lu sur son scan, proposé puis confir
     expect(lignes.map((x) => Number(x.unitPrice)), "le refus n'a rien réécrit").toEqual([44, 15000]);
   });
 
-  it("L'ÉCRAN : le scan se lit à la sélection, chaque ligne lue porte sa case, et l'éditeur envoie ce que la garde exige", () => {
+  it("L'ÉCRAN : le scan se lit à la sélection, UNE case atteste les lignes lues, et l'éditeur envoie ce que la garde exige", () => {
     const src = readFileSync(join(process.cwd(), "src/app/(app)/promo-material/[id]/quotes-card.tsx"), "utf8");
     expect(src).toContain("lireScanDevisPromo(f)");
-    for (const champ of ['name="ligneLue"', 'name="ligneVerifiee"', 'name="lectureId"', 'name="totalVerifie"']) expect(src, champ).toContain(champ);
-    // Les cases envoient ce que la PERSONNE a coché — une valeur figée ferait attester l'écran à sa place.
-    expect(src).toContain('<input type="hidden" name="ligneVerifiee" value={l.verifiee ? "1" : "0"} />');
-    expect(src).toContain("onVerifiee={(v) => coche(i, v)}");
-    expect(src, "le total : un témoin « 0 » PUIS la case liée à l'état (fdCase)").toMatch(/name="totalVerifie" value="0" \/>\s*<input type="checkbox" name="totalVerifie" value="1" checked=\{totalVerifie\}/);
+    for (const champ of ['name="ligneLue"', 'name="lectureId"', 'name="lignesComparees"']) expect(src, champ).toContain(champ);
+    // Direction, 07/10 — « trop de CTA » : plus de case par ligne ni de case du total, plus de note de lecture.
+    for (const ancien of ['name="ligneVerifiee"', 'name="totalVerifie"', "<LigneLue", "<NoteDeLecture"]) expect(src, ancien).not.toContain(ancien);
+    // La case envoie ce que la PERSONNE a coché — une valeur figée ferait attester l'écran à sa place.
+    expect(src, "un témoin « 0 » PUIS la case liée à l'état (fdCase)").toMatch(/name="lignesComparees" value="0" \/>\s*<input type="checkbox" className="h-4 w-4" name="lignesComparees" value="1" checked=\{compare\}/);
     expect(src, "choisir le scan le lit").toMatch(/onChange=\{\(e\) => \{[^}]*if \(fichier\) void lireLeScan\(fichier\);/);
-    expect(src).toContain("<LigneLue");
-    expect(src).toContain("<NoteDeLecture");
-    expect(src, "l'enregistrement n'attend plus les cases").toMatch(/disabled=\{saving \|\| enLecture \|\| !confirmable\}/);
+    expect(src, "l'enregistrement attend la case quand des lignes lues sont gardées").toMatch(/disabled=\{saving \|\| enLecture \|\| !confirmable\}/);
     expect(fourTell).toBeTruthy();
   });
 });

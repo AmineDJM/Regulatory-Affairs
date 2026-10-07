@@ -29,7 +29,7 @@ const DESTINATION_HELP: Record<string, string> = {
   // plus pour personne.
   "/pch": "Marchés PCH : appels d'offres, bons de commande et cautions.",
   "/medical/annuaire": "Annuaire : médecins et pharmaciens (hôpital / libéral), leurs coordonnées et leur segmentation.",
-  "/field-reports": "Rapports terrain vocaux des délégués (dictés, relus, validés).",
+  "/medical/rapports": "Rapports terrain des délégués : visites rapportées, comptes rendus, pharmacovigilance.",
   "/information-medicale": "Information médicale réglementaire : déclarations et circuit documentaire.",
   "/validations": "Centre de validation transversal : ce que vous devez approuver.",
   "/drive": "Vos fichiers chiffrés, partagés en interne en toute sécurité.",

@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Send, Upload, Trash2, ShieldCheck, AlertCircle, FileText, BadgeCheck, Lock, HandCoins, PackageCheck } from "lucide-react";
+import { Loader2, Send, Upload, Trash2, ShieldCheck, AlertCircle, FileText, BadgeCheck, Lock, HandCoins, PackageCheck, Plus, BellRing } from "lucide-react";
 import {
   requestDocument, cancelDocRequest, fulfillDocRequest, validateDeclaration, validateDeclarationByDirection, recordAuthorityDeclaration,
+  relancerPieceInfoMed,
   requestDeclareDecision, addMedicalInfoSlip, removeMedicalInfoSlip, requestSlipsValidation,
   requestSlipPayment, deliverMedicalInfoSlip, skipMedicalInfoBv, createMedicalInfoItem,
 } from "@/lib/actions/medical-info-actions";
@@ -22,6 +23,7 @@ import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { ROLE_LABELS } from "@/lib/labels";
 import type { ActionResult } from "@/lib/actions/types";
 import { useAction } from "@/components/shared/use-action";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 interface UserOpt { id: string; name: string; role: string }
 
@@ -69,6 +71,44 @@ export function CancelRequestButton({ id }: { id: string }) {
     >
       {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
     </button>
+  );
+}
+
+/** « Demander une pièce » — le geste secondaire : un bouton, le formulaire à la demande. */
+export function DemanderPieceBouton({ declarationId, users }: { declarationId: string; users: UserOpt[] }) {
+  const [open, setOpen] = React.useState(false);
+  if (!open) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <FileText className="h-4 w-4" /> Demander une pièce
+      </Button>
+    );
+  }
+  return (
+    <div className="w-full space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
+      <RequestDocForm declarationId={declarationId} users={users} />
+      <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Fermer</Button>
+    </div>
+  );
+}
+
+/**
+ * RELANCER UNE PIÈCE ATTENDUE — une notification à la personne sollicitée. Le serveur tient le
+ * délai (quatre heures) ; l'écran le dit d'avance quand il le connaît, plutôt qu'un bouton qui échoue.
+ */
+export function RelancerPieceButton({ id, refus }: { id: string; refus: string | null }) {
+  const { saving, err, run } = useAction();
+  const [fait, setFait] = React.useState(false);
+  return (
+    <span className="inline-flex flex-col items-end gap-1">
+      <Button
+        size="sm" variant="outline" disabled={saving || Boolean(refus) || fait} title={refus ?? undefined}
+        onClick={() => { const fd = new FormData(); fd.set("id", id); void run(() => relancerPieceInfoMed(fd), () => setFait(true)); }}
+      >
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />} {fait ? "Relancé" : "Relancer"}
+      </Button>
+      {err && <span className="text-xs text-destructive">{err}</span>}
+    </span>
   );
 }
 
@@ -129,8 +169,8 @@ export function DeclareDecisionCard({
             {DECLARE_INTENT_LABEL[state.intent === "SKIP" ? "SKIP" : "DECLARE"]}
           </span>
         )}
+        <InfoBulle label="Ce que cette décision ouvre" align="left">{declareMessage(state, { authorityRef })}</InfoBulle>
       </div>
-      <p className="text-sm text-muted-foreground">{declareMessage(state, { authorityRef })}</p>
       {validationHref && (
         <a href={validationHref} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
           <FileText className="h-3.5 w-3.5" /> Ouvrir la demande de validation
@@ -217,44 +257,63 @@ export function SlipsCard({
             {summary.count} matériel(s) · {formatCurrency(summary.announced)} annoncés · {summary.delivered}/{summary.count} remis
           </span>
         )}
+        <InfoBulle label="Où en sont les bons" align="left">{slipsMessage(lot, summary)}</InfoBulle>
       </div>
-      <p className="text-sm text-muted-foreground">{slipsMessage(lot, summary)}</p>
       {validationHref && (
         <a href={validationHref} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
           <FileText className="h-3.5 w-3.5" /> Ouvrir la demande de validation
         </a>
       )}
 
-      {/* LA LISTE DES MATÉRIELS — chacun sa route, et elle se lit d'un coup d'œil. */}
+      {/* LES BONS EN UN TABLEAU — un bon par matériel : montant, état, reçu. Les gestes d'une
+          ligne s'ouvrent sous elle, sans quitter le tableau. */}
       {slips.length > 0 && (
-        <ul className="divide-y divide-border rounded-lg border border-border">
+        <div className="overflow-x-auto rounded-lg border border-border [-webkit-overflow-scrolling:touch]">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-xs text-muted-foreground">
+              <tr>
+                <th className="sticky left-0 z-10 bg-muted px-3 py-2 text-left font-semibold">Matériel</th>
+                <th className="px-3 py-2 text-right font-semibold">Montant</th>
+                <th className="px-3 py-2 text-left font-semibold">État</th>
+                <th className="px-3 py-2 text-left font-semibold">Reçu</th>
+                <th className="px-1 py-2" aria-label="Actions" />
+              </tr>
+            </thead>
           {slips.map((sl) => {
             const etape = slipStage(sl);
+            const peutPayer = canManage && lot === "QUITTANCE_A_DEMANDER" && (etape === "A_DEMANDER" || etape === "REFUSE");
+            const peutRemettre = canDeliver && etape === "PAYE";
             return (
-              <li key={sl.id} className="space-y-2 px-3 py-2 text-sm">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="min-w-0 flex-1 font-medium">{sl.label}</span>
-                  {sl.amount != null && <span className="tabular-nums">{formatCurrency(sl.amount)}</span>}
-                  <span className="rounded-md border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
-                    {SLIP_STAGE_LABEL[etape]}
-                  </span>
-                  {canEdit && !sl.requestId && (
-                    <button
-                      type="button" title="Retirer ce matériel" disabled={saving}
-                      onClick={() => { const fd = new FormData(); fd.set("slipId", sl.id); run(() => removeMedicalInfoSlip(fd)); }}
-                      className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:p-1"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-                {sl.note && <p className="text-xs text-muted-foreground">{sl.note}</p>}
-                {sl.deliveredAtIso && (
-                  <p className="text-xs text-success">Quittance remise le {formatDate(sl.deliveredAtIso)}</p>
-                )}
-
+              <tbody key={sl.id} className="border-t border-border">
+                <tr>
+                  <td className="sticky left-0 z-10 max-w-[12rem] bg-card px-3 py-2 sm:max-w-none">
+                    <span className="block truncate font-medium">{sl.label}</span>
+                    {sl.note && <span className="block truncate text-xs text-muted-foreground">{sl.note}</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{sl.amount != null ? formatCurrency(sl.amount) : "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2">
+                    <span className={etape === "REMIS" ? "text-success" : etape === "REFUSE" || etape === "RENVOYE" ? "text-destructive" : "text-muted-foreground"}>
+                      {SLIP_STAGE_LABEL[etape]}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{sl.deliveredAtIso ? formatDate(sl.deliveredAtIso) : "—"}</td>
+                  <td className="px-1 py-2 text-right">
+                    {canEdit && !sl.requestId && (
+                      <button
+                        type="button" title="Retirer ce matériel" aria-label="Retirer ce matériel" disabled={saving}
+                        onClick={() => { const fd = new FormData(); fd.set("slipId", sl.id); run(() => removeMedicalInfoSlip(fd)); }}
+                        className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:p-1"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {(peutPayer || peutRemettre) && (
+                <tr>
+                <td colSpan={5} className="px-3 pb-3">
                 {/* DEMANDER LE PAIEMENT DE CE BON — son montant RÉEL, qui n'est pas toujours celui annoncé. */}
-                {canManage && lot === "QUITTANCE_A_DEMANDER" && (etape === "A_DEMANDER" || etape === "REFUSE") && (
+                {peutPayer && (
                   pane === `pay:${sl.id}` ? (
                     <form
                       action={(fd) => { fd.set("slipId", sl.id); run(() => requestSlipPayment(undefined, fd)); }}
@@ -295,7 +354,7 @@ export function SlipsCard({
                 )}
 
                 {/* LES FINANCES REMETTENT — un geste, pas un état déduit du règlement. */}
-                {canDeliver && etape === "PAYE" && (
+                {peutRemettre && (
                   <form
                     action={(fd) => { fd.set("slipId", sl.id); run(() => deliverMedicalInfoSlip(fd)); }}
                     className="flex flex-wrap items-end gap-2"
@@ -309,10 +368,14 @@ export function SlipsCard({
                     </Button>
                   </form>
                 )}
-              </li>
+                </td>
+                </tr>
+                )}
+              </tbody>
             );
           })}
-        </ul>
+          </table>
+        </div>
       )}
 
       {/* SÉPARER LE DOSSIER EN MATÉRIELS — tant que le dépôt n'est pas signé. */}
@@ -404,7 +467,7 @@ export function CreateDeclarationButton() {
   if (!open) {
     return (
       <Button size="sm" onClick={() => setOpen(true)}>
-        <Upload className="h-4 w-4" /> Ouvrir un dossier
+        <Plus className="h-4 w-4" /> Nouvelle déclaration
       </Button>
     );
   }
@@ -486,13 +549,13 @@ export function ValidateButton({ id, hasPending }: { id: string; hasPending: boo
   const [confirm, setConfirm] = React.useState(false);
   return (
     <div className="space-y-2">
-      {hasPending && <p className="text-xs text-warning">Des pièces sont encore en attente de dépôt. Vous pouvez tout de même valider si vous l'estimez complet.</p>}
-      <p className="text-xs text-muted-foreground">
-        Votre validation transmet la déclaration à la <strong>Direction</strong>, qui donnera la validation finale (pour le comptable).
-      </p>
+      {hasPending && <p className="text-xs text-warning">Des pièces sont encore attendues — vous pouvez tout de même valider.</p>}
       <Err msg={err} />
       {!confirm ? (
-        <Button onClick={() => setConfirm(true)} disabled={saving} className="h-auto min-h-10 w-full whitespace-normal py-2 sm:w-auto"><BadgeCheck className="h-4 w-4 shrink-0" /> Valider et transmettre à la Direction</Button>
+        <div className="flex items-center gap-1">
+          <Button onClick={() => setConfirm(true)} disabled={saving} className="h-auto min-h-10 w-full whitespace-normal py-2 sm:w-auto"><BadgeCheck className="h-4 w-4 shrink-0" /> Valider et transmettre à la Direction</Button>
+          <InfoBulle label="Ce que fait la validation" align="left">Votre validation transmet la déclaration à la Direction, qui donnera la validation finale (pour le comptable).</InfoBulle>
+        </div>
       ) : (
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => { const fd = new FormData(); fd.set("id", id); run(() => validateDeclaration(fd)); }} disabled={saving}>

@@ -313,10 +313,10 @@ export const PROMO_MESSAGE_OPS_IMPL: Record<string, OpImpl> = {
           ...(bu ? { businessUnitId: bu.id } : {}),
         },
         successMessage: `Message « ${title} » ajouté au référentiel.`,
-        revalidate: ["/marketing-cockpit/messages"],
+        revalidate: ["/marketing-cockpit"],
       };
     },
-    execute: (args) => runFd(createPromoMessage, args, "La création du message a été refusée.", { revalidate: ["/marketing-cockpit/messages"] }),
+    execute: (args) => runFd(createPromoMessage, args, "La création du message a été refusée.", { revalidate: ["/marketing-cockpit"] }),
   },
 
   update_promo_message: {
@@ -347,10 +347,10 @@ export const PROMO_MESSAGE_OPS_IMPL: Record<string, OpImpl> = {
           isActive: cur.isActive ? "on" : "off",
         },
         successMessage: `Message « ${nouveauTitre} » enregistré.`,
-        revalidate: ["/marketing-cockpit/messages"],
+        revalidate: ["/marketing-cockpit"],
       };
     },
-    execute: (args) => runFd(updatePromoMessage, args, "L'enregistrement du message a été refusé.", { revalidate: ["/marketing-cockpit/messages"] }),
+    execute: (args) => runFd(updatePromoMessage, args, "L'enregistrement du message a été refusé.", { revalidate: ["/marketing-cockpit"] }),
   },
 
   delete_promo_message: {
@@ -359,18 +359,21 @@ export const PROMO_MESSAGE_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in hit) return hit;
       const cur = await lireMessagePromoAvantRetrait(hit.id);
       if (!cur) return { error: "Message introuvable." };
+      // DÉJÀ PORTÉ → ARCHIVÉ (son historique reste) ; JAMAIS PORTÉ → SUPPRIMÉ. L'action tranche, la carte le dit avant.
+      const archive = cur.rapportsLies > 0;
       return {
-        title: `Retirer le message « ${cur.title} »`,
+        title: `${archive ? "Archiver" : "Supprimer"} le message « ${cur.title} »`,
         fields: [{ label: "Rapports terrain qui le portent", value: String(cur.rapportsLies) }],
-        // LA CONSÉQUENCE, pas la ligne supprimée : les visites et leurs comptes rendus RESTENT.
         warnings: [
-          `Il disparaît du menu déroulant des KAM. Les ${cur.rapportsLies} rapport(s) terrain qui l'ont porté restent intacts — on retire une consigne du catalogue, pas l'historique de ce qui a été dit.`,
+          archive
+            ? `Il disparaît du menu déroulant des KAM et passe « archivé ». Ses ${cur.rapportsLies} portage(s) restent dans l'historique et dans le Marketing cockpit.`
+            : "Il n'a jamais été porté : il est supprimé, il n'y a rien à garder.",
         ],
         args: { id: hit.id },
-        successMessage: `Message « ${cur.title} » retiré.`,
-        revalidate: ["/marketing-cockpit/messages"],
+        successMessage: `Message « ${cur.title} » ${archive ? "archivé" : "supprimé"}.`,
+        revalidate: ["/marketing-cockpit"],
       };
     },
-    execute: (args) => runFd(deletePromoMessage, args, "Le retrait du message a été refusé.", { revalidate: ["/marketing-cockpit/messages"] }),
+    execute: (args) => runFd(deletePromoMessage, args, "Le retrait du message a été refusé.", { revalidate: ["/marketing-cockpit"] }),
   },
 };

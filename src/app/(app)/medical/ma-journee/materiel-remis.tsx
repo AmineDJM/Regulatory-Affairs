@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Package } from "lucide-react";
 import type { StockPourVisite } from "@/lib/queries/promo-remises";
 import { cn } from "@/lib/utils";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 /** Ce qu'une visite a déjà remis et présenté — le point de départ d'une correction. */
 export interface RemisesInitiales {
@@ -65,9 +66,12 @@ export function BlocMaterielRemis({
 
   const vide = lignes.length === 0 && supports.length === 0;
   const contenu = vide ? (
-    <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
-      Vous n&apos;avez aucun matériel en main. Une dotation se demande depuis{" "}
-      <Link href={CHEMIN_STOCK_PROMO} className="text-primary hover:underline">{MENU_STOCK_PROMO}</Link>.
+    <p className="flex items-center gap-1 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground">
+      <span className="min-w-0 flex-1">Aucun matériel en main.</span>
+      <InfoBulle label="Obtenir du matériel">
+        Une dotation se demande depuis{" "}
+        <Link href={CHEMIN_STOCK_PROMO} className="text-primary hover:underline">{MENU_STOCK_PROMO}</Link>.
+      </InfoBulle>
     </p>
   ) : (
     <div className="space-y-2">
@@ -82,8 +86,8 @@ export function BlocMaterielRemis({
                   <p className={cn("truncate text-sm", pertinent && "font-medium")}>{a.libelle}</p>
                   <p className="text-xs text-muted-foreground">
                     {nombre(a.distribuable)} en main{a.unite ? ` (${a.unite})` : ""}
-                    {deja > 0 && <> · {nombre(deja)} déjà remis lors de cette visite</>}
-                    {a.perime > 0 && <> · <span className="text-warning">{nombre(a.perime)} périmé(s), ne se remettent pas</span></>}
+                    {deja > 0 && <> · {nombre(deja)} déjà remis</>}
+                    {a.perime > 0 && <> · <span className="text-warning">{nombre(a.perime)} périmé(s)</span></>}
                   </p>
                 </div>
                 <input type="hidden" name="materielItemId" value={a.itemId} />
@@ -101,7 +105,7 @@ export function BlocMaterielRemis({
       )}
       {supports.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Supports numériques présentés (sans quantité : ils se montrent, ils ne se donnent pas)</p>
+          <p className="text-xs text-muted-foreground">Supports numériques présentés</p>
           <div className="flex flex-wrap gap-2">
             {supports.map((s) => (
               <label key={s.itemId} className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-lg border border-input px-3 py-2 text-sm [overflow-wrap:anywhere] sm:min-h-0 sm:gap-1.5 sm:px-2 sm:py-1">
@@ -112,10 +116,14 @@ export function BlocMaterielRemis({
           </div>
         </div>
       )}
-      <p className="text-xs text-muted-foreground">
-        Ce qui est remis sort de votre stock. Au-delà de ce que vous avez en main, rien n&apos;est enregistré — ni la visite, ni la remise.
-      </p>
     </div>
+  );
+  // LA RÈGLE DU STOCK, derrière le ⓘ (Direction, 07/10) — l'action la dit de toute façon si on la heurte.
+  const regle = (
+    <InfoBulle label="Règle du stock" align="left" className="normal-case tracking-normal">
+      Ce qui est remis sort de votre stock. Au-delà de ce que vous avez en main, rien n&apos;est enregistré — ni la visite,
+      ni la remise. Les articles périmés ne se remettent pas ; les supports numériques se montrent sans quantité.
+    </InfoBulle>
   );
 
   if (compact) {
@@ -131,7 +139,7 @@ export function BlocMaterielRemis({
   return (
     <div className="space-y-1.5">
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        <Package className="h-3.5 w-3.5" aria-hidden /> Matériel remis
+        <Package className="h-3.5 w-3.5" aria-hidden /> Matériel remis {!vide && regle}
       </p>
       {contenu}
     </div>

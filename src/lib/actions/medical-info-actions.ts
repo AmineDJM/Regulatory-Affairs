@@ -11,7 +11,8 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
-import { getDeclaration, canViewDeclaration } from "@/lib/queries/medical-info";
+import { getDeclaration, canViewDeclaration, dernieresRelancesPieces, RELANCE_PIECE_CHAMP } from "@/lib/queries/medical-info";
+import { peutRelancerPiece } from "@/lib/medical-info/parcours";
 import { archiveProcessedRequest } from "@/lib/archive";
 import { formatAlgiers } from "@/lib/calendar-tz";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -135,6 +136,43 @@ export async function cancelDocRequest(formData: FormData): Promise<ActionResult
   await recordAudit({
     actorId: user.id, action: "DELETE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: r.declarationId,
     summary: `Demande de pièce annulée — ${r.declaration.reference} : ${r.label}`,
+  });
+  revalidate(r.declarationId);
+  return { ok: true };
+}
+
+/**
+ * RELANCER UNE PIÈCE ATTENDUE — une notification à la personne sollicitée, tracée au journal.
+ *
+ * La règle des tâches (quatre heures depuis la demande ou la dernière relance) : sans délai, trois
+ * clics font trois notifications identiques, et la quatrième — celle qui comptait — ne se lit plus.
+ */
+export async function relancerPieceInfoMed(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const r = await prisma.medicalInfoDocRequest.findUnique({
+    where: { id },
+    include: { declaration: { select: { id: true, reference: true, status: true } } },
+  });
+  if (!r) return { ok: false, error: "Demande introuvable." };
+  if (r.declaration.status === "VALIDATED") return { ok: false, error: "Déclaration déjà validée." };
+  const derniere = (await dernieresRelancesPieces(r.declarationId)).get(r.id) ?? null;
+  const verdict = peutRelancerPiece(r, { userId: user.id, gestionnaire: canManage(user), derniereRelance: derniere });
+  if (!verdict.ok) return { ok: false, error: verdict.raison };
+
+  await notifyUser({
+    userId: r.targetUserId!,
+    type: "ASSIGNMENT",
+    title: "Relance : une pièce vous est demandée",
+    body: `${r.declaration.reference} — ${r.label}`,
+    link: `${PATH}/${r.declarationId}`,
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Information médicale",
+    entityType: "MEDICAL_INFO_DECLARATION", entityId: r.declarationId,
+    field: RELANCE_PIECE_CHAMP, newValue: r.id,
+    summary: `Pièce relancée — ${r.declaration.reference} : ${r.label}`,
   });
   revalidate(r.declarationId);
   return { ok: true };

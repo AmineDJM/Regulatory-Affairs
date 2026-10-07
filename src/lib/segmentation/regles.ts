@@ -15,6 +15,16 @@ export type Segment = (typeof SEGMENTS)[number];
 /** L'état d'un praticien pour UN produit. Une donnée manquante est EN_ATTENTE — jamais D. */
 export type EtatProduit = "NON_CIBLE" | "EN_ATTENTE" | Segment;
 
+/**
+ * LA LETTRE D'UN PRATICIEN (Direction, 07/10) — ce que l'écran montre, pour le produit #1 : H (décideur), A/B/C/D,
+ * NA (une réponse manque — jamais D), NC (non ciblé : ne consulte pas, statut ou spécialité non visés, décision).
+ */
+export const LETTRES = ["H", "A", "B", "C", "D", "NA", "NC"] as const;
+export type Lettre = (typeof LETTRES)[number];
+/** Les lettres qu'une personne autorisée peut FORCER (NA n'est pas une décision : c'est une réponse qui manque). */
+export const LETTRES_FORCABLES = ["H", "A", "B", "C", "D", "NC"] as const;
+export type LettreForcable = (typeof LETTRES_FORCABLES)[number];
+
 export const STATUTS = ["DECIDEUR", "INFLUENCEUR", "REFERENT", "PRESCRIPTEUR"] as const;
 export type Statut = (typeof STATUTS)[number];
 
@@ -53,7 +63,10 @@ export const SOURCE_AFFINITE_LABELS: Record<SourceAffinite, string> = {
 };
 
 export interface ExceptionZone {
+  /** Le libellé : le NOM du secteur (ou, pour les règles d'avant les secteurs, une zone libre « Ouest »). */
   zone: string;
+  /** LE SECTEUR DE LA BU visé (Direction, 07/10). Absent = règle d'avant : la zone se compare au nom. */
+  secteurId?: string;
   seuilPotentiel?: number;
   seuilAffinite?: number;
   comparaisonAffinite?: Comparaison;
@@ -72,7 +85,21 @@ export interface RegleProduit {
   /** Absent = DECLAREE (les versions publiées avant la consommation gardent leur sens). */
   sourceAffinite?: SourceAffinite;
   exceptions: ExceptionZone[];
+  /** Repère affiché à côté du seuil — « moyenne nationale 2026 : 7,21 % » (fraction). Ne classe personne. */
+  reference?: { valeur: number; annee: number };
 }
+
+/**
+ * LA GRILLE DES FRÉQUENCES PAR LETTRE (Direction, 07/10) — visites par cycle selon la lettre du praticien et son In/Out :
+ * H (décideur, réglable à part — au moins A & B), A & B, C & D. NA et non ciblé : aucune visite requise.
+ */
+export const CLES_FREQUENCE = ["H_IN", "H_OUT", "AB_IN", "AB_OUT", "CD_IN", "CD_OUT"] as const;
+export type CleFrequence = (typeof CLES_FREQUENCE)[number];
+export type GrilleFrequence = Record<CleFrequence, number>;
+export interface GrilleSecteur { secteurId: string; nom: string; valeurs: Partial<GrilleFrequence> }
+export interface Grille { defaut: GrilleFrequence; secteurs: GrilleSecteur[] }
+/** La capacité d'un KAM : contacts par jour, jours ouvrés d'un cycle. */
+export interface Capacite { contactsParJour: number; joursParCycle: number }
 
 /** « Au moins N produits en A », « exactement A + B + B », « produit #1 en A ». Évaluées dans l'ordre. */
 export interface ReglePriorite {
@@ -109,6 +136,9 @@ export interface Regles {
    * précise l'emporte (zone ET In/Out, puis l'une des deux) ; sans exception, la fréquence générale s'applique.
    */
   exceptionsFrequence?: ExceptionFrequence[];
+  /** Présente = les visites se lisent par LETTRE et In/Out, secteur par secteur (remplace priorités et fréquences). */
+  grille?: Grille;
+  capacite?: Capacite;
 }
 
 export type InOut = "IN" | "OUT";
@@ -145,19 +175,25 @@ export function lireRegles(brut: unknown): LectureRegles {
     const exceptions: ExceptionZone[] = (Array.isArray(r.exceptions) ? r.exceptions : []).flatMap((x) => {
       const z = (x ?? {}) as Record<string, unknown>;
       const zone = typeof z.zone === "string" ? z.zone.trim() : "";
-      if (!zone) return [];
+      const secteurId = typeof z.secteurId === "string" && z.secteurId.trim() ? z.secteurId.trim() : null;
+      if (!zone && !secteurId) return [];
       const sp = num(z.seuilPotentiel), sa = num(z.seuilAffinite);
+      if (sa !== null && (sa < 0 || sa > 1)) e.push(`${nom} : seuil d'affinité de « ${zone || "secteur"} » hors de 0 à 100 %.`);
       return [{
-        zone,
+        zone: zone || "Secteur",
+        ...(secteurId ? { secteurId } : {}),
         ...(sp !== null ? { seuilPotentiel: sp } : {}),
         ...(sa !== null ? { seuilAffinite: sa } : {}),
         ...(z.comparaisonAffinite === ">=" || z.comparaisonAffinite === ">" ? { comparaisonAffinite: z.comparaisonAffinite as Comparaison } : {}),
       }];
     });
+    const ref0 = (r.reference ?? null) as Record<string, unknown> | null;
+    const refValeur = ref0 ? num(ref0.valeur) : null, refAnnee = ref0 ? num(ref0.annee) : null;
     produits.push({
       productId, metrique: typeof r.metrique === "string" && r.metrique.trim() ? r.metrique.trim() : "patients / semaine",
       seuilPotentiel: seuilPotentiel ?? 0, seuilAffinite: seuilAffinite ?? 0, comparaisonAffinite, methodeAffinite, exceptions,
       ...(r.sourceAffinite === "ETABLISSEMENT" || r.sourceAffinite === "DECLAREE_SINON_ETABLISSEMENT" ? { sourceAffinite: r.sourceAffinite as SourceAffinite } : {}),
+      ...(refValeur !== null && refValeur >= 0 && refValeur <= 1 && refAnnee !== null ? { reference: { valeur: refValeur, annee: Math.round(refAnnee) } } : {}),
     });
   });
   const c = (o.ciblage ?? {}) as Record<string, unknown>;
@@ -210,14 +246,75 @@ export function lireRegles(brut: unknown): LectureRegles {
     if (!priorite || frequence === null || frequence < 0 || (!zone && !inOut)) { e.push("Fréquence particulière incomplète (priorité ou H, zone et/ou In/Out, nombre)."); return []; }
     return [{ zone, inOut, priorite, frequence }];
   });
+  const grille = o.grille === undefined || o.grille === null ? null : lireGrille(o.grille, e);
+  let capacite: Capacite | null = null;
+  if (o.capacite !== undefined && o.capacite !== null) {
+    const c0 = o.capacite as Record<string, unknown>;
+    const cj = num(c0.contactsParJour), jc = num(c0.joursParCycle);
+    if (cj === null || cj <= 0 || jc === null || jc <= 0) e.push("Capacité incomplète (contacts par jour, jours par cycle).");
+    else capacite = { contactsParJour: cj, joursParCycle: jc };
+  }
   if (e.length) return { ok: false, erreurs: [...new Set(e)] };
-  return { ok: true, regles: { produits, ciblage, h, priorites: { regles: reglesPrio, repli }, frequences, ...(exceptionsFrequence.length ? { exceptionsFrequence } : {}) } };
+  return {
+    ok: true,
+    regles: {
+      produits, ciblage, h, priorites: { regles: reglesPrio, repli }, frequences,
+      ...(exceptionsFrequence.length ? { exceptionsFrequence } : {}),
+      ...(grille ? { grille } : {}),
+      ...(capacite ? { capacite } : {}),
+    },
+  };
 }
 
-/** Les seuils effectifs d'un produit pour une ZONE (l'exception de la zone l'emporte, champ par champ). */
-export function seuilsPourZone(r: RegleProduit, zone: string | null | undefined): { seuilPotentiel: number; seuilAffinite: number; comparaisonAffinite: Comparaison; exception: string | null } {
-  const cle = (zone ?? "").trim().toLowerCase();
-  const x = cle ? r.exceptions.find((e) => e.zone.trim().toLowerCase() === cle) : undefined;
+const LIBELLE_CLE: Record<CleFrequence, string> = { H_IN: "H — In", H_OUT: "H — Out", AB_IN: "A & B — In", AB_OUT: "A & B — Out", CD_IN: "C & D — In", CD_OUT: "C & D — Out" };
+
+/** Lit la grille des fréquences ; une case vide ou fausse est une erreur nommée. H n'est jamais sous A & B. */
+function lireGrille(brut: unknown, e: string[]): Grille | null {
+  const g = (brut && typeof brut === "object" ? brut : {}) as Record<string, unknown>;
+  const d0 = (g.defaut ?? {}) as Record<string, unknown>;
+  const defaut = {} as GrilleFrequence;
+  let ok = true;
+  for (const k of CLES_FREQUENCE) {
+    const v = num(d0[k]);
+    if (v === null || v < 0) { e.push(`Fréquence par défaut « ${LIBELLE_CLE[k]} » manquante.`); ok = false; } else defaut[k] = v;
+  }
+  if (!ok) return null;
+  const secteurs: GrilleSecteur[] = (Array.isArray(g.secteurs) ? g.secteurs : []).flatMap((x) => {
+    const s = (x ?? {}) as Record<string, unknown>;
+    const secteurId = typeof s.secteurId === "string" ? s.secteurId.trim() : "";
+    if (!secteurId) return [];
+    const v0 = (s.valeurs ?? {}) as Record<string, unknown>;
+    const valeurs: Partial<GrilleFrequence> = {};
+    for (const k of CLES_FREQUENCE) { const v = num(v0[k]); if (v !== null && v >= 0) valeurs[k] = v; }
+    return [{ secteurId, nom: typeof s.nom === "string" && s.nom.trim() ? s.nom.trim() : "Secteur", valeurs }];
+  });
+  const grille: Grille = { defaut, secteurs };
+  for (const cible of [null, ...secteurs]) {
+    const f = grilleDuSecteur(grille, cible?.secteurId ?? null);
+    const ou = cible ? ` (${cible.nom})` : "";
+    if (f.H_IN < f.AB_IN || f.H_OUT < f.AB_OUT) e.push(`La fréquence des décideurs (H) ne peut pas être sous celle de A & B${ou}.`);
+  }
+  return grille;
+}
+
+/** Les fréquences qui s'appliquent dans un secteur : celles du secteur, case par case, sinon celles par défaut. */
+export function grilleDuSecteur(g: Grille, secteurId: string | null | undefined): GrilleFrequence {
+  const s = secteurId ? g.secteurs.find((x) => x.secteurId === secteurId) : undefined;
+  return { ...g.defaut, ...(s?.valeurs ?? {}) };
+}
+
+/**
+ * Les seuils effectifs d'un produit pour un praticien (l'exception l'emporte, champ par champ). L'exception d'un
+ * SECTEUR se reconnaît à son identifiant ; celle d'une règle d'avant les secteurs, à son nom — comparé à la zone libre
+ * de la fiche, puis au nom du secteur.
+ */
+export function seuilsPourZone(
+  r: RegleProduit, zone: string | null | undefined, secteur?: { id: string | null; nom: string | null } | null,
+): { seuilPotentiel: number; seuilAffinite: number; comparaisonAffinite: Comparaison; exception: string | null } {
+  const norme = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+  const parId = secteur?.id ? r.exceptions.find((e) => e.secteurId === secteur.id) : undefined;
+  const parNom = (cle: string) => (cle ? r.exceptions.find((e) => !e.secteurId && norme(e.zone) === cle) : undefined);
+  const x = parId ?? parNom(norme(zone)) ?? parNom(norme(secteur?.nom));
   return {
     seuilPotentiel: x?.seuilPotentiel ?? r.seuilPotentiel,
     seuilAffinite: x?.seuilAffinite ?? r.seuilAffinite,

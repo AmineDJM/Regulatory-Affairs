@@ -14,6 +14,7 @@ import { runAnppWatchIfDue } from "@/lib/regulatory/intelligence/corpus/watch-sc
 import { pollAiBatches } from "@/lib/regulatory/intelligence/cost/batch-runner";
 import { embedBacklog } from "@/lib/regulatory/intelligence/corpus/semantic";
 import { runIntelligencePulse } from "@/lib/adventum/pulse";
+import { runBrainBriefingIfDue } from "@/lib/brain-briefing";
 import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions";
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runPchDeadlineSweep } from "@/lib/pch/deadline-sweep";
@@ -27,6 +28,7 @@ import { mettreEnCacheClausesSiDu } from "@/platform/in-process/intelligence";
 import { viderFile as viderFileSiteWeb } from "@/lib/site-web/file";
 import { rapprocherSiteSiDu } from "@/lib/site-web/reconciliation";
 import { entretenirLiaison as entretenirLiaisonSiteWeb } from "@/lib/site-web/liaison";
+import { purgerAudienceSiDu } from "@/lib/site-web/audience-collecte";
 import { runKnowledgeSweep, enqueueBacklogs, enqueueStalled, refreshEntityIndex } from "@/lib/knowledge/worker";
 import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
@@ -111,6 +113,9 @@ export async function runScheduledJobs(): Promise<void> {
     await catchUpMissingAiReviews().catch(() => 0);
     await embedBacklog().catch(() => 0); // vecteurs sémantiques : un paquet par passage, jamais plus
     await runIntelligencePulse(); // Adventum Pulse : instantané horaire (Brain + Process Intelligence) + alerte proactive
+    // LE BRIEFING DU MATIN d'Adventum Brain : une fois par jour, à 7 h (Alger), APRÈS la passe horaire qui vient de
+    // réconcilier les risques — il les lit, il ne les recalcule pas.
+    await runBrainBriefingIfDue().catch(() => undefined);
     // Caisse d'avance : prévenir les RH 48 h AVANT le rechargement mensuel. Prévenir le jour
     // même ne sert à rien — sortir la somme demande une préparation. Idempotent par échéance.
     await runPettyCashRechargeReminders().catch(() => 0);
@@ -180,6 +185,8 @@ export async function runScheduledJobs(): Promise<void> {
     await entretenirLiaisonSiteWeb().catch((e) => console.error("[scheduled] liaison du site web", e));
     await viderFileSiteWeb().catch((e) => console.error("[scheduled] file du site web", e));
     await rapprocherSiteSiDu().catch((e) => console.error("[scheduled] rapprochement du site web", e));
+    // AUDIENCE DU SITE (Direction, 07/10) : les événements de plus de 13 mois s'effacent, une fois par jour.
+    await purgerAudienceSiDu().catch((e) => console.error("[scheduled] purge de l'audience du site", e));
 
     // LA COUCHE DE CONNAISSANCE — elle avance à son rythme, derrière tout le reste.
     //

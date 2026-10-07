@@ -25,7 +25,8 @@ import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { rouvrirDemandeAuSecretariat, fermerDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
 import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis } from "@/lib/promo-automatismes";
+import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis, joindreLettreDeDevis } from "@/lib/promo-automatismes";
+import { phraseDepotLettre } from "@/lib/demande-devis-depot";
 import { natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
 import { refusDeRangement } from "@/lib/promo-material/rangement";
 import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
@@ -146,6 +147,26 @@ async function octetsDuScan(pmId: string, documentId: string): Promise<Buffer | 
 // ───────────────────────── 1. Le demandeur demande les devis ─────────────────────────
 
 /**
+ * (RE)GÉNÉRER LA LETTRE DE DEMANDE DE DEVIS DU DOSSIER (Direction, 07/10) — rédigée par Luna d'après les articles du
+ * dossier, en PDF et Word sur papier en-tête, déposée sous l'étape « Demande de devis » (et sur la demande au secrétariat
+ * en cours, s'il y en a une). Le demandeur ou la Direction (`pilote`), comme l'envoi.
+ */
+export async function regenererDemandeDevisPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const v = refusVersion(pm);
+  if (v) return { ok: false, error: v };
+  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) génère la demande de devis de ce dossier." };
+  const enCours = await prisma.promoMaterial.findUnique({ where: { id: pm.id }, select: { adminRequestId: true } });
+  const r = await joindreLettreDeDevis(user, pm.id, enCours?.adminRequestId ?? null);
+  if (!r.ok) return { ok: false, error: r.error };
+  await audit(user, pm.id, "Demande de devis (lettre) générée.");
+  revalidatePath(chemin(pm.id));
+  return { ok: true, message: phraseDepotLettre(r) };
+}
+
+/**
  * ENVOYER LA DEMANDE DE DEVIS — le REPLI (§118.204). La demande de devis part d'elle-même quand le
  * dossier arrive sur « devis à demander » (à la création, ou à la validation de la demande —
  * `envoyerDemandeDeDevis`). Ce geste reste dans la rubrique « Articles demandés » pour un dossier qui y
@@ -164,7 +185,8 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
   if (!r.ok) return { ok: false, error: r.error };
   if (r.assistantId) await notifyUser({ userId: r.assistantId, ...r.avis });
   else await notifyRoles(["DIRECTION_ASSISTANT"], r.avis);
-  return { ok: true, id: r.demande.id, message: `Demande de devis envoyée au secrétariat (${r.demande.reference}).` };
+  const lettre = await joindreLettreDeDevis(user, pm.id, r.demande.id).catch(() => null);
+  return { ok: true, id: r.demande.id, message: `Demande de devis envoyée au secrétariat (${r.demande.reference}).${lettre?.ok ? ` ${phraseDepotLettre(lettre)}` : ""}` };
 }
 
 // ───────────────────────── 2. L'assistante retranscrit ─────────────────────────
@@ -173,9 +195,10 @@ type LigneLue = {
   reference: string; unit: string | null; quantity: number; unitPrice: number; action: PromoAction; requestItemId: string | null;
   /** Le rang de la ligne LUE sur le scan dont elle vient (lot D2-E) ; `null` : saisie à la main. */
   lue: number | null;
-  /** La case « vérifiée » de cette ligne — ce que la personne atteste avoir comparé au papier. */
-  verifiee: boolean;
 };
+
+/** Le libellé de l'attestation UNIQUE de l'éditeur (Direction, 07/10) — repris tel quel dans le refus. */
+const CASE_COMPAREES = "J'ai comparé les lignes au devis";
 
 /**
  * Une ligne lue du formulaire, ou le motif qui la refuse (avec son rang, pour qu'on la retrouve).
@@ -184,9 +207,9 @@ type LigneLue = {
  * dira, à la réception, si ce qui arrive entre au stock. Et, si elle chiffre un article DEMANDÉ, son
  * rattachement ; une ligne sans article est une ligne « en plus », que le demandeur pourra retenir.
  *
- * Préremplie depuis le scan (lot D2-E), elle porte aussi le RANG de la ligne lue dont elle vient et sa
- * case « vérifiée » — deux champs cachés par rangée, alignés comme les autres : une case décochée
- * n'envoyant rien, la rangée envoie « 1 » ou « 0 », jamais un vide qui décalerait les suivantes.
+ * Préremplie depuis le scan (lot D2-E), elle porte aussi le RANG de la ligne lue dont elle vient — un
+ * champ caché par rangée, aligné comme les autres (vide : saisie à la main). L'attestation, elle, est
+ * UNE case pour tout le formulaire (`lignesComparees`, Direction 07/10), lue par l'action.
  */
 function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok: false; error: string } {
   const refs = formData.getAll("ligneReference").map((x) => String(x ?? "").trim());
@@ -196,7 +219,6 @@ function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok
   const actions = formData.getAll("ligneAction").map((x) => String(x ?? "").trim());
   const articles = formData.getAll("ligneArticle").map((x) => String(x ?? "").trim());
   const rangsLus = formData.getAll("ligneLue").map((x) => String(x ?? "").trim());
-  const cases = formData.getAll("ligneVerifiee").map((x) => String(x ?? "").trim());
   const n = Math.max(refs.length, quantites.length, prix.length);
   const lignes: LigneLue[] = [];
   const nombre = (s: string) => (s === "" ? NaN : Number(s.replace(/\s/g, "").replace(",", ".")));
@@ -218,7 +240,6 @@ function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok
     lignes.push({
       reference: r, unit: (unites[i] ?? "") || null, quantity, unitPrice, action, requestItemId: (articles[i] ?? "") || null,
       lue: rangsLus[i] && Number.isInteger(rangLu) && rangLu > 0 ? rangLu : null,
-      verifiee: cases[i] === "1",
     });
   }
   return { ok: true, lignes };
@@ -263,9 +284,7 @@ export async function lireScanDevisPromo(formData: FormData): Promise<ActionResu
   return {
     ok: true,
     lecture,
-    message: n > 0
-      ? `Scan lu : ${n} ligne${n > 1 ? "s" : ""} proposée${n > 1 ? "s" : ""} — comparez chacune au papier, puis cochez-la.`
-      : `Scan lu : en-tête et totaux repérés — ${lecture.sansLignes ?? "aucune ligne lue ; saisissez-les depuis le papier."}`,
+    message: n > 0 ? `Devis lu — ${n} ligne${n > 1 ? "s" : ""} préremplie${n > 1 ? "s" : ""}.` : "Devis lu — en-tête prérempli.",
   };
 }
 
@@ -281,9 +300,11 @@ export async function lireScanDevisPromo(formData: FormData): Promise<ActionResu
  * CONDITIONNELLE sur « devis demandés », et un geste qui a perdu la course ne laisse rien derrière
  * lui — pas même le scan qu'il venait de déposer.
  *
- * Prérempli depuis le scan (`lectureId`, lot D2-E), il exige la lecture CONFIRMÉE — le fichier lu,
- * chaque ligne gardée cochée « vérifiée », le total coché — avant toute écriture, et consigne qui a
- * confirmé quoi (`LecturePieceConfirmation`) DANS la transaction du devis.
+ * Prérempli depuis le scan (`lectureId`, lot D2-E), il exige la lecture CONFIRMÉE — le fichier lu, et,
+ * dès qu'une ligne gardée vient du scan, la case unique « J'ai comparé les lignes au devis » (Direction,
+ * 07/10) : elle atteste chaque ligne lue ET le total saisi (§118.7, §118.15 — une ligne lue n'entre
+ * qu'attestée par une personne, une attestation globale suffit). Le total HT imprimé est FACULTATIF.
+ * Qui a confirmé quoi (`LecturePieceConfirmation`) se consigne DANS la transaction du devis.
  */
 export async function enregistrerDevisPromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -331,21 +352,25 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
   const scanJoint = scan instanceof File && scan.size > 0 ? scan : null;
   const contenuScan = scanJoint ? Buffer.from(await scanJoint.arrayBuffer()) : null;
 
-  // LA LECTURE CONFIRMÉE (lot D2-E). L'écran a prérempli depuis le scan : la personne atteste avoir
-  // comparé chaque ligne gardée au papier, et le total — la garde passe AVANT toute écriture, scan
-  // compris (P7). Le fichier comparé est celui qu'on joint, sinon celui que le devis porte déjà : une
-  // confirmation porte sur la pièce LUE, et un autre fichier sous le même nom n'en est pas une.
+  // LA LECTURE CONFIRMÉE (lot D2-E). L'écran a prérempli depuis le scan : la personne atteste, d'UNE
+  // case, avoir comparé au papier les lignes lues qu'elle garde (et le total) — la garde passe AVANT
+  // toute écriture, scan compris (P7). Sans ligne lue gardée, rien à attester : le total, s'il est saisi,
+  // se contrôle de toute façon contre les lignes à un dinar près. Le fichier comparé est celui qu'on
+  // joint, sinon celui que le devis porte déjà : une confirmation porte sur la pièce LUE.
   const lectureId = fdStr(formData, "lectureId");
   let confirmation: ConfirmationPrete | null = null;
   if (lectureId !== null) {
     const octetsLus = contenuScan ?? (existant?.documentId ? await octetsDuScan(pm.id, existant.documentId) : null);
     if (octetsLus === null) return { ok: false, error: "Joignez le scan qui a été lu : une lecture se confirme contre sa pièce, rien n'a été enregistré." };
+    const comparees = fdCase(formData, "lignesComparees") === true;
+    const luesGardees = lues.lignes.some((l) => l.lue !== null);
     const exigee = await exigerLectureConfirmee({
       lectureId,
       empreinte: empreinteDe(octetsLus),
-      totalVerifie: fdCase(formData, "totalVerifie") === true,
-      soumises: lues.lignes.map((l) => ({ lue: l.lue, verifiee: l.verifiee, designation: l.reference, quantite: l.quantity, prixUnitaire: l.unitPrice })),
+      totalVerifie: comparees || !luesGardees || announcedTotal == null,
+      soumises: lues.lignes.map((l) => ({ lue: l.lue, verifiee: comparees, designation: l.reference, quantite: l.quantity, prixUnitaire: l.unitPrice })),
       proposees: lignesProposeesDevisPromo,
+      caseGlobale: CASE_COMPAREES,
     });
     if (!exigee.ok) return { ok: false, error: exigee.error };
     confirmation = exigee.confirmation;
@@ -488,8 +513,9 @@ export async function supprimerDevisPromo(formData: FormData): Promise<ActionRes
 /**
  * LA RETRANSCRIPTION EST TERMINÉE — au demandeur de choisir.
  *
- * Refusée tant qu'un devis manque de fournisseur, de scan, de total imprimé ou de lignes, ou que ses
- * lignes ne tombent pas sur le total imprimé : tout ce qui manque est dit en UNE fois (§118.18). La
+ * Refusée tant qu'un devis manque de fournisseur, de scan ou de lignes, ou que ses lignes ne tombent pas
+ * sur le total imprimé QUAND il est saisi (facultatif, Direction 07/10) : tout ce qui manque est dit en
+ * UNE fois (§118.18). La
  * demande au secrétariat passe « terminée » — c'est ce que l'assistante devait faire.
  */
 export async function terminerRetranscriptionPromo(formData: FormData): Promise<ActionResult> {
@@ -719,6 +745,7 @@ export async function redemanderDevisPromo(formData: FormData): Promise<ActionRe
     return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
   }
   await ecrireAuFil({ entityType: "PROMO_MATERIAL", entityId: pm.id, authorId: user.id, body: `Nouveaux devis demandés (${ouverte.demande.reference}) : ${note}` });
+  await joindreLettreDeDevis(user, pm.id, ouverte.demande.id).catch(() => null);
   const avis = { type: "ASSIGNMENT" as const, title: "Matériel promotionnel — nouveaux devis à demander et à retranscrire", body: `${pm.reference} — ${note.slice(0, 200)}`, link: chemin(pm.id) };
   if (pm.assistantId) await notifyUser({ userId: pm.assistantId, ...avis });
   else await notifyRoles(["DIRECTION_ASSISTANT"], avis);

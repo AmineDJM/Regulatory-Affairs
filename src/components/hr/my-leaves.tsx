@@ -10,6 +10,8 @@ import { LEAVE_TYPE, LEAVE_STATUS } from "@/lib/labels";
 import { LEAVE_STAGE_LABELS, type LeaveStage } from "@/lib/leave-workflow";
 import { formatDate, cn } from "@/lib/utils";
 import { StandInButton, StandInBadge } from "@/components/hr/stand-in-panel";
+import { BulleDiscussion, FilConge } from "@/components/hr/conge-discussion";
+import type { CommentItem } from "@/components/shared/comment-thread";
 import type { StandInStatus } from "@/lib/hr/stand-in";
 
 export interface LeaveItem {
@@ -35,6 +37,8 @@ export interface LeaveItem {
    */
   termine?: boolean;
   standInNote: string | null;
+  /** La discussion du congé avec le N+1 et les RH (Direction, 07/10) — absente : l'écran ne la montre pas. */
+  commentaires?: CommentItem[];
 }
 
 function CancelButton({ id }: { id: string }) {
@@ -97,14 +101,17 @@ function StageTrail({ leave }: { leave: LeaveItem }) {
  * Elle montre l'avancement réel du circuit : savoir qu'une demande est « en attente » sans
  * savoir DE QUI, c'est ne rien savoir — et c'est ce qui déclenche les relances au hasard.
  */
-export function MyLeaves({ leaves, people = [], modules = [], moduleLabels = {} }: {
+export function MyLeaves({ leaves, people = [], modules = [], moduleLabels = {}, currentUserId }: {
   leaves: LeaveItem[];
+  /** Pour reconnaître ses propres messages dans la discussion d'un congé. */
+  currentUserId?: string;
   /** Collègues désignables comme intérimaire. Vide = la colonne reste en lecture. */
   people?: { id: string; name: string }[];
   /** Ce que la personne peut PRÊTER (`modulesPretables`) — la liste même que l'action accepte (§118.196). */
   modules?: { value: string; label: string }[];
   moduleLabels?: Record<string, string>;
 }) {
+  const [fil, setFil] = React.useState<string | null>(null);
   if (leaves.length === 0) {
     return <EmptyState icon="Plane" title="Aucune demande de congé" description="Vos demandes apparaîtront ici, avec l'étape où elles en sont." />;
   }
@@ -124,7 +131,8 @@ export function MyLeaves({ leaves, people = [], modules = [], moduleLabels = {} 
         </TableHeader>
         <TableBody>
           {leaves.map((l) => (
-            <TableRow key={l.id}>
+            <React.Fragment key={l.id}>
+            <TableRow>
               <TableCell label="Type" className="font-medium">{LEAVE_TYPE[l.type] ?? l.type}</TableCell>
               <TableCell label="Période">
                 <span>
@@ -162,9 +170,24 @@ export function MyLeaves({ leaves, people = [], modules = [], moduleLabels = {} 
                 </div>
               </TableCell>
               <TableCell label="Action" className="text-right">
-                {l.status === "PENDING" ? <CancelButton id={l.id} /> : <span className="text-muted-foreground">—</span>}
+                <div className="flex items-center justify-end gap-1.5">
+                  {l.status === "PENDING" ? <CancelButton id={l.id} /> : !l.commentaires && <span className="text-muted-foreground">—</span>}
+                  {l.commentaires && (
+                    <BulleDiscussion nombre={l.commentaires.length} ouvert={fil === l.id} onClick={() => setFil((v) => (v === l.id ? null : l.id))} />
+                  )}
+                </div>
               </TableCell>
             </TableRow>
+            {fil === l.id && l.commentaires && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={7} data-sans-etiquette className="bg-muted/20">
+                  <div className="w-full min-w-0">
+                    <FilConge leaveId={l.id} commentaires={l.commentaires} currentUserId={currentUserId} path="/mon-dossier" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+            </React.Fragment>
           ))}
         </TableBody>
       </Table>

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { getRiskThresholds, type RiskThresholds } from "./risk-settings";
 import { kamsQuiCouvrent } from "@/lib/queries/panel-kam";
+import { lienRapportTerrain } from "@/lib/chemins/rapports-terrain";
+import { DETECTEURS_PLUS } from "./risks-plus";
 
 /**
  * Adventum Brain — moteur Risk Radar. **Lecture seule, calculé à la volée** (aucune
@@ -312,12 +314,16 @@ async function budgetRisks(th: RiskThresholds): Promise<Risk[]> {
   const envelope = await prisma.budgetEnvelope.findFirst({ where: { isActive: true }, orderBy: { periodStart: "desc" }, select: { id: true } });
   if (!envelope) return [];
   const lines = await prisma.budgetCategoryLine.findMany({ where: { envelopeId: envelope.id }, select: { id: true, name: true, allocated: true } });
+  // UNE lecture groupée pour toutes les lignes (elle en faisait une par ligne).
+  const sums = lines.length
+    ? await prisma.financeTransaction.groupBy({ by: ["budgetCategoryId"], where: { budgetCategoryId: { in: lines.map((l) => l.id) }, direction: "OUT" }, _sum: { amount: true } })
+    : [];
+  const consumedBy = new Map(sums.map((s) => [s.budgetCategoryId, toNumber(s._sum.amount ?? 0)]));
   const out: Risk[] = [];
   for (const l of lines) {
     const allocated = toNumber(l.allocated);
     if (allocated <= 0) continue;
-    const agg = await prisma.financeTransaction.aggregate({ where: { budgetCategoryId: l.id, direction: "OUT" }, _sum: { amount: true } });
-    const consumed = toNumber(agg._sum.amount ?? 0);
+    const consumed = consumedBy.get(l.id) ?? 0;
     const ratio = consumed / allocated;
     if (ratio < th.budgetWarnPct / 100) continue;
     const level: RiskLevel = ratio >= 1 ? "critical" : ratio >= 0.95 ? "high" : "medium";
@@ -419,10 +425,10 @@ async function qualitySignalRisks(): Promise<Risk[]> {
     probableCause: "Signalement remonté du terrain, à instruire.",
     recommendation: "Instruire le signalement et confirmer avec le responsable qualité.",
     evidence: [`Signal : ${(r.qualitySignal ?? "").slice(0, 160)}`, r.doctorName ? `Médecin : ${r.doctorName}` : "", r.delegate?.name ? `Remonté par : ${r.delegate.name}` : ""].filter(Boolean),
-    href: `/field-reports/${r.id}`, at: r.createdAt.toISOString(),
+    href: lienRapportTerrain(r.id), at: r.createdAt.toISOString(),
     actions: [
       { label: "Créer tâche de suivi", icon: "ListChecks", payload: { kind: "task", title: `Instruire signalement qualité/PV (${r.products?.slice(0, 40) || "terrain"})`, priority: "HIGH", module: "Qualité" } },
-      { label: "Ouvrir le rapport", icon: "ExternalLink", href: `/field-reports/${r.id}` },
+      { label: "Ouvrir le rapport", icon: "ExternalLink", href: lienRapportTerrain(r.id) },
     ],
   }));
 }
@@ -669,7 +675,11 @@ const DETECTORS: ((th: RiskThresholds) => Promise<Risk[]>)[] = [
   pchCautionRisks, congressLikeRisks, sponsoringRisks, medicalKolRisks, expenseOrderRisks,
   budgetRisks, medicalInfoRisks, directiveRisks, silentSupplierRisks, qualitySignalRisks,
   pchStockRisks, deliveryDelayRisks, lowAttendanceEventRisks, adminRequestRisks, processFrictionRisks,
+  ...DETECTEURS_PLUS,
 ];
+
+/** Le nombre de détecteurs — affiché sous le titre du cockpit. */
+export const DETECTOR_COUNT = DETECTORS.length;
 
 /** Calcule tous les risques (détecteurs en parallèle, tolérants aux pannes), triés par gravité.
  *  Les seuils de déclenchement sont ceux réglés par le Super Admin. */

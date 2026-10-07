@@ -18,6 +18,16 @@ export const HR_DOCUMENT_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS"
 /** Statuts terminaux (demande traitée → archivage « Dossier traité »). */
 export const HR_DONE_STATUSES: HrRequestStatus[] = ["READY", "DELIVERED", "APPROVED", "REJECTED"];
 
+/** La catégorie du document RH déposé en réponse à une demande (« Joindre le document & marquer prêt »). */
+export const CATEGORIE_DU_DEPOT: Record<string, string> = {
+  WORK_CERTIFICATE: "WORK_CERTIFICATE",
+  CNAS_CERTIFICATE: "CNAS_CERTIFICATE",
+  SALARY_STATEMENT: "SALARY_STATEMENT",
+  DOMICILIATION: "DOMICILIATION",
+  LEAVE_CERTIFICATE: "OTHER",
+  OTHER: "OTHER",
+};
+
 /** Détermine la nature d'un type de demande RH. */
 export function hrNature(type: HrRequestType): HrNature {
   if (type === "EXPENSE_REPORT") return "EXPENSE";

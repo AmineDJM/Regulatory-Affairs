@@ -60,8 +60,9 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * d'avant montrerait encore à faire) suivent leur rafraîchissement.
  * Ramené à 340 au §118.197 — les boutons d'une approbation d'achat suivent leur rafraîchissement.
  * Ramené à 332 au §118.211 — le tableau du centre de paiement (autoriser, refuser, répondre) suit le sien : 334 appels mesurés avant, 332 après (le plafond de 340 laissait six crans de marge — un écran neuf en aurait ajouté six sans rien dire, §118.79c).
+ * Ramené à 328 le 07/10 — la Paie, les Demandes RH et le plan de tournée passent par `useRafraichir`.
  */
-const PLAFOND_APPELS_NUS = 332;
+const PLAFOND_APPELS_NUS = 328;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));

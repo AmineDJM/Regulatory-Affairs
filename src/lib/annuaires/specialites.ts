@@ -95,9 +95,8 @@ export function lienDeSpecialiteValide(texte: string | null | undefined, nomDuLi
 }
 
 /**
- * LES ÉCRANS QUI MONTENT LE RÉFÉRENTIEL (§118.209) — Annuaires › Spécialités et Force de vente ›
- * Spécialités rendent le MÊME composant ; une écriture les revalide TOUS. Une seule liste : deux
- * actions qui en recopieraient chacune une finiraient par oublier l'écran ajouté demain, et la
- * personne verrait l'état d'avant dans l'autre onglet.
+ * LES ÉCRANS QUI MONTENT LE RÉFÉRENTIEL (§118.209) — depuis le 07/10, Annuaires › Spécialités seul (les anciennes
+ * portes du Marketing cockpit et de la Force de vente y redirigent). Une écriture revalide chaque écran de cette
+ * liste : le jour où une seconde porte reviendrait, elle s'ajoute ICI et nulle part ailleurs.
  */
-export const CHEMINS_SPECIALITES = ["/annuaires/specialites", "/marketing-cockpit/specialites"] as const;
+export const CHEMINS_SPECIALITES = ["/annuaires/specialites"] as const;

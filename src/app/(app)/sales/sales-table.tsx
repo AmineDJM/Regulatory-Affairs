@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -11,6 +12,8 @@ export interface SaleRow {
   date: string;
   saleType: string;
   product: string;
+  /** Le produit du catalogue (Produits 360) — la désignation y mène. */
+  productId?: string | null;
   dci: string;
   client: string;
   institution: string;
@@ -31,7 +34,9 @@ export function SalesTable({ rows }: { rows: SaleRow[] }) {
     { key: "product", header: "Désignation", sortable: true, accessor: (r) => r.product,
       render: (r) => (
         <div className="min-w-0 [overflow-wrap:anywhere]">
-          <p className="font-medium">{r.product}</p>
+          {r.productId
+            ? <Link href={`/produits/${r.productId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-primary hover:underline">{r.product}</Link>
+            : <p className="font-medium">{r.product}</p>}
           {r.dci && <p className="text-xs text-muted-foreground">{r.dci}</p>}
         </div>
       ) },

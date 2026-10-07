@@ -70,7 +70,7 @@ export function entityHref(type: string | null | undefined, id: string | null | 
     case "PCH_TENDER": return `/pch/${id}`;
     case "VALIDATION_REQUEST": return `/validations/${id}`;
     case "DOSSIER": return `/dossiers/${id}`;
-    case "TASK": return "/mon-espace";
+    case "TASK": return `/mon-espace/taches/${id}`;
     case "SUPPORT_REQUEST": return `/support/${id}`;
     case "DRIVE_NODE": return `/drive?node=${id}`;
 

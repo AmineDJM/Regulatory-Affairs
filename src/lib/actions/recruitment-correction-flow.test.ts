@@ -75,6 +75,8 @@ suite("Recrutement — renvoyer, corriger, rouvrir, annuler l'embauche, un geste
     for (const module of ["RH", "EMPLOYEES", "HR_REQUESTS", "TRAINING"]) await prisma.userAccess.create({ data: { userId: u.rh!, module, canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
     // Le demandeur voit le module Recrutement (la page et « Mon espace » le lisent).
     await prisma.userAccess.create({ data: { userId: u.dem!, module: "RECRUITMENT", canView: true, canCreate: true, scope: "ASSIGNED" } });
+    // L'ancien demandeur n'a PLUS le module : tout le monde l'a (Direction, 07/10), seul un blocage de la console le retire.
+    await prisma.userAccess.create({ data: { userId: u.ex!, module: "RECRUITMENT", canView: false } });
   });
   afterAll(nettoyer);
 

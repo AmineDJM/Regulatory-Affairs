@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, Loader2, Lock, RotateCcw } from "lucide-react";
+import { AlertCircle, Loader2, Lock, RotateCcw } from "lucide-react";
 import { cloturerSponsoring, rouvrirSponsoring } from "@/lib/actions/sponsoring-actions";
 import { Button } from "@/components/ui/button";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { Textarea } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
@@ -59,19 +60,13 @@ export function ClosurePanel({
     });
 
   // ── CLÔTURÉE : ce qui a été arrêté, et le geste qui rouvre ──
+  // Dans la carte « La demande » (Direction, 07/10), la phrase de statut dit déjà « validée et clôturée le …, par … » et
+  // le bandeau le montant accordé : restent la note de clôture et le geste qui rouvre.
   if (cloture) {
+    if (!cloture.note && !peutAgir) return null;
     return (
       <div className="space-y-3 text-sm">
-        <p className="flex items-start gap-2 rounded-lg bg-success/10 px-3 py-2 text-success">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            Validée et clôturée le {cloture.le}{cloture.par ? ` par ${cloture.par}` : ""} —
-            montant accordé <strong>{cloture.montant != null ? formatCurrency(cloture.montant) : "—"}</strong>
-            {" "}({bilan.accordes} poste{bilan.accordes > 1 ? "s" : ""} accordé{bilan.accordes > 1 ? "s" : ""}
-            {bilan.refuses > 0 ? `, ${bilan.refuses} refusé${bilan.refuses > 1 ? "s" : ""}` : ""}).
-          </span>
-        </p>
-        {cloture.note && <p className="text-muted-foreground">« {cloture.note} »</p>}
+        {cloture.note && <p className="text-muted-foreground [overflow-wrap:anywhere]">« {cloture.note} »</p>}
         {peutAgir && (
           rouvrir ? (
             <div className="space-y-2">
@@ -97,30 +92,21 @@ export function ClosurePanel({
     );
   }
 
-  // ── PAS ENCORE PRÉ-VALIDÉE : la clôture vient après la tenue ──
-  if (statut !== "PRE_VALIDATED") {
-    return (
-      <p className="text-sm text-muted-foreground">
-        La validation finale vient après la <strong className="text-foreground">pré-validation de la tenue</strong> (fin du circuit
-        ci-dessus) : les postes se préparent alors — devis, BC, factures —, puis {quiCloture} valide chaque poste, le range dans
-        un budget et clôture la demande.
-      </p>
-    );
-  }
+  // ── PAS ENCORE PRÉ-VALIDÉE : la clôture vient après la tenue — la frise de « La demande » le montre ──
+  if (statut !== "PRE_VALIDATED") return null;
 
-  // ── PRÉ-VALIDÉE : le bilan, et le geste s'il est possible ──
+  // ── PRÉ-VALIDÉE : ce qui manque, et le geste s'il est possible ──
+  // Le pourquoi (et le total que la clôture écrira) derrière un ⓘ ; la phrase de statut dit déjà chez qui est la demande.
   return (
     <div className="space-y-3 text-sm">
-      <p className="text-muted-foreground">
-        La tenue est pré-validée. Une fois l&apos;événement complété, {quiCloture} valide chaque poste, le range dans un budget,
-        puis clôture : la somme des postes accordés devient le montant accordé de la demande.
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Validation finale
+        <InfoBulle label="La validation finale">
+          Une fois l&apos;événement complété, {quiCloture} valide chaque poste, le range dans un budget, puis clôture : la somme
+          des postes accordés ({formatCurrency(bilan.total)}, {bilan.accordes} poste{bilan.accordes > 1 ? "s" : ""}) devient le
+          montant accordé de la demande.
+        </InfoBulle>
       </p>
-      {/* Le total (un montant en DZD) prend toute la largeur au téléphone : trois colonnes l'écrasaient. */}
-      <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-3">
-        <Chiffre libelle="Accordés" valeur={String(bilan.accordes)} />
-        <Chiffre libelle="À décider" valeur={String(bilan.aDecider)} alerte={bilan.aDecider > 0} />
-        <Chiffre libelle="Total accordé" valeur={formatCurrency(bilan.total)} className="col-span-2 sm:col-span-1" />
-      </div>
       {!bilan.cloturable && (
         <ul className="space-y-1 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
           {bilan.manques.map((m) => (
@@ -140,19 +126,8 @@ export function ClosurePanel({
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} Valider et clôturer
           </BoutonDecisif>
         </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">La validation finale revient à {quiCloture} — jamais à l&apos;auteur de la demande.</p>
-      )}
+      ) : null}
       {err && <Erreur texte={err} />}
-    </div>
-  );
-}
-
-function Chiffre({ libelle, valeur, alerte = false, className = "" }: { libelle: string; valeur: string; alerte?: boolean; className?: string }) {
-  return (
-    <div className={`min-w-0 rounded-lg border px-2 py-1.5 ${alerte ? "border-warning/50 bg-warning/5" : "border-border"} ${className}`}>
-      <p className="text-[0.6875rem] text-muted-foreground">{libelle}</p>
-      <p className="break-words font-semibold tabular-nums">{valeur}</p>
     </div>
   );
 }

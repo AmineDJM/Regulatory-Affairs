@@ -1,4 +1,5 @@
 import { TIERS, positionWeight, type SfeConfig } from "@/lib/sfe";
+import type { Lettre } from "@/lib/segmentation/regles";
 
 /**
  * LA JOURNÉE DU KAM — qui aller voir aujourd'hui, et pourquoi.
@@ -37,8 +38,15 @@ import { TIERS, positionWeight, type SfeConfig } from "@/lib/sfe";
 export interface PanelDoctor {
   id: string;
   name: string;
-  /** Palier de potentiel (`SegmentLevel`) — pilote la fréquence attendue. */
+  /** Palier de potentiel (`SegmentLevel`) — le REPLI de la fréquence attendue, pour un praticien hors segmentation. */
   potential: string;
+  /**
+   * LA LETTRE DE SEGMENTATION (Direction, 07/10 — « la lettre partout ») et les visites qu'elle demande par cycle
+   * (`requisDuPraticien`). Présentes, elles PRIMENT sur le palier : c'est le seul « requis ». Absentes (appelant
+   * d'avant, ou praticien hors de toute stratégie publiée), le palier de potentiel s'applique comme avant.
+   */
+  lettre?: Lettre | null;
+  requis?: number;
   specialty: string | null;
   institution: string | null;
   wilaya: string | null;
@@ -56,7 +64,9 @@ export interface TourneeItem {
   institution: string | null;
   wilaya: string | null;
   potential: string;
-  /** Visites attendues ce mois selon le palier (paramétrage Direction). */
+  /** La lettre de segmentation, quand le praticien est segmenté. */
+  lettre?: Lettre | null;
+  /** Visites attendues ce mois : la lettre de segmentation, sinon le palier (paramétrage Direction). */
   expected: number;
   done: number;
   /** Ce qui reste à faire ce mois pour ce praticien (jamais négatif). */
@@ -79,6 +89,12 @@ export function daysSince(date: Date | null, today: Date): number | null {
 export function tierRank(potential: string): number {
   const i = (TIERS as readonly string[]).indexOf(potential);
   return i < 0 ? TIERS.length : i;
+}
+
+/** Rang d'un praticien : sa lettre (H, A, B, C, D → 0..4) quand il est segmenté, sinon son palier de potentiel. */
+export function rangPraticien(d: { potential: string; lettre?: Lettre | null }): number {
+  if (d.lettre) { const i = ["H", "A", "B", "C", "D"].indexOf(d.lettre); return i < 0 ? TIERS.length : i; }
+  return tierRank(d.potential);
 }
 
 /**
@@ -106,7 +122,9 @@ export function buildTournee(
 ): TourneeItem[] {
   const items: TourneeItem[] = [];
   for (const d of doctors) {
-    const expected = config.frequencyByTier[d.potential] ?? 0;
+    // LE REQUIS DE LA SEGMENTATION quand il est connu (arrondi à la visite : 0,5 = « une, ce cycle ou le suivant ») ;
+    // le palier de potentiel sinon.
+    const expected = d.requis !== undefined ? Math.ceil(d.requis) : config.frequencyByTier[d.potential] ?? 0;
     // Règle 4 : le paramétrage dit qu'on n'attend rien de ce palier — on ne le propose pas.
     if (expected <= 0) continue;
     const missing = Math.max(0, expected - d.visitsThisMonth);
@@ -114,15 +132,15 @@ export function buildTournee(
     const since = daysSince(d.lastVisitAt, today);
     items.push({
       doctorId: d.id, name: d.name, specialty: d.specialty, institution: d.institution, wilaya: d.wilaya,
-      potential: d.potential, expected, done: d.visitsThisMonth, missing, daysSince: since,
+      potential: d.potential, ...(d.lettre !== undefined ? { lettre: d.lettre } : {}), expected, done: d.visitsThisMonth, missing, daysSince: since,
       reason: reasonFor(expected, d.visitsThisMonth, since),
     });
   }
   return items
     .sort((a, b) =>
-      // 1. le plus en retard ; 2. le plus fort potentiel ; 3. le plus anciennement vu
+      // 1. le plus en retard ; 2. la plus forte lettre (sinon le plus fort potentiel) ; 3. le plus anciennement vu
       b.missing - a.missing
-      || tierRank(a.potential) - tierRank(b.potential)
+      || rangPraticien(a) - rangPraticien(b)
       || (b.daysSince ?? Number.MAX_SAFE_INTEGER) - (a.daysSince ?? Number.MAX_SAFE_INTEGER)
       || a.name.localeCompare(b.name, "fr"),
     )

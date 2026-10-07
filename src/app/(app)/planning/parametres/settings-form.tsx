@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Save, Loader2, Check, RotateCcw } from "lucide-react";
 import { saveSfeSettings } from "@/lib/actions/sales-planning-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 interface Config {
   positionWeights: Record<string, number>;
@@ -121,7 +122,12 @@ export function SettingsForm({ config, canEdit }: { config: Config; canEdit: boo
 
       {/* ─────────── Fréquence par palier de potentiel ─────────── */}
       <Card>
-        <CardHeader><CardTitle>Fréquence cible par palier de potentiel (visites / cycle)</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            Fréquence de repli par palier de potentiel (visites / cycle)
+            <InfoBulle label="À propos des fréquences de repli">Le requis vient de la segmentation (lettre × In/Out × fréquence du secteur). Ces fréquences ne servent qu&apos;aux praticiens rangés dans aucune stratégie publiée.</InfoBulle>
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {TIERS.map((t) => (

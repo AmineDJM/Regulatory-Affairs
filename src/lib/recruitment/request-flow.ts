@@ -208,6 +208,175 @@ export function applyChainDecision(
   };
 }
 
+// ───────────────────────────── Jusqu'au DG, et ce qu'il décide (Direction, 07/10) ─────────────────────────────
+
+/**
+ * QUI COMPTE COMME « LE SOMMET » QUAND IL FAUT EN AJOUTER UN — dans cet ordre : le DG d'abord (c'est lui que la
+ * Direction nomme), puis la Direction, puis le Super Admin. Les mêmes rôles que `isTopManagement` (rbac.ts).
+ */
+export const ORDRE_DU_SOMMET = ["GENERAL_MANAGER", "DIRECTION", "SUPER_ADMIN"] as const;
+
+export interface Maillon {
+  approverId: string;
+  name: string;
+  /** Ce validateur est-il le sommet (`isTopManagement`) ? */
+  isTop: boolean;
+}
+
+/**
+ * LA CHAÎNE MONTE JUSQU'AU DG — pour tout demandeur (« ça part au N+1 et ça remonte jusqu'au DG / Super Admin »).
+ *
+ * L'organigramme s'arrête parfois avant : une fiche sans N+1, une branche dont le sommet est un directeur. La
+ * demande partait alors aux RH sans que la direction l'ait vue. Si aucun maillon n'est le sommet, on ajoute le
+ * premier SOMMET disponible (`sommets`, déjà dans l'ordre `ORDRE_DU_SOMMET`) — jamais le demandeur lui-même, jamais
+ * un validateur déjà présent. Une chaîne qui contient déjà le sommet ne bouge pas : il y est à sa vraie place.
+ */
+export function completerJusquAuSommet(
+  chaine: readonly Maillon[],
+  sommets: readonly { id: string; name: string }[],
+  demandeurId: string,
+): { approverId: string; name: string }[] {
+  const out = chaine.map((m) => ({ approverId: m.approverId, name: m.name }));
+  if (chaine.some((m) => m.isTop)) return out;
+  const deja = new Set([demandeurId, ...chaine.map((m) => m.approverId)]);
+  const sommet = sommets.find((s) => !deja.has(s.id));
+  return sommet ? [...out, { approverId: sommet.id, name: sommet.name }] : out;
+}
+
+/**
+ * LA MARCHE QUE TRANCHE CETTE PERSONNE — la sienne si elle en a une en attente ; sinon, pour le sommet, la
+ * DERNIÈRE (les marches d'en dessous passent « non consultées ») ; sinon la marche active. Lue par l'écran et
+ * par l'action : le formulaire qui exige le N+1 et le suivi est celui que l'action exigera.
+ */
+export function cibleDeLaDecision(steps: readonly ChainStep[], decider: ChainDecider): ChainStep | null {
+  const triees = [...steps].sort((a, b) => a.order - b.order);
+  const own = triees.find((s) => s.approverId === decider.userId && s.status === "PENDING");
+  return own ?? (decider.isTop ? triees[triees.length - 1] ?? null : currentStep(triees));
+}
+
+/**
+ * LE DG QUI CONCLUT LA CHAÎNE DÉCIDE DU N+1 DE LA FUTURE RECRUE ET DE QUI SUIT LE RECRUTEMENT (Direction, 07/10).
+ *
+ * Vrai quand celui qui VALIDE est le sommet et que sa validation fait passer la demande aux RH. Le N+1 qui valide
+ * une marche intermédiaire n'a rien à désigner : ce n'est pas lui qui engage l'entreprise.
+ */
+export function decisionDuSommetExigeSuivi(stage: RecruitmentStage, steps: readonly ChainStep[], decider: ChainDecider): boolean {
+  if (!decider.isTop || stage !== "CHAIN") return false;
+  const cible = cibleDeLaDecision(steps, decider);
+  if (!cible || cible.status !== "PENDING") return false;
+  return applyChainDecision(steps, cible.order, "APPROVED").outcome.complete;
+}
+
+/** Les identifiants désignés, nettoyés : sans vide, sans doublon, dans l'ordre de saisie. */
+export function nettoyerIds(ids: readonly (string | null | undefined)[]): string[] {
+  return [...new Set(ids.map((i) => (i ?? "").trim()).filter(Boolean))];
+}
+
+/**
+ * CE QUI MANQUE À LA DÉCISION DU DG — `null` si rien. Le N+1 et au moins un suiveur, tous utilisateurs ACTIFS
+ * (`actifs` : les identifiants que la base dit actifs). Un compte désactivé ne suivrait rien et ne recevrait rien.
+ */
+export function refusDesignationDuSommet(
+  d: { futureManagerId: string | null; followerIds: readonly string[] },
+  actifs: ReadonlySet<string>,
+): string | null {
+  if (!d.futureManagerId) return "Désignez le N+1 de la future recrue : c'est vous qui le décidez en validant.";
+  if (!actifs.has(d.futureManagerId)) return "Le N+1 désigné n'est pas un utilisateur actif.";
+  if (d.followerIds.length === 0) return "Désignez au moins une personne en charge du suivi de ce recrutement.";
+  if (d.followerIds.some((id) => !actifs.has(id))) return "Une personne désignée pour le suivi n'est pas un utilisateur actif.";
+  return null;
+}
+
+/**
+ * QUI PRÉVENIR À CÔTÉ DU DEMANDEUR — le futur N+1 et les suiveurs, une fois chacun, jamais ceux de `sauf` (l'auteur
+ * du geste, le demandeur déjà prévenu).
+ */
+export function suiveursAPrevenir(
+  futureManagerId: string | null,
+  followerIds: readonly string[],
+  sauf: readonly (string | null | undefined)[],
+): string[] {
+  const exclus = new Set(sauf.filter((s): s is string => Boolean(s)));
+  return nettoyerIds([futureManagerId, ...followerIds]).filter((id) => !exclus.has(id));
+}
+
+// ───────────────────────────── La frise et la phrase « état — chez qui » ─────────────────────────────
+
+export interface EtapeDeLaFrise {
+  cle: string;
+  titre: string;
+  detail: string | null;
+  etat: "done" | "current" | "todo" | "rejected";
+}
+
+const RANG_ETAPE: Partial<Record<RecruitmentStage, number>> = {
+  HR_REVIEW: 1, INFO_REQUESTED: 1, SOURCING: 2, ONBOARDING: 3, CLOSED: 4,
+};
+
+/**
+ * LA FRISE D'UNE DEMANDE — Demande, chaque marche de la chaîne (par le nom de son validateur), les RH, le poste
+ * ouvert, l'intégration, la clôture. Pure : la page la dessine telle quelle.
+ */
+export function friseDuRecrutement(
+  stage: RecruitmentStage,
+  steps: readonly ChainStep[],
+  opts: { returnedFrom?: RecruitmentStage | null } = {},
+): EtapeDeLaFrise[] {
+  const triees = [...steps].sort((a, b) => a.order - b.order);
+  const active = currentStep(triees);
+  const marcheRefusee = triees.some((s) => s.status === "REJECTED");
+  // Où la demande EST (ou était, si elle est renvoyée) : la chaîne (0), les RH (1), le poste ouvert (2)…
+  const lieu: RecruitmentStage = stage === "RETURNED" ? (opts.returnedFrom ?? "CHAIN") : stage;
+  const rang = lieu === "CHAIN" ? 0 : lieu === "REJECTED" ? (marcheRefusee ? 0 : 1) : RANG_ETAPE[lieu] ?? -1;
+  const marches: EtapeDeLaFrise[] = triees.map((s) => ({
+    cle: `m${s.order}`,
+    titre: s.approverName || `Marche ${s.order}`,
+    detail: s.status === "APPROVED" ? "a validé" : s.status === "REJECTED" ? "a refusé" : s.status === "SKIPPED" ? "non consulté" : null,
+    etat: s.status === "APPROVED" || s.status === "SKIPPED" ? "done"
+      : s.status === "REJECTED" ? "rejected"
+        : (lieu === "CHAIN" && stage !== "CANCELLED" && s === active) ? "current" : "todo",
+  }));
+  const suite = (i: number, cle: string, titre: string): EtapeDeLaFrise => ({
+    cle, titre, detail: null,
+    etat: stage === "REJECTED" && !marcheRefusee && i === 1 ? "rejected"
+      : stage === "CLOSED" || rang > i ? "done"
+        : rang === i && stage !== "CANCELLED" && stage !== "REJECTED" ? "current" : "todo",
+  });
+  return [
+    { cle: "demande", titre: "Demande", detail: null, etat: "done" },
+    ...marches,
+    suite(1, "rh", "RH"),
+    suite(2, "ouvert", "Poste ouvert"),
+    suite(3, "integration", "Intégration"),
+    suite(4, "close", "Clôturée"),
+  ];
+}
+
+export interface StatutDuRecrutement {
+  phrase: string;
+  ton: "info" | "succes" | "attente" | "refus" | "neutre";
+}
+
+/** « État — chez qui » : la phrase qui ouvre la fiche. `aVous` : c'est la personne qui regarde qu'on attend. */
+export function statutDuRecrutement(
+  stage: RecruitmentStage,
+  f: { waitingOn: string | null; requesterName: string | null; aVous?: boolean },
+): StatutDuRecrutement {
+  const chez = (qui: string | null) => (f.aVous ? "à vous" : `chez ${qui ?? "—"}`);
+  switch (stage) {
+    case "CHAIN": return { phrase: `Validation hiérarchique — ${chez(f.waitingOn)}`, ton: "attente" };
+    case "HR_REVIEW": return { phrase: `À instruire — ${f.aVous ? "à vous" : "chez les RH"}`, ton: "attente" };
+    case "INFO_REQUESTED": return { phrase: `Précisions demandées — ${chez(f.requesterName)}`, ton: "attente" };
+    case "RETURNED": return { phrase: `À corriger — ${chez(f.requesterName)}`, ton: "attente" };
+    case "SOURCING": return { phrase: "Recrutement ouvert — diffusion et CV chez les RH", ton: "info" };
+    case "ONBOARDING": return { phrase: "Intégration — chez les RH", ton: "info" };
+    case "CLOSED": return { phrase: "Clôturée", ton: "succes" };
+    case "REJECTED": return { phrase: "Refusée", ton: "refus" };
+    case "CANCELLED": return { phrase: "Retirée par son demandeur", ton: "neutre" };
+    default: return { phrase: STAGE_LABEL[stage] ?? String(stage), ton: "neutre" };
+  }
+}
+
 /** Où en est la chaîne, dit en clair : « 2 / 4 — en attente de Karim Saïdi ». */
 export function chainProgress(steps: readonly ChainStep[]): { done: number; total: number; waitingOn: string | null } {
   const total = steps.length;
@@ -344,6 +513,10 @@ export interface RecruitmentActor {
   isHr: boolean;
   /** PDG / Super Admin — le dernier mot. */
   isTop: boolean;
+  /** Désigné par le DG pour SUIVRE ce recrutement, ou futur N+1 de la recrue (Direction, 07/10). */
+  isFollower?: boolean;
+  /** Validateur de la chaîne (quelle que soit la marche). */
+  isApprover?: boolean;
 }
 
 /**
@@ -383,6 +556,10 @@ export interface RecruitmentAbilities {
   reopen: boolean;
   /** Annuler une embauche avant l'intégration — les RH ou le sommet, motif à l'appui. */
   cancelHire: boolean;
+  /** Écrire au fil de la demande — qui en est partie, tant qu'elle vit. */
+  comment: boolean;
+  /** Diffuser l'offre (site, LinkedIn, Emploitic, autre) — les RH, une fois la demande validée (Direction, 07/10). */
+  diffuse: boolean;
 }
 
 /** Les étapes d'une demande pas encore exécutée — elle se retire (décision du 04/10). */
@@ -429,8 +606,13 @@ export function abilities(
     addCandidate: false, shortlist: false, select: false, interview: false,
     hire: false, onboard: false, cancel: false,
     returnForCorrection: false, correct: false, reopen: false, cancelHire: false,
+    comment: false, diffuse: false,
   };
   const hr = actor.isHr || actor.isTop;
+  // LE SUIVI DÉSIGNÉ PAR LE DG (Direction, 07/10) : ces personnes tiennent le recrutement avec les RH — elles
+  // déposent des CV, consignent les entretiens et écrivent au fil. Elles ne tranchent rien : ni la présélection
+  // (le demandeur), ni le choix ni le recrutement (le sommet), ni l'instruction (les RH).
+  const suivi = actor.isFollower === true;
   // UNE DEMANDE CLOSE NE BOUGE PLUS — sauf pour être ROUVERTE, motif à l'appui (§118.192) : un refus
   // terminal faisait recommencer toute la chaîne pour une erreur que la personne qui a refusé
   // reconnaissait. Une demande RETIRÉE par son auteur ne se rouvre pas : il en redépose une. Une
@@ -446,12 +628,12 @@ export function abilities(
     answerInfo: stage === "INFO_REQUESTED" && (actor.isRequester || actor.isTop),
     openSourcing: hr && stage === "HR_REVIEW",
     hrReject: hr && (stage === "HR_REVIEW" || stage === "INFO_REQUESTED"),
-    addCandidate: hr && sourcing,
+    addCandidate: (hr || suivi) && sourcing,
     // Le demandeur présélectionne. Les RH ne le font pas à sa place : ils n'ont pas le poste en
     // tête, et une présélection faite par défaut ne serait qu'une file d'attente déguisée.
     shortlist: sourcing && (actor.isRequester || actor.isTop),
     select: sourcing && actor.isTop,
-    interview: sourcing && (hr || actor.isRequester),
+    interview: sourcing && (hr || actor.isRequester || suivi),
     hire: sourcing && actor.isTop,
     onboard: hr && stage === "ONBOARDING" && (opts.hasHire ?? true),
     // On retire sa demande TANT QU'ELLE N'EST PAS EXÉCUTÉE (décision de la Direction, 04/10) : jusqu'au
@@ -463,6 +645,9 @@ export function abilities(
     correct: stage === "RETURNED" && (actor.isRequester || actor.isTop),
     reopen: false,
     cancelHire: stage === "ONBOARDING" && hr && opts.embaucheSansFiche === true,
+    comment: hr || suivi || actor.isRequester || actor.isApprover === true,
+    // La diffusion suit la validation : chez les RH, puis poste ouvert — jamais avant que la chaîne ait dit oui.
+    diffuse: hr && (stage === "HR_REVIEW" || stage === "SOURCING"),
   };
 }
 

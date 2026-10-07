@@ -12,9 +12,11 @@ const accessible = (modules: string[]): NavItem[] =>
 
 describe("pôles — projection du RBAC, jamais une source de droit", () => {
   it("un pôle n'apparaît QUE s'il a au moins un sous-module accessible", () => {
+    // Les Rapports terrain sont un ONGLET de la Promotion médicale (Direction, 07/10) : le seul droit FIELD_REPORTS
+    // ouvre l'entrée « Promotion médicale », qui mène à cet onglet — et à rien d'autre (les autres onglets restent fermés).
     const poles = groupIntoPoles(accessible(["FIELD_REPORTS"]));
     expect(poles.map((p) => p.key)).toEqual(["SALES_MARKETING"]);
-    expect(poles[0].children.map((c) => c.label)).toEqual(["Rapports terrain"]);
+    expect(poles[0].children.map((c) => c.label)).toEqual(["Promotion médicale"]);
   });
 
   it("un sous-module interdit est ABSENT, pas masqué", () => {
@@ -82,8 +84,9 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
     // Deux entrées seulement, alors que le pôle en compte davantage au total : il s'ouvre.
     // Replier pour deux lignes n'aurait aucun sens. (MEDICAL n'a qu'UNE entrée de menu —
     // « Promotion médicale » — qui porte ses deux onglets : Ma journée et l'Annuaire.)
-    const sm = groupIntoPoles(accessible(["FIELD_REPORTS", "MEDICAL"])).find((p) => p.key === "SALES_MARKETING");
-    expect(sm?.children.map((c) => c.label)).toEqual(["Promotion médicale", "Rapports terrain"]);
+    // (Les Rapports terrain sont un onglet de la Promotion médicale depuis le 07/10 : FIELD_REPORTS n'ajoute pas d'entrée.)
+    const sm = groupIntoPoles(accessible(["FIELD_REPORTS", "MEDICAL", "PRODUCTS"])).find((p) => p.key === "SALES_MARKETING");
+    expect(sm?.children.map((c) => c.label)).toEqual(["Promotion médicale", "Produits 360"]);
     expect(sm?.defaultOpen).toBe(true);
   });
 
@@ -94,11 +97,16 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
     expect(poleOfPath(poles, "/regulatory/pipeline")).toBe("REGULATORY");
   });
 
-  it("un SOUS-MODULE (capacité `children`) ouvre le pôle de son parent — Employés, Demandes RH, Formations et Paie sous les RH", () => {
+  it("un SOUS-MODULE (capacité `children`) ouvre le pôle de son parent — Employés, Demandes RH, Recrutement, Formations et Paie sous les RH", () => {
     const rh = NAVIGATION.find((n) => n.href === "/rh")!;
-    // LES SOUS-MODULES RH (Direction, 06/10) : chacun son module, réglable dans la console.
-    expect(rh.children?.map((c) => c.href)).toEqual(["/rh/equipe", "/rh/demandes", "/formations", "/rh/paie"]);
-    expect(rh.children?.map((c) => c.module)).toEqual(["EMPLOYEES", "HR_REQUESTS", "TRAINING", "RH"]);
+    // LES SOUS-MODULES RH (Direction, 06/10 ; le Recrutement les rejoint le 07/10) : chacun son module, réglable dans la console.
+    expect(rh.children?.map((c) => c.href)).toEqual(["/rh/equipe", "/rh/demandes", "/recrutement", "/formations", "/rh/paie"]);
+    expect(rh.children?.map((c) => c.module)).toEqual(["EMPLOYEES", "HR_REQUESTS", "RECRUITMENT", "TRAINING", "RH"]);
+    // Le recrutement a QUITTÉ « Mon Équipe » : une entrée simple, sans sous-menu ni chemin du recrutement.
+    const equipe = NAVIGATION.find((n) => n.href === "/mon-equipe")!;
+    expect(equipe.children ?? []).toEqual([]);
+    expect(equipe.match ?? []).not.toContain("/recrutement");
+    expect(poleOfPath(groupIntoPoles([rh]), "/recrutement/abc")).toBe("ADMINISTRATION");
     expect(rh.groupe).toBe(true);
     // Arriver sur la paie par un lien de notification doit ouvrir Administration, sinon on ne
     // retrouve pas dans le menu l'écran où l'on se trouve.

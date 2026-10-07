@@ -14,6 +14,7 @@ import { lignesDuBonDeCommande, formatDzd } from "@/lib/promo-material/devis";
 import { libellesPromusDeLArticle } from "@/lib/promo-material/achats";
 import { ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
 import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
+import { deposerLettreDevis, type DepotLettreDevis } from "@/lib/demande-devis-depot";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -157,6 +158,30 @@ export async function envoyerDemandeDeDevis(auteurId: string, promoMaterialId: s
   revalidatePath(chemin(pm.id));
   revalidatePath("/demandes");
   return { ok: true, demande: ouverte.demande, assistantId: pm.assistantId, avis: avisDemandeDeDevis(pm) };
+}
+
+/**
+ * LA LETTRE DE DEMANDE DE DEVIS (Direction, 07/10) — rédigée par Luna, sur le papier en-tête de la société du dossier, en PDF
+ * et Word, déposée sur le dossier (étape « Demande de devis ») et sur la demande au secrétariat (ce que l'assistante envoie
+ * aux agences). Appelée APRÈS l'envoi réussi : un échec ici ne retient jamais la demande de devis, il se dit.
+ */
+export async function joindreLettreDeDevis(user: CurrentUser, promoMaterialId: string, demandeId: string | null): Promise<DepotLettreDevis> {
+  const pm = await prisma.promoMaterial.findUnique({
+    where: { id: promoMaterialId },
+    select: { id: true, reference: true, title: true, description: true, companyId: true, requesterId: true },
+  });
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const articles = await articlesPourLeDevis(pm.id);
+  return deposerLettreDevis(
+    user,
+    [{ entityType: "PROMO_MATERIAL", entityId: pm.id }, ...(demandeId ? [{ entityType: "ADMIN_REQUEST" as const, entityId: demandeId }] : [])],
+    {
+      titre: pm.title, brief: pm.description, reference: pm.reference, societeId: await societeDuDossier(pm),
+      articles: articles.map((a) => ({
+        designation: a.nom, quantite: a.quantite, unite: a.unite, prestations: a.actions, precision: a.commentaire, produits: a.promus,
+      })),
+    },
+  );
 }
 
 // ───────────────────────── Les bons de commande ─────────────────────────

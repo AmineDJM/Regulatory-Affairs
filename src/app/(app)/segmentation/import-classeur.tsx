@@ -56,7 +56,9 @@ export function ImportClasseur({ strategieId, aDesRegles }: { strategieId: strin
       {apercu && (
         <div className="surface space-y-3 p-3 text-sm [overflow-wrap:anywhere] sm:p-4">
           {apercu.dejaImporte && <p className="font-medium text-destructive">Ce fichier a déjà été importé dans cette stratégie : rien ne sera ajouté une seconde fois.</p>}
-          <p>Feuille « {apercu.feuille} » · {apercu.lignes} ligne(s) · <b>{apercu.existants}</b> praticien(s) déjà dans l&apos;annuaire (complétés, jamais écrasés) · <b>{apercu.nouveaux}</b> à créer · {apercu.observations} potentiel(s) · {apercu.nonCiblesDuFichier} classé(s) NA.</p>
+          <p>Feuille « {apercu.feuille} » · {apercu.lignes} ligne(s) · <b>{apercu.existants}</b> praticien(s) déjà dans l&apos;annuaire (complétés, jamais écrasés) · <b>{apercu.nouveaux}</b> à créer · {apercu.observations} potentiel(s) · {apercu.nonCiblesDuFichier} NA dans le fichier (lettres recalculées par les règles).</p>
+          {apercu.regionsSecteurs.length > 0 && <p>Régions rangées dans le secteur du même nom : {apercu.regionsSecteurs.join(", ")}.</p>}
+          {apercu.regionsSansSecteur.length > 0 && <p className="text-warning">Régions sans secteur de ce nom dans la BU (secteur déduit de l&apos;établissement) : {apercu.regionsSansSecteur.join(", ")}.</p>}
           <p className="text-xs text-muted-foreground">Colonnes : {apercu.colonnes.map((c) => `${c.texte.split("\n")[0].slice(0, 40)} → ${c.champ ?? "ignorée"}`).join(" · ")}</p>
           {!apercu.produitConcorde && <p className="text-warning">Le fichier parle de « {apercu.produitMentionne} », qui ne ressemble pas au produit #1 de la stratégie. Vérifiez avant d&apos;importer.</p>}
           {apercu.etablissementsACreer.length > 0 && <p>Établissements créés dans l&apos;annuaire : {apercu.etablissementsACreer.join(", ")}.</p>}

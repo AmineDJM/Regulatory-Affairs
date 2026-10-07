@@ -10,6 +10,7 @@ import { buildRef, createWithRetry } from "@/lib/refs";
 import { persistUploadedDocument } from "@/lib/documents";
 import { getAppSettings } from "@/lib/settings";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { CHEMIN_PV_KAM, CHEMIN_RAPPORTS_TERRAIN, lienCasPvKam } from "@/lib/chemins/rapports-terrain";
 import { instruitLesCasPv, lecteurPv, signaleDesCasPv } from "@/lib/pharmacovigilance/acces";
 import {
   PREFIXE_REFERENCE_PV, STATUT_PV, estGravitePv, estStatutPv, lecteurDuCasPv, lireAgePv, refusEnquetePv, refusTransitionPv,
@@ -18,18 +19,19 @@ import {
 /**
  * PHARMACOVIGILANCE — actions serveur (Direction, 06/10).
  *
- * Le KAM SIGNALE un cas depuis les Rapports terrain ; Regulatory le reçoit, l'instruit, ouvre au besoin une enquête
+ * Le KAM SIGNALE un cas depuis son planning (Promotion médicale) ; Regulatory le reçoit, l'instruit, ouvre au besoin une enquête
  * approfondie et ajoute des personnes à l'échange. Chaque action relit le cas et sa règle (`lecteurDuCasPv`) : un
  * identifiant deviné ne suffit jamais.
  */
 
 const MODULE_AUDIT = "Pharmacovigilance";
 const lienRegulatory = (id: string) => `/regulatory/pharmacovigilance/${id}`;
-const lienKam = (id: string) => `/field-reports/pharmacovigilance/${id}`;
+const lienKam = lienCasPvKam;
 
 function revaliderCas(id?: string): void {
   revalidatePath("/regulatory/pharmacovigilance");
-  revalidatePath("/field-reports/pharmacovigilance");
+  revalidatePath(CHEMIN_PV_KAM);
+  revalidatePath(CHEMIN_RAPPORTS_TERRAIN);
   if (id) {
     revalidatePath(lienRegulatory(id));
     revalidatePath(lienKam(id));

@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, ClipboardList, ListChecks, Megaphone, PackageCheck } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, ChevronDown, ClipboardList, FileText, ListChecks, Megaphone, PackageCheck, Paperclip, Scale } from "lucide-react";
 import { requireUser, safeLanding } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -23,11 +24,14 @@ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { DocItem } from "@/components/documents/document-list";
+import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { DocumentPreview } from "@/components/documents/document-preview";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { PROMO_MATERIAL_DOC_CATEGORIES, categoriesDuDepotDeLaDemande, natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
-import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
+import { accesPiecesLiees, contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { LinkedRecords } from "@/components/shared/linked-records";
+import { chargerPiecesLiees } from "@/lib/queries/chaine-des-pieces";
+import { ETAPE_DEMANDE_DEVIS } from "@/lib/ad-pro/demande-devis-lettre";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
 import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
@@ -47,6 +51,9 @@ import { RetirerDemandeDevis } from "./retirer-demande-devis";
 import { etatRetraitDemandeDevis } from "@/lib/promo-material/retrait-devis";
 import { PromoExecutionCard, type ExecutionAffichee, type NatureAffichee } from "./execution-card";
 import { PromoArticlesCard } from "./articles-card";
+import { DemandeDevisCard, type GenerationLettre } from "./demande-devis-card";
+import { MenuDossier } from "@/components/shared/menu-dossier";
+import { AttachToSourceButtons, type NaturePieceLiee } from "@/components/shared/attach-to-source";
 import { articlesDemandesDuDossier, optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
 import { etatReception, natureDeReception, peutReceptionner, resteAFacturer } from "@/lib/promo-material/achats";
 import { libelleArticleStock } from "@/lib/promo/stock";
@@ -112,9 +119,6 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     || flags.isMarketing || flags.isAssistant || flags.isFinance || flags.isMedicalInfo;
   const uploadHint = canUpload ? null : attachHint(attacheur, dossierAdPro);
   const canDelete = userCan(user, "PROMO_MATERIAL", "DELETE") || isDirection;
-  // Ce que la personne peut ouvrir, déposer, créer parmi les pièces liées — la règle commune du
-  // pôle (`contextePiecesLiees`), la même que sur les six autres fiches.
-  const ctxPieces = await contextePiecesLiees(user, "PROMO_MATERIAL");
 
   // LES ORDRES DE DÉPENSE du bordereau et du règlement final (§118.148) : « Paiement effectué » et
   // la clôture se constatent sur eux — l'écran dit où ils en sont avant d'offrir le bouton.
@@ -129,9 +133,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     }),
   );
 
-  const [documents] = await Promise.all([
+  const [tousLesDocuments] = await Promise.all([
     prisma.document.findMany({ where: { entityType: "PROMO_MATERIAL", entityId: pm.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
   ]);
+  // LA LETTRE DE DEMANDE DE DEVIS (Word + PDF, Luna) a sa propre carte : elle ne se montre dans AUCUNE autre liste.
+  const lettresDevis = tousLesDocuments.filter((d) => d.stepKey === ETAPE_DEMANDE_DEVIS);
+  const documents = tousLesDocuments.filter((d) => d.stepKey !== ETAPE_DEMANDE_DEVIS);
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
@@ -145,6 +152,14 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   const circuitState = (pm.circuitState ?? null) as PromoState | null;
   const version: VersionCircuit = pm.circuitVersion === 2 ? 2 : 1;
   const v2 = version === 2 && circuitState !== null;
+  // Ce que la personne peut ouvrir, déposer, créer parmi les pièces liées — la règle commune du
+  // pôle (`contextePiecesLiees`), la même que sur les six autres fiches. Au circuit 2, le bloc « Pièces
+  // liées » ne se monte plus (Direction, 07/10) : il ne faut que les accès, pas les candidats à rattacher.
+  const ctxPieces = v2 ? { acces: accesPiecesLiees(user), candidatsLegal: [] } : await contextePiecesLiees(user, "PROMO_MATERIAL");
+  // Créer un engagement (convention, contrat…) ou un courrier rattaché au dossier — offert dans « ⋯ » au circuit 2.
+  const naturesEngagement: NaturePieceLiee[] = v2
+    ? [ctxPieces.acces.creer?.engagement ? ("legal" as const) : null, ctxPieces.acces.creer?.courrier ? ("mail" as const) : null].filter((x): x is "legal" | "mail" => x !== null)
+    : [];
   const acteur = { id: user.id, role: user.role, secondaryRole: user.secondaryRole, vueGlobale: isDirection };
   const tracksDone = ((pm.tracksDone ?? "").split(",").map((s) => s.trim()).filter(Boolean) as PromoTrack[])
     .filter((t) => (PROMO_TRACKS as readonly string[]).includes(t));
@@ -209,7 +224,11 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     canRefuser: peutTrancher && refusParLeDemandeur(user, pm) === null,
     canResoumettre: v2 && enCorrectionALaDemande && demandeLesDevis(acteur, pm),
     chantiers,
-    waitingLabel: nomsAttendus ? `${attente} — ${nomsAttendus}` : attente,
+    // UNE phrase « état — chez qui », sans redite : l'étape en mots courts, puis le nom attendu. (« L'assistante
+    // de direction — retranscription des devis — les assistantes de direction » disait trois fois la même chose.)
+    waitingLabel: circuitState === "COMPLETED" ? "Dossier terminé"
+      : circuitState && nomsAttendus ? `${libelleCourt(circuitState, version)} — chez ${nomsAttendus}`
+      : attente,
     progressStep: circuitProgress.step,
     progressTotal: circuitProgress.total,
   };
@@ -329,28 +348,92 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   const choixAReception = canReceive && executions.some((e) => e.factures.some((f) => !f.paiementDemande && f.detail?.lignes.some((l) => l.nature.type === "A_CHOISIR" && l.etat === "EN_ATTENTE")));
   const optionsCatalogue = canEditArticles || choixAReception ? await optionsDesArticlesDemandes() : null;
 
+  // LA DEMANDE DE DEVIS EN LETTRE (circuit 2) — Word + PDF de Luna, l'étape d'avant les devis. Regroupée par
+  // génération (un PDF et un Word déposés ensemble) ; (re)générer : la règle de l'action (`regenererDemandeDevisPromo`).
+  const peutGenererLettre = v2 && demandeLesDevis(acteur, pm);
+  const generationsLettre: GenerationLettre[] = [];
+  let debutGeneration = 0;
+  for (const d of lettresDevis) {
+    const cote = d.mimeType === "application/pdf" || /\.pdf$/i.test(d.name) ? "pdf" : "word";
+    const t = d.createdAt.getTime();
+    let g = generationsLettre[generationsLettre.length - 1];
+    if (!g || g[cote] || debutGeneration - t > 5 * 60_000) {
+      g = { quand: formatDateTime(d.createdAt.toISOString()), pdf: null, word: null };
+      generationsLettre.push(g);
+      debutGeneration = t;
+    }
+    // Supprimable : la règle de `deleteDocument` (qui l'a déposé, ou qui gère le dossier) — l'action la relit.
+    g[cote] = { id: d.id, nom: d.name, supprimable: d.uploadedById === user.id || canDelete };
+  }
+  const derniereLettre = generationsLettre[0] ? (generationsLettre[0].pdf ?? generationsLettre[0].word) : null;
+  const montrerDemandeDevis = v2 && (generationsLettre.length > 0 || peutGenererLettre || retraitDevis !== null);
+
+  // LES ENGAGEMENTS LEGAL (circuit 2) — les devis, BC et factures vivent dans « Devis » et « Exécution » ; seuls les
+  // conventions / contrats (et courriers) rattachés au dossier se lisent ici, en une ligne, et seulement s'il y en a.
+  const piecesV2 = v2
+    ? await chargerPiecesLiees({
+        entityType: "PROMO_MATERIAL", entityId: pm.id, canCreate: false,
+        spectateur: ctxPieces.acces.spectateur ?? null, courriers: ctxPieces.acces.courriers === true, documentsDeLaFiche: [],
+      })
+    : null;
+  const engagements = piecesV2?.sections.ENGAGEMENT ?? [];
+  const courriers = piecesV2?.courriers ?? [];
+
+  // LES INFORMATIONS — seulement ce qui est connu ; le demandeur passe dans l'en-tête.
+  const infos = ([
+    [v2 ? "Fournisseur(s) retenu(s)" : "Agence retenue", pm.chosenAgency],
+    // « RETENU » N'EST VRAI QU'APRÈS LE CHOIX (§118.153) : avant, le montant est l'ESTIMATION de la demande.
+    [v2 ? (pm.chosenAmount != null ? "Montant retenu (TTC)" : "Montant estimé (demande)") : "Montant", amount != null ? formatCurrency(amount) : null],
+    // Au circuit 2, les références de BC, de facture et de visa vivent dans la carte « Exécution », une par fournisseur.
+    ...(v2 ? [] : [
+      ["N° bon de commande", pm.bcReference],
+      ["Visa publicitaire", pm.visaReference],
+      ["Réf. autorités", pm.authorityRef],
+    ]),
+    ["Assistante", names.assistant],
+    ...(v2 ? [] : [
+      ["BC validé le", pm.bcValidatedAt ? formatDate(pm.bcValidatedAt.toISOString()) : null],
+      ["Paiement le", pm.paymentDoneAt ? formatDate(pm.paymentDoneAt.toISOString()) : null],
+      ["Relances finances", pm.financeReminderCount > 0 ? `${pm.financeReminderCount}${pm.financeReminderAt ? ` · ${formatDateTime(pm.financeReminderAt.toISOString())}` : ""}` : null],
+    ]),
+  ] as [string, string | null | undefined][]).filter((x): x is [string, string] => Boolean(x[1]));
+
+  const peutSupprimer = await peutSupprimerUneDemandeAdPro(user, "PROMO_MATERIAL", pm.id);
+  const peutCorriger = canEditPromoRequest && promoEditValues !== null;
+
   return (
     <div className="space-y-5">
       <BackLink href="/promo-material"><ArrowLeft className="h-4 w-4" /> Matériel promotionnel</BackLink>
-      <PageHeader title={pm.title} description={`Réf. ${pm.reference}`}>
+      <PageHeader title={pm.title} description={`Réf. ${pm.reference}${names.requester ? ` · demandé par ${names.requester}` : ""}`}>
         {/* ANNULÉ l'emporte : l'annulation arrête le circuit (état terminal), mais « Refusé » dirait
             qu'un validateur a tranché — ce n'est pas ce qui s'est passé. */}
         {circuitState && pm.status !== "CANCELLED"
           ? <StatusBadge map={{ [circuitState]: { label: libelleEtape(circuitState, version), tone: circuitState === "REFUSED" ? "danger" : circuitState === "COMPLETED" ? "success" : "info" } }} value={circuitState} />
           : <StatusBadge map={PROMO_MATERIAL_STATUS} value={pm.status} />}
-        {canEditPromoRequest && promoEditValues && (
-          <AdProEditButton kind="PROMO_MATERIAL" id={pm.id} decided={promoDecided} values={promoEditValues} />
+        {/* Corriger, supprimer, créer un engagement ou un courrier rattaché (Direction, 07/10 : il était parti avec
+            « Pièces liées ») : des gestes rares — derrière « ⋯ ». Les mêmes droits que l'ancien bloc (`accesPiecesLiees`). */}
+        {(peutCorriger || peutSupprimer || naturesEngagement.length > 0) && (
+          <MenuDossier>
+            {peutCorriger && promoEditValues && (
+              <AdProEditButton kind="PROMO_MATERIAL" id={pm.id} decided={promoDecided} values={promoEditValues} />
+            )}
+            {naturesEngagement.length > 0 && (
+              <AttachToSourceButtons entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} kinds={naturesEngagement} />
+            )}
+            <SupprimerDemandeAdPro kind="PROMO_MATERIAL" id={pm.id} name={pm.title} enabled={peutSupprimer} />
+          </MenuDossier>
         )}
-        <SupprimerDemandeAdPro kind="PROMO_MATERIAL" id={pm.id} name={pm.title} enabled={await peutSupprimerUneDemandeAdPro(user, "PROMO_MATERIAL", pm.id)} />
       </PageHeader>
 
       {/* LE CIRCUIT — ce que chacun voit ici dépend de qui il est : la chaîne entière pour PDG /
           Super Admin, l'étape en cours pour les autres (règle `seesFullCircuit`, tranchée côté
           serveur). Au circuit 2, la frise est celle de CE dossier (les étapes qu'il traverse). */}
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Megaphone className="h-4 w-4" /> Suivi du circuit</CardTitle></CardHeader>
-        <CardContent><PromoCircuitCard {...circuitProps} /></CardContent>
-      </Card>
+      {(circuitState || circuitProps.canStart) && (
+        <Card>
+          <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><Megaphone className="h-4 w-4" /> Suivi du circuit</CardTitle></CardHeader>
+          <CardContent><PromoCircuitCard {...circuitProps} /></CardContent>
+        </Card>
+      )}
 
       {/* LES ARTICLES DEMANDÉS — la demande piochée dans le catalogue : ce que l'assistante cherche à
           faire chiffrer, et à quoi chaque ligne de devis se rapproche (§118.165). */}
@@ -370,11 +453,25 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
 
       {/* LES DEVIS — le tableau interne : l'assistante retranscrit, le demandeur choisit ses lignes,
           les autres lisent. Il apparaît dès que les devis sont demandés. */}
+      {/* LA DEMANDE DE DEVIS — la lettre à l'agence (Word + PDF, papier en-tête), l'étape d'avant les devis. Son
+          retrait au secrétariat (constat 35) vit ici aussi : c'est la même demande. */}
+      {montrerDemandeDevis && (
+        <Card>
+          <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4" /> Demande de devis</CardTitle></CardHeader>
+          <CardContent>
+            <DemandeDevisCard
+              promoMaterialId={pm.id} generations={generationsLettre} peutGenerer={peutGenererLettre}
+              apercu={derniereLettre ? <DocumentPreview id={derniereLettre.id} name={derniereLettre.nom} hasFile path={`/promo-material/${pm.id}`} /> : null}
+              retrait={retraitDevis ? <RetirerDemandeDevis promoMaterialId={pm.id} references={retraitDevis.demandes.map((d) => d.reference)} refus={retraitDevis.refus} /> : null}
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {montrerDevis && (
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            {retraitDevis && <RetirerDemandeDevis promoMaterialId={pm.id} references={retraitDevis.demandes.map((d) => d.reference)} refus={retraitDevis.refus} />}
             <PromoQuotesCard
               id={pm.id} quotes={devis} articles={articles} canTranscribe={canTranscribe} canSelect={canSelect}
               manques={canTranscribe ? manquesDeRetranscription(devis) : []}
@@ -401,30 +498,57 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
-          <Card>
-            <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6">
-              {/* Au circuit 2, les références de BC, de facture et de visa vivent dans la carte
-                  « Exécution », une par fournisseur : les champs uniques de l'ancien parcours
-                  n'y ont plus de sens, et les afficher vides ferait croire qu'il manque quelque chose. */}
-              <Info label={v2 ? "Fournisseur(s) retenu(s)" : "Agence retenue"} value={pm.chosenAgency} />
-              {/* « RETENU » N'EST VRAI QU'APRÈS LE CHOIX (§118.153). Avant que des lignes soient
-                  retenues, le montant affiché est l'ESTIMATION de la demande : l'appeler « retenu »
-                  faisait lire à la Direction Marketing un engagement que personne n'avait pris. */}
-              <Info label={v2 ? (pm.chosenAmount != null ? "Montant retenu (TTC)" : "Montant estimé (demande)") : "Montant"} value={amount != null ? formatCurrency(amount) : null} />
-              {!v2 && <Info label="N° bon de commande" value={pm.bcReference} />}
-              {!v2 && <Info label="Visa publicitaire" value={pm.visaReference} />}
-              {!v2 && <Info label="Réf. autorités" value={pm.authorityRef} />}
-              <Info label="Demandeur" value={names.requester} />
-              <Info label="Assistante" value={names.assistant} />
-              {!v2 && <Info label="BC validé le" value={pm.bcValidatedAt ? formatDate(pm.bcValidatedAt.toISOString()) : null} />}
-              {!v2 && <Info label="Paiement le" value={pm.paymentDoneAt ? formatDate(pm.paymentDoneAt.toISOString()) : null} />}
-              {!v2 && pm.financeReminderCount > 0 && <Info label="Relances finances" value={`${pm.financeReminderCount}${pm.financeReminderAt ? ` · ${formatDateTime(pm.financeReminderAt.toISOString())}` : ""}`} />}
-              {pm.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Brief</p><p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{pm.description}</p></div>}
-            </CardContent>
-          </Card>
+      {/* La colonne de droite ne porte que les cartes d'action de l'ANCIEN parcours : sans elles, une seule colonne. */}
+      <div className={circuitState ? "space-y-5" : "grid grid-cols-1 gap-5 lg:grid-cols-3"}>
+        <div className={circuitState ? "space-y-5" : "space-y-5 lg:col-span-2"}>
+          {/* LES INFORMATIONS — seulement les valeurs connues (le demandeur est dans l'en-tête) ; rien de connu : pas de carte. */}
+          {(infos.length > 0 || pm.description) && (
+            <Card>
+              <CardHeader className="pb-3"><CardTitle>Informations</CardTitle></CardHeader>
+              <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6">
+                {infos.map(([label, value]) => <Info key={label} label={label} value={value} />)}
+                {pm.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Brief</p><p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{pm.description}</p></div>}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* CIRCUIT 2 — PLUS DE « PIÈCES LIÉES » (Direction, 07/10 : « trop de portes de vérité ») : les devis vivent
+              dans « Devis », les BC et factures dans « Exécution ». Restent, repliés, les fichiers libres du dossier
+              (BAT, maquettes, visa…), et les engagements Legal en une ligne — seulement s'il y en a. */}
+          {v2 && (engagements.length > 0 || courriers.length > 0) && (
+            <div className="surface flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+              <span className="flex items-center gap-1.5 font-medium"><Scale className="h-4 w-4 text-muted-foreground" /> Engagements</span>
+              {engagements.map((l) => (
+                l.fiche
+                  ? <Link key={l.id} href={`/legal/${l.id}`} className="min-w-0 truncate hover:underline">{l.reference ?? l.titre}</Link>
+                  : <span key={l.id} className="min-w-0 truncate">{l.reference ?? l.titre}</span>
+              ))}
+              {courriers.map((c) => (
+                c.documents !== null
+                  ? <Link key={c.id} href={`/courriers/${c.id}`} className="min-w-0 truncate text-muted-foreground hover:underline">{c.reference ?? c.titre}</Link>
+                  : <span key={c.id} className="min-w-0 truncate text-muted-foreground">{c.reference ?? c.titre}</span>
+              ))}
+            </div>
+          )}
+          {v2 && (piecesLiees.length > 0 || canUpload) && (
+            <details className="surface group">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-2.5 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-1.5"><Paperclip className="h-4 w-4 text-muted-foreground" /> Fichiers <span className="font-normal text-muted-foreground">({piecesLiees.length})</span></span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="space-y-2 border-t border-border px-4 py-3">
+                {canUpload
+                  ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={categoriesDuDepotDeLaDemande(PROMO_MATERIAL_DOC_CATEGORIES)} compact />
+                  : uploadHint ? <p className="text-xs text-muted-foreground">{uploadHint}</p> : null}
+                {piecesLiees.length > 0 && (
+                  <DocumentList
+                    documents={piecesLiees} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload}
+                    path={`/promo-material/${pm.id}`}
+                  />
+                )}
+              </div>
+            </details>
+          )}
 
           {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce
               type de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher
@@ -440,29 +564,26 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               pas : les pièces du dossier (matériel, BAT, visa, bordereau…) gardent leur place
               nommée, et un devis ou un BC déposé comme simple fichier est montré dans la section de
               sa nature, avec « Créer sa fiche ». */}
-          <LinkedRecords
-            entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} canCreate={canUpload && !v2}
-            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal} suppression
-            piecesDeLaDemande={{
-              titre: v2 ? "Pièces du dossier (maquettes, BAT, matériel, visa…)" : "Pièces du dossier (matériel, visa, bordereau, quittance…)",
-              documents: piecesLiees,
-              televerseur: canUpload
-                ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={categoriesDuDepotDeLaDemande(PROMO_MATERIAL_DOC_CATEGORIES)} />
-                : undefined,
-              motif: canUpload ? null : uploadHint ?? null,
-              // AU CIRCUIT 2, un fichier « devis » du dossier est le SCAN d'un devis retranscrit :
-              // sa version plateforme est la ligne du tableau « Devis retranscrits », pas une fiche
-              // à créer — le dire, au lieu de le présenter comme une pièce orpheline.
-              // PLUS DE « CRÉER SA FICHE » SUR UN DOSSIER DE MATÉRIEL PROMOTIONNEL (§118.204) — la note est
-              // TOUJOURS posée, ancien circuit compris : c'est elle qui retire le bouton. Au circuit 2, un devis
-              // déposé ici se range comme devis d'une agence dès que les devis sont demandés (carte « Devis »).
-              noteLibres: v2
-                ? (rangementRefuse ? `Devis déposés sur la demande, à ranger comme devis d'une agence. ${rangementRefuse}` : "Pièces déposées sur la demande.")
-                : "Pièces de l'ancien circuit, déposées sur le dossier.",
-              canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
-              path: `/promo-material/${pm.id}`,
-            }}
-          />
+          {/* L'ANCIEN CIRCUIT garde son bloc « Pièces liées » tel quel (le circuit 2 a ses fichiers repliés ci-dessus). */}
+          {!v2 && (
+            <LinkedRecords
+              entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} canCreate={canUpload}
+              acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal} suppression
+              piecesDeLaDemande={{
+                titre: "Pièces du dossier (matériel, visa, bordereau, quittance…)",
+                documents: piecesLiees,
+                televerseur: canUpload
+                  ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={categoriesDuDepotDeLaDemande(PROMO_MATERIAL_DOC_CATEGORIES)} />
+                  : undefined,
+                motif: canUpload ? null : uploadHint ?? null,
+                // PLUS DE « CRÉER SA FICHE » SUR UN DOSSIER DE MATÉRIEL PROMOTIONNEL (§118.204) — la note est
+                // TOUJOURS posée, ancien circuit compris : c'est elle qui retire le bouton.
+                noteLibres: "Pièces de l'ancien circuit, déposées sur le dossier.",
+                canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+                path: `/promo-material/${pm.id}`,
+              }}
+            />
+          )}
 
           {/* LA SECTION DISCUSSION — la MÊME que sur les six autres natures du pôle.
               Le matériel promotionnel était le SEUL des sept à porter un fil, et il le portait
@@ -474,10 +595,10 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           <AdProDiscussionCard entityType="PROMO_MATERIAL" entityId={pm.id} user={user} />
         </div>
 
-        <div className="space-y-5">
-          {/* Les cartes d'action de l'ANCIEN parcours ne servent qu'aux dossiers d'avant la
-              réforme : un dossier au circuit court se pilote depuis la carte « Suivi du circuit ». */}
-          {!circuitState && (
+        {/* Les cartes d'action de l'ANCIEN parcours ne servent qu'aux dossiers d'avant la
+            réforme : un dossier au circuit court se pilote depuis la carte « Suivi du circuit ». */}
+        {!circuitState && (
+          <div className="space-y-5">
             <PromoActionPanel
               id={pm.id}
               status={pm.status}
@@ -491,8 +612,8 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               paymentOrder={ordres.get(pm.paymentOrderId ?? "") ?? null}
               settlementOrder={ordres.get(pm.settlementOrderId ?? "") ?? null}
             />
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

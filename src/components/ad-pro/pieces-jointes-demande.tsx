@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Plus, X, Paperclip } from "lucide-react";
+import { Plus, X, Paperclip, ChevronRight } from "lucide-react";
 import type { EntityType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { DocumentPreview } from "@/components/documents/document-preview";
+import { DOCUMENT_CATEGORY } from "@/lib/labels";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { ConseilLuna } from "./conseil-luna";
 import { NATURES_DEMANDE_CONSEIL, type NatureDemandeConseil } from "@/lib/ad-pro/conseil-pieces";
 
@@ -35,12 +38,22 @@ export interface PiecesJointesDeLaDemande {
   path: string;
 }
 
-export function CarteDetailsDemande({ titre, pieces, children, contentClassName }: {
+export function CarteDetailsDemande({ titre, pieces, children, contentClassName, entete, piecesRepliees = false }: {
   titre: string;
   pieces: PiecesJointesDeLaDemande;
   /** Les détails de la demande (rendus au serveur) ; absent, la carte ne porte que les pièces jointes. */
   children?: React.ReactNode;
   contentClassName?: string;
+  /**
+   * Ce qui précède les pièces jointes (les faits de la demande) — le reste de `children` vient APRÈS elles. Une carte longue
+   * (la prise en charge, avec ses postes) garde ainsi ses pièces jointes sous les faits, pas au bout de la page.
+   */
+  entete?: React.ReactNode;
+  /**
+   * LES PIÈCES REPLIÉES (carte « La demande », Direction 07/10) : « Pièces jointes (n) » dans un repli, chaque pièce en
+   * puce cliquable — le nom ouvre l'aperçu, où vivent toujours imprimer / renommer / supprimer selon les droits reçus.
+   */
+  piecesRepliees?: boolean;
 }) {
   const [ouvert, setOuvert] = React.useState(false);
   // LES PIÈCES DÉPOSÉES DANS CETTE SESSION par « + Pièce jointe » : Luna lit chacune et dit si elle
@@ -68,9 +81,14 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName 
             {ouvert ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />} {ouvert ? "Fermer" : "Pièce jointe"}
           </button>
         )}
+        {/* Repliée, la carte ne dit plus en clair pourquoi le dépôt est fermé : le motif passe derrière un ⓘ. */}
+        {piecesRepliees && !pieces.peutDeposer && pieces.motif && (
+          <InfoBulle label="Pourquoi pas de pièce jointe">{pieces.motif}</InfoBulle>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {children && <div className={contentClassName}>{children}</div>}
+        {entete}
+        {!entete && children && <div className={contentClassName}>{children}</div>}
         {ouvert && pieces.peutDeposer && (
           <DocumentUpload
             entityType={pieces.entityType} entityId={pieces.entityId} categories={pieces.categories}
@@ -90,20 +108,44 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName 
             })}
           </ul>
         )}
-        <div className={children ? "border-t border-border/70 pt-3" : undefined}>
-          <p className="mb-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
-            <Paperclip className="h-3.5 w-3.5" /> Pièces jointes de la demande{n > 0 ? ` (${n})` : ""}
-          </p>
-          {n > 0 ? (
-            <DocumentList
-              documents={pieces.documents} canDelete={pieces.canDelete} canRename={pieces.canRename}
-              canEdit={pieces.canEdit} path={pieces.path}
-            />
-          ) : (
-            <p className="text-xs text-muted-foreground">Aucune pièce jointe.</p>
-          )}
-          {!pieces.peutDeposer && pieces.motif && <p className="mt-1 text-xs text-muted-foreground">{pieces.motif}</p>}
-        </div>
+        {/* SANS PIÈCE JOINTE, RIEN (Direction, 07/10) : le bouton « Pièce jointe » de l'en-tête suffit. */}
+        {piecesRepliees && n > 0 && (
+          <details className="group border-t border-border/70 pt-3">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" /> Pièces jointes ({n})
+            </summary>
+            <ul className="mt-2 flex flex-wrap gap-1.5">
+              {pieces.documents.map((d) => (
+                <li key={d.id} className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-border px-2.5 py-1">
+                  <span className="min-w-0 max-w-[16rem]">
+                    <DocumentPreview
+                      id={d.id} name={d.name} hasFile={d.hasFile} canEdit={pieces.canEdit} canDelete={pieces.canDelete}
+                      canRename={pieces.canRename} path={pieces.path}
+                    />
+                  </span>
+                  <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{DOCUMENT_CATEGORY[d.category] ?? d.category}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {!piecesRepliees && (n > 0 || (!pieces.peutDeposer && pieces.motif)) && (
+          <div className={children && !entete ? "border-t border-border/70 pt-3" : undefined}>
+            {n > 0 && (
+              <>
+                <p className="mb-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Paperclip className="h-3.5 w-3.5" /> Pièces jointes de la demande ({n})
+                </p>
+                <DocumentList
+                  documents={pieces.documents} canDelete={pieces.canDelete} canRename={pieces.canRename}
+                  canEdit={pieces.canEdit} path={pieces.path}
+                />
+              </>
+            )}
+            {!pieces.peutDeposer && pieces.motif && <p className="mt-1 text-xs text-muted-foreground">{pieces.motif}</p>}
+          </div>
+        )}
+        {entete && children && <div className={contentClassName}>{children}</div>}
       </CardContent>
     </Card>
   );

@@ -359,6 +359,25 @@ export function estDemandeAAutrui(t: TaskLike, userId: string): boolean {
 /** Les états d'une demande qui n'a pas encore été exécutée — on peut l'annuler. */
 export const STATUTS_ANNULABLES = ["REQUESTED", "TODO", "IN_PROGRESS"] as const;
 
+/**
+ * RÉATTRIBUER UNE DEMANDE (Direction, 07/10) — une demande refusée, ou restée sans réponse, part chez
+ * quelqu'un d'autre au lieu d'être recréée à la main. Seul le demandeur le fait ; la nouvelle personne
+ * reçoit une DEMANDE (elle accepte ou refuse), jamais une tâche déposée d'office.
+ */
+export const STATUTS_REATTRIBUABLES = ["REQUESTED", "DECLINED"] as const;
+
+/** Pourquoi cette personne ne peut PAS réattribuer la demande à `nouveauId` — `null` si elle le peut. */
+export function refusReattribution(t: TaskLike, userId: string, nouveauId: string | null | undefined): string | null {
+  if (!t.createdById || t.createdById !== userId) return "Seule la personne qui a fait la demande la réattribue.";
+  if (!(STATUTS_REATTRIBUABLES as readonly string[]).includes(t.status)) {
+    return "Seule une demande refusée, ou pas encore acceptée, se réattribue.";
+  }
+  if (!nouveauId) return "Choisissez la personne.";
+  if (nouveauId === userId) return "Pour la faire vous-même, annulez-la et créez une tâche pour vous.";
+  if (nouveauId === t.assignedToId && t.status === "REQUESTED") return "Elle est déjà chez cette personne.";
+  return null;
+}
+
 /** Pourquoi cette personne ne peut PAS annuler la demande — `null` si elle le peut. */
 export function refusAnnulationDemande(t: TaskLike, userId: string): string | null {
   if (!estDemandeAAutrui(t, userId)) return "Seule la personne qui a fait la demande l'annule — et seulement quand elle l'a adressée à quelqu'un d'autre.";

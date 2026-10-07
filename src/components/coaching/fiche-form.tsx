@@ -35,11 +35,12 @@ export interface ValeursFiche {
 }
 
 export function FicheCoachingForm({
-  mode, ficheId, grille, gridVersion, collaborateurs, managers, valeurs, finalisee, peutFinaliser, aujourdHui, nomManagerParDefaut,
+  mode, ficheId, grille, collaborateurs, managers, valeurs, finalisee, peutFinaliser, aujourdHui, nomManagerParDefaut,
 }: {
   mode: "creation" | "modification";
   ficheId?: string;
   grille: GrilleCoaching;
+  /** La version de la grille — plus affichée sous l'en-tête (Direction, 07/10) ; gardée au contrat des pages. */
   gridVersion: number;
   collaborateurs: OptionPersonne[];
   /** La liste des managers — présente seulement pour l'administration, qui peut en désigner un autre. */
@@ -146,7 +147,6 @@ export function FicheCoachingForm({
             />
           </label>
         </div>
-        <p className="text-xs text-muted-foreground">Grille d&apos;évaluation version {gridVersion} — administrée par le directeur des opérations.</p>
       </section>
 
       <EchelleNiveaux grille={grille} />

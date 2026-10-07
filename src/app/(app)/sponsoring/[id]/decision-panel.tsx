@@ -6,6 +6,7 @@ import { Gavel, Loader2, AlertCircle } from "lucide-react";
 import { sponsoringAppeal } from "@/lib/actions/sponsoring-actions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 /**
  * Appel du délégué après la décision. Le circuit de validation lui-même est piloté par le moteur de
@@ -33,10 +34,13 @@ export function AppealPanel({ id, etape }: { id: string; etape: string | null })
     });
 
   if (!open) {
+    // Le geste, et son pourquoi derrière un ⓘ (Direction, 07/10 : pas de phrase explicative à l'écran).
     return (
-      <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">Vous n'êtes pas d'accord avec la décision ? Vous pouvez faire appel : le dossier repart pour un nouvel examen{etape ? ` — « ${etape} »` : ""}.</p>
+      <div className="flex items-center gap-1.5">
         <Button variant="outline" size="sm" onClick={() => setOpen(true)}><Gavel className="h-4 w-4" /> Faire appel</Button>
+        <InfoBulle label="Faire appel">
+          Vous n&apos;êtes pas d&apos;accord avec la décision ? Le dossier repart pour un nouvel examen{etape ? ` — « ${etape} »` : ""}.
+        </InfoBulle>
       </div>
     );
   }

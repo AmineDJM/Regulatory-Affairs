@@ -1,8 +1,7 @@
 import type { SessionUser } from "@/lib/rbac";
 import { Prisma } from "@prisma/client";
-import { userCan, hasGlobalView, scopeBusinessDevelopment } from "@/lib/rbac";
+import { userCan, hasGlobalView, scopeBusinessDevelopment, regulatoryLockWhere } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { clauseProduitTermine } from "@/lib/products/termines";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { accessibleDocumentWhere } from "@/lib/queries/documents";
@@ -189,7 +188,8 @@ async function rechercheReliee(
   const voitProduits = userCan(user, "PRODUCTS", "VIEW");
   const [produits, bus, strategies] = await Promise.all([
     voitProduits
-      ? prisma.product.findMany({ where: { AND: [{ isActive: true }, clauseProduitTermine, { OR: [{ AND: match(["canonicalName", "dci", "code"]) as Prisma.ProductWhereInput[] }, { aliases: { some: { AND: match(["label"]) as Prisma.ProductAliasWhereInput[] } } }] }] }, take, select: { id: true, canonicalName: true, code: true, dci: true } })
+      // UN SEUL CATALOGUE (Produits 360, 07/10) : commercialisés ET en enregistrement — sauf les dossiers verrouillés.
+      ? prisma.product.findMany({ where: { AND: [{ isActive: true }, { regulatoryProfiles: { some: regulatoryLockWhere(user) } }, { OR: [{ AND: match(["canonicalName", "dci", "code"]) as Prisma.ProductWhereInput[] }, { aliases: { some: { AND: match(["label"]) as Prisma.ProductAliasWhereInput[] } } }] }] }, take, select: { id: true, canonicalName: true, code: true, dci: true } })
       : [],
     userCan(user, "SALES_PLANNING", "VIEW")
       ? prisma.businessUnit.findMany({ where: { AND: [{ isActive: true }, ...(match(["name", "code"]) as Prisma.BusinessUnitWhereInput[])] }, take, select: { id: true, name: true, code: true } })

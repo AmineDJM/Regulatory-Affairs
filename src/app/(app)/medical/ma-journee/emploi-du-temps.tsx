@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Check, Clock, Loader2, Mic, Package, Pencil, Plus, Square } from "lucide-react";
+import { Check, Clock, Loader2, Mic, Package, Pencil, Plus, ShieldAlert, Square } from "lucide-react";
 import { rapporterVisite, ajouterVisiteImprevue, direVisiteNonTenue } from "@/lib/actions/tour-visit-actions";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { ETAT_VISITE_LABELS, VUES, VUE_LABELS, type EtatVisite, type VueTournee } from "@/lib/sfe/tournee";
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 import type { StockPourVisite } from "@/lib/queries/promo-remises";
 import { BlocMaterielRemis, type RemisesInitiales } from "./materiel-remis";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 export interface LigneVue {
   id: string;
@@ -91,8 +93,10 @@ const BARRE_ACTIONS =
  * DIT et le clavier reste. Annoncer une dictée qui ne marche pas est pire que ne pas l'offrir.
  */
 export function EmploiDuTemps({
-  vue, lignes, avancement, produits, produitsIncomplets, messages, sansBu, panel, stock,
+  vue, lignes, avancement, produits, produitsIncomplets, messages, sansBu, panel, stock, lienPv = null,
 }: {
+  /** Le formulaire de signalement de pharmacovigilance — passé seulement à qui peut signaler. */
+  lienPv?: string | null;
   vue: VueTournee;
   lignes: LigneVue[];
   avancement: AvancementTournee;
@@ -186,8 +190,7 @@ export function EmploiDuTemps({
             {lignes.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
-                  Aucune visite sur « {VUE_LABELS[vue]} ». Les visites viennent de votre plan de tournée validé —
-                  ou d&apos;une visite imprévue que vous ajoutez ci-dessous.
+                  Aucune visite sur « {VUE_LABELS[vue]} ».
                 </td>
               </tr>
             )}
@@ -244,22 +247,17 @@ export function EmploiDuTemps({
                 </td>
                 <td className="px-3 py-2 text-right">
                   {l.etat === "A_FAIRE" ? (
-                    <span className="inline-flex flex-wrap justify-end gap-1">
-                      <Button size="sm" onClick={() => { setErr(null); setOuverte(l); }} disabled={occupe}>
-                        Rapport
-                      </Button>
-                      {/* DIRE QU'ELLE N'A PAS EU LIEU (§118.193) : un médecin absent n'est pas une visite perdue,
-                          à condition de le dire — dans la même fenêtre que le rapport. */}
-                      <Button size="sm" variant="ghost" onClick={() => { setErr(null); setNonTenue(l); }} disabled={occupe}>
-                        N&apos;a pas eu lieu
-                      </Button>
-                    </span>
+                    // UN SEUL GESTE PAR LIGNE (Direction, 07/10) : « Rapport ». Dire qu'elle n'a pas eu lieu
+                    // (§118.193) se fait depuis la feuille du rapport — un lien discret en tête.
+                    <Button size="sm" className="h-10 sm:h-8" onClick={() => { setErr(null); setOuverte(l); }} disabled={occupe}>
+                      Rapport
+                    </Button>
                   ) : l.etat === "PERDUE" ? (
                     <span className="text-xs text-warning">Délai dépassé</span>
                   ) : l.etat === "FAITE" && l.heuresRestantes > 0 ? (
                     // CORRIGER DANS LA FENÊTRE : une quantité remise mal tapée se rattrape ici, et le
                     // stock suit — seuls les articles dont la quantité change sont repris (§118.166).
-                    <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOuverte(l); }} disabled={occupe}>
+                    <Button size="sm" variant="ghost" className="h-10 sm:h-8" onClick={() => { setErr(null); setOuverte(l); }} disabled={occupe}>
                       <Pencil className="h-3.5 w-3.5" /> Corriger
                     </Button>
                   ) : l.etat === "FAITE" ? (
@@ -272,12 +270,28 @@ export function EmploiDuTemps({
         </table>
       </div>
 
-      <Button variant="outline" className="h-12 w-full sm:h-10 sm:w-auto" onClick={() => { setErr(null); setImprevue(true); }} disabled={occupe}>
-        <Plus className="h-4 w-4" /> Ajouter une visite imprévue
-      </Button>
+      {/* La visite imprévue : un lien discret sous le tableau, pas un second gros bouton (Direction, 07/10). La
+          pharmacovigilance à côté, du même poids. */}
+      <div className="flex flex-wrap items-center gap-x-4">
+        <button
+          type="button"
+          onClick={() => { setErr(null); setImprevue(true); }}
+          disabled={occupe}
+          className="inline-flex min-h-10 items-center gap-1.5 text-sm text-primary hover:underline disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" /> Visite imprévue
+        </button>
+        {lienPv && (
+          <Link href={lienPv} className="inline-flex min-h-10 items-center gap-1.5 text-sm text-warning hover:underline">
+            <ShieldAlert className="h-4 w-4" /> Pharmacovigilance
+          </Link>
+        )}
+      </div>
 
       {/* ── LE RAPPORT TERRAIN ──────────────────────────────────────────────── */}
-      <FeuilleRapportVisite ouverte={ouverte} onClose={() => setOuverte(null)} gamme={gamme} stock={stock} executer={run} occupe={occupe} err={err} />
+      <FeuilleRapportVisite ouverte={ouverte} onClose={() => setOuverte(null)} gamme={gamme} stock={stock} executer={run} occupe={occupe} err={err}
+        onNonTenue={(l) => { setErr(null); setOuverte(null); setNonTenue(l); }}
+      />
 
       {/* ── LA VISITE QUI N'A PAS EU LIEU (§118.193) ───────────────────────────── */}
       <FeuilleNonTenue visite={nonTenue} onClose={() => setNonTenue(null)} executer={run} occupe={occupe} err={err} />
@@ -305,7 +319,7 @@ export type Executer = (action: (fd: FormData) => Promise<{ ok: boolean; error?:
  * mêmes exigences. En écrire une seconde pour la grille ferait diverger les deux saisies au premier champ ajouté.
  */
 export function FeuilleRapportVisite({
-  ouverte, onClose, gamme, stock, executer, occupe, err,
+  ouverte, onClose, gamme, stock, executer, occupe, err, onNonTenue,
 }: {
   ouverte: LigneVue | null;
   onClose: () => void;
@@ -314,6 +328,11 @@ export function FeuilleRapportVisite({
   executer: Executer;
   occupe: boolean;
   err: string | null;
+  /**
+   * « Elle n'a pas eu lieu » (§118.193), offert en lien discret en tête de la feuille quand l'écran hôte le passe :
+   * la ligne de « Ma journée » ne porte plus qu'un geste, « Rapport » (Direction, 07/10).
+   */
+  onNonTenue?: (l: LigneVue) => void;
 }) {
   /** La visite ouverte l'est-elle pour une CORRECTION (rapport déjà fait, fenêtre encore ouverte) ? */
   const correction = ouverte?.etat === "FAITE";
@@ -323,10 +342,20 @@ export function FeuilleRapportVisite({
       onClose={onClose}
       title={ouverte ? `${correction ? "Corriger le rapport" : "Rapport"} — ${ouverte.doctorName}` : ""}
       description={ouverte
-        ? `Visite du ${new Date(ouverte.date).toLocaleDateString("fr-FR")} · ${ouverte.heuresRestantes} h restantes pour la ${correction ? "corriger" : "rapporter"}.`
+        ? `Visite du ${new Date(ouverte.date).toLocaleDateString("fr-FR")} · ${ouverte.heuresRestantes} h restantes`
         : ""}
       width="md"
     >
+      {ouverte && onNonTenue && ouverte.etat === "A_FAIRE" && (
+        <button
+          type="button"
+          onClick={() => onNonTenue(ouverte)}
+          disabled={occupe}
+          className="-mt-1 mb-2 inline-flex min-h-10 items-center text-sm text-primary hover:underline disabled:opacity-50 sm:min-h-8"
+        >
+          La visite n&apos;a pas eu lieu ?
+        </button>
+      )}
       {ouverte && (
         <FormulaireRapport
           key={ouverte.id}
@@ -376,9 +405,7 @@ export function FeuilleNonTenue({
       open={visite !== null}
       onClose={onClose}
       title={visite ? `La visite n'a pas eu lieu — ${visite.doctorName}` : ""}
-      description={visite
-        ? `Visite du ${new Date(visite.date).toLocaleDateString("fr-FR")}. Reportée ou annulée, elle sort du dénominateur de votre plan — en le disant, motif à l'appui.`
-        : ""}
+      description={visite ? `Visite du ${new Date(visite.date).toLocaleDateString("fr-FR")}` : ""}
       width="md"
     >
       {visite && (
@@ -390,7 +417,12 @@ export function FeuilleNonTenue({
           }}
         >
           <fieldset className="space-y-1.5">
-            <legend className="mb-1.5 text-sm font-medium">Ce qui s&apos;est passé</legend>
+            <legend className="mb-1.5 flex items-center gap-1 text-sm font-medium">
+              Ce qui s&apos;est passé
+              <InfoBulle label="Pourquoi le dire" align="left">
+                Reportée ou annulée, la visite sort du dénominateur de votre plan — à condition de le dire, motif à l&apos;appui.
+              </InfoBulle>
+            </legend>
             {/* Deux grandes cases côte à côte : un choix d'un seul pouce. */}
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-col sm:gap-1.5">
               <label className="flex min-h-11 items-center gap-2 rounded-lg border border-input px-3 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5 sm:min-h-0 sm:border-0 sm:px-0 sm:has-[:checked]:bg-transparent">
@@ -421,7 +453,7 @@ export function FeuilleNonTenue({
 
 /**
  * LA VISITE IMPRÉVUE — la rencontre que le plan ne prévoyait pas. La même feuille pour « Ma journée » et pour le
- * bouton « Nouveau rapport terrain » de la grille du plan : elle crée la `MedicalVisit` hors plan (`ajouterVisiteImprevue`),
+ * bouton « Faire un rapport » de la grille du plan : elle crée la `MedicalVisit` hors plan (`ajouterVisiteImprevue`),
  * comptée au nombre de visites, jamais au dénominateur du plan.
  */
 export function FeuilleVisiteImprevue({
@@ -441,7 +473,7 @@ export function FeuilleVisiteImprevue({
       open={open}
       onClose={onClose}
       title="Visite imprévue"
-      description="Une rencontre que le plan ne prévoyait pas. Elle compte au nombre de visites, jamais au dénominateur du plan."
+      description="Rencontre hors plan"
       width="md"
     >
       <FormulaireRapport
@@ -468,11 +500,14 @@ export function FeuilleVisiteImprevue({
               </Select>
             </div>
             <div>
-              <Label htmlFor="imp-date">Jour de la rencontre</Label>
+              <div className="flex items-center gap-1">
+                <Label htmlFor="imp-date">Jour de la rencontre</Label>
+                <InfoBulle label="Quelle date" align="left">
+                  Jamais dans le futur, et dans les 48 h : la même borne que pour une visite planifiée. Elle compte au nombre
+                  de visites, jamais au dénominateur du plan.
+                </InfoBulle>
+              </div>
               <Input id="imp-date" name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Jamais dans le futur, et dans les 48 h : c&apos;est la même borne que pour une visite planifiée.
-              </p>
             </div>
           </>
         }
@@ -557,23 +592,27 @@ function FormulaireRapport({
 
       {/* ── LES PRODUITS DE SA GAMME ─────────────────────────────────────────── */}
       <div className="space-y-1.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Produits discutés {produitObligatoire && <span className="text-destructive">*</span>}
+        <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <span>Produits discutés {produitObligatoire && <span className="text-destructive">*</span>}</span>
+          {/* Ce qui manque à la gamme, dit derrière le ⓘ plutôt qu'en paragraphe (Direction, 07/10). */}
+          {!sansBu && produitsIncomplets.length > 0 && (
+            <InfoBulle label="Produits absents" align="left" className="normal-case tracking-normal">
+              {produitsIncomplets.length} produit(s) promu(s) ({produitsIncomplets.slice(0, 3).join(", ")}) n&apos;ont pas de
+              produit canonique rattaché et ne peuvent donc pas figurer dans un rapport — à corriger dans Force de vente ›
+              Business Units.
+            </InfoBulle>
+          )}
         </p>
         {sansBu ? (
-          <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
-            Aucune Business Unit ne vous est rattachée : la liste de vos produits est donc vide et le rapport sera
-            refusé. Votre superviseur vous rattache à une gamme depuis Force de vente › Business Units.
+          <p className="flex items-center gap-1 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs">
+            <span className="min-w-0 flex-1">Aucune gamme rattachée — chez votre superviseur</span>
+            <InfoBulle label="Pourquoi">
+              Sans Business Unit, la liste de vos produits est vide et le rapport sera refusé. Votre superviseur vous
+              rattache à une gamme depuis Force de vente › Business Units.
+            </InfoBulle>
           </p>
         ) : produits.length === 0 ? (
-          <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
-            Aucun produit actif dans votre gamme.
-            {produitsIncomplets.length > 0 && (
-              <> {produitsIncomplets.length} produit(s) promu(s) ({produitsIncomplets.slice(0, 3).join(", ")}) n&apos;ont pas
-              de produit canonique rattaché et ne peuvent donc pas figurer dans un rapport — à corriger dans
-              Force de vente › Business Units.</>
-            )}
-          </p>
+          <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">Aucun produit actif dans votre gamme.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {produits.map((p) => (
@@ -588,23 +627,24 @@ function FormulaireRapport({
             ))}
           </div>
         )}
-        {produits.length > 0 && produitsIncomplets.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            {produitsIncomplets.length} produit(s) de votre gamme ne sont pas rattachés à un produit canonique et
-            n&apos;apparaissent donc pas ici : {produitsIncomplets.slice(0, 3).join(", ")}.
-          </p>
-        )}
       </div>
 
       {/* ── LES MESSAGES DE LA DIRECTION MARKETING ───────────────────────────── */}
       <div className="space-y-1.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Messages portés {messageObligatoire && <span className="text-destructive">*</span>}
+        <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <span>Messages portés {messageObligatoire && <span className="text-destructive">*</span>}</span>
+          {messageObligatoire && (
+            <InfoBulle label="Pourquoi obligatoires" align="left" className="normal-case tracking-normal">
+              Produits et messages sont exigés : sans eux, ni l&apos;effort par produit ni l&apos;efficacité d&apos;un message
+              ne se mesurent — c&apos;est ce que la Direction demande de savoir.
+            </InfoBulle>
+          )}
         </p>
         {messages.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
-            Aucun message pré-défini n&apos;est publié pour votre gamme.
-            {messageObligatoire && " Le rapport sera refusé : demandez à la Direction Marketing d'en publier (Marketing cockpit › Messages)."}
+            {messageObligatoire
+              ? "Aucun message publié pour votre gamme — chez la Direction Marketing (rapport refusé sans message)"
+              : "Aucun message publié pour votre gamme."}
           </p>
         ) : (
           // Au téléphone, la liste ne s'enferme pas dans une petite boîte défilante : défiler dans un
@@ -628,9 +668,8 @@ function FormulaireRapport({
       <div>
         <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <Label htmlFor="rapport-texte">Compte rendu <span className="text-destructive">*</span></Label>
-          {dictee === "absente" ? (
-            <span className="text-xs text-muted-foreground">Dictée indisponible sur ce navigateur — le clavier reste.</span>
-          ) : (
+          {/* Sans dictée sur ce navigateur, pas de bouton — et pas de phrase pour le dire. */}
+          {dictee !== "absente" && (
             <Button type="button" size="sm" className="h-10 px-4 sm:h-8 sm:px-3" variant={dictee === "en-cours" ? "destructive" : "outline"} onClick={basculerDictee}>
               {dictee === "en-cours" ? <><Square className="h-3.5 w-3.5" /> Arrêter</> : <><Mic className="h-3.5 w-3.5" /> Dicter</>}
             </Button>
@@ -656,7 +695,7 @@ function FormulaireRapport({
           <p className="text-xs text-muted-foreground">
             {potentiel.dernier
               ? `Dernière valeur : ${potentiel.dernier.potentiel ?? "—"} ${potentiel.metrique}${potentiel.dernier.sur10 !== null ? `, ${potentiel.dernier.sur10}/10 sous ${potentiel.produit ?? "le produit"}` : ""} — ${new Date(potentiel.dernier.le).toLocaleDateString("fr-FR")}.`
-              : "Jamais renseigné : le segment du praticien reste « en attente » tant que le potentiel manque."}
+              : "Jamais renseigné."}
           </p>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <div className="min-w-0"><Label htmlFor="pot-patients" className="text-xs">{potentiel.metrique}</Label><Input id="pot-patients" name="potentielPatients" inputMode="decimal" className="w-full sm:w-28" /></div>
@@ -671,13 +710,6 @@ function FormulaireRapport({
         <Input id="rapport-suite" name="followUpActions" defaultValue={initial?.suite ?? ""} placeholder="Rappeler après le comité du 12, envoyer l'étude…" />
       </div>
 
-      {messageObligatoire && messages.length > 0 && (
-        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          Produits et messages sont exigés : sans eux, ni l&apos;effort par produit ni l&apos;efficacité d&apos;un
-          message ne se mesurent — c&apos;est précisément ce que la Direction demande de savoir.
-        </p>
-      )}
       {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
       <div className={BARRE_ACTIONS}>
         <Button type="button" variant="outline" className="h-12 flex-1 sm:h-10 sm:flex-none" onClick={onCancel} disabled={busy}>Annuler</Button>

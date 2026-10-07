@@ -1,14 +1,15 @@
 import { requireUser } from "@/lib/session";
 import { getMyHrDossier } from "@/lib/queries/hr-documents";
 import { getMyLeaveRequests } from "@/lib/queries/hr";
+import { discussionsDesConges } from "@/lib/queries/conges-discussion";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileText, Download } from "lucide-react";
-import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE, WORKSPACE_TABS } from "@/lib/labels";
-import { visibleTabs } from "@/lib/nav-tabs";
+import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE } from "@/lib/labels";
+import { ongletsEspace } from "@/lib/queries/mes-taches";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatDate, formatDateTime, formatMonth, formatCurrency } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
@@ -31,6 +32,8 @@ export default async function MonDossierPage() {
   const dossier = await getMyHrDossier(user.id);
   // MÊME demande, MÊME liste que « Mon espace » : un congé n'existe qu'une fois.
   const myLeaves = await getMyLeaveRequests(user.id);
+  // La discussion de chacun de MES congés (Direction, 07/10) — le fil où le N+1 et les RH me répondent.
+  const discussionsConges = await discussionsDesConges(myLeaves.map((l) => l.id));
   // Qui peut me remplacer, et sur quoi. Les collègues actifs (moi excepté — on ne se remplace
   // pas soi-même) et ce que JE DÉTIENS et qui se prête — la lecture même de l'action et du calcul des
   // droits (`modulesPretables`), jamais la liste de tous les modules : on proposait des modules que la
@@ -50,7 +53,7 @@ export default async function MonDossierPage() {
   // MÊMES onglets que tout l'espace personnel : le dossier RH en est un, plus un module à
   // part. Deux barres d'onglets différentes selon l'écran donnaient l'impression de changer
   // d'endroit alors qu'on reste chez soi.
-  const dossierTabs = await visibleTabs(user, WORKSPACE_TABS);
+  const dossierTabs = await ongletsEspace(user);
 
   if (!dossier) {
     return (
@@ -152,8 +155,8 @@ export default async function MonDossierPage() {
           </p>
           {/* « Terminé » se calcule ICI, sur l'horloge du serveur — celle de l'action (§118.196). */}
           <MyLeaves
-            leaves={myLeaves.map((l) => ({ ...l, termine: congeTermine(l.endDate) }))}
-            people={colleagues} modules={delegatable} moduleLabels={MODULE_LABELS}
+            leaves={myLeaves.map((l) => ({ ...l, termine: congeTermine(l.endDate), commentaires: discussionsConges[l.id] ?? [] }))}
+            people={colleagues} modules={delegatable} moduleLabels={MODULE_LABELS} currentUserId={user.id}
           />
         </CardContent>
       </Card>

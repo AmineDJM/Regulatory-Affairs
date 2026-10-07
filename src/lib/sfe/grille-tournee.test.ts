@@ -169,12 +169,18 @@ describe("l'écran — une seule porte vers le rapport d'une visite planifiée",
     expect(planif).toMatch(/retirerCellule\(/);
     expect(grille).toMatch(/etatCellule\(/);
     expect(grille).toMatch(/gesteCellule\(/);
-    expect(planif).toContain("Nouveau rapport terrain");
+    // « Faire un rapport » au-dessus de la grille (Direction, 07/10), et la pharmacovigilance à côté — un lien, pas une action.
+    expect(planif).toContain("Faire un rapport");
+    expect(planif).toMatch(/lienSignalerPv\(\)/);
+    expect(grille).toContain("Voir le rapport");
   });
 
-  it("responsive : un jour par écran sur téléphone, la semaine sur ordinateur", () => {
-    expect(grille).toMatch(/md:hidden/);
-    expect(grille).toMatch(/hidden gap-2 md:grid/);
+  // 07/10 (maquette validée) : UN tableau à toutes les tailles — il défile dans son cadre au téléphone, la colonne des rangs
+  // reste fixe. Plus de vue « un jour par écran » à part.
+  it("responsive : le même tableau partout, qui défile dans son cadre, rangs fixes", () => {
+    expect(grille).toMatch(/<table /);
     expect(grille).toMatch(/overflow-x-auto/);
+    expect(grille).toMatch(/sticky left-0/);
+    expect(grille).not.toMatch(/md:hidden/);
   });
 });

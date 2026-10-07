@@ -77,6 +77,8 @@ interface Props {
   canDecide: boolean;
   /** Matériels promotionnels rattachables à une case — ils gardent leur propre circuit. */
   promoOptions: { id: string; reference: string; title: string }[];
+  /** Faux : la fiche porte déjà les chiffres de la prise en charge en un seul bandeau (Direction, 07/10). */
+  resume?: boolean;
 }
 
 /**
@@ -96,7 +98,7 @@ interface Props {
  *     il devient une dépense.
  */
 export function CarePanel({
-  scope, requestId, beneficiaries, quotes, directory, eventApproved, canEdit, canDecide, promoOptions,
+  scope, requestId, beneficiaries, quotes, directory, eventApproved, canEdit, canDecide, promoOptions, resume = true,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -136,7 +138,7 @@ export function CarePanel({
   return (
     <div className="space-y-5">
       {/* ── Vue d'ensemble ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {resume && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Figure label="Professionnels proposés" value={String(beneficiaries.length)} />
         <Figure label="Accordées" value={String(approved.length)} tone={approved.length > 0 ? "success" : undefined} />
         <Figure label="Devis acceptés" value={formatCurrency(qs.acceptedDzd)} hint={`${qs.accepted} devis`} />
@@ -146,7 +148,7 @@ export function CarePanel({
           hint={qs.pending > 0 ? `${qs.pending} à trancher` : undefined}
           tone={qs.pending > 0 ? "warning" : undefined}
         />
-      </div>
+      </div>}
 
       {msg && (
         <p className={`flex items-start gap-2 rounded-xl px-3 py-2 text-sm ${msg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
@@ -158,8 +160,7 @@ export function CarePanel({
       {/* ── Les personnes ── */}
       {beneficiaries.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-          Aucun professionnel proposé. Choisissez-les dans l&apos;annuaire, créez le profil d&apos;un
-          médecin qui n&apos;y figure pas encore, ou saisissez une personne libre.
+          Aucun professionnel proposé pour l&apos;instant.
         </p>
       ) : (
         <ul className="space-y-3">

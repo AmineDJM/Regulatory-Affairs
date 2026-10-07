@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Plus, Trash2, Loader2, Sparkles, Wand2, Package, Upload, TrendingUp, ShoppingCart, BadgeCheck, Download, Factory, Ship } from "lucide-react";
 import { addTenderLine, updateTenderLine, deleteTenderLine, analyzeTenderText, analyzeTenderDocument, enrichTenderLine, enrichAllTenderLines, createOrderFromLine } from "@/lib/actions/pch-tender-line-actions";
 import type { LectureAoDTO, PchTenderLineDTO } from "@/lib/queries/pch";
@@ -250,7 +251,9 @@ function LineCard({ tenderId, line, canEdit, busy, run, reserve }: { tenderId: s
         </div>
         <p className="mt-1 text-xs text-muted-foreground">{[line.dci, line.dosage, line.form].filter(Boolean).join(" · ") || "—"} · {fmt(line.quantityUnits)} {line.unitLabel ? `${line.unitLabel}(s)` : "unités"}{line.boxesNeeded ? ` = ${fmt(line.boxesNeeded)} boîtes` : ""}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {line.ourProduct && <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[0.6875rem] text-primary"><BadgeCheck className="h-3 w-3" /> {line.ourProduct}</span>}
+          {line.ourProduct && (line.productId
+            ? <Link href={`/produits/${line.productId}`} className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[0.6875rem] text-primary hover:underline"><BadgeCheck className="h-3 w-3" /> {line.ourProduct}</Link>
+            : <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[0.6875rem] text-primary"><BadgeCheck className="h-3 w-3" /> {line.ourProduct}</span>)}
           {line.refPriceDzd != null && <span className="rounded bg-secondary px-2 py-0.5 text-[0.6875rem]" title={line.refPriceSource ?? undefined}>Prix réf. PCH : {fmt(line.refPriceDzd)} DZD</span>}
           {line.fulfillmentPct != null && <span className="rounded bg-success/15 px-2 py-0.5 text-[0.6875rem] text-success">Vendu : {fmt(line.soldUnits)}/{fmt(line.quantityUnits)} ({line.fulfillmentPct}%)</span>}
         </div>
@@ -316,7 +319,9 @@ function LineCard({ tenderId, line, canEdit, busy, run, reserve }: { tenderId: s
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        {line.ourProduct && <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-primary" title={line.registeredOurs ? "Produit enregistré chez nous" : undefined}><BadgeCheck className="h-3.5 w-3.5" /> {line.ourProduct}{line.registeredOurs ? " · enregistré" : ""}</span>}
+        {line.ourProduct && (line.productId
+          ? <Link href={`/produits/${line.productId}`} className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-primary hover:underline" title={line.registeredOurs ? "Produit enregistré chez nous" : undefined}><BadgeCheck className="h-3.5 w-3.5" /> {line.ourProduct}{line.registeredOurs ? " · enregistré" : ""}</Link>
+          : <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-primary" title={line.registeredOurs ? "Produit enregistré chez nous" : undefined}><BadgeCheck className="h-3.5 w-3.5" /> {line.ourProduct}{line.registeredOurs ? " · enregistré" : ""}</span>)}
         {line.refPriceDzd != null && <span className="rounded bg-secondary px-2 py-0.5" title={line.refPriceSource ?? undefined}>Prix réf. PCH : <strong>{fmt(line.refPriceDzd)}</strong> DZD</span>}
         {line.competitorCount != null && <span className="rounded bg-secondary px-2 py-0.5">Concurrents : <strong>{line.competitorCount}</strong></span>}
         <span className={`rounded px-2 py-0.5 ${line.registeredNomenclature ? "bg-success/15 text-success" : "bg-secondary text-muted-foreground"}`}>Nomenclature : {line.registeredNomenclature ? `oui (${line.nomLines ?? 0})` : "non"}</span>

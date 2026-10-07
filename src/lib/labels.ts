@@ -2,6 +2,7 @@ import type { AnnuaireAccordable } from "./annuaires/acces";
 import type { Action, Module } from "./rbac";
 import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "./chemins/stock-promo";
 import { CHEMIN_BONS_DE_COMMANDE } from "./chemins/bons-de-commande";
+import { CHEMIN_RAPPORTS_TERRAIN } from "./chemins/rapports-terrain";
 
 /**
  * Centralised French display labels and badge tones for every enum value.
@@ -1440,8 +1441,10 @@ export interface NavTab {
    * Une RÈGLE nommée qui décide de l'affichage à la place du seul `module` — la même que la page et
    * les actions lisent (`nav-tabs.ts` la traduit). `"specialites"` : `peutGererSpecialites`, qui ouvre
    * le référentiel aux deux directeurs des opérations même sans la Promotion médicale en écriture.
+   * `"marche-cockpit"` / `"argent-cockpit"` : le module PUIS la règle du marché ou de l'argent du Marketing cockpit
+   * (`marketing-cockpit/acces.ts`).
    */
-  regle?: "specialites" | "specialites-fdv";
+  regle?: "specialites" | "marche-cockpit" | "argent-cockpit";
 }
 
 /** Navigation metadata: maps a sidebar entry to a module + route + icon name. */
@@ -1514,13 +1517,17 @@ export const WORKSPACE_TABS: NavTab[] = [
   // « Aujourd'hui » : l'accueil qui répond à une seule question — que dois-je faire maintenant ?
   { module: "WORKSPACE", label: "Aujourd'hui", href: "/aujourdhui", feature: "home_today" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
+  // TOUTES LES TÂCHES EN UN SEUL ENDROIT (Direction, 07/10) — à accepter, à faire, demandées, partagées, terminées.
+  // Le compteur de l'onglet est posé par `ongletsEspace` (`queries/mes-taches.ts`).
+  { module: "WORKSPACE", label: "Tâches", href: "/mon-espace/taches" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
   // PLUS D'ONGLET « ANNUAIRE » (Direction, 06/10 : « enlève Annuaire de Mon espace ») : les carnets vivent dans le
   // module Annuaires. La page `/mon-espace/annuaire` reste servie — liens et notifications y pointent encore.
   // Les ordres de mission et les pièces demandées ne sont PLUS des onglets : ils s'affichent
   // en SECTIONS dans « Mon espace » (les pages /missions et /pieces survivent — liens et
   // notifications y pointent encore).
-  { module: "DIRECTIVES", label: "Directives", href: "/directives" },
+  // PLUS D'ONGLET « DIRECTIVES » (Direction, 07/10) : elles restent dans « Aujourd'hui », le centre d'actions, la
+  // recherche et les notifications ; /directives reste servie.
 ];
 /**
  * L'AGENDA — le calendrier ET les réunions, au même endroit.
@@ -1612,16 +1619,28 @@ export const STOCK_PROMO_TABS: NavTab[] = [
   { module: "PROMO_CATALOG", label: "Catalogue", href: CHEMIN_CATALOGUE_PROMO },
 ];
 /**
- * MARKETING COCKPIT — un sous-module de Sales & Marketing (Direction, 06/10). Il reçoit les onglets
- * « Messages » (les messages de la Direction Marketing, exigés sur chaque rapport terrain) et
- * « Spécialités » (le référentiel), qui vivaient dans Force de vente (`/planning`). Aucun droit ne
- * change : « Messages » suit la Force de vente, « Spécialités » la règle `peutGererSpecialites`.
+ * MARKETING COCKPIT — le tableau de la Direction Marketing (Direction, 07/10 — maquette validée). UNE page,
+ * `/marketing-cockpit`, et ses vues par `?vue=` : le produit choisi (`?produit=`) suit d'une vue à l'autre, ce
+ * qu'une route par onglet perdrait. La page rend elle-même la barre (l'onglet actif est un paramètre, pas un
+ * chemin) : l'entrée de menu n'a donc pas de `tabs`. « Spécialités » est parti dans les Annuaires (07/10).
+ * « Marché » s'affiche à qui a DÉJÀ le marché (Business Development) ; « Investissements » à qui lit l'argent.
  */
 export const MARKETING_COCKPIT_TABS: NavTab[] = [
-  { module: "MARKETING_COCKPIT", label: "Messages", href: "/marketing-cockpit/messages" },
-  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.209) — même écran qu'Annuaires › Spécialités.
-  // Porte du module Force de vente (la page l'exige) ET règle du référentiel : `specialites-fdv`.
-  { module: "MARKETING_COCKPIT", label: "Spécialités", href: "/marketing-cockpit/specialites", regle: "specialites-fdv" },
+  { module: "MARKETING_COCKPIT", label: "Vue d'ensemble", href: "/marketing-cockpit" },
+  { module: "MARKETING_COCKPIT", label: "Leaders d'opinion", href: "/marketing-cockpit?vue=leaders" },
+  { module: "MARKETING_COCKPIT", label: "Messages", href: "/marketing-cockpit?vue=messages" },
+  { module: "MARKETING_COCKPIT", label: "Marché", href: "/marketing-cockpit?vue=marche", regle: "marche-cockpit" },
+  { module: "MARKETING_COCKPIT", label: "Investissements", href: "/marketing-cockpit?vue=investissements", regle: "argent-cockpit" },
+];
+/**
+ * FORCE DE VENTE — l'outil du superviseur et de la Direction (Direction, 07/10 — maquette validée). Trois vues :
+ * « Pilotage » (l'ouverture), « Territoires » (secteurs, panel par lettre, charge, cibles hors panel), « Produits »
+ * (P1/P2/P3 par délégué). Business units, secteurs et paramètres passent dans « ⋯ Réglages » de la page.
+ */
+export const SALES_PLANNING_TABS: NavTab[] = [
+  { module: "SALES_PLANNING", label: "Pilotage", href: "/planning" },
+  { module: "SALES_PLANNING", label: "Territoires", href: "/planning/territoires" },
+  { module: "SALES_PLANNING", label: "Produits", href: "/planning/produits" },
 ];
 // Module « Drive » (Drive personnel). L'onglet « Documents » a été retiré (tout est consolidé
 // dans le Drive + les catégories partagées ; on y glisse des dossiers à la souris).
@@ -1733,6 +1752,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   PURCHASE_ORDERS: "Bons de commande",
   MARKETING_COCKPIT: "Marketing cockpit",
   SEGMENTATION: "Segmentation Studio",
+  SEGMENTATION_POTENTIEL: "Segmentation — potentiel forcé à la main",
   CONSUMPTION: "Consumption Intelligence",
   PRODUCTS: "Produits",
   EMPLOYEES: "Employés",
@@ -1776,6 +1796,10 @@ export const MEDICAL_TABS: NavTab[] = [
   // qui n'a que la LECTURE du module — l'onglet s'affiche donc sur le droit de voir, et ce que
   // chacun y FAIT vient de la règle du coaching (`lib/coaching/acces.ts`).
   { module: "MEDICAL", label: "Coaching", href: "/medical/coaching" },
+  // LES RAPPORTS TERRAIN (Direction, 07/10) — plus une entrée de menu à part : le KAM rapporte depuis son planning, et
+  // cet onglet n'est que la LISTE des rapports. Il porte le module `FIELD_REPORTS` : la console décide toujours qui le
+  // voit (la Direction et les managers : tous les rapports ; un délégué : les siens). `/field-reports` y REDIRIGE.
+  { module: "FIELD_REPORTS", label: "Rapports", href: CHEMIN_RAPPORTS_TERRAIN },
   // PLUS D'ONGLET « ANNUAIRE » (Direction, 06/10) : les praticiens se tiennent dans Annuaires › Médecins / Pharmaciens.
   // PLUS D'ONGLET « ÉTABLISSEMENTS » ICI (décision de la Direction, 09/2026 — §118.138) : « on
   // les crée et on les gère depuis les Annuaires ». Le référentiel des hôpitaux ne vit donc plus
@@ -1802,8 +1826,11 @@ export const ANNUAIRES_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Médecins", href: "/annuaires/medecins", annuaire: "MEDECINS" },
   { module: "MEDICAL", label: "Pharmaciens", href: "/annuaires/pharmaciens", annuaire: "PHARMACIENS" },
   { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements", annuaire: "ETABLISSEMENTS" },
-  // LES SPÉCIALITÉS ne sont plus un onglet des Annuaires (Direction, 06/10) : une porte d'entrée UNIQUE, Marketing
-  // cockpit › Spécialités. « Autres annuaires » disparaît : ses fournisseurs deviennent un annuaire à part entière ;
+  // LES SPÉCIALITÉS REVIENNENT DANS LES ANNUAIRES (Direction, 07/10 : « Spécialités → Annuaires ») — porte UNIQUE ;
+  // les anciennes adresses (Marketing cockpit, Force de vente) y mènent. Le référentiel suit `peutGererSpecialites`
+  // (la Promotion médicale, les directeurs des opérations, la Direction Marketing), pas une case d'annuaire.
+  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites", regle: "specialites" },
+  // « Autres annuaires » disparaît : ses fournisseurs deviennent un annuaire à part entière ;
   // les partenaires du courrier et les lieux de stock restent dans leurs modules.
   { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
   { module: "WORKSPACE", label: "Partenaires publics", href: "/annuaires/partenaires-publics", annuaire: "PARTENAIRES_PUBLICS" },
@@ -1821,12 +1848,13 @@ export const SITE_WEB_TABS: NavTab[] = [
   { module: "SITE_WEB", label: "Publication", href: "/site-web" },
   { module: "SITE_WEB", label: "Articles", href: "/site-web/articles" },
   { module: "SITE_WEB", label: "Offres d'emploi", href: "/site-web/offres" },
+  { module: "SITE_WEB", label: "Audience", href: "/site-web/audience" },
 ];
 
 export const NAVIGATION: NavItem[] = [
   // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
-  // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-travail", "/mon-dossier", "/missions", "/directives", "/pieces"] },
+  // (onglets). `match` couvre ces routes pour l'état actif de la barre latérale. Les Directives n'en font plus partie (07/10).
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-travail", "/mon-dossier", "/missions", "/pieces"] },
   { module: "WORKSPACE", label: "Agenda", href: "/calendar", icon: "CalendarDays", group: "Pilotage", tabs: AGENDA_TABS, match: ["/meetings"] },
   // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —
   // page plein écran avec dictée vocale et lecture de pièces jointes.
@@ -1974,6 +2002,9 @@ export const NAVIGATION: NavItem[] = [
     children: [
       { module: "EMPLOYEES", label: "Employés", href: "/rh/equipe", icon: "Users", group: "Pôles", pole: "ADMINISTRATION", match: ["/rh/consultants", "/rh/departements"] },
       { module: "HR_REQUESTS", label: "Demandes RH", href: "/rh/demandes", icon: "Inbox", group: "Pôles", pole: "ADMINISTRATION", match: ["/rh/conges"] },
+      // RECRUTEMENT — un module à part sous les RH (Direction, 07/10) : n'importe qui y demande un poste, la chaîne
+      // remonte jusqu'au DG, puis les RH publient et diffusent. Ses accès se règlent dans la console, comme les autres.
+      { module: "RECRUITMENT", label: "Recrutement", href: "/recrutement", icon: "UserPlus", group: "Pôles", pole: "ADMINISTRATION", match: ["/recrutement"] },
       { module: "TRAINING", label: "Formations", href: "/formations", icon: "GraduationCap", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "RH", label: "Paie", href: "/rh/paie", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION", gate: "payroll" },
     ],
@@ -2006,22 +2037,10 @@ export const NAVIGATION: NavItem[] = [
     module: "DIRECTORIES", label: "Annuaires", href: "/annuaires", icon: "BookUser", group: "Pôles",
     pole: "ADMINISTRATION", tabs: ANNUAIRES_TABS, match: ["/annuaires"],
   },
-  // MON ÉQUIPE — l'écran de celui qui ENCADRE, et RECRUTEMENT est passé dessous.
-  //
-  // Recruter n'est pas une affaire d'Administration : c'est le geste d'un encadrant à qui il
-  // manque quelqu'un. Le module vivait à côté des Budgets et des Courriers, si bien que le
-  // directeur qui voulait un poste devait savoir qu'il fallait le chercher là. Il est
-  // désormais où l'on pense à lui — sous son équipe, à côté des congés qu'il valide et des
-  // fins de contrat qu'il voit venir. Les DROITS ne bougent pas : `RECRUITMENT` reste un
-  // module à part, réglable seul dans la console.
-  {
-    module: "MY_TEAM", label: "Mon Équipe", href: "/mon-equipe", icon: "Users", group: "Pilotage",
-    match: ["/recrutement"], gate: "myTeam",
-    children: [
-      { module: "MY_TEAM", label: "Mon Équipe", href: "/mon-equipe", icon: "Users", group: "Pilotage" },
-      { module: "RECRUITMENT", label: "Recrutement", href: "/recrutement", icon: "UserPlus", group: "Pilotage" },
-    ],
-  },
+  // MON ÉQUIPE — l'écran de celui qui ENCADRE. Une entrée simple : le RECRUTEMENT en est sorti pour devenir un
+  // module à part sous « Ressources humaines » (Direction, 07/10) — n'importe qui peut demander un poste, pas
+  // seulement l'encadrant.
+  { module: "MY_TEAM", label: "Mon Équipe", href: "/mon-equipe", icon: "Users", group: "Pilotage", gate: "myTeam" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/business-units", "/budgets/reglages"] },
 
   // SALES & MARKETING — tout ce qui touche au terrain et au business réalisé. L'annuaire des
@@ -2032,18 +2051,20 @@ export const NAVIGATION: NavItem[] = [
   // c'est l'écran quotidien du terrain (sa tournée, sa saisie de visite en trois gestes) ;
   // l'annuaire ensuite, qui est le référentiel. L'ancien « Visites & segmentation » retiré est
   // remplacé par cette journée — les visites en base n'ont jamais bougé, et elle les relit.
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical"] },
-  { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
-  // MARKETING COCKPIT — Messages et Spécialités, déplacés depuis Force de vente (06/10).
-  { module: "MARKETING_COCKPIT", label: "Marketing cockpit", href: "/marketing-cockpit/messages", icon: "Megaphone", group: "Pôles", pole: "SALES_MARKETING", tabs: MARKETING_COCKPIT_TABS, match: ["/marketing-cockpit"] },
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical", "/field-reports"] },
+  { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING", tabs: SALES_PLANNING_TABS, match: ["/planning"] },
+  // MARKETING COCKPIT — le tableau de la Direction Marketing (07/10) : une page, ses vues par `?vue=` (barre rendue par la
+  // page, `MARKETING_COCKPIT_TABS`) — d'où l'absence de `tabs` ici.
+  { module: "MARKETING_COCKPIT", label: "Marketing cockpit", href: "/marketing-cockpit", icon: "Megaphone", group: "Pôles", pole: "SALES_MARKETING", match: ["/marketing-cockpit"] },
   // SEGMENTATION STUDIO — la segmentation native : stratégie par BU, règles versionnées, panel calculé et expliqué.
   { module: "SEGMENTATION", label: "Segmentation", href: "/segmentation", icon: "Layers", group: "Pôles", pole: "SALES_MARKETING", match: ["/segmentation"] },
   // PRODUITS — chaque produit canonique et sa vue 360° (réglementaire, AO, ventes, segmentation, consommation, coûts).
   // Un MODULE À PART (Direction, 06/10) : ses accès se règlent dans la console, comme les autres.
-  { module: "PRODUCTS", label: "Produits", href: "/produits", icon: "Pill", group: "Pôles", pole: "SALES_MARKETING", match: ["/produits"] },
+  { module: "PRODUCTS", label: "Produits 360", href: "/produits", icon: "Pill", group: "Pôles", pole: "SALES_MARKETING", match: ["/produits"] },
   // CONSUMPTION INTELLIGENCE — la consommation hospitalière importée, normalisée, et l'affinité qu'on en tire.
   { module: "CONSUMPTION", label: "Consommation", href: "/consommation", icon: "ChartColumn", group: "Pôles", pole: "SALES_MARKETING", match: ["/consommation"] },
-  { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
+  // « RAPPORTS TERRAIN » N'EST PLUS UNE ENTRÉE (Direction, 07/10) : c'est l'onglet « Rapports » de la Promotion médicale
+  // (`MEDICAL_TABS`, module `FIELD_REPORTS`). `/field-reports` redirige ; l'entrée médicale le couvre par `match`.
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/consulting"] },
   // LE STOCK PROMOTIONNEL — son propre sous-module (§118.173), et plus un onglet d'Ad & Pro.
   { module: "PROMO_STOCK", label: "Stock promotionnel", href: CHEMIN_STOCK_PROMO, icon: "Warehouse", group: "Pôles", pole: "SALES_MARKETING", tabs: STOCK_PROMO_TABS, match: [CHEMIN_STOCK_PROMO] },

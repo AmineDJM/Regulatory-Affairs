@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** « Spécialités » a quitté Force de vente pour le Marketing cockpit (06/10) : l'ancienne adresse y renvoie. */
+/** « Spécialités » vit dans les Annuaires (Direction, 07/10) : l'ancienne adresse de la Force de vente y renvoie. */
 export default function PlanningSpecialitesPage() {
-  redirect("/marketing-cockpit/specialites");
+  redirect("/annuaires/specialites");
 }

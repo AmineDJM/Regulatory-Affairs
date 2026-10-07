@@ -14,7 +14,8 @@ import {
 import { promoManagerOf } from "@/lib/queries/promo-material";
 import { etatApresRenvoi, attendSaCorrection, refusParLeDemandeur, REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
-import { envoyerDemandeDeDevis, genererLesBonsDeCommande } from "@/lib/promo-automatismes";
+import { envoyerDemandeDeDevis, genererLesBonsDeCommande, joindreLettreDeDevis } from "@/lib/promo-automatismes";
+import { phraseDepotLettre } from "@/lib/demande-devis-depot";
 import {
   contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisLu, SELECT_DEVIS,
 } from "@/lib/queries/promo-circuit";
@@ -370,7 +371,9 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
       devisPartis = true;
       if (envoi.assistantId) await notifyUser({ userId: envoi.assistantId, ...envoi.avis });
       else await notifyRoles(["DIRECTION_ASSISTANT"], envoi.avis);
-      suiteAuto = `La demande de devis est partie au secrétariat (${envoi.demande.reference}).`;
+      // LA LETTRE (Direction, 07/10) — rédigée par Luna, en PDF et Word : son échec ne retient pas la demande, il se dit.
+      const lettre = await joindreLettreDeDevis(user, id, envoi.demande.id).catch(() => null);
+      suiteAuto = `La demande de devis est partie au secrétariat (${envoi.demande.reference}).${lettre?.ok ? ` ${phraseDepotLettre(lettre)}` : ""}`;
     } else {
       suiteAuto = `La demande de devis n'est pas partie d'elle-même : ${envoi.error} Le demandeur l'envoie depuis « Articles demandés ».`;
     }

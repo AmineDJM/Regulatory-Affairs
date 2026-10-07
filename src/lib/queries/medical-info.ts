@@ -22,7 +22,12 @@ export async function getDeclarations(user: SessionUser) {
     where: await companyScopedWhere(user.id, scopeMedicalInfo(user)),
     include: {
       pharmacist: { select: { name: true } },
-      requests: { select: { id: true, status: true } },
+      requests: {
+        select: {
+          id: true, status: true, createdAt: true, fulfilledAt: true, targetUserId: true,
+          targetUser: { select: { name: true } },
+        },
+      },
       company: { select: { id: true, name: true, shortName: true, color: true } },
     },
     orderBy: [{ createdAt: "desc" }],
@@ -68,6 +73,25 @@ export function canViewDeclaration(
   // montre tout à une portée ALL ; la fiche lui répondait « introuvable » sur chaque ligne (§118.184 — S12).
   if (userCan(user, "MEDICAL_INFO", "VIEW") && user.access.modules.get("MEDICAL_INFO")?.scope === "ALL") return true;
   return userCan(user, "MEDICAL_INFO", "VALIDATE");
+}
+
+/**
+ * LA DERNIÈRE RELANCE DE CHAQUE PIÈCE ATTENDUE — lue dans le journal, où chaque relance s'écrit
+ * (`field` = RELANCE_PIECE_CHAMP, `newValue` = la demande). Pas de colonne en plus : le journal
+ * garde déjà qui a relancé et quand, et une seconde trace finirait par diverger.
+ */
+export const RELANCE_PIECE_CHAMP = "relancePiece";
+
+export async function dernieresRelancesPieces(declarationId: string): Promise<Map<string, Date>> {
+  const lignes = await prisma.auditLog.findMany({
+    where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: declarationId, field: RELANCE_PIECE_CHAMP },
+    select: { newValue: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+  const out = new Map<string, Date>();
+  for (const l of lignes) if (l.newValue && !out.has(l.newValue)) out.set(l.newValue, l.createdAt);
+  return out;
 }
 
 /** Lien vers l'événement source (pour l'interconnexion). */

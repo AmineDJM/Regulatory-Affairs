@@ -91,9 +91,11 @@ describe("Écran — toute fiche du pôle Ad & Pro offre la suppression (Super A
       const src = code(`src/app/(app)${nature.href}/[id]/page.tsx`);
       // Le bouton s'arme sur la MÊME règle que l'action qui supprime : armé sur le seul rôle Super
       // Admin, il resterait caché au directeur des opérations que l'action accepte (§118.83).
-      expect(src, `${nature.href}/[id] doit monter le bouton de suppression`).toMatch(
-        new RegExp(`<SupprimerDemandeAdPro[^>]*kind="${kind}"[^>]*enabled=\\{await peutSupprimerUneDemandeAdPro\\(user, "${kind}"`),
-      );
+      // La porte se lit en ligne, ou une fois dans une constante que le bouton reçoit (la fiche du matériel promotionnel
+      // la relit pour décider d'afficher son menu « ⋯ », 07/10) — la règle reste celle de l'action.
+      const enLigne = new RegExp(`<SupprimerDemandeAdPro[^>]*kind="${kind}"[^>]*enabled=\\{await peutSupprimerUneDemandeAdPro\\(user, "${kind}"`);
+      const parConstante = new RegExp(`const (\\w+) = await peutSupprimerUneDemandeAdPro\\(user, "${kind}"[\\s\\S]*<SupprimerDemandeAdPro[^>]*kind="${kind}"[^>]*enabled=\\{\\1\\}`);
+      expect(enLigne.test(src) || parConstante.test(src), `${nature.href}/[id] doit monter le bouton de suppression`).toBe(true);
     }
   });
 });

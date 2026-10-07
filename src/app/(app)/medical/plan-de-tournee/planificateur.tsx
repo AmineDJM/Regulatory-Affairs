@@ -3,8 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, ArrowRight, ArrowUpRight, CalendarRange, Check, Clock, FilePlus2, Loader2, MapPin, RotateCcw, Send, Users, X,
+  ArrowRight, ArrowUpRight, CalendarRange, Check, Clock, FilePlus2, Loader2, MapPin, RotateCcw, Send, ShieldAlert, Users, X,
 } from "lucide-react";
+import { lienSignalerPv } from "@/lib/chemins/rapports-terrain";
 import {
   planifierVisites, soumettrePlanTournee, escaladerPlanTournee, deciderPlanTournee, demanderRevisionPlanTournee,
 } from "@/lib/actions/tour-plan-actions";
@@ -22,6 +23,10 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { EntreeMenu, MenuPlus } from "../menu-plus";
+import { LettreBadge } from "@/app/(app)/segmentation/lettre-badge";
+import type { Lettre } from "@/lib/segmentation/regles";
 
 /**
  * Au téléphone, les deux gestes de la barre se partagent la largeur à hauteur de pouce, et leur
@@ -37,6 +42,8 @@ const BARRE_FEUILLE =
 export interface PraticienVue {
   id: string; name: string; specialty: string | null; institution: string | null;
   wilaya: string | null; potential: string | null; secteur: string | null;
+  /** La lettre de segmentation (Direction, 07/10) et les visites qu'elle demande par cycle ; null = hors segmentation. */
+  lettre?: Lettre | null; requis?: number;
 }
 
 /**
@@ -55,7 +62,7 @@ export interface PraticienVue {
  *
  * Toucher un praticien « à faire » ouvre le rapport de SA visite — la même feuille, la même action (`rapporterVisite`)
  * que « Ma journée » : une seule porte vers le compte rendu d'une visite planifiée, et la cellule passe au vert sur le
- * même fait que la ligne de l'emploi du temps. Le bouton « Nouveau rapport terrain », au-dessus de la grille, ouvre une
+ * même fait que la ligne de l'emploi du temps. Le bouton « Faire un rapport », au-dessus de la grille, ouvre une
  * visite du plan à rapporter, ou la visite IMPRÉVUE de « Ma journée » pour une rencontre hors plan.
  *
  * ── POURQUOI LE CHOIX SE FAIT TOUJOURS PAR JOUR ─────────────────────────────────────────────
@@ -78,11 +85,13 @@ export interface PraticienVue {
  */
 export function Planificateur({
   planId, repName, status, periodStart, periodEnd, joursOuvres, submittedAt, retard,
-  reviewerName, escalatedToName, rejectionComment, resubmitDueAt,
+  reviewerName, escalatedToName, rejectionComment,
   praticiens, panelVide, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jePeuxDecider, jePeuxEscalader,
-  revisionNote, revisionPar, revisionLe, jePeuxDemanderRevision,
-  aujourdhui, dejaValide, lignes, gamme, stock, peutRapporter, voirRapportsTerrain,
+  revisionNote, revisionPar, revisionLe, jePeuxDemanderRevision, jeSuisLeKam,
+  aujourdhui, dejaValide, lignes, gamme, stock, peutRapporter, peutSignalerPv = false,
 }: {
+  /** Le KAM peut signaler un cas de pharmacovigilance (`signaleDesCasPv`) : le bouton au-dessus de la grille, et la feuille d'une visite. */
+  peutSignalerPv?: boolean;
   /** `AAAA-MM-JJ` du jour, calculé par le serveur. */
   aujourdhui: string;
   /** Validé au moins une fois : ses visites sont dans l'emploi du temps, et la grille ouvre leur rapport. */
@@ -95,8 +104,6 @@ export function Planificateur({
   stock: StockPourVisite;
   /** Le lecteur est le KAM et peut saisir ses visites : la grille ouvre ses rapports. */
   peutRapporter: boolean;
-  /** Le lecteur a le module Rapports terrain — le lien vers ses rapports s'offre. */
-  voirRapportsTerrain: boolean;
   planId: string;
   repName: string;
   status: StatutPlan;
@@ -112,6 +119,7 @@ export function Planificateur({
   reviewerName: string | null;
   escalatedToName: string | null;
   rejectionComment: string | null;
+  /** Lu par l'échéance de l'en-tête (`retard.echeance`) ; gardé au contrat de la page. */
   resubmitDueAt: string | null;
   praticiens: PraticienVue[];
   /** La VRAIE cause d'un panel vide (`diagnosticPanelVide`), ou null quand le panel ne l'est pas. */
@@ -122,7 +130,7 @@ export function Planificateur({
   pairesNonTenues: string[];
   /** Les visites passées d'un plan déjà validé : une révision ne les retire pas (§118.193). */
   pairesPassees: string[];
-  /** Le lecteur est-il le KAM du plan ? (Lu par la page ; la grille s'en remet à `peutRapporter` et `grilleModifiable`.) */
+  /** Le lecteur est-il le KAM du plan ? (La phrase d'état dit « chez vous » ; la grille s'en remet à `peutRapporter` et `grilleModifiable`.) */
   jeSuisLeKam: boolean;
   jePeuxDecider: boolean;
   jePeuxEscalader: boolean;
@@ -228,7 +236,7 @@ export function Planificateur({
       m.set(id, { name: l.doctorName, specialty: l.specialty, institution: l.institution, wilaya: l.wilaya, potential: null, secteur: null });
     }
     for (const p of praticiens) {
-      m.set(p.id, { name: p.name, specialty: p.specialty, institution: p.institution, wilaya: p.wilaya, potential: p.potential, secteur: p.secteur });
+      m.set(p.id, { name: p.name, specialty: p.specialty, institution: p.institution, wilaya: p.wilaya, potential: p.potential, lettre: p.lettre ?? null, secteur: p.secteur });
     }
     return m;
   }, [lignes, praticiens]);
@@ -252,7 +260,7 @@ export function Planificateur({
     return null;
   };
 
-  // LES VISITES À RAPPORTER MAINTENANT — pour le choix « Nouveau rapport terrain » : celles que la grille ouvrirait
+  // LES VISITES À RAPPORTER MAINTENANT — pour le choix « Faire un rapport » : celles que la grille ouvrirait
   // (la même règle, `etatCellule` + `gesteCellule`), la plus récente d'abord.
   const aRapporterMaintenant = React.useMemo(
     () => lignes
@@ -264,15 +272,28 @@ export function Planificateur({
     [lignes, aujourdhui, dejaValide, peutRapporter],
   );
 
+  // ── L'ÉTAT DU PLAN EN UNE PHRASE « état — chez qui » (Direction, 07/10) ──────────────────────
+  const chezLeKam = jeSuisLeKam ? "chez vous" : `chez ${repName}`;
+  const phraseStatut = status === "APPROVED" ? "Validé"
+    : status === "SUBMITTED" ? `Soumis — ${jePeuxDecider ? "chez vous" : reviewerName ? `chez ${reviewerName}` : "chez le validateur"}`
+      : status === "ESCALATED" ? `Escaladé — ${jePeuxDecider ? "chez vous" : escalatedToName ? `chez ${escalatedToName}` : "chez le N+2"}`
+        : status === "REJECTED" ? `Rejeté — ${chezLeKam}`
+          : status === "REVISION" ? `En révision — ${chezLeKam}`
+            : `Brouillon — ${chezLeKam}`;
+  // LES GESTES SECONDAIRES DU PLAN, rangés dans « ⋯ » : l'escalade et la demande de révision.
+  const peutEscalader = jePeuxEscalader && gestes.escaladable && gestes.decidable;
+  const peutReviser = gestes.revisable && jePeuxDemanderRevision;
+
   return (
     <div className="space-y-4">
       {/* ── L'ÉTAT DU PLAN, ET CE QU'ON ATTEND ─────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border p-3 text-sm">
-        <Badge tone={tonStatut}>{STATUT_PLAN_LABELS[status]}</Badge>
-        <span className="text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border p-3 text-sm">
+        <Badge tone={tonStatut}>{phraseStatut}</Badge>
+        <span className="min-w-0 text-xs text-muted-foreground">
           {repName} · {new Date(periodStart).toLocaleDateString("fr-FR")} → {new Date(periodEnd).toLocaleDateString("fr-FR")}
+          {" · "}<strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s)
         </span>
-        <span className="flex w-full items-center gap-1.5 text-xs text-muted-foreground sm:ml-auto sm:w-auto">
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground sm:ml-auto">
           <Clock className="h-3.5 w-3.5" aria-hidden />
           {/* UN PLAN OUVERT (brouillon, rejeté) montre son échéance — ou son RETARD. Un plan rejeté
               porte encore la date de sa première soumission : la montrer ici dirait « soumis »
@@ -287,116 +308,100 @@ export function Planificateur({
               )
               : `À ${aResoumettre(status) ? "resoumettre" : "soumettre"} avant le ${new Date(retard.echeance).toLocaleDateString("fr-FR")}`}
         </span>
-        <span className="w-full text-xs text-muted-foreground">
-          <strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s) planifiée(s)
-          {reviewerName && <> · validateur : {reviewerName}</>}
-          {escalatedToName && <> · escaladé à {escalatedToName}</>}
-        </span>
+        {(peutEscalader || peutReviser) && (
+          <MenuPlus label="Autres actions sur le plan">
+            {peutEscalader && (
+              <EntreeMenu disabled={occupe} onClick={() => { const fd = new FormData(); fd.set("planId", planId); void run(escaladerPlanTournee, fd); }}>
+                <ArrowUpRight className="h-4 w-4" /> Demander à mon N+1
+              </EntreeMenu>
+            )}
+            {peutReviser && (
+              <EntreeMenu disabled={occupe} onClick={() => { setErr(null); setRevision(true); }}>
+                <RotateCcw className="h-4 w-4" /> Demander une révision
+              </EntreeMenu>
+            )}
+          </MenuPlus>
+        )}
       </div>
 
-      {/* LE REJET PORTE SON MOTIF ET SON DÉLAI. Un rejet sans motif ne se corrige pas, il se
-          subit — et un délai qu'on ne voit pas se rate. */}
-      {status === "REJECTED" && (
+      {/* LE REJET PORTE SON MOTIF. Un rejet sans motif ne se corrige pas, il se subit ; son délai est l'échéance
+          de l'en-tête (`retard.echeance` est celle de la resoumission). */}
+      {status === "REJECTED" && rejectionComment && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          <p className="font-medium">Plan rejeté — à corriger et resoumettre.</p>
-          {rejectionComment && <p className="mt-1 whitespace-pre-wrap">{rejectionComment}</p>}
-          {resubmitDueAt && (
-            <p className="mt-1 text-xs">
-              Vous avez jusqu&apos;au {new Date(resubmitDueAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} pour resoumettre.
-            </p>
-          )}
+          <p className="text-xs font-medium text-destructive">Motif du rejet</p>
+          <p className="mt-1 whitespace-pre-wrap">{rejectionComment}</p>
         </div>
       )}
 
-      {/* LA RÉVISION D'UN PLAN VALIDÉ PORTE SON MOTIF, QUI, QUAND, ET SON DÉLAI (§118.193). Le validateur la lit
-          aussi une fois le plan resoumis : c'est ce qu'il doit juger. */}
+      {/* LA RÉVISION D'UN PLAN VALIDÉ PORTE SON MOTIF, QUI, QUAND (§118.193). Le validateur la lit aussi une fois le
+          plan resoumis : c'est ce qu'il doit juger. Son délai est l'échéance de l'en-tête. */}
       {revisionNote && (status === "REVISION" || status === "SUBMITTED" || status === "ESCALATED") && (
         <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-          <p className="font-medium">
-            {status === "REVISION" ? "Plan validé, rouvert pour révision — à modifier puis resoumettre." : "Plan validé puis révisé — voici pourquoi."}
+          <p className="text-xs font-medium">
+            Révision demandée{revisionPar ? ` par ${revisionPar}` : ""}{revisionLe ? ` le ${new Date(revisionLe).toLocaleDateString("fr-FR")}` : ""}
           </p>
           <p className="mt-1 whitespace-pre-wrap">« {revisionNote} »</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {revisionPar ? `Demandée par ${revisionPar}` : "Demandée"}
-            {revisionLe ? ` le ${new Date(revisionLe).toLocaleDateString("fr-FR")}` : ""}
-            {status === "REVISION" && resubmitDueAt
-              ? ` · à resoumettre avant le ${new Date(resubmitDueAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} — les visites déjà passées restent au plan.`
-              : "."}
-          </p>
         </div>
       )}
 
       {err && <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
-      {/* ── DEMANDER UNE RÉVISION (§118.193) — un plan validé ne se réécrit pas sous les pieds du KAM : il se
-          rouvre, motif à l'appui, et repasse en validation. ─────────────────────────────────────── */}
-      {gestes.revisable && jePeuxDemanderRevision && (
-        <div className="space-y-2 rounded-xl border border-border p-3">
-          {!revision ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="mr-auto text-sm text-muted-foreground">La tournée a changé sur le terrain ? Le plan se révise, et repasse en validation.</p>
-              <Button variant="outline" size="sm" disabled={occupe} onClick={() => { setErr(null); setRevision(true); }}>
-                <RotateCcw className="h-4 w-4" /> Demander une révision
-              </Button>
-            </div>
-          ) : (
-            <form
-              className="space-y-2"
-              action={async (fd) => {
-                fd.set("planId", planId);
-                if (await run(demanderRevisionPlanTournee, fd)) { setRevision(false); setMotifRevision(""); }
-              }}
-            >
-              <Label htmlFor="revision-note">Ce qui change dans la tournée</Label>
-              <Textarea id="revision-note" name="note" rows={3} value={motifRevision} onChange={(e) => setMotifRevision(e.target.value)}
-                placeholder="Le Dr Amrani est en congé la semaine du 18 ; je reporte ses visites et ajoute le CHU de Blida." />
-              <p className="text-xs text-muted-foreground">
-                Le plan repassera « En révision » : vous le modifiez, puis vous le resoumettez (48 h). Les visites déjà passées restent au plan.
-              </p>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button type="button" variant="ghost" size="sm" className="h-11 flex-1 sm:h-8 sm:flex-none" disabled={occupe} onClick={() => { setRevision(false); setMotifRevision(""); }}>Annuler</Button>
-                <BoutonDecisif type="submit" size="sm" className="h-11 flex-1 sm:h-8" disabled={occupe || motifRevision.trim().length === 0}>
-                  {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Rouvrir pour révision
-                </BoutonDecisif>
-              </div>
-            </form>
-          )}
+      {/* ── LA DÉCISION DU VALIDATEUR — un geste principal (Valider), le rejet à côté, l'escalade dans « ⋯ ». ── */}
+      {jePeuxDecider && gestes.decidable && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3">
+          <p className="mr-auto text-sm font-medium">À votre décision</p>
+          <Button variant="outline" size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={occupe} onClick={() => { setErr(null); setRejet(true); }}>
+            <X className="h-4 w-4" /> Rejeter
+          </Button>
+          <BoutonDecisif
+            size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={occupe}
+            onClick={() => {
+              const fd = new FormData();
+              fd.set("planId", planId); fd.set("decision", "APPROVE");
+              void run(deciderPlanTournee, fd);
+            }}
+          >
+            <Check className="h-4 w-4" /> Valider le plan
+          </BoutonDecisif>
         </div>
       )}
 
-      {/* ── LA DÉCISION DU VALIDATEUR ───────────────────────────────────────── */}
-      {(jePeuxDecider || jePeuxEscalader) && gestes.decidable && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3">
-          <p className="mr-auto text-sm">
-            <strong>Ce plan attend votre décision.</strong> {paires.size} visite(s) sur la période.
-          </p>
-          {jePeuxEscalader && gestes.escaladable && (
-            <Button
-              variant="outline" size="sm" disabled={occupe}
-              onClick={() => { const fd = new FormData(); fd.set("planId", planId); void run(escaladerPlanTournee, fd); }}
-            >
-              <ArrowUpRight className="h-4 w-4" /> Demander à mon N+1
-            </Button>
-          )}
-          {jePeuxDecider && (
-            <>
-              <Button variant="outline" size="sm" disabled={occupe} onClick={() => { setErr(null); setRejet(true); }}>
-                <X className="h-4 w-4" /> Rejeter
-              </Button>
-              <BoutonDecisif
-                size="sm" disabled={occupe}
-                onClick={() => {
-                  const fd = new FormData();
-                  fd.set("planId", planId); fd.set("decision", "APPROVE");
-                  void run(deciderPlanTournee, fd);
-                }}
-              >
-                <Check className="h-4 w-4" /> Valider le plan
-              </BoutonDecisif>
-            </>
-          )}
-        </div>
-      )}
+      {/* ── DEMANDER UNE RÉVISION (§118.193) — un plan validé ne se réécrit pas sous les pieds du KAM : il se
+          rouvre, motif à l'appui, et repasse en validation. Ouvert depuis « ⋯ ». ─────────────────── */}
+      <Sheet
+        open={revision && peutReviser}
+        onClose={() => { setRevision(false); setMotifRevision(""); }}
+        title="Demander une révision"
+        description="Le plan repasse en validation."
+        width="md"
+      >
+        <form
+          className="space-y-3"
+          action={async (fd) => {
+            fd.set("planId", planId);
+            if (await run(demanderRevisionPlanTournee, fd)) { setRevision(false); setMotifRevision(""); }
+          }}
+        >
+          <div>
+            <div className="flex items-center gap-1">
+              <Label htmlFor="revision-note">Ce qui change dans la tournée</Label>
+              <InfoBulle label="Ce qui se passe ensuite" align="left">
+                Le plan repassera « En révision » : vous le modifiez, puis vous le resoumettez (48 h). Les visites déjà passées
+                restent au plan.
+              </InfoBulle>
+            </div>
+            <Textarea id="revision-note" name="note" rows={3} value={motifRevision} onChange={(e) => setMotifRevision(e.target.value)}
+              placeholder="Le Dr Amrani est en congé la semaine du 18 ; je reporte ses visites et ajoute le CHU de Blida." />
+          </div>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          <div className={BARRE_FEUILLE}>
+            <Button type="button" variant="outline" className="h-12 flex-1 sm:h-10 sm:flex-none" disabled={occupe} onClick={() => { setRevision(false); setMotifRevision(""); }}>Annuler</Button>
+            <BoutonDecisif type="submit" className="h-12 flex-1 sm:h-10" disabled={occupe || motifRevision.trim().length === 0}>
+              {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Rouvrir pour révision
+            </BoutonDecisif>
+          </div>
+        </form>
+      </Sheet>
 
       {/* ── L'EMPLOI DU TEMPS DE LA TOURNÉE — les jours en colonnes, les praticiens dans les cellules ─────────── */}
       <section className="space-y-2" aria-labelledby="grille-titre">
@@ -404,19 +409,41 @@ export function Planificateur({
           <h2 id="grille-titre" className="mr-auto flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {modifiable ? <CalendarRange className="h-3.5 w-3.5" aria-hidden /> : <Users className="h-3.5 w-3.5" aria-hidden />}
             {modifiable ? "Emploi du temps de la tournée" : "Visites prévues"}
+            {/* LE DÉTAIL, EN LECTURE (§118.184) : le validateur voit, jour par jour, qui le KAM va voir. Pourquoi il ne
+                se modifie pas se lit derrière le ⓘ, plus en paragraphe sous la grille (Direction, 07/10). */}
+            {!modifiable && (
+              <InfoBulle label="Pourquoi en lecture" align="left" className="normal-case tracking-normal">
+                {gestes.modifiable
+                  ? "Seul le KAM (ou le superviseur de sa BU) modifie ce plan."
+                  : gestes.revisable
+                    ? "Un plan validé ne se modifie pas en direct : sa tournée a commencé. « Demander une révision » (menu ⋯) le rouvre, motif à l'appui — il repasse en validation, et ce qui a déjà eu lieu reste."
+                    : "Un plan soumis attend la décision de son validateur : il ne se modifie qu'une fois rejeté, ou validé puis rouvert en révision."}
+              </InfoBulle>
+            )}
           </h2>
-          {/* LE RAPPORT TERRAIN, AU-DESSUS DE L'EMPLOI DU TEMPS (Direction, 06/10) : une visite du plan à rapporter, ou une
-              rencontre hors plan — les deux portes de « Ma journée », jamais une troisième. */}
+          {/* LE RAPPORT TERRAIN, AU-DESSUS DE L'EMPLOI DU TEMPS (Direction, 06-07/10) : une visite du plan à rapporter, ou
+              une rencontre hors plan — les deux portes de « Ma journée », jamais une troisième. Sans visite à rapporter
+              maintenant, le bouton ouvre directement la rencontre hors plan. La pharmacovigilance, en geste secondaire. */}
           {peutRapporter && (
-            <Button size="sm" className="h-12 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" onClick={() => { setErr(null); setNouveauRapport(true); }} disabled={occupe}>
-              <FilePlus2 className="h-4 w-4" /> Nouveau rapport terrain
-            </Button>
+            <div className="grid w-full grid-cols-[1fr_auto] gap-2 sm:flex sm:w-auto">
+              <Button
+                size="sm" className="h-12 text-sm sm:h-8 sm:text-xs" disabled={occupe}
+                onClick={() => { setErr(null); if (dejaValide && aRapporterMaintenant.length > 0) setNouveauRapport(true); else setImprevue(true); }}
+              >
+                <FilePlus2 className="h-4 w-4" /> Faire un rapport
+              </Button>
+              {peutSignalerPv && (
+                <Link href={lienSignalerPv()} className="inline-flex h-12 items-center justify-center gap-1.5 rounded-lg border border-warning/50 px-3 text-sm font-medium hover:bg-warning/10 sm:h-8 sm:text-xs">
+                  <ShieldAlert className="h-4 w-4" /> Pharmacovigilance
+                </Link>
+              )}
+            </div>
           )}
         </div>
         {praticiens.length === 0 && modifiable && (
           <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-            <strong>Votre panel est vide.</strong>{" "}
-            {panelVide ?? "Un plan de tournée se construit sur votre territoire (les établissements qu'il couvre) et sur les praticiens qui vous sont rattachés."}
+            <strong>Panel vide.</strong>{" "}
+            {panelVide ?? "Aucun praticien rattaché à votre territoire."}
           </p>
         )}
         <GrilleTournee
@@ -427,6 +454,7 @@ export function Planificateur({
           lignesParCle={lignesParCle}
           verrouillees={verrouillees}
           planValide={dejaValide}
+          exportHref={dejaValide ? `/api/medical/plan-de-tournee/${planId}/pdf` : null}
           jeSuisLeKam={peutRapporter}
           modifiable={modifiable}
           occupe={occupe}
@@ -435,49 +463,36 @@ export function Planificateur({
           onRetirer={retirer}
           onRapporter={(l) => { setErr(null); setARapporter(l); }}
           onNonTenue={(l) => { setErr(null); setNonTenue(l); }}
+          lienPv={peutRapporter && peutSignalerPv ? lienSignalerPv : null}
         />
       </section>
 
-      {modifiable ? (
-        <>
-          {/* ENREGISTRER, PUIS SOUMETTRE — la barre reste sous le pouce, en bas de l'écran, tant qu'il y a à enregistrer. */}
-          <div className={cn(
-            "flex flex-wrap items-center justify-end gap-2 rounded-xl border border-border bg-card/95 p-2.5 backdrop-blur",
-            sale && "sticky bottom-2 z-10 border-warning/50 shadow-md",
-          )}>
-            {sale
-              ? <span className="w-full text-xs text-warning sm:mr-auto sm:w-auto">Modifications non enregistrées.</span>
-              : <span className="w-full text-xs text-muted-foreground sm:mr-auto sm:w-auto"><strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s) au plan</span>}
-            <Button variant="outline" className={BOUTON_BARRE} onClick={() => void enregistrer()} disabled={occupe || !sale}>
+      {modifiable && (
+        // ENREGISTRER, PUIS SOUMETTRE — UN geste à la fois (Direction, 07/10) : tant qu'il y a à enregistrer, seul
+        // « Enregistrer le plan » se montre (soumettre une sélection non enregistrée ferait valider un plan que le
+        // validateur ne verrait pas) ; une fois enregistré, « Soumettre à validation » prend sa place. La barre
+        // reste sous le pouce, en bas de l'écran, tant qu'il y a à enregistrer.
+        <div className={cn(
+          "flex flex-wrap items-center justify-end gap-2 rounded-xl border border-border bg-card/95 p-2.5 backdrop-blur",
+          sale && "sticky bottom-2 z-10 border-warning/50 shadow-md",
+        )}>
+          {sale
+            ? <span className="w-full text-xs text-warning sm:mr-auto sm:w-auto">Modifications non enregistrées</span>
+            : <span className="w-full text-xs text-muted-foreground sm:mr-auto sm:w-auto"><strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s) au plan</span>}
+          {sale ? (
+            <Button className={BOUTON_BARRE} onClick={() => void enregistrer()} disabled={occupe}>
               {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer le plan
             </Button>
+          ) : (
             <Button
               className={BOUTON_BARRE}
-              disabled={occupe || sale || paires.size === 0}
+              disabled={occupe || paires.size === 0}
               onClick={() => { const fd = new FormData(); fd.set("planId", planId); void run(soumettrePlanTournee, fd); }}
             >
               <Send className="h-4 w-4" /> Soumettre à validation
             </Button>
-          </div>
-          {sale && (
-            // ENREGISTRER AVANT DE SOUMETTRE : soumettre une sélection non enregistrée ferait
-            // valider un plan que le validateur ne verrait pas — le faux succès le plus simple.
-            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-              Enregistrez d&apos;abord : votre validateur ne peut voir que ce qui est enregistré.
-            </p>
           )}
-        </>
-      ) : (
-        // LE DÉTAIL, EN LECTURE (§118.184) : le validateur voit, jour par jour, qui le KAM va voir — c'est exactement ce
-        // qu'il valide. La structure ne se modifie pas : l'action `planifierVisites` le refuserait.
-        <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
-          {gestes.modifiable
-            ? "Seul le KAM (ou le superviseur de sa BU) modifie ce plan."
-            : gestes.revisable
-              ? "Un plan validé ne se modifie pas en direct : sa tournée a commencé. « Demander une révision » le rouvre, motif à l'appui — il repasse en validation, et ce qui a déjà eu lieu reste."
-              : `Un plan « ${STATUT_PLAN_LABELS[status]} » attend la décision de son validateur : il ne se modifie qu'une fois rejeté, ou validé puis rouvert en révision.`}
-        </p>
+        </div>
       )}
 
       {/* ── AJOUTER DES PRATICIENS À UN JOUR — la façon d'ajouter d'avant, ouverte par le « + » d'une colonne ── */}
@@ -485,7 +500,6 @@ export function Planificateur({
         open={choixOuvert && modifiable}
         onClose={() => setChoixOuvert(false)}
         title={`Praticiens à voir le ${jour ? jourLisible(jour) : "—"}`}
-        description="Cadrez par wilaya ou par secteur, puis cochez les praticiens de votre panel. Rien ne part avant « Enregistrer le plan »."
         width="lg"
       >
         <div className="space-y-4">
@@ -540,23 +554,15 @@ export function Planificateur({
 
           {/* LES PRATICIENS DU CADRE, à cocher pour le jour choisi. */}
           <div className="space-y-1.5">
-            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Users className="h-3.5 w-3.5" aria-hidden /> Praticiens à voir le {jour ? jourLisible(jour) : "—"}
-              </p>
-              <span className="text-xs text-muted-foreground">{visibles.length} dans ce cadre</span>
-            </div>
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Users className="h-3.5 w-3.5" aria-hidden /> {visibles.length} praticien(s) dans ce cadre
+            </p>
             {praticiens.length === 0 ? (
-              <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-                <strong>Votre panel est vide.</strong>{" "}
-                {panelVide ?? "Un plan de tournée se construit sur votre territoire (les établissements qu'il couvre) et sur les praticiens qui vous sont rattachés."}
-              </p>
+              <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">Panel vide.</p>
             ) : (
               <div className="divide-y divide-border rounded-xl border border-border">
                 {visibles.length === 0 && (
-                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                    Aucun praticien dans ce cadre — élargissez la ville ou le secteur.
-                  </p>
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun praticien dans ce cadre.</p>
                 )}
                 {visibles.map((p) => {
                   const k = cle(jour, p.id);
@@ -573,8 +579,11 @@ export function Planificateur({
                         onChange={() => basculer(jour, p.id)}
                         className="mt-0.5 h-5 w-5 shrink-0 rounded border-input sm:h-4 sm:w-4"
                       />
+                      {/* LA LETTRE DE SEGMENTATION d'abord (H, A–D) : elle dit qui voir en priorité et combien de fois. */}
+                      {p.lettre && <LettreBadge lettre={p.lettre} className="mt-0.5 shrink-0" />}
                       <span className="min-w-0 flex-1">
                         <span className="font-medium [overflow-wrap:anywhere]">{p.name}</span>
+                        {p.requis ? <span className="ml-1.5 text-xs text-muted-foreground">{p.requis} visite{p.requis > 1 ? "s" : ""} / cycle</span> : null}
                         <span className="block text-xs text-muted-foreground">
                           {[p.specialty, p.institution].filter(Boolean).join(" · ") || "—"}
                         </span>
@@ -609,8 +618,7 @@ export function Planificateur({
       <Sheet
         open={nouveauRapport}
         onClose={() => setNouveauRapport(false)}
-        title="Nouveau rapport terrain"
-        description="Le rapport d'une visite de votre plan la fait passer au vert dans l'emploi du temps. Une rencontre que le plan ne prévoyait pas se rapporte en visite imprévue."
+        title="Faire un rapport"
         width="md"
       >
         <div className="space-y-4">
@@ -618,11 +626,12 @@ export function Planificateur({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Une visite de mon plan</p>
             {!dejaValide ? (
               <p className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
-                Ce plan n&apos;est pas encore validé : ses visites se rapportent une fois le plan validé par votre N+1.
+                Plan pas encore validé — chez votre N+1
               </p>
             ) : aRapporterMaintenant.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
-                Aucune visite du plan à rapporter maintenant — les rapports s&apos;ouvrent le jour de la visite, pour 48 h.
+              <p className="flex items-center gap-1 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
+                <span className="min-w-0 flex-1">Aucune visite à rapporter maintenant.</span>
+                <InfoBulle label="Quand">Les rapports s&apos;ouvrent le jour de la visite, pour 48 h.</InfoBulle>
               </p>
             ) : (
               <ul className="divide-y divide-border rounded-xl border border-border">
@@ -655,11 +664,6 @@ export function Planificateur({
               <FilePlus2 className="h-4 w-4" /> Visite imprévue
             </Button>
           </div>
-          {voirRapportsTerrain && (
-            <Link href="/field-reports" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-0">
-              Mes rapports terrain <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          )}
         </div>
       </Sheet>
 
@@ -678,7 +682,7 @@ export function Planificateur({
 
       {/* ── LE REJET, AVEC SES COMMENTAIRES ─────────────────────────────────── */}
       <Sheet open={rejet} onClose={() => setRejet(false)} title="Rejeter le plan" width="md"
-        description="Dites ce qui doit changer : un rejet sans motif ne se corrige pas, il se subit. Le KAM aura 48 h pour resoumettre.">
+        description="Le KAM aura 48 h pour resoumettre.">
         <form
           className="space-y-3"
           action={async (fd) => {

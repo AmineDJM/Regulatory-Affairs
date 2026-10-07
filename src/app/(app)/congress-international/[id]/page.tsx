@@ -14,12 +14,12 @@ import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { type DocItem } from "@/components/documents/document-list";
 import { CONGRESS_REQUEST_STATUS } from "@/lib/labels";
-import { CongressDetailView } from "../congress-detail-view";
+import { CongressDetailView, AccompagnantsDeLaPriseEnCharge } from "../congress-detail-view";
+import { CartePriseEnCharge } from "@/components/care/carte-prise-en-charge";
 import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { CarePanel } from "@/components/care/care-panel";
 import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
@@ -127,13 +127,16 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_INTERNATIONAL" sourceId={detail.id} title={detail.name} />}
         <SupprimerDemandeAdPro kind="CONGRESS_INTERNATIONAL" id={detail.id} name={detail.name} enabled={await peutSupprimerUneDemandeAdPro(user, "CONGRESS_INTERNATIONAL", detail.id)} />
       </PageHeader>
-      {/* « + Pièce jointe » vit dans la carte « Informations » de la vue détaillée (audit n° 18). */}
-      {/* LES PROFESSIONNELS PROPOSÉS POUR LA PRISE EN CHARGE — la seule liste de qui est pris en
-          charge (décision du 04/10/2026), et leurs pièces juste dessous. Avant le reste : c'est la
-          question qu'on se pose en ouvrant l'écran. */}
-      <Card>
-        <CardHeader><CardTitle>Professionnels proposés pour la prise en charge</CardTitle></CardHeader>
-        <CardContent>
+      {/* LA PRISE EN CHARGE EN UNE CARTE (Direction, 07/10) : l'événement et ses pièces jointes, un seul bandeau de chiffres,
+          les professionnels, puis ce que couvre la prise en charge — trois rubriques qui se répétaient, fusionnées. */}
+      <CartePriseEnCharge
+        evenement={{ eventType: detail.eventType, location: detail.location, date: detail.date, endDate: detail.endDate, requester: detail.requester, initiative: detail.initiative }}
+        pieces={{ entityType: "CONGRESS_INTERNATIONAL", entityId: detail.id, documents: docItems, peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES), canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload, path: `/congress-international/${detail.id}` }}
+        beneficiaires={care.beneficiaries}
+        devis={care.quotes.map((q) => ({ id: q.id, status: q.status, amountDzd: q.amountDzd, cellIds: q.cellIds }))}
+        postes={items.map((i) => ({ amountGranted: i.amountGranted, status: i.status }))}
+        enveloppe={intl?.finalAmount != null ? toNumber(intl.finalAmount) : null}
+        professionnels={
           <CarePanel
             scope="INTERNATIONAL"
             requestId={detail.id}
@@ -144,13 +147,10 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
             canEdit={canEditCare}
             canDecide={canDecideCare}
             promoOptions={carePromos}
+            resume={false}
           />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Ce que couvre cette prise en charge</CardTitle></CardHeader>
-        <CardContent>
+        }
+        couverture={
           <AdProItemsPanel
             parent="CONGRESS_INTERNATIONAL"
             parentId={detail.id}
@@ -165,21 +165,24 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
             canViserBC={siegeAuCentreAdPro(user)}
             contexte={contexte}
+            resume={false}
           />
-        </CardContent>
-      </Card>
+        }
+      />
 
       {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
       <PiecesLegalDeLaDemande spectateur={user} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} />
 
-      <CongressDetailView piecesJointes={{ entityType: "CONGRESS_INTERNATIONAL", entityId: detail.id, documents: docItems, peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES), canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload, path: `/congress-international/${detail.id}`, }} detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} involvementThreads={[]} canModerate={hasGlobalView(user)} />
-
+      <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} missionUsers={missionUsers} />
       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
           impliquées : un seul espace (la vue détaillée ne les rend plus à part). */}
       <EspaceDiscussion>
         <AdProDiscussionCard entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} user={user} />
         <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
       </EspaceDiscussion>
+
+      {/* EN BAS, PLEINE LARGEUR (Direction, 07/10). */}
+      <AccompagnantsDeLaPriseEnCharge entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} path={`/congress-international/${detail.id}`} />
 
     </div>
   );

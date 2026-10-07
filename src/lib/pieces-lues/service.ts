@@ -334,6 +334,8 @@ export interface DemandeConfirmation {
   totalVerifie: boolean;
   /** Les lignes que l'écran a proposées, traduites de la pièce lue — la MÊME traduction que le préremplissage. */
   proposees: (piece: PieceLue | null) => LigneProposee[];
+  /** L'écran atteste d'UNE case (son libellé) au lieu d'une case par ligne et d'une pour le total — le refus la nomme. */
+  caseGlobale?: string;
 }
 
 /** Ce que l'écriture métier consigne, dans sa transaction. */
@@ -361,7 +363,7 @@ export async function exigerLectureConfirmee(d: DemandeConfirmation): Promise<{ 
 
   const piece = pieceGardee(ligne.structure);
   const proposees = d.proposees(piece);
-  const refus = refusDeConfirmation(proposees, d.soumises, d.totalVerifie);
+  const refus = refusDeConfirmation(proposees, d.soumises, d.totalVerifie, { caseGlobale: d.caseGlobale });
   if (refus) return { ok: false, error: refus };
 
   const verdicts = verdictsDeConfirmation(proposees, d.soumises);
@@ -372,7 +374,7 @@ export async function exigerLectureConfirmee(d: DemandeConfirmation): Promise<{ 
     confirmation: {
       lectureId: ligne.id,
       verdicts,
-      resumeAudit: phraseAuditConfirmation({ methode: ligne.methode === "ocr" ? "ocr" : "texte", confiance: ligne.confiance }, verdicts),
+      resumeAudit: phraseAuditConfirmation({ methode: ligne.methode === "ocr" ? "ocr" : "texte", confiance: ligne.confiance }, verdicts, Boolean(d.caseGlobale)),
       controle: {
         totalVerifie: true,
         conforme: controle ? controle.conforme : null,

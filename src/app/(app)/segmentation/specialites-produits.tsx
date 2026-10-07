@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { ciblerSpecialitesProduit } from "@/lib/actions/segmentation-actions";
@@ -37,7 +38,7 @@ function LigneProduit({ strategieId, produit, specialitesBu, initiales }: { stra
   const change = [...choix].sort().join() !== [...initiales].sort().join();
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-      <span className="w-full font-medium [overflow-wrap:anywhere] sm:w-40">#{produit.rang} {produit.nom}</span>
+      <span className="w-full font-medium [overflow-wrap:anywhere] sm:w-40">#{produit.rang} <Link href={`/produits/${produit.productId}`} className="hover:underline">{produit.nom}</Link></span>
       {specialitesBu.map((s) => (
         <label key={s.id} className="flex min-h-9 items-center gap-1 sm:min-h-0">
           <input type="checkbox" checked={choix.includes(s.id)} onChange={(e) => setChoix(e.target.checked ? [...choix, s.id] : choix.filter((x) => x !== s.id))} />

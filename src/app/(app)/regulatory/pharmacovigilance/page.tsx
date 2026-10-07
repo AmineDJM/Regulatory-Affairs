@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Filter } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { voitTousLesCasPv } from "@/lib/pharmacovigilance/acces";
+import { CHEMIN_PV_KAM } from "@/lib/chemins/rapports-terrain";
 import { compteursCasPv, listerCasPv } from "@/lib/pharmacovigilance/donnees";
 import { STATUTS_PV, STATUT_PV, estStatutPv } from "@/lib/pharmacovigilance/regles";
 import { PageHeader } from "@/components/shared/page-header";
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function PharmacovigilancePage({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   const user = await requireModule("PHARMACOVIGILANCE");
-  if (!voitTousLesCasPv(user)) redirect("/field-reports/pharmacovigilance");
+  if (!voitTousLesCasPv(user)) redirect(CHEMIN_PV_KAM);
   const statut = estStatutPv(searchParams.statut) ? searchParams.statut : "";
   const produit = (searchParams.produit ?? "").trim();
   const du = searchParams.du ?? "";

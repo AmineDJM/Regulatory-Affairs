@@ -122,7 +122,9 @@ export async function lecteurCoaching(user: SessionUser & { secondaryRole?: Sess
   return {
     id: user.id,
     administre,
-    perimetre: scope.mode === "all" ? "TOUT" : { collaborateurs: scope.repIds ?? [user.id] },
+    // Un LECTEUR de pilotage (`lectureSeule`) lit toute la force de vente, mais ne coache personne : son périmètre de
+    // coaching reste le sien, comme avant que la Force de vente ne lui ouvre la lecture.
+    perimetre: scope.mode === "all" && !scope.lectureSeule ? "TOUT" : { collaborateurs: scope.repIds ?? [user.id] },
   };
 }
 
