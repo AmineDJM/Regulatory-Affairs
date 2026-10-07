@@ -1153,6 +1153,8 @@ X("LES LIGNES DES DEVIS D'UN POSTE ET LES BC QU'ELLES FONT GÉNÉRER (§118.206)
   // LE BC MODIFIÉ EN NATIF ET LA FACTURE CONTRÔLÉE PAR LUNA (Direction, 06/10) : une révision du Word et du PDF, et un
   // fichier de facture lu puis comparé au(x) BC signé(s) — des gestes devant la carte du poste, pas des appels d'Adam.
   "ad-pro-item-actions:modifierBcDuPoste", "ad-pro-item-actions:deposerFacturePoste",
+  // LA LETTRE DE DEMANDE DE DEVIS (Direction, 07/10) : rédigée par Luna, posée sur le poste — un bouton de l'étape.
+  "ad-pro-item-actions:genererDemandeDevisPoste", "promo-devis-actions:regenererDemandeDevisPromo",
 ]);
 X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable remonte la marche du N+1 à son propre N+1, "
   + "qui la redescend validée ou refusée. Un geste de la ligne « Mon équipe », devant la demande — pas un appel d'Adam.", [

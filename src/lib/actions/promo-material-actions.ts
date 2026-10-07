@@ -21,7 +21,8 @@ import { validerArticleDemande, type ArticleDemandeValide, type FamillePromo } f
 import { lireLignesDemande, ligneVide, REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
 import { aucunPromu, designeUnProduit, type PromusChoisis } from "@/lib/promo-material/promus";
 import { resoudrePromus } from "@/lib/queries/promo-promus";
-import { envoyerDemandeDeDevis } from "@/lib/promo-automatismes";
+import { envoyerDemandeDeDevis, joindreLettreDeDevis } from "@/lib/promo-automatismes";
+import { phraseDepotLettre } from "@/lib/demande-devis-depot";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { getAppSettings } from "@/lib/settings";
 import { moneyEntityOf } from "@/lib/company";
@@ -314,7 +315,8 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
       if (envoi.ok) {
         if (envoi.assistantId) await notifyUser({ userId: envoi.assistantId, ...envoi.avis });
         else await notifyRoles(["DIRECTION_ASSISTANT"], envoi.avis);
-        suite = ` Demande de devis envoyée au secrétariat (${envoi.demande.reference}).`;
+        const lettre = await joindreLettreDeDevis(user, pm.id, envoi.demande.id).catch(() => null);
+        suite = ` Demande de devis envoyée au secrétariat (${envoi.demande.reference}).${lettre?.ok ? ` ${phraseDepotLettre(lettre)}` : ""}`;
       } else {
         suite = ` La demande de devis n'est pas partie : ${envoi.error} Envoyez-la depuis « Articles demandés ».`;
       }

@@ -25,7 +25,8 @@ import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { rouvrirDemandeAuSecretariat, fermerDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
 import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis } from "@/lib/promo-automatismes";
+import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis, joindreLettreDeDevis } from "@/lib/promo-automatismes";
+import { phraseDepotLettre } from "@/lib/demande-devis-depot";
 import { natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
 import { refusDeRangement } from "@/lib/promo-material/rangement";
 import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
@@ -146,6 +147,26 @@ async function octetsDuScan(pmId: string, documentId: string): Promise<Buffer | 
 // ───────────────────────── 1. Le demandeur demande les devis ─────────────────────────
 
 /**
+ * (RE)GÉNÉRER LA LETTRE DE DEMANDE DE DEVIS DU DOSSIER (Direction, 07/10) — rédigée par Luna d'après les articles du
+ * dossier, en PDF et Word sur papier en-tête, déposée sous l'étape « Demande de devis » (et sur la demande au secrétariat
+ * en cours, s'il y en a une). Le demandeur ou la Direction (`pilote`), comme l'envoi.
+ */
+export async function regenererDemandeDevisPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const v = refusVersion(pm);
+  if (v) return { ok: false, error: v };
+  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) génère la demande de devis de ce dossier." };
+  const enCours = await prisma.promoMaterial.findUnique({ where: { id: pm.id }, select: { adminRequestId: true } });
+  const r = await joindreLettreDeDevis(user, pm.id, enCours?.adminRequestId ?? null);
+  if (!r.ok) return { ok: false, error: r.error };
+  await audit(user, pm.id, "Demande de devis (lettre) générée.");
+  revalidatePath(chemin(pm.id));
+  return { ok: true, message: phraseDepotLettre(r) };
+}
+
+/**
  * ENVOYER LA DEMANDE DE DEVIS — le REPLI (§118.204). La demande de devis part d'elle-même quand le
  * dossier arrive sur « devis à demander » (à la création, ou à la validation de la demande —
  * `envoyerDemandeDeDevis`). Ce geste reste dans la rubrique « Articles demandés » pour un dossier qui y
@@ -164,7 +185,8 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
   if (!r.ok) return { ok: false, error: r.error };
   if (r.assistantId) await notifyUser({ userId: r.assistantId, ...r.avis });
   else await notifyRoles(["DIRECTION_ASSISTANT"], r.avis);
-  return { ok: true, id: r.demande.id, message: `Demande de devis envoyée au secrétariat (${r.demande.reference}).` };
+  const lettre = await joindreLettreDeDevis(user, pm.id, r.demande.id).catch(() => null);
+  return { ok: true, id: r.demande.id, message: `Demande de devis envoyée au secrétariat (${r.demande.reference}).${lettre?.ok ? ` ${phraseDepotLettre(lettre)}` : ""}` };
 }
 
 // ───────────────────────── 2. L'assistante retranscrit ─────────────────────────
@@ -719,6 +741,7 @@ export async function redemanderDevisPromo(formData: FormData): Promise<ActionRe
     return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
   }
   await ecrireAuFil({ entityType: "PROMO_MATERIAL", entityId: pm.id, authorId: user.id, body: `Nouveaux devis demandés (${ouverte.demande.reference}) : ${note}` });
+  await joindreLettreDeDevis(user, pm.id, ouverte.demande.id).catch(() => null);
   const avis = { type: "ASSIGNMENT" as const, title: "Matériel promotionnel — nouveaux devis à demander et à retranscrire", body: `${pm.reference} — ${note.slice(0, 200)}`, link: chemin(pm.id) };
   if (pm.assistantId) await notifyUser({ userId: pm.assistantId, ...avis });
   else await notifyRoles(["DIRECTION_ASSISTANT"], avis);
