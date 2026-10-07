@@ -1,161 +1,56 @@
-import type * as React from "react";
 import type { EntityType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import type { DocItem } from "@/components/documents/document-list";
-import { NATIONAL_EVENT_TYPE } from "@/lib/labels";
-import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
 import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import type { WorkflowView } from "@/lib/queries/workflow";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
-import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
-import type { InvolvementThread } from "@/lib/queries/involvement";
-import { CarteDetailsDemande, type PiecesJointesDeLaDemande } from "@/components/ad-pro/pieces-jointes-demande";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import type { MissionAssignmentDTO } from "@/lib/queries/missions";
 
-
-export function CongressDetailView({
-  detail, workflow, canInvolveThirdParty, entityType, entityId, documents, canUpload, canDelete, path,
-  missions, missionUsers, canManageMissions, currentUserId, itemsPanel, involvementThreads = [], canModerate = false, piecesJointes,
-}: {
+/**
+ * LE CIRCUIT DE VALIDATION D'UNE PRISE EN CHARGE — pleine largeur.
+ *
+ * Ce qui vivait ici et n'y est plus (Direction, 07/10) : « Informations » (fusionnée dans « La prise en charge »,
+ * `CartePriseEnCharge`), « Budgets » (estimé / arbitré — les chiffres sont dans le bandeau de la prise en charge) et
+ * « Participants Adventum » (retirés de la demande). « Accompagnants & délégués » se pose TOUT EN BAS de la fiche
+ * (`AccompagnantsDeLaPriseEnCharge`) : la colonne de droite ne rétrécit plus le reste.
+ */
+export function CongressDetailView({ detail, workflow, canInvolveThirdParty, entityType, entityId, missionUsers }: {
   detail: CongressDetail;
   workflow: WorkflowView | null;
   canInvolveThirdParty: boolean;
   entityType: EntityType;
   entityId: string;
-  documents: DocItem[];
-  canUpload: boolean;
-  canDelete: boolean;
-  path: string;
-  missions: MissionAssignmentDTO[];
   missionUsers: { id: string; name: string }[];
-  canManageMissions: boolean;
-  currentUserId: string;
-  /** Ventilation de l'enveloppe en postes — fournie par les écrans qui la portent (national).
-      Un emplacement plutôt qu'un branchement en dur : la vue n'a pas à connaître les postes,
-      et l'international ne change pas d'un pixel. */
-  itemsPanel?: React.ReactNode;
-  /** Conversations avec les tierces personnes impliquées — remontées SOUS la demande. */
-  involvementThreads?: InvolvementThread[];
-  canModerate?: boolean;
-  /** Les pièces jointes de la demande : « + Pièce jointe » vit DANS la carte des détails (audit n° 18). */
-  piecesJointes?: PiecesJointesDeLaDemande;
 }) {
-  const d = detail;
-
   return (
-    <div className="space-y-5">
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-      <div className="space-y-5 lg:col-span-2">
-        {(() => {
-          const infos = (
-            <>
-            {d.eventType && <Info label="Type" value={NATIONAL_EVENT_TYPE[d.eventType] ?? d.eventType} />}
-            {/* Ni spécialité ni produits promus sur une prise en charge (décision du 04/10/2026) :
-                ils ne se saisissent plus, la fiche ne les montre plus — ils restent en base. */}
-            <Info label="Lieu" value={d.location} />
-            <Info label="Date de début" value={d.date ? formatDate(d.date) : null} />
-            <Info label="Date de fin" value={d.endDate ? formatDate(d.endDate) : null} />
-            <Info label="Demandeur" value={d.requester} />
-            </>
-          );
-          const grille = "grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6";
-          return piecesJointes ? (
-            <CarteDetailsDemande titre="Informations" pieces={piecesJointes} contentClassName={grille}>{infos}</CarteDetailsDemande>
-          ) : (
-            <Card>
-              <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
-              <CardContent className={grille}>{infos}</CardContent>
-            </Card>
-          );
-        })()}
-
-        {/* Budgets */}
-        <Card>
-          <CardHeader><CardTitle>Budgets</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Budget label="Estimé par le demandeur" value={d.estimatedBudget} />
-            <Budget label="Arbitré par Direction Marketing" value={d.productManagerBudget} tone="primary" />
-          </CardContent>
-        </Card>
-
-        {itemsPanel && (
-          <Card>
-            <CardHeader><CardTitle>Ce que couvre cet événement</CardTitle></CardHeader>
-            <CardContent>{itemsPanel}</CardContent>
-          </Card>
+    <Card>
+      <CardHeader><CardTitle>Circuit de validation</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        {workflow ? (
+          <WorkflowPanel entityType={entityType} entityId={entityId} view={workflow} />
+        ) : (
+          <p className="text-sm text-muted-foreground">Circuit indisponible.</p>
         )}
-
-        {/* Workflow configurable (piloté par le moteur — éditable dans Administration) */}
-        <Card>
-          <CardHeader><CardTitle>Circuit de validation</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            {workflow ? (
-              <WorkflowPanel entityType={entityType} entityId={entityId} view={workflow} />
-            ) : (
-              <p className="text-sm text-muted-foreground">Circuit indisponible.</p>
-            )}
-            {canInvolveThirdParty && (
-              <div className="border-t border-border pt-3">
-                <ThirdPartyInvolveButton type={d.type} id={d.id} people={missionUsers} />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Documents + personnes prises en charge + médecins + participants */}
-      <div className="space-y-5">
-        {/* Le bloc « Documents » générique a disparu ici comme sur les autres fiches Ad & Pro :
-            les pièces vivent désormais avec l'engagement, la facture ou le courrier qu'elles
-            justifient — le même fichier n'existe plus à deux endroits qui s'ignorent — et les
-            pièces de la prise en charge gardent un emplacement NOMMÉ dans « Engagements,
-            factures et courriers liés », que les deux écrans montent en bas de page. */}
-
-        {/* UNE SEULE LISTE DE PERSONNES PRISES EN CHARGE (décision du 04/10/2026) : les
-            « Professionnels proposés pour la prise en charge », en haut de la fiche, avec leurs
-            pièces. Le bloc « Personnes prises en charge » d'ici et la carte « Médecins invités »
-            disaient la même chose depuis deux autres stockages, sans se voir (§118.5). */}
-        <MissionAssignmentsCard
-          entityType={entityType}
-          entityId={entityId}
-          assignments={missions}
-          users={missionUsers}
-          canManage={canManageMissions}
-          currentUserId={currentUserId}
-          path={path}
-        />
-        <Card>
-          <CardHeader className="flex-row items-center justify-between gap-2"><CardTitle>Participants Adventum</CardTitle><Badge tone="neutral" dot={false}>{d.participants.length}</Badge></CardHeader>
-          <CardContent>
-            {d.participants.length === 0 ? <p className="text-sm text-muted-foreground">Aucun.</p> : (
-              <ul className="space-y-2">
-                {d.participants.map((p) => (
-                  <li key={p.id} className="break-words text-sm"><span className="font-medium">{p.name}</span>{p.title && <span className="text-xs text-muted-foreground"> · {p.title}</span>}</li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-    <InvolvementConversations threads={involvementThreads} currentUserId={currentUserId} canManage={canModerate} />
-    </div>
+        {canInvolveThirdParty && (
+          <div className="border-t border-border pt-3">
+            <ThirdPartyInvolveButton type={detail.type} id={detail.id} people={missionUsers} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
-function Info({ label, value }: { label: string; value: string | null | undefined }) {
-  return <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="break-words font-medium">{value || "—"}</p></div>;
-}
-
-function Budget({ label, value, tone }: { label: string; value: number | null; tone?: "primary" }) {
+/** « Accompagnants & délégués » — en bas de la fiche, pleine largeur. */
+export function AccompagnantsDeLaPriseEnCharge(p: {
+  entityType: EntityType; entityId: string; missions: MissionAssignmentDTO[]; missionUsers: { id: string; name: string }[];
+  canManageMissions: boolean; currentUserId: string; path: string;
+}) {
   return (
-    <div className={`min-w-0 rounded-lg border p-3 ${tone === "primary" ? "border-primary/30 bg-primary/5" : "border-border"}`}>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="break-words text-lg font-semibold tabular-nums">{value !== null ? formatCurrency(value) : "—"}</p>
-    </div>
+    <MissionAssignmentsCard
+      entityType={p.entityType} entityId={p.entityId} assignments={p.missions} users={p.missionUsers}
+      canManage={p.canManageMissions} currentUserId={p.currentUserId} path={p.path}
+    />
   );
 }
-

@@ -5,7 +5,7 @@ import { canModerateEntity } from "@/lib/entity-access";
 import { entityHref } from "@/lib/entity-href";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CommentThread } from "@/components/shared/comment-thread";
-import { DISCUSSION_TITRE, DISCUSSION_AIDE, DISCUSSION_VIDE } from "@/lib/ad-pro/discussion";
+import { DISCUSSION_TITRE } from "@/lib/ad-pro/discussion";
 import { addAdProComment } from "@/lib/actions/ad-pro-discussion-actions";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 
@@ -45,14 +45,11 @@ export async function AdProDiscussionCard({
 
   return (
     <Card>
+      {/* PLUS DE PARAGRAPHE D'AIDE NI DE PHRASE « AUCUN ÉCHANGE » (Direction, 07/10) : le titre et le fil suffisent. */}
       <CardHeader>
         <CardTitle>{DISCUSSION_TITRE}</CardTitle>
-        <p className="mt-1 text-xs text-muted-foreground">{DISCUSSION_AIDE}</p>
       </CardHeader>
       <CardContent>
-        {rows.length === 0 && (
-          <p className="mb-3 text-sm text-muted-foreground">{DISCUSSION_VIDE}</p>
-        )}
         <CommentThread
           comments={rows.map((c) => ({
             id: c.id,

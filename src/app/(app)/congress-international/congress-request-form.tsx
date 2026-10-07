@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { wilayaOptions } from "@/lib/geo/algeria";
-import { NATIONAL_EVENT_TYPE, ROLE_LABELS } from "@/lib/labels";
+import { NATIONAL_EVENT_TYPE } from "@/lib/labels";
 import { businessUnitField } from "@/lib/ad-pro/create-fields";
 import type { ProductRow, SpecialtyRow } from "@/lib/ad-pro/pickers";
 
@@ -54,7 +54,7 @@ interface CongressRequestFormProps extends CongressFormProps {
  * par-dessus le panneau.
  */
 export function CongressRequestForm({
-  national, doctors, users, onDone, onCancel, cancelLabel = "Annuler",
+  national, doctors, onDone, onCancel, cancelLabel = "Annuler",
   businessUnits = [], businessUnitDeduite = null,
 }: CongressRequestFormProps) {
   const router = useRouter();
@@ -63,8 +63,8 @@ export function CongressRequestForm({
   const [err, setErr] = React.useState<string | null>(null);
 
   const [pickedDoctors, setPickedDoctors] = React.useState<Set<string>>(new Set());
-  const [pickedUsers, setPickedUsers] = React.useState<Set<string>>(new Set());
-  const [userQuery, setUserQuery] = React.useState("");
+  // QUI EST À L'ORIGINE DE LA DEMANDE (Direction, 07/10) — et, à l'initiative du médecin, lequel (ou lesquels).
+  const [initiative, setInitiative] = React.useState<"" | "DEMANDEUR" | "MEDECIN">("");
 
   /*
    * NI SPÉCIALITÉ NI PRODUITS sur une prise en charge (décision de la Direction, 04/10/2026). La
@@ -82,11 +82,6 @@ export function CongressRequestForm({
     [annuaire, doctorQuery],
   );
   const doctorById = React.useMemo(() => new Map(annuaire.map((d) => [d.id, d])), [annuaire]);
-  const userById = React.useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
-  const filteredUsers = React.useMemo(() => {
-    const q = userQuery.trim().toLowerCase();
-    return q ? users.filter((u) => u.name.toLowerCase().includes(q)) : users;
-  }, [users, userQuery]);
 
   const toggle = (set: Set<string>, id: string, setter: (s: Set<string>) => void) => {
     const n = new Set(set);
@@ -100,12 +95,14 @@ export function CongressRequestForm({
     const fd = new FormData(form);
     fd.set("type", national ? "NATIONAL" : "INTL");
     pickedDoctors.forEach((id) => fd.append("invitedDoctorIds", id));
-    pickedUsers.forEach((id) => fd.append("participantIds", id));
+    fd.set("initiative", initiative);
     // Tout ce qui manque, en une fois — le serveur dit la même chose (`createCongressRequest`).
     const manque = [
       String(fd.get("name") ?? "").trim() ? null : "le nom de l'événement",
-      String(fd.get(national ? "date" : "startDate") ?? "") ? null : "la date de début",
-      String(fd.get("endDate") ?? "") ? null : "la date de fin",
+      String(fd.get(national ? "date" : "startDate") ?? "") ? null : "la date de début de l'événement",
+      String(fd.get("endDate") ?? "") ? null : "la date de fin de l'événement",
+      initiative ? null : "qui est à l'origine de l'événement (votre initiative ou celle du médecin)",
+      initiative === "MEDECIN" && pickedDoctors.size === 0 ? "le ou les médecins à l'origine de la demande" : null,
     ].filter((x): x is string => x !== null);
     if (manque.length > 0) { setErr(`À renseigner : ${manque.join(", ")}.`); return; }
     setSaving(true); setErr(null);
@@ -137,10 +134,10 @@ export function CongressRequestForm({
             </Field>
           )}
           <Field full label="Nom de l'événement" required><Input name="name" required placeholder="Ex. ECCMID 2026" /></Field>
-          <Field full label="Demande(s) du médecin">
+          <Field full label={initiative === "MEDECIN" ? "Demande(s) du médecin" : "Pièces jointes (invitation, programme…)"}>
             <input name="files" type="file" multiple
               className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-border file:bg-secondary file:px-3 file:py-1.5 file:text-sm" />
-            <p className="mt-1 text-[0.6875rem] text-muted-foreground">Courrier, invitation, programme… Plusieurs fichiers possibles.</p>
+
           </Field>
           <Field label="Type d'événement">
             <Select name="eventType" defaultValue="CONGRESS">
@@ -159,23 +156,18 @@ export function CongressRequestForm({
                 </Select>
               </Field>
               <Field label="Institution hôte"><Input name="hostInstitution" placeholder="Hôpital / association" /></Field>
-              <Field label="Date de début" required><Input name="date" type="date" required /></Field>
-              <Field label="Date de fin" required><Input name="endDate" type="date" required /></Field>
+              <Field label="Date de début de l'événement" required><Input name="date" type="date" required /></Field>
+              <Field label="Date de fin de l'événement" required><Input name="endDate" type="date" required /></Field>
             </>
           ) : (
             <>
-              <Field label="Pays"><Input name="country" /></Field>
-              <Field label="Ville (wilaya)">
-                <Select name="city" defaultValue="">
-                  <option value="">— Choisir la wilaya —</option>
-                  {WILAYA_OPTIONS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
-                </Select>
-              </Field>
-              <Field label="Date de début" required><Input name="startDate" type="date" required /></Field>
-              <Field label="Date de fin" required><Input name="endDate" type="date" required /></Field>
+              <Field label="Pays"><Input name="country" placeholder="Ex. France" /></Field>
+              {/* LA VILLE SE SAISIT (Direction, 07/10) : un congrès international ne se tient pas dans une wilaya. */}
+              <Field label="Ville"><Input name="city" placeholder="Ex. Paris" /></Field>
+              <Field label="Date de début de l'événement" required><Input name="startDate" type="date" required /></Field>
+              <Field label="Date de fin de l'événement" required><Input name="endDate" type="date" required /></Field>
             </>
           )}
-          <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" inputMode="decimal" placeholder="Estimation du demandeur" /></Field>
         </div>
         </div>
 
@@ -183,8 +175,25 @@ export function CongressRequestForm({
             l'annuaire, et la création d'un profil pour un médecin qui n'y figure pas. Ce sont des
             PROPOSITIONS : la Direction tranche personne par personne sur la fiche, où la MÊME liste
             se complète (personne libre comprise) et où leurs pièces se demandent et se suivent. */}
+        {/* CET ÉVÉNEMENT EST… (Direction, 07/10) — mon initiative, ou celle du médecin : dans ce cas, le ou les médecins
+            de l'annuaire qui l'ont demandée, choisis dans la même liste que les professionnels proposés. */}
+        <fieldset className="space-y-2 rounded-lg border border-border p-3">
+          <legend className="px-1 text-sm font-medium">Cet événement est <span className="text-destructive">*</span></legend>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {([["DEMANDEUR", "Mon initiative"], ["MEDECIN", "Initiative du médecin"]] as const).map(([v, l]) => (
+              <label key={v} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-input px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5 sm:min-h-10">
+                <input type="radio" name="initiative-choix" value={v} checked={initiative === v} onChange={() => setInitiative(v)} className="h-4 w-4 shrink-0" />
+                {l}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <div className="space-y-2 rounded-lg border border-border p-3">
-          <Label>Professionnels proposés pour la prise en charge</Label>
+          <Label>
+            {initiative === "MEDECIN" ? "Médecin(s) à l'origine de la demande" : "Professionnels proposés pour la prise en charge"}
+            {initiative === "MEDECIN" && <span className="ml-0.5 text-destructive">*</span>}
+          </Label>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={doctorQuery} onChange={(e) => setDoctorQuery(e.target.value)} placeholder="Rechercher un praticien (nom, spécialité, ville)…" className="pl-8" aria-label="Rechercher un praticien" />
@@ -216,32 +225,6 @@ export function CongressRequestForm({
               setPickedDoctors((p) => new Set(p).add(d.id));
             }}
           />
-        </div>
-
-        {/* Participants Adventum */}
-        <div className="space-y-2 rounded-lg border border-border p-3">
-          <Label>Participants Adventum</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder="Rechercher un collaborateur…" className="pl-8" />
-          </div>
-          <div className="max-h-40 space-y-1 overflow-auto rounded-md bg-muted/30 p-2">
-            {filteredUsers.map((u) => (
-              <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-2 text-sm hover:bg-secondary sm:py-1">
-                <input type="checkbox" checked={pickedUsers.has(u.id)} onChange={() => toggle(pickedUsers, u.id, setPickedUsers)} className="h-4 w-4 shrink-0 rounded border-input" />
-                <span className="min-w-0 break-words">
-                  <span>{u.name}</span><span className="text-xs text-muted-foreground"> · {ROLE_LABELS[u.role] ?? u.role}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          {pickedUsers.size > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {[...pickedUsers].map((id) => (
-                <Chip key={id} label={userById.get(id)?.name ?? id} onRemove={() => toggle(pickedUsers, id, setPickedUsers)} />
-              ))}
-            </div>
-          )}
         </div>
 
         {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="min-w-0 break-words">{err}</span></div>}

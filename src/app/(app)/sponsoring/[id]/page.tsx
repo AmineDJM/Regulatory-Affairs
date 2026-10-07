@@ -181,8 +181,8 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
+      <div>
+        <div className="space-y-5">
           {/* LES DÉTAILS ET LES PIÈCES JOINTES DE LA DEMANDE — la demande du médecin (obligatoire), le
               programme, la convention… : « + Pièce jointe » en haut à droite, la liste sous les détails.
               La chaîne d'achat (devis → BC → facture) vit sur chaque poste, plus bas. */}
@@ -303,8 +303,18 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
             </Card>
           )}
         </div>
+      </div>
+      {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et, dessous, les échanges avec les
+          personnes impliquées : un seul espace. */}
+      <EspaceDiscussion>
+        <AdProDiscussionCard entityType="SPONSORING" entityId={req.id} user={user} />
+        <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
+      </EspaceDiscussion>
 
-        <div className="space-y-5">
+      {/* TOUT EN BAS, PLEINE LARGEUR (Direction, 07/10) : « Accompagnants & délégués » et « Traçabilité » ne sont plus une
+          colonne de droite — le reste de la fiche prend toute la largeur. */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="lg:col-span-2">
           <MissionAssignmentsCard
             entityType="SPONSORING"
             entityId={req.id}
@@ -314,21 +324,15 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
             currentUserId={user.id}
             path={`/sponsoring/${req.id}`}
           />
-          <Card>
-            <CardHeader><CardTitle>Traçabilité</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <Info label="Créé le" value={formatDateTime(req.createdAt)} />
-              <Info label="Modifié le" value={formatDateTime(req.updatedAt)} />
-            </CardContent>
-          </Card>
         </div>
+        <Card>
+          <CardHeader><CardTitle>Traçabilité</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <Info label="Créé le" value={formatDateTime(req.createdAt)} />
+            <Info label="Modifié le" value={formatDateTime(req.updatedAt)} />
+          </CardContent>
+        </Card>
       </div>
-      {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et, dessous, les échanges avec les
-          personnes impliquées : un seul espace. */}
-      <EspaceDiscussion>
-        <AdProDiscussionCard entityType="SPONSORING" entityId={req.id} user={user} />
-        <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
-      </EspaceDiscussion>
     </div>
   );
 }

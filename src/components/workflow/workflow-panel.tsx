@@ -8,7 +8,7 @@ import { Check, X, Loader2, MessageSquare, ArrowRight, SkipForward, Undo2, Send,
 import type { EntityType } from "@prisma/client";
 import { advanceWorkflow, resoumettreDemande, retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
 import type { WorkflowView } from "@/lib/queries/workflow";
-import { SCOPE_LABELS, POWER_LABELS } from "@/lib/workflow/types";
+import { SCOPE_LABELS } from "@/lib/workflow/types";
 import { ROLE_LABELS, EXPENSE_ORDER_STATUS } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
@@ -132,22 +132,10 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
               <div className="min-w-0 flex-1 border-b border-border pb-3 last:border-0">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <p className="font-medium">{s.title}</p>
-                  {/* Détails techniques du circuit (qui/pouvoirs/description) : Super Admin uniquement. */}
-                  {view.isSuperAdmin && (
-                    <>
-                      <span className="text-xs text-muted-foreground">· {actor}</span>
-                      {s.assignRole && <Badge tone="neutral" dot={false}>désigne : {ROLE_LABELS[s.assignRole] ?? s.assignRole}</Badge>}
-                      {s.confidential && <Badge tone="warning" dot={false}>confidentiel</Badge>}
-                    </>
-                  )}
+                  {/* QUI tient l'étape, en un mot. Le reste (pouvoirs, description de la règle, « → dépense ») ne s'affiche plus
+                      sur la fiche (Direction, 07/10) : il se lit et se règle dans Administration › Circuits. */}
+                  <span className="text-xs text-muted-foreground">· {actor}</span>
                 </div>
-                {view.isSuperAdmin && s.description && <p className="mt-0.5 text-xs text-muted-foreground">{s.description}</p>}
-                {view.isSuperAdmin && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {s.powers.map((p) => <span key={p} className="rounded bg-secondary px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground">{POWER_LABELS[p]}</span>)}
-                    {s.emitExpenseOrder && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-primary">→ dépense</span>}
-                  </div>
-                )}
 
                 {/* Action disponible à l'étape courante */}
                 {a && a.slug === s.slug && (

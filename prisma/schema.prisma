@@ -3176,6 +3176,7 @@ model CongressInternational {
   requestStatus        CongressRequestStatus @default(AWAITING_PRELIMINARY)
   estimatedBudget      Decimal?              @db.Decimal(14, 2) // budget estimé par le demandeur
   invitedDoctorIds     String[]              @default([]) // médecins invités (depuis Promotion médicale)
+  initiative           String? // « DEMANDEUR » (mon initiative) | « MEDECIN » (initiative du médecin) — Direction, 07/10
   participantIds       String[]              @default([]) // participants Adventum (users)
   productManagerId     String? // chef de produit assigné à l'analyse
   productManagerBudget Decimal?              @db.Decimal(14, 2) // budget proposé par le chef de produit
@@ -3243,6 +3244,7 @@ model CongressNational {
   requestStatus        CongressRequestStatus @default(AWAITING_PRELIMINARY)
   estimatedBudget      Decimal?              @db.Decimal(14, 2)
   invitedDoctorIds     String[]              @default([])
+  initiative           String? // « DEMANDEUR » (mon initiative) | « MEDECIN » (initiative du médecin) — Direction, 07/10
   participantIds       String[]              @default([])
   productManagerId     String?
   productManagerBudget Decimal?              @db.Decimal(14, 2)

@@ -84,6 +84,12 @@ export async function createCongressRequest(
   // LES PROFESSIONNELS PROPOSÉS, vérifiés AVANT la création : un identifiant qui ne désigne aucun
   // praticien de l'annuaire est refusé, au lieu de créer une demande amputée en silence.
   const proposes = [...new Set(fdList(formData, "invitedDoctorIds"))];
+  // QUI EST À L'ORIGINE DE LA DEMANDE (Direction, 07/10) : « Mon initiative » ou « Initiative du médecin » — et dans ce
+  // second cas, le ou les médecins de l'annuaire qui l'ont demandée. Facultatif pour les appelants d'avant (aucun choix posté).
+  const initiativeBrute = fdStr(formData, "initiative");
+  const initiative = initiativeBrute === "MEDECIN" || initiativeBrute === "DEMANDEUR" ? initiativeBrute : null;
+  if (initiativeBrute && !initiative) return { ok: false, error: "Initiative inconnue : choisissez « Mon initiative » ou « Initiative du médecin »." };
+  if (initiative === "MEDECIN" && proposes.length === 0) return { ok: false, error: "Initiative du médecin : choisissez dans l'annuaire le ou les médecins à l'origine de la demande." };
   if (proposes.length > 0) {
     const connus = await prisma.medicalDoctor.count({ where: { id: { in: proposes } } });
     if (connus !== proposes.length) return { ok: false, error: "Un professionnel proposé est introuvable dans l'annuaire — rechargez le formulaire." };
@@ -127,6 +133,7 @@ export async function createCongressRequest(
   const common = {
     name,
     eventType,
+    initiative,
     estimatedBudget: fdNum(formData, "estimatedBudget"),
     participantIds: fdList(formData, "participantIds"),
     requesterId: user.id,

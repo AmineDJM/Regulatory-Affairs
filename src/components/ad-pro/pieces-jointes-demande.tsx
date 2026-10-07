@@ -35,12 +35,17 @@ export interface PiecesJointesDeLaDemande {
   path: string;
 }
 
-export function CarteDetailsDemande({ titre, pieces, children, contentClassName }: {
+export function CarteDetailsDemande({ titre, pieces, children, contentClassName, entete }: {
   titre: string;
   pieces: PiecesJointesDeLaDemande;
   /** Les détails de la demande (rendus au serveur) ; absent, la carte ne porte que les pièces jointes. */
   children?: React.ReactNode;
   contentClassName?: string;
+  /**
+   * Ce qui précède les pièces jointes (les faits de la demande) — le reste de `children` vient APRÈS elles. Une carte longue
+   * (la prise en charge, avec ses postes) garde ainsi ses pièces jointes sous les faits, pas au bout de la page.
+   */
+  entete?: React.ReactNode;
 }) {
   const [ouvert, setOuvert] = React.useState(false);
   // LES PIÈCES DÉPOSÉES DANS CETTE SESSION par « + Pièce jointe » : Luna lit chacune et dit si elle
@@ -70,7 +75,8 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName 
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {children && <div className={contentClassName}>{children}</div>}
+        {entete}
+        {!entete && children && <div className={contentClassName}>{children}</div>}
         {ouvert && pieces.peutDeposer && (
           <DocumentUpload
             entityType={pieces.entityType} entityId={pieces.entityId} categories={pieces.categories}
@@ -90,20 +96,24 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName 
             })}
           </ul>
         )}
-        <div className={children ? "border-t border-border/70 pt-3" : undefined}>
-          <p className="mb-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
-            <Paperclip className="h-3.5 w-3.5" /> Pièces jointes de la demande{n > 0 ? ` (${n})` : ""}
-          </p>
-          {n > 0 ? (
-            <DocumentList
-              documents={pieces.documents} canDelete={pieces.canDelete} canRename={pieces.canRename}
-              canEdit={pieces.canEdit} path={pieces.path}
-            />
-          ) : (
-            <p className="text-xs text-muted-foreground">Aucune pièce jointe.</p>
-          )}
-          {!pieces.peutDeposer && pieces.motif && <p className="mt-1 text-xs text-muted-foreground">{pieces.motif}</p>}
-        </div>
+        {/* SANS PIÈCE JOINTE, RIEN (Direction, 07/10) : le bouton « Pièce jointe » de l'en-tête suffit. */}
+        {(n > 0 || (!pieces.peutDeposer && pieces.motif)) && (
+          <div className={children && !entete ? "border-t border-border/70 pt-3" : undefined}>
+            {n > 0 && (
+              <>
+                <p className="mb-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Paperclip className="h-3.5 w-3.5" /> Pièces jointes de la demande ({n})
+                </p>
+                <DocumentList
+                  documents={pieces.documents} canDelete={pieces.canDelete} canRename={pieces.canRename}
+                  canEdit={pieces.canEdit} path={pieces.path}
+                />
+              </>
+            )}
+            {!pieces.peutDeposer && pieces.motif && <p className="mt-1 text-xs text-muted-foreground">{pieces.motif}</p>}
+          </div>
+        )}
+        {entete && children && <div className={contentClassName}>{children}</div>}
       </CardContent>
     </Card>
   );

@@ -183,6 +183,8 @@ interface Props {
   promoOptions: { id: string; reference: string; title: string; status: string }[];
   /** Congrès : ce qui est ANNONCÉ (stand, symposium) et qu'il faudrait chiffrer. */
   plan?: { hasBooth?: boolean | null; hasSymposium?: boolean | null };
+  /** Faux : la fiche porte déjà l'enveloppe et ce qui est affecté dans un bandeau commun (Direction, 07/10). */
+  resume?: boolean;
   /** (Sous-)catégories budgétaires proposées pour imputer un poste accordé. */
   budgetOptions?: { id: string; label: string }[];
   /** Les Finances émettent le bon de commande visé par la Direction. */
@@ -242,7 +244,7 @@ const PARENT_PATH: Record<AdProParent, string> = {
 
 export function AdProItemsPanel({
   parent, parentId, items, amountGranted, decided, tardif = decided, fige = false, canEdit: canEditBrut, canAllocate: canAllocateBrut, promoOptions, plan,
-  budgetOptions = [], canIssueOrder = false, canViserBC = false, materiel, contexte,
+  budgetOptions = [], canIssueOrder = false, canViserBC = false, materiel, contexte, resume = true,
 }: Props) {
   // CLÔTURÉE : on ne décrit, ne chiffre, ne décide et ne réimpute plus — l'action le refuserait
   // (`refusSiClos`), et un bouton qu'une action refuse n'est pas un bouton. Les gestes
@@ -315,7 +317,7 @@ export function AdProItemsPanel({
   return (
     <div className="space-y-4">
       {/* ── La ventilation, avant la liste : c'est la question qu'on se pose en arrivant. ── */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+      {resume && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <Figure
           label="Enveloppe accordée"
           value={b.envelopeDzd != null ? formatCurrency(b.envelopeDzd) : "—"}
@@ -339,7 +341,7 @@ export function AdProItemsPanel({
             hint={b.balanced ? "ventilation complète" : undefined}
           />
         )}
-      </div>
+      </div>}
 
       {fige && (
         <p className="flex items-start gap-2 rounded-xl border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
