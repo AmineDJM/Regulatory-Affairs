@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { getSfeConfig } from "@/lib/sfe";
 import { EnteteReglages } from "../reglages";
 import { ROLES_QUI_TRANCHENT, porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
-import { BusinessUnitsManager, ETAPES, type Etape } from "./bu-manager";
+import { BusinessUnitsManager } from "./bu-manager";
+import { ETAPES, type Etape } from "./etapes";
 import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
 
 export const dynamic = "force-dynamic";
