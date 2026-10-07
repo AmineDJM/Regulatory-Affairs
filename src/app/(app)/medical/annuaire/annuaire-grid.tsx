@@ -3,8 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2, RotateCcw, Columns3, Building2, Stethoscope,
-  LayoutGrid, Table2,
+  Search, Upload, Loader2, FileSpreadsheet, Plus, Rows3, LayoutList, Check, X, Trash2, RotateCcw, Columns3, Building2, Stethoscope,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +30,8 @@ import { useSelectionGrille } from "@/components/grille/use-selection";
 import { BarreSelection, DockSelection, classeCouleurCellule } from "@/components/grille/barre-selection";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { ImportMappingSheet } from "./import-mapping-sheet";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { EntreeMenu, MenuPlus } from "../menu-plus";
 
 /**
  * L'ANNUAIRE COMME UN VRAI TABLEUR — sélection, couleurs, colonnes sur mesure, édition en place.
@@ -277,12 +278,10 @@ function EditeurCellule({
  */
 function GridTable({
   rows, offset, colonnes, editable, selected, onToggle, onToggleAll, grille, edition, onCommit, onCancel,
-  couleurs, overrides, etablissements, effective, vueMobile,
+  couleurs, overrides, etablissements, effective,
 }: {
   rows: AnnuaireRow[];
   offset: number;
-  /** Au téléphone : cartes lisibles (par défaut) ou feuille complète, éditable. Sans effet au-delà. */
-  vueMobile: "cartes" | "feuille";
   colonnes: ColonneVue[];
   etablissements: readonly EtablissementOption[];
   editable: boolean;
@@ -299,13 +298,9 @@ function GridTable({
   effective: (row: AnnuaireRow) => AnnuaireRow;
 }) {
   const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  // UN TABLEAU RESTE UN TABLEAU au téléphone (Direction, 07/10) : la feuille défile dans son cadre, jamais en cartes.
   return (
-    <div>
-    <CartesPraticiens
-      rows={rows} colonnes={colonnes} selected={selected} onToggle={onToggle} onToggleAll={onToggleAll} overrides={overrides}
-      className={vueMobile === "cartes" ? "sm:hidden" : "hidden"}
-    />
-    <div className={cn("surface overflow-x-auto", vueMobile === "cartes" && "hidden sm:block")}>
+    <div className="surface overflow-x-auto">
       <table className="w-full min-w-[72rem] border-collapse text-sm select-none">
         <thead>
           <tr className="bg-secondary/60 text-xs uppercase tracking-wide text-muted-foreground">
@@ -406,102 +401,6 @@ function GridTable({
         </tbody>
       </table>
     </div>
-    </div>
-  );
-}
-
-/** Les pastilles « à rattacher » / « à trancher », dans leur version carte. */
-function PastilleCarte({ children, title }: { children: React.ReactNode; title?: string }) {
-  return (
-    <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[0.6875rem] font-medium uppercase tracking-wide text-warning" title={title}>
-      {children}
-    </span>
-  );
-}
-
-/** Un téléphone ou un e-mail se touche pour appeler ou écrire — c'est l'usage du terrain. */
-function lienContact(col: ColonneVue, v: string): React.ReactNode {
-  const classe = "inline-flex min-h-9 items-center text-primary underline-offset-2 hover:underline";
-  if (col.field === "phone" && /^[+\d\s().-]{6,}$/.test(v)) return <a href={`tel:${v.replace(/[^\d+]/g, "")}`} className={classe}>{v}</a>;
-  if (col.field === "email" && /^\S+@\S+$/.test(v)) return <a href={`mailto:${v}`} className={classe}>{v}</a>;
-  return null;
-}
-
-/**
- * AU TÉLÉPHONE, UNE CARTE PAR PRATICIEN — une feuille de 72 rem ne se lit pas au pouce.
- *
- * Les cartes montrent ce que montre la feuille (mêmes valeurs, mêmes pastilles), sans les cases
- * vides. Elles sont en lecture : la correction cellule par cellule se fait dans la vue « Feuille »,
- * que le sélecteur du haut rouvre. La sélection de lignes (archiver, restaurer) y reste.
- */
-function CartesPraticiens({
-  rows, colonnes, selected, onToggle, onToggleAll, overrides, className,
-}: {
-  rows: AnnuaireRow[];
-  colonnes: ColonneVue[];
-  selected: Set<string>;
-  onToggle: (id: string, on: boolean) => void;
-  onToggleAll: (ids: string[], on: boolean) => void;
-  overrides: Map<string, string>;
-  className?: string;
-}) {
-  const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
-  const valeur = (row: AnnuaireRow, col: ColonneVue) => overrides.get(cleCellule(row.id, col.cle)) ?? valeurAffichee(row, col);
-  const colNom = colonnes.find((c) => c.field === "lastName");
-  const colPrenom = colonnes.find((c) => c.field === "firstName");
-  const details = colonnes.filter((c) => c !== colNom && c !== colPrenom);
-  return (
-    <div className={cn("space-y-2", className)}>
-      <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 px-1 text-xs text-muted-foreground">
-        <input
-          type="checkbox" checked={allChecked}
-          onChange={(e) => onToggleAll(rows.map((r) => r.id), e.target.checked)}
-          className="h-5 w-5 rounded border-input"
-        />
-        Tout sélectionner
-      </label>
-      <ul className="space-y-2">
-        {rows.map((row) => {
-          const nom = [colNom ? valeur(row, colNom) : "", colPrenom ? valeur(row, colPrenom) : ""].filter(Boolean).join(" ");
-          return (
-            <li key={row.id} className={cn("rounded-xl border border-border bg-card p-3", selected.has(row.id) && "border-primary/50 bg-primary/5")}>
-              <div className="flex items-start gap-2">
-                <label className="-m-2 inline-flex shrink-0 cursor-pointer p-2">
-                  <input
-                    type="checkbox" checked={selected.has(row.id)}
-                    onChange={(e) => onToggle(row.id, e.target.checked)}
-                    aria-label={`Sélectionner ${row.lastName ?? row.firstName ?? "cette ligne"}`}
-                    className="h-5 w-5 rounded border-input"
-                  />
-                </label>
-                <p className="min-w-0 flex-1 pl-1 font-medium [overflow-wrap:anywhere]">{nom || "—"}</p>
-              </div>
-              <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm xs:grid-cols-2">
-                {details.map((col) => {
-                  const v = valeur(row, col);
-                  const touchee = overrides.has(cleCellule(row.id, col.cle));
-                  const aRattacher = !touchee && ((col.reference === "etablissement" && estARattacher(row)) || (col.field === "specialty" && specialiteEstARattacher(row)));
-                  const aTrancher = !touchee && col.reference === "etablissement" && !row.institutionId && row.deduction?.statut === "a_trancher";
-                  if (!v && !aRattacher && !aTrancher) return null;
-                  return (
-                    <div key={col.cle} className="min-w-0">
-                      <dt className={cn("text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground", col.custom && "text-primary")}>{col.header}</dt>
-                      <dd className="[overflow-wrap:anywhere]">
-                        {lienContact(col, v) ?? (v || "—")}
-                        {aRattacher && <PastilleCarte>à rattacher</PastilleCarte>}
-                        {aTrancher && row.deduction && (
-                          <PastilleCarte title={row.deduction.raison}>à trancher ({row.deduction.candidats.length})</PastilleCarte>
-                        )}
-                      </dd>
-                    </div>
-                  );
-                })}
-              </dl>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
   );
 }
 
@@ -568,8 +467,8 @@ export function AnnuaireGrid({
   const [deleting, setDeleting] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [bySpecialty, setBySpecialty] = React.useState(false);
-  // Choix d'affichage au téléphone seulement (cartes ou feuille) ; le bureau garde toujours la feuille.
-  const [vueMobile, setVueMobile] = React.useState<"cartes" | "feuille">("feuille");
+  /** La ligne d'ajout est-elle ouverte ? Son bouton est le geste principal de la barre (Direction, 07/10). */
+  const [ajoutOuvert, setAjoutOuvert] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [colonnesOuvertes, setColonnesOuvertes] = React.useState(false);
@@ -868,7 +767,7 @@ export function AnnuaireGrid({
 
   const tableProps = {
     colonnes, editable: canEdit, selected, onToggle: toggleOne, onToggleAll: toggleMany, grille, edition,
-    onCommit: validerEdition, onCancel: annulerEdition, couleurs: couleursLocales, overrides, etablissements, effective, vueMobile,
+    onCommit: validerEdition, onCancel: annulerEdition, couleurs: couleursLocales, overrides, etablissements, effective,
   };
 
   return (
@@ -901,26 +800,22 @@ export function AnnuaireGrid({
             className="w-full pl-8 sm:w-72"
           />
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           {filtered.length} / {rows.length} praticien{rows.length > 1 ? "s" : ""}
+          {/* LE MODE D'EMPLOI DU CLAVIER, derrière le ⓘ — plus un bandeau permanent au-dessus de la feuille (Direction, 07/10). */}
+          {canEdit && (
+            <InfoBulle label="Comment corriger la feuille" align="left">
+              <strong>Un clic sélectionne</strong> une cellule — Maj étend, Ctrl ajoute, on peut aussi glisser et se déplacer aux
+              flèches. <strong>Double-clic, Entrée ou une frappe</strong> ouvrent la correction ; Entrée valide et descend, Tab
+              valide et avance, Échap annule. Wilaya, grade, secteur et potentiel se choisissent dans un menu ;
+              l&apos;<strong>établissement</strong> dans l&apos;annuaire des établissements, le <strong>service</strong> parmi ceux
+              de cet établissement. Les cellules sélectionnées se <strong>colorent</strong> et se <strong>copient</strong> (Ctrl+C)
+              depuis la barre qui apparaît.
+            </InfoBulle>
+          )}
         </span>
 
         <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
-          {/* Téléphone seulement : cartes lisibles au pouce, ou la feuille complète pour corriger. */}
-          <div className="inline-flex overflow-hidden rounded-lg border border-input sm:hidden">
-            <button
-              type="button" onClick={() => setVueMobile("cartes")} aria-pressed={vueMobile === "cartes"}
-              className={cn("inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-medium", vueMobile === "cartes" ? "bg-secondary text-foreground" : "text-muted-foreground")}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" /> Cartes
-            </button>
-            <button
-              type="button" onClick={() => setVueMobile("feuille")} aria-pressed={vueMobile === "feuille"}
-              className={cn("inline-flex min-h-10 items-center gap-1.5 px-3 text-xs font-medium", vueMobile === "feuille" ? "bg-secondary text-foreground" : "text-muted-foreground")}
-            >
-              <Table2 className="h-3.5 w-3.5" /> Feuille
-            </button>
-          </div>
           <div className="inline-flex overflow-hidden rounded-lg border border-input">
             <button
               type="button" onClick={() => setBySpecialty(false)}
@@ -935,50 +830,55 @@ export function AnnuaireGrid({
               <Rows3 className="h-3.5 w-3.5" /> Par spécialité
             </button>
           </div>
-          {canEdit && aRattacher.length > 0 && (
-            <Button size="sm" variant="outline" disabled={rattachement} onClick={rattacher}
-              title="Rattacher à l'annuaire des établissements les fiches dont l'établissement a été tapé à la main">
-              {rattachement ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Building2 className="h-3.5 w-3.5" />}
-              Rattacher les établissements ({aRattacher.length})
+          {/* UN GESTE PRINCIPAL VISIBLE — ajouter une fiche ; le reste (rattachements, colonnes, export, import) dans
+              « ⋯ » (Direction, 07/10). Les rattachements y gardent leur compte : ce qui reste à faire se voit. */}
+          {canImport && !ajoutOuvert && (
+            <Button size="sm" className="h-10 sm:h-8" onClick={() => setAjoutOuvert(true)}>
+              <Plus className="h-3.5 w-3.5" /> {titreParDefaut === "PHARMACIEN" ? "Ajouter un pharmacien" : "Ajouter un praticien"}
             </Button>
           )}
-          {canEdit && rattachables.length > 0 && (
-            <Button size="sm" variant="outline" disabled={rattachementAuto} onClick={rattacherAuto}
-              title="Établissement déduit de la wilaya et de la spécialité ; service = spécialité">
-              {rattachementAuto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Building2 className="h-3.5 w-3.5" />}
-              Rattacher automatiquement ({rattachables.length})
-            </Button>
-          )}
-          {canEdit && specialitesARattacher.length > 0 && (
-            <Button size="sm" variant="outline" disabled={rattachementSpecialites} onClick={rattacherSpecialites}
-              title="Rattacher au référentiel des spécialités les fiches dont la spécialité est écrite sans lien">
-              {rattachementSpecialites ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5" />}
-              Rattacher les spécialités ({specialitesARattacher.length})
-            </Button>
-          )}
-          {canManageColumns && directoryId && (
-            <Button size="sm" variant={colonnesOuvertes ? "secondary" : "outline"} onClick={() => setColonnesOuvertes((v) => !v)}>
-              <Columns3 className="h-3.5 w-3.5" /> Colonnes{customColumns.length > 0 ? ` (${customColumns.length})` : ""}
-            </Button>
-          )}
-          <a
-            href={exportHref}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-xs font-medium hover:bg-secondary sm:min-h-0"
-            title="Exporter l'annuaire en Excel"
-          >
-            <FileSpreadsheet className="h-3.5 w-3.5" /> Exporter
-          </a>
           {canImportFile && (
-            <>
-              <input
-                ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) runPreview(f); }}
-              />
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => fileRef.current?.click()}>
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Importer
-              </Button>
-            </>
+            <input
+              ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) runPreview(f); }}
+            />
           )}
+          {(busy || rattachement || rattachementAuto || rattachementSpecialites) && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="En cours" />
+          )}
+          <MenuPlus label="Autres actions de l'annuaire">
+            {canEdit && aRattacher.length > 0 && (
+              <EntreeMenu disabled={rattachement} onClick={rattacher}
+                title="Rattacher à l'annuaire des établissements les fiches dont l'établissement a été tapé à la main">
+                <Building2 className="h-4 w-4" /> Rattacher les établissements ({aRattacher.length})
+              </EntreeMenu>
+            )}
+            {canEdit && rattachables.length > 0 && (
+              <EntreeMenu disabled={rattachementAuto} onClick={rattacherAuto}
+                title="Établissement déduit de la wilaya et de la spécialité ; service = spécialité">
+                <Building2 className="h-4 w-4" /> Rattacher automatiquement ({rattachables.length})
+              </EntreeMenu>
+            )}
+            {canEdit && specialitesARattacher.length > 0 && (
+              <EntreeMenu disabled={rattachementSpecialites} onClick={rattacherSpecialites}
+                title="Rattacher au référentiel des spécialités les fiches dont la spécialité est écrite sans lien">
+                <Stethoscope className="h-4 w-4" /> Rattacher les spécialités ({specialitesARattacher.length})
+              </EntreeMenu>
+            )}
+            {canManageColumns && directoryId && (
+              <EntreeMenu onClick={() => setColonnesOuvertes((v) => !v)}>
+                <Columns3 className="h-4 w-4" /> {colonnesOuvertes ? "Masquer les colonnes" : "Colonnes"}{customColumns.length > 0 ? ` (${customColumns.length})` : ""}
+              </EntreeMenu>
+            )}
+            <EntreeMenu href={exportHref} brut title="Exporter l'annuaire en Excel">
+              <FileSpreadsheet className="h-4 w-4" /> Exporter (Excel)
+            </EntreeMenu>
+            {canImportFile && (
+              <EntreeMenu disabled={busy} onClick={() => fileRef.current?.click()} title="L'import accepte un fichier existant ; la correspondance des colonnes se valide avant toute écriture.">
+                <Upload className="h-4 w-4" /> Importer un fichier
+              </EntreeMenu>
+            )}
+          </MenuPlus>
         </div>
       </div>
 
@@ -990,30 +890,17 @@ export function AnnuaireGrid({
         />
       )}
 
-      {canImport && <AddDoctorRow specialtyListId={SPECIALTY_LIST_ID} titreParDefaut={titreParDefaut} directoryId={directoryId} etablissements={etablissements} specialiteImposee={specialiteImposee} />}
-
-      {canEdit && (
-        // Le mode d'emploi du clavier ne concerne que la feuille : en cartes, au téléphone, il s'efface.
-        <p className={cn("flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-2.5 text-xs text-muted-foreground", vueMobile === "cartes" && "max-sm:hidden")}>
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            <strong>Un clic sélectionne</strong> une cellule — Maj étend, Ctrl ajoute, on peut aussi glisser et se
-            déplacer aux flèches. <strong>Double-clic, Entrée ou une frappe</strong> ouvrent la correction ;
-            Entrée valide et descend, Tab valide et avance, Échap annule. Wilaya, grade, secteur et potentiel se
-            choisissent dans un menu ; l&apos;<strong>établissement</strong> se choisit dans l&apos;annuaire des
-            établissements, et le <strong>service</strong> parmi ceux de cet établissement. Les cellules sélectionnées se <strong>colorent</strong> et se{" "}
-            <strong>copient</strong> (Ctrl+C) depuis la barre qui apparaît.
-            {canImportFile && <> L&apos;<strong>import</strong> accepte un fichier existant ; l&apos;<strong>export</strong> reprend les colonnes de la feuille.</>}
-          </span>
-        </p>
+      {canImport && ajoutOuvert && (
+        <AddDoctorRow
+          specialtyListId={SPECIALTY_LIST_ID} titreParDefaut={titreParDefaut} directoryId={directoryId} etablissements={etablissements}
+          specialiteImposee={specialiteImposee} onClose={() => setAjoutOuvert(false)}
+        />
       )}
 
       <div {...grille.propsConteneur} className="space-y-5 rounded-xl outline-none focus-visible:ring-1 focus-visible:ring-ring">
         {ordonnees.length === 0 ? (
           <div className="surface px-3 py-10 text-center text-sm text-muted-foreground">
-            {rows.length === 0
-              ? "L'annuaire est vide. Ajoutez un praticien ci-dessus, ou importez un fichier existant."
-              : "Aucun praticien ne correspond à cette recherche."}
+            {rows.length === 0 ? "L'annuaire est vide." : "Aucun praticien ne correspond à cette recherche."}
           </div>
         ) : groups ? (
           (() => {
@@ -1091,10 +978,14 @@ export function AnnuaireGrid({
 
 /** La ligne d'ajout — un nom (ou prénom) suffit, le reste se remplit ensuite dans la feuille. */
 function AddDoctorRow({
-  specialtyListId, titreParDefaut, directoryId, etablissements, specialiteImposee = null,
-}: { specialtyListId: string; titreParDefaut?: string; directoryId: string | null; etablissements: readonly EtablissementOption[]; specialiteImposee?: string | null }) {
+  specialtyListId, titreParDefaut, directoryId, etablissements, specialiteImposee = null, onClose,
+}: {
+  specialtyListId: string; titreParDefaut?: string; directoryId: string | null; etablissements: readonly EtablissementOption[]; specialiteImposee?: string | null;
+  /** La ligne s'ouvre depuis le bouton de la barre (geste principal) ; elle se referme ici. */
+  onClose: () => void;
+}) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const setOpen = (o: boolean) => { if (!o) onClose(); };
   const [lastName, setLastName] = React.useState("");
   const [firstName, setFirstName] = React.useState("");
   const [specialty, setSpecialty] = React.useState("");
@@ -1120,14 +1011,6 @@ function AddDoctorRow({
       else setErr(r.error ?? "Ajout impossible.");
     });
   };
-
-  if (!open) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)} className="w-full sm:w-auto">
-        <Plus className="h-3.5 w-3.5" /> {titreParDefaut === "PHARMACIEN" ? "Ajouter un pharmacien" : "Ajouter un praticien"}
-      </Button>
-    );
-  }
 
   return (
     <div className="space-y-2 rounded-xl border border-border bg-card p-3">

@@ -11,6 +11,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { MEDICAL_TABS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { clePaire, diagnostiquerPanelVide, loadPanelPlanifiable, loadPlanTournee, loadVisitesDuPlan } from "@/lib/queries/tour-schedule";
 import { stockPourVisite, type StockPourVisite } from "@/lib/queries/promo-remises";
 import { jourIso } from "@/lib/sfe/grille-tournee";
@@ -135,15 +136,12 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
 
   return (
     <div className={`mx-auto ${plan ? "max-w-6xl" : "max-w-5xl"} space-y-5`}>
-      <PageHeader
-        title="Plan de tournée"
-        description={`La ville où vous serez, les médecins que vous verrez, jour par jour — puis la validation de votre N+1. Maille ${GRANULARITE_LABELS[granularite].toLowerCase()}.`}
-      />
+      <PageHeader title="Plan de tournée" />
       <ModuleTabs tabs={await visibleTabs(user, MEDICAL_TABS)} />
 
       {plan ? (
         <>
-          <Link href="/medical/plan-de-tournee" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-0">
+          <Link href="/medical/plan-de-tournee" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-8">
             ← Tous les plans
           </Link>
           <Planificateur
@@ -187,7 +185,6 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             }}
             stock={stock}
             peutRapporter={peutRapporter}
-            voirRapportsTerrain={userCan(user, "FIELD_REPORTS", "VIEW")}
           />
         </>
       ) : (
@@ -219,8 +216,15 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
           {/* ── MES PLANS ───────────────────────────────────────────────────── */}
           <section className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 <CalendarRange className="h-4 w-4" /> Mes plans de tournée
+                {/* CE QUE LE SUPER ADMIN A RÉGLÉ, derrière le ⓘ : sans cela, un KAM qui voit une période
+                    trimestrielle croit à un bug — mais ce n'est pas un paragraphe permanent (Direction, 07/10). */}
+                <InfoBulle label="Maille et échéance" align="left" className="normal-case tracking-normal">
+                  Maille : <strong>{GRANULARITE_LABELS[granularite]}</strong>, réglée par le Super Admin (Force de vente ›
+                  Paramètres). L&apos;échéance de soumission tombe {reglage.joursAvant} jour(s) avant la fin du mois qui
+                  précède la période, ramenée au dernier jour ouvré.
+                </InfoBulle>
               </h2>
               {canPlan && (
                 <OuvrirPlan
@@ -232,8 +236,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             </div>
             {mesPlans.length === 0 ? (
               <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                Aucun plan de tournée. Préparez celui de la période à venir ({suivante.debut.toLocaleDateString("fr-FR")} →{" "}
-                {suivante.fin.toLocaleDateString("fr-FR")}) : c&apos;est lui qui remplit votre emploi du temps une fois validé.
+                Aucun plan de tournée.
               </p>
             ) : (
               <ul className="divide-y divide-border rounded-xl border border-border">
@@ -269,17 +272,16 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             )}
           </section>
 
-          {/* CE QUE LE SUPER ADMIN A RÉGLÉ, dit à l'écran : sans cela, un KAM qui voit une
-              période trimestrielle croit à un bug. */}
-          <p className="text-xs text-muted-foreground">
-            Maille de planification : <strong className="text-foreground">{GRANULARITE_LABELS[granularite]}</strong> —
-            réglée par le Super Admin (Force de vente › Paramètres). L&apos;échéance de soumission tombe{" "}
-            {reglage.joursAvant} jour(s) avant la fin du mois qui précède la période, ramenée au dernier jour ouvré.
-            {settings.promoMessageAuthorRoles.length === 0 && (
-              <> Aucun rôle n&apos;est encore autorisé à publier les messages de la Direction Marketing : les rapports
-              terrain les exigent, et ils seront refusés tant que le référentiel est vide.</>
-            )}
-          </p>
+          {/* UN RÉGLAGE MANQUANT QUI BLOQUE LES RAPPORTS se dit en une ligne « état — chez qui ». */}
+          {settings.promoMessageAuthorRoles.length === 0 && (
+            <p className="flex items-center gap-1 text-xs text-warning">
+              <span className="min-w-0 flex-1">Messages Marketing non autorisés — chez le Super Admin</span>
+              <InfoBulle label="Pourquoi">
+                Aucun rôle n&apos;est encore autorisé à publier les messages de la Direction Marketing : les rapports terrain
+                les exigent, et ils seront refusés tant que le référentiel est vide.
+              </InfoBulle>
+            </p>
+          )}
         </>
       )}
     </div>

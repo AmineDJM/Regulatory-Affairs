@@ -52,7 +52,8 @@ import { etatRetraitDemandeDevis } from "@/lib/promo-material/retrait-devis";
 import { PromoExecutionCard, type ExecutionAffichee, type NatureAffichee } from "./execution-card";
 import { PromoArticlesCard } from "./articles-card";
 import { DemandeDevisCard, type GenerationLettre } from "./demande-devis-card";
-import { MenuDossier } from "./menu-dossier";
+import { MenuDossier } from "@/components/shared/menu-dossier";
+import { AttachToSourceButtons, type NaturePieceLiee } from "@/components/shared/attach-to-source";
 import { articlesDemandesDuDossier, optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
 import { etatReception, natureDeReception, peutReceptionner, resteAFacturer } from "@/lib/promo-material/achats";
 import { libelleArticleStock } from "@/lib/promo/stock";
@@ -155,6 +156,10 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   // pôle (`contextePiecesLiees`), la même que sur les six autres fiches. Au circuit 2, le bloc « Pièces
   // liées » ne se monte plus (Direction, 07/10) : il ne faut que les accès, pas les candidats à rattacher.
   const ctxPieces = v2 ? { acces: accesPiecesLiees(user), candidatsLegal: [] } : await contextePiecesLiees(user, "PROMO_MATERIAL");
+  // Créer un engagement (convention, contrat…) ou un courrier rattaché au dossier — offert dans « ⋯ » au circuit 2.
+  const naturesEngagement: NaturePieceLiee[] = v2
+    ? [ctxPieces.acces.creer?.engagement ? ("legal" as const) : null, ctxPieces.acces.creer?.courrier ? ("mail" as const) : null].filter((x): x is "legal" | "mail" => x !== null)
+    : [];
   const acteur = { id: user.id, role: user.role, secondaryRole: user.secondaryRole, vueGlobale: isDirection };
   const tracksDone = ((pm.tracksDone ?? "").split(",").map((s) => s.trim()).filter(Boolean) as PromoTrack[])
     .filter((t) => (PROMO_TRACKS as readonly string[]).includes(t));
@@ -405,11 +410,15 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
         {circuitState && pm.status !== "CANCELLED"
           ? <StatusBadge map={{ [circuitState]: { label: libelleEtape(circuitState, version), tone: circuitState === "REFUSED" ? "danger" : circuitState === "COMPLETED" ? "success" : "info" } }} value={circuitState} />
           : <StatusBadge map={PROMO_MATERIAL_STATUS} value={pm.status} />}
-        {/* Corriger, supprimer : des gestes rares — derrière « ⋯ ». */}
-        {(peutCorriger || peutSupprimer) && (
+        {/* Corriger, supprimer, créer un engagement ou un courrier rattaché (Direction, 07/10 : il était parti avec
+            « Pièces liées ») : des gestes rares — derrière « ⋯ ». Les mêmes droits que l'ancien bloc (`accesPiecesLiees`). */}
+        {(peutCorriger || peutSupprimer || naturesEngagement.length > 0) && (
           <MenuDossier>
             {peutCorriger && promoEditValues && (
               <AdProEditButton kind="PROMO_MATERIAL" id={pm.id} decided={promoDecided} values={promoEditValues} />
+            )}
+            {naturesEngagement.length > 0 && (
+              <AttachToSourceButtons entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} kinds={naturesEngagement} />
             )}
             <SupprimerDemandeAdPro kind="PROMO_MATERIAL" id={pm.id} name={pm.title} enabled={peutSupprimer} />
           </MenuDossier>

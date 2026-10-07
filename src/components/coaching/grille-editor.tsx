@@ -10,6 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { tonsDuNiveau } from "./fiche-grille";
 import { cn } from "@/lib/utils";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { EntreeMenu, MenuPlus } from "@/app/(app)/medical/menu-plus";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -80,9 +82,11 @@ export function EditeurGrille({ initiale, version }: { initiale: GrilleCoaching;
       </section>
 
       <section className="surface space-y-3 p-4 sm:p-5">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">Échelle d&apos;évaluation — quatre niveaux, points 1 à 4</h2>
-          <p className="text-xs text-muted-foreground">Les libellés s&apos;éditent ; le barème reste de 1 à 4, pour que les totaux restent comparables d&apos;une fiche à l&apos;autre.</p>
+        <div className="flex items-center gap-1">
+          <h2 className="text-sm font-semibold text-foreground">Échelle d&apos;évaluation — points 1 à 4</h2>
+          <InfoBulle label="Pourquoi un barème fixe" align="left">
+            Les libellés s&apos;éditent ; le barème reste de 1 à 4, pour que les totaux restent comparables d&apos;une fiche à l&apos;autre.
+          </InfoBulle>
         </div>
         <div className="space-y-2">
           {grille.niveaux.map((n, i) => (
@@ -157,12 +161,17 @@ export function EditeurGrille({ initiale, version }: { initiale: GrilleCoaching;
       <div className="sticky bottom-0 z-10 flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-3 shadow-[0_8px_24px_-8px_rgba(15,23,42,0.28)] sm:flex-row sm:items-center sm:px-4">
         <input className={cn(champ, "sm:max-w-md")} value={note} maxLength={300} placeholder="Motif de la modification (facultatif)" onChange={(e) => setNote(e.target.value)} aria-label="Motif de la modification" />
         {message && <p className={cn("min-w-0 text-sm [overflow-wrap:anywhere]", message.ok ? "text-success" : "text-destructive")} role="status">{message.texte}</p>}
-        <span className="flex flex-wrap gap-2 sm:ml-auto [&>*]:flex-1 sm:[&>*]:flex-none">
-          <Button variant="ghost" size="sm" onClick={() => { setGrille(structuredClone(GRILLE_PAR_DEFAUT)); setMessage(null); }} title="Recharger le contenu du classeur d'origine (à publier ensuite)">
-            <RotateCcw className="h-4 w-4" /> Grille d&apos;origine
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => { setGrille(initiale); setMessage(null); }} disabled={!modifiee || busy}>Annuler les changements</Button>
-          <Button size="sm" onClick={() => void publier()} disabled={!modifiee || !verdict.ok || busy}>
+        {/* UN GESTE PRINCIPAL (Publier) ; « Annuler les changements » discret, « Grille d'origine » dans « ⋯ » (Direction, 07/10). */}
+        <span className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          <MenuPlus label="Autres actions sur la grille" vers="haut">
+            <EntreeMenu onClick={() => { setGrille(structuredClone(GRILLE_PAR_DEFAUT)); setMessage(null); }} title="Recharger le contenu du classeur d'origine (à publier ensuite)">
+              <RotateCcw className="h-4 w-4" /> Recharger la grille d&apos;origine
+            </EntreeMenu>
+            <EntreeMenu onClick={() => { setGrille(initiale); setMessage(null); }} disabled={!modifiee || busy}>
+              Annuler les changements
+            </EntreeMenu>
+          </MenuPlus>
+          <Button size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" onClick={() => void publier()} disabled={!modifiee || !verdict.ok || busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Publier la version {version + 1}
           </Button>

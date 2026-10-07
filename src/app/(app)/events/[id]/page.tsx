@@ -1,18 +1,18 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView, hasRole, anyRoleFilter } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { porteeModificationEvenement } from "@/lib/events/modification";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { MenuDossier } from "@/components/shared/menu-dossier";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS, PARTICIPANT_ROLE, CONGRESS_REQUEST_STATUS } from "@/lib/labels";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS } from "@/lib/labels";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { EditEventButton } from "../event-form";
 import { EventFundingPanel } from "./funding-panel";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
@@ -20,6 +20,7 @@ import { InvolvementConversations } from "@/components/ad-pro/involvement-conver
 import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { getEntityMissions } from "@/lib/queries/missions";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
+import { WithdrawForm, HistoriqueDuCircuit } from "@/components/workflow/workflow-panel";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
@@ -30,7 +31,9 @@ import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
 import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
+import { breakdown } from "@/lib/ad-pro-items";
 import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+import { Faits, Fait, BandeauArgent, Chiffre, Repli, IntertitrePostes, CarteTracabilite } from "@/components/ad-pro/carte-demande";
 import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
@@ -89,12 +92,14 @@ export default async function EventDetailPage({ params }: { params: { id: string
     { requesterId: e.requesterId ?? null, decided: eventDecided },
   );
   const eventEditValues = canEditEventRequest ? await adProEditValues("EVENT", e.id) : null;
-  const [responsibles, missions, workflow, documents, involvementThreads] = await Promise.all([
+  const [responsibles, missions, workflow, documents, involvementThreads, dates] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
     getWorkflowForEntity(user, "EVENT", e.id, e.requesterId ?? null),
     prisma.document.findMany({ where: { entityType: "EVENT", entityId: e.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     getInvolvementThreads("EVENT", e.id),
+    // « Traçabilité » : créée le, modifiée le.
+    prisma.event.findUnique({ where: { id: e.id }, select: { createdAt: true, updatedAt: true } }),
   ]);
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
@@ -115,59 +120,57 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const canUploadDocs = canAttachToAdPro(attacheur, dossierAdPro) || canManage;
   const uploadHint = canUploadDocs ? null : attachHint(attacheur, dossierAdPro);
 
+  // ── « ⋯ » : LES GESTES SECONDAIRES (Direction, 07/10) — les mêmes boutons, les mêmes droits, rangés. ──
+  const peutSupprimer = await peutSupprimerUneDemandeAdPro(user, "EVENT", e.id);
+  // Le DEMANDEUR corrige sa demande tant qu'elle n'est pas tranchée (les gestionnaires ont déjà l'édition complète —
+  // inutile de doubler leur bouton).
+  const peutCorriger = !canManage && canEditEventRequest && eventEditValues !== null;
+  const peutImpliquer = canManage || canMarketing || canValidate;
+  const peutRetirer = Boolean(e.requestStatus) && Boolean(workflow?.peutRetirer);
+  const menu = canManage || peutCorriger || peutImpliquer || peutRetirer || peutSupprimer;
+
+  // L'ARGENT, EN UN BANDEAU (Direction, 07/10) : budget estimé, enveloppe accordée, affecté aux postes, reste ou dépassement.
+  const ventilation = breakdown(items, e.finalAmount);
+  const dateTexte = [e.startDate && formatDate(e.startDate), e.endDate && formatDate(e.endDate)].filter(Boolean).join(" → ");
+  const creeeLe = dates?.createdAt ?? null;
+
   return (
     <div className="space-y-5">
       <BackLink href="/events"><ArrowLeft className="h-4 w-4" /> Events</BackLink>
-      <PageHeader title={e.name} description={`${EVENT_TYPE[e.type]} · ${EVENT_SCOPE[e.scope]} · ${EVENT_FORMAT[e.format]}`}>
+      <PageHeader
+        title={e.name}
+        description={[
+          EVENT_TYPE[e.type] ?? e.type,
+          e.requesterName
+            ? `demandé par ${e.requesterName}${creeeLe ? ` le ${formatDate(creeeLe)}` : ""}`
+            : creeeLe ? `créé le ${formatDate(creeeLe)}` : null,
+        ].filter(Boolean).join(" · ")}
+      >
         <StatusBadge map={EVENT_STATUS} value={e.status} />
-        {canManage && (
-          <EditEventButton
-            event={e}
-            responsibles={responsibles}
-            referentiels={adPro ? {
-              doctors: adPro.doctors, products: adPro.products,
-              specialties: adPro.specialties, specialtiesHeritees: adPro.specialtiesHeritees,
-              businessUnits: adPro.businessUnits, businessUnitDeduite: adPro.businessUnitDeduite,
-            } : undefined}
-            canDelete={canDelete}
-            organisationSeule={porteeEdition === "ORGANISATION"}
-          />
+        {menu && (
+          <MenuDossier>
+            {canManage && (
+              <EditEventButton
+                event={e}
+                responsibles={responsibles}
+                referentiels={adPro ? {
+                  doctors: adPro.doctors, products: adPro.products,
+                  specialties: adPro.specialties, specialtiesHeritees: adPro.specialtiesHeritees,
+                  businessUnits: adPro.businessUnits, businessUnitDeduite: adPro.businessUnitDeduite,
+                } : undefined}
+                canDelete={canDelete}
+                organisationSeule={porteeEdition === "ORGANISATION"}
+              />
+            )}
+            {peutCorriger && eventEditValues && (
+              <AdProEditButton kind="EVENT" id={e.id} decided={eventDecided} values={eventEditValues} />
+            )}
+            {peutImpliquer && <ThirdPartyInvolveButton type="EVENT" id={e.id} people={responsibles} />}
+            {peutRetirer && <WithdrawForm entityType="EVENT" entityId={e.id} dansUnMenu />}
+            <SupprimerDemandeAdPro kind="EVENT" id={e.id} name={e.name} enabled={peutSupprimer} />
+          </MenuDossier>
         )}
-        {/* Le DEMANDEUR corrige sa demande tant qu'elle n'est pas tranchée (les gestionnaires
-            ont déjà l'édition complète juste au-dessus — inutile de doubler leur bouton). */}
-        {!canManage && canEditEventRequest && eventEditValues && (
-          <AdProEditButton kind="EVENT" id={e.id} decided={eventDecided} values={eventEditValues} />
-        )}
-        <SupprimerDemandeAdPro kind="EVENT" id={e.id} name={e.name} enabled={await peutSupprimerUneDemandeAdPro(user, "EVENT", e.id)} />
       </PageHeader>
-
-      <div className="grid gap-5">
-        {/* LES INFORMATIONS ET LES PIÈCES JOINTES DE L'ÉVÉNEMENT — convention, programme, photos… :
-            « + Pièce jointe » en haut à droite. La chaîne d'achat vit sur chaque poste. */}
-        <CarteDetailsDemande
-          titre="Informations"
-          contentClassName="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 sm:gap-x-6"
-          pieces={{
-            entityType: "EVENT", entityId: e.id, documents: docItems,
-            peutDeposer: canUploadDocs, motif: uploadHint,
-            categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
-            canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
-            canRename: canUploadDocs, canEdit: onlyofficeConfigured() && canUploadDocs,
-            path: `/events/${e.id}`,
-          }}
-        >
-            <Info label="Dates" value={[e.startDate && formatDate(e.startDate), e.endDate && formatDate(e.endDate)].filter(Boolean).join(" → ") || "—"} />
-            <Info label="Lieu" value={[e.location, e.city, e.country].filter(Boolean).join(", ")} />
-            <Info label="Spécialité" value={e.specialty} />
-            <Info label="Produits" value={e.products} />
-            <Info label="Capacité" value={e.capacity ? String(e.capacity) : "Illimitée"} />
-            <Info label="Budget estimé" value={e.estimatedBudget !== null ? formatCurrency(e.estimatedBudget) : "—"} />
-            <Info label="Responsable" value={e.responsibleName} />
-            {e.meetingLink && <div className="col-span-full"><a href={e.meetingLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><Video className="h-4 w-4" /> Lien de connexion (webinar)</a></div>}
-            {e.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Description</p><p className="whitespace-pre-wrap break-words">{e.description}</p></div>}
-        </CarteDetailsDemande>
-
-      </div>
 
       {/* LE BLOC « SUIVI DE VALIDATION » A ÉTÉ RETIRÉ (demande de la Direction, 09/2026).
           Il montrait une frise « Brouillon → En attente → Validé » dérivée de `Event.status`,
@@ -175,53 +178,105 @@ export default async function EventDetailPage({ params }: { params: { id: string
           invitait même à le faire (« Faites avancer la validation via Modifier »). Un événement
           pouvait donc s'afficher « Validé » sans qu'aucune étape ne l'ait validé : deux vérités
           sur la même question, et c'est la plus flatteuse qui gagnait (§118.5, §118.138).
-          La SEULE frise de validation est désormais celle du circuit, juste en dessous, et
-          `lib/events/statut.ts` interdit au formulaire d'écrire un verdict. */}
+          La SEULE frise de validation est celle du circuit de prise en charge, en tête de la carte
+          « La demande », et `lib/events/statut.ts` interdit au formulaire d'écrire un verdict. */}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center gap-2">
-            Demande de prise en charge (financement)
-            {e.requestStatus && <StatusBadge map={CONGRESS_REQUEST_STATUS} value={e.requestStatus} />}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EventFundingPanel
-            eventId={e.id}
-            requestSubmitted={!!e.requestStatus}
-            canSubmit={canSubmit}
-            workflow={workflow}
-          />
-          {(canManage || canMarketing || canValidate) && (
-            <div className="mt-4 border-t border-border pt-3">
-              <ThirdPartyInvolveButton type="EVENT" id={e.id} people={responsibles} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* LA DEMANDE, EN UNE CARTE (Direction, 07/10) — « Informations », « Demande de prise en charge (financement) » et
+          « Ce que couvre cet événement » fusionnés : la frise et la phrase de statut de la prise en charge (avec ses gestes :
+          soumettre, décider, relancer), les faits une fois, l'argent en un bandeau, la description et les pièces jointes
+          repliées, puis les postes. « + Pièce jointe » en haut à droite ; la chaîne d'achat vit sur chaque poste. */}
+      <CarteDetailsDemande
+        titre="La demande"
+        piecesRepliees
+        contentClassName="space-y-3"
+        pieces={{
+          entityType: "EVENT", entityId: e.id, documents: docItems,
+          peutDeposer: canUploadDocs, motif: uploadHint,
+          categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
+          canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
+          canRename: canUploadDocs, canEdit: onlyofficeConfigured() && canUploadDocs,
+          path: `/events/${e.id}`,
+        }}
+        entete={
+          <div className="space-y-4">
+            <EventFundingPanel
+              eventId={e.id}
+              requestSubmitted={!!e.requestStatus}
+              canSubmit={canSubmit}
+              workflow={workflow}
+              compact
+            />
 
-      {/* POSTES de l'événement : consulting, traiteur, location de salle… chacun validé à part par
-          la Direction, avec son budget et son bon de commande — comme sur le sponsoring. */}
-      <Card>
-        <CardHeader><CardTitle>Ce que couvre cet événement</CardTitle></CardHeader>
-        <CardContent>
-          <AdProItemsPanel
-            parent="EVENT"
-            parentId={e.id}
-            items={items}
-            amountGranted={e.finalAmount != null ? toNumber(e.finalAmount) : null}
-            decided={e.requestStatus ? ["APPROVED", "COMPLETED"].includes(e.requestStatus) : e.status !== "DRAFT" && e.status !== "CANCELLED"}
-            canEdit={userCan(user, "EVENTS", "CREATE") || canManage || canAllocateItems}
-            canAllocate={canAllocateItems}
-            promoOptions={promoOptions}
-            budgetOptions={budgetOptions}
-            materiel={materielStock}
-            canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
-            canViserBC={siegeAuCentreAdPro(user)}
-            contexte={contexte}
-          />
-        </CardContent>
-      </Card>
+            <Faits>
+              <Fait label="Dates" valeur={dateTexte} />
+              <Fait label="Lieu" valeur={[e.location, e.city, e.country].filter(Boolean).join(", ")} />
+              <Fait label="Portée" valeur={EVENT_SCOPE[e.scope] ?? e.scope} />
+              <Fait label="Format" valeur={EVENT_FORMAT[e.format] ?? e.format} />
+              <Fait label="Spécialité" valeur={e.specialty} />
+              <Fait label="Produits" valeur={e.products} />
+              {e.doctor && <Fait label="Médecins" valeur={e.doctor} />}
+              <Fait label="Capacité" valeur={e.capacity ? String(e.capacity) : "Illimitée"} />
+              <Fait label="Responsable" valeur={e.responsibleName} />
+              {e.meetingLink && (
+                <Fait
+                  large
+                  label="Webinar"
+                  valeur={<a href={e.meetingLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-primary hover:underline"><Video className="h-4 w-4" /> Lien de connexion</a>}
+                />
+              )}
+            </Faits>
+
+            <BandeauArgent>
+              <Chiffre label="Budget estimé" valeur={e.estimatedBudget !== null ? formatCurrency(e.estimatedBudget) : "—"} />
+              <Chiffre label="Enveloppe accordée" valeur={e.finalAmount != null ? formatCurrency(e.finalAmount) : "Non tranchée"} discret={e.finalAmount == null} />
+              <Chiffre
+                label="Affecté aux postes"
+                valeur={formatCurrency(ventilation.totalRequestedDzd)}
+                note={ventilation.additionalDzd > 0
+                  ? `dont ${formatCurrency(ventilation.additionalDzd)} en rallonge`
+                  : `${ventilation.itemCount} poste${ventilation.itemCount > 1 ? "s" : ""}`}
+                ton={ventilation.additionalDzd > 0 ? "attente" : undefined}
+              />
+              {ventilation.overrunDzd > 0 ? (
+                <Chiffre label="Dépassement" valeur={formatCurrency(ventilation.overrunDzd)} ton="alerte" />
+              ) : (
+                <Chiffre
+                  label="Reste à affecter"
+                  valeur={ventilation.envelopeDzd != null ? formatCurrency(ventilation.unallocatedDzd) : "—"}
+                  note={ventilation.balanced ? "ventilation complète" : null}
+                  ton={ventilation.balanced ? "succes" : undefined}
+                />
+              )}
+            </BandeauArgent>
+
+            {e.description && (
+              <Repli titre="Description">
+                <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{e.description}</p>
+              </Repli>
+            )}
+          </div>
+        }
+      >
+        {/* POSTES de l'événement : consulting, traiteur, location de salle… chacun validé à part par la Direction, avec son
+            budget et son bon de commande — comme sur le sponsoring. Leur bandeau propre a rejoint celui de la carte. */}
+        <IntertitrePostes n={items.length} />
+        <AdProItemsPanel
+          parent="EVENT"
+          parentId={e.id}
+          items={items}
+          amountGranted={e.finalAmount != null ? toNumber(e.finalAmount) : null}
+          decided={e.requestStatus ? ["APPROVED", "COMPLETED"].includes(e.requestStatus) : e.status !== "DRAFT" && e.status !== "CANCELLED"}
+          canEdit={userCan(user, "EVENTS", "CREATE") || canManage || canAllocateItems}
+          canAllocate={canAllocateItems}
+          promoOptions={promoOptions}
+          budgetOptions={budgetOptions}
+          materiel={materielStock}
+          canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
+          canViserBC={siegeAuCentreAdPro(user)}
+          contexte={contexte}
+          resume={false}
+        />
+      </CarteDetailsDemande>
 
       {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
       <PiecesLegalDeLaDemande spectateur={user} entityType="EVENT" entityId={e.id} />
@@ -235,26 +290,33 @@ export default async function EventDetailPage({ params }: { params: { id: string
         </Card>
       )}
 
-      <MissionAssignmentsCard
-        entityType="EVENT"
-        entityId={e.id}
-        assignments={missions}
-        users={responsibles}
-        canManage={canManage}
-        currentUserId={user.id}
-        path={`/events/${e.id}`}
-      />
-
       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
           impliquées : un seul espace. */}
       <EspaceDiscussion>
         <AdProDiscussionCard entityType="EVENT" entityId={e.id} user={user} />
         <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
       </EspaceDiscussion>
+
+      {/* TOUT EN BAS, PLEINE LARGEUR (Direction, 07/10) : « Accompagnants & délégués » et « Traçabilité ». L'historique du
+          circuit (qui a fait quoi, quand) vit dans « Traçabilité », et pour le Super Admin seulement. */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <MissionAssignmentsCard
+            entityType="EVENT"
+            entityId={e.id}
+            assignments={missions}
+            users={responsibles}
+            canManage={canManage}
+            currentUserId={user.id}
+            path={`/events/${e.id}`}
+          />
+        </div>
+        <CarteTracabilite
+          creeeLe={dates ? formatDateTime(dates.createdAt) : "—"}
+          modifieeLe={dates ? formatDateTime(dates.updatedAt) : "—"}
+          historique={user.role === "SUPER_ADMIN" && e.requestStatus && workflow && workflow.events.length > 0 ? <HistoriqueDuCircuit events={workflow.events} /> : null}
+        />
+      </div>
     </div>
   );
-}
-
-function Info({ label, value }: { label: string; value: string | null | undefined }) {
-  return <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="break-words font-medium">{value || "—"}</p></div>;
 }

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
  * permet (`gestesSurLaFiche`) ; l'action la revérifie.
  */
 export function FicheActions({
-  id, collaborateur, finaliser, supprimer, finalisee, complete,
+  id, collaborateur, finaliser, supprimer, finalisee, complete, dansUnMenu = false,
 }: {
   id: string;
   collaborateur: string;
@@ -19,6 +19,8 @@ export function FicheActions({
   supprimer: boolean;
   finalisee: boolean;
   complete: boolean;
+  /** Rendu comme une entrée du menu « ⋯ » de la fiche (Direction, 07/10) : « Retirer » n'y est plus un bouton nu à l'écran. */
+  dansUnMenu?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<"finaliser" | "supprimer" | null>(null);
@@ -42,13 +44,28 @@ export function FicheActions({
   };
 
   if (!finaliser && !supprimer) return null;
+  if (dansUnMenu) {
+    return (
+      <>
+        {supprimer && (
+          <button
+            type="button" role="menuitem" onClick={() => void agir("supprimer")} disabled={busy !== null}
+            className="flex min-h-10 w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-destructive hover:bg-secondary disabled:opacity-50 sm:min-h-9 sm:py-1.5"
+          >
+            {busy === "supprimer" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Retirer la fiche
+          </button>
+        )}
+        {err && <span className="px-2.5 py-1 text-xs text-destructive" role="alert">{err}</span>}
+      </>
+    );
+  }
   return (
     <span className="flex flex-wrap items-center gap-2">
       {err && <span className="text-xs text-destructive" role="alert">{err}</span>}
-      {/* Au doigt, l'infobulle du bouton grisé ne s'affiche pas : la raison est écrite. */}
-      {finaliser && !complete && <span className="w-full text-xs text-muted-foreground sm:hidden">Notez chaque axe pour pouvoir finaliser.</span>}
+      {/* Ce qui manque pour finaliser se lit sur la carte du total (« Reste à noter ») — pas de phrase sous le bouton. */}
       {finaliser && (
-        <Button size="sm" onClick={() => void agir("finaliser")} disabled={busy !== null || !complete} title={complete ? undefined : "Notez chaque axe pour pouvoir finaliser."}>
+        <Button size="sm" className="h-10 sm:h-8" onClick={() => void agir("finaliser")} disabled={busy !== null || !complete} title={complete ? undefined : "Notez chaque axe pour pouvoir finaliser."}>
           {busy === "finaliser" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           Finaliser et partager
         </Button>

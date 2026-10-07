@@ -4,11 +4,12 @@ import * as React from "react";
 import { MoreHorizontal } from "lucide-react";
 
 /**
- * « ⋯ » — LES GESTES SECONDAIRES DE LA FICHE (Direction, 07/10 : « un geste principal visible, le reste dans ⋯ »).
+ * « ⋯ » — LES GESTES SECONDAIRES D'UNE FICHE (Direction, 07/10 : « un geste principal visible, le reste dans ⋯ »).
  *
- * Les boutons arrivent tout faits du serveur (corriger la demande, la supprimer) : ce menu ne décide d'aucun droit,
- * il les range. Ils restent montés tant que le menu est ouvert — leur fenêtre (Sheet) vit dans ce bloc, si bien
- * qu'un clic dans la fenêtre n'est pas un « clic ailleurs » qui la refermerait.
+ * Les boutons arrivent tout faits du serveur (corriger la demande, la transférer, la supprimer…) : ce menu ne décide
+ * d'aucun droit, il les range. Ils restent montés tant que le menu est ouvert — leur fenêtre (Sheet) vit dans ce bloc,
+ * si bien qu'un clic dans la fenêtre n'est pas un « clic ailleurs » qui la refermerait. Même menu que celui de la
+ * fiche du matériel promotionnel (`promo-material/[id]/menu-dossier.tsx`).
  */
 export function MenuDossier({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
@@ -41,7 +42,7 @@ export function MenuDossier({ children }: { children: React.ReactNode }) {
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open && (
-        <div role="menu" className="absolute left-0 z-50 mt-1 flex w-56 max-w-[calc(100vw-2rem)] flex-col items-stretch gap-1.5 rounded-lg border border-border bg-background p-2 shadow-lg sm:left-auto sm:right-0">
+        <div role="menu" className="absolute left-0 z-50 mt-1 flex w-64 max-w-[calc(100vw-2rem)] flex-col items-stretch gap-1.5 rounded-lg border border-border bg-background p-2 shadow-lg sm:left-auto sm:right-0">
           {children}
         </div>
       )}

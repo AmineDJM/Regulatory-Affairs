@@ -6,8 +6,10 @@ import { PageHeader } from "@/components/shared/page-header";
 import { BackLink } from "@/components/shared/back-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { FicheCoachingForm } from "@/components/coaching/fiche-form";
 import { FicheActions } from "@/components/coaching/fiche-actions";
+import { EntreeMenu, MenuPlus } from "../../menu-plus";
 import { BilanLecture, EchelleNiveaux, GrilleEvaluation, TotalFiche } from "@/components/coaching/fiche-grille";
 import { collaborateursCoachables, lecteurCoaching, managersPossibles } from "@/lib/coaching/serveur";
 import { chargerFicheVisible } from "@/lib/coaching/fiches";
@@ -28,6 +30,7 @@ export default async function FicheCoachingPage({ params, searchParams }: { para
   const fiche = await chargerFicheVisible(l, params.id);
   if (!fiche) notFound();
   const finalisee = fiche.status === "FINALIZED";
+  const modifiable = fiche.gestes.modifier && !!fiche.grille;
 
   if (searchParams?.modifier === "1" && fiche.gestes.modifier && fiche.grille) {
     const [coachables, managers] = await Promise.all([
@@ -44,9 +47,7 @@ export default async function FicheCoachingPage({ params, searchParams }: { para
         <BackLink href={`/medical/coaching/${fiche.id}`} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">← Retour à la fiche</BackLink>
         <PageHeader
           title={`Modifier — ${fiche.collaborateur}`}
-          description={finalisee
-            ? "Fiche finalisée : la modification est réservée à la direction des opérations, et le collaborateur en sera prévenu."
-            : "Brouillon — vous pourrez le finaliser une fois chaque axe noté."}
+          description={finalisee ? "Fiche finalisée — le collaborateur sera prévenu" : "Brouillon"}
         />
         <FicheCoachingForm
           mode="modification"
@@ -80,34 +81,58 @@ export default async function FicheCoachingPage({ params, searchParams }: { para
         title={`Fiche de coaching — ${fiche.collaborateur}`}
         description={`Tournée en double du ${formaterJour(fiche.visitDate)}${fiche.manager ? ` avec ${fiche.manager}` : ""}${fiche.sector ? ` · ${fiche.sector}` : ""}`}
       >
-        <a href={`/api/medical/coaching/${fiche.id}/export`}>
-          <Button variant="outline" size="sm"><Download className="h-4 w-4" /> Télécharger (Excel)</Button>
-        </a>
-        <a href={`/impression/coaching/${fiche.id}?auto=1`} target="_blank" rel="noreferrer">
-          <Button variant="outline" size="sm"><Printer className="h-4 w-4" /> Imprimer / PDF</Button>
-        </a>
-        {fiche.gestes.modifier && fiche.grille && (
+        {/* UN GESTE PRINCIPAL : finaliser quand la règle le permet, sinon modifier. Le reste dans « ⋯ »
+            (Direction, 07/10). Le menu reste ouvert au clic : « Retirer » y montre son erreur s'il échoue. */}
+        {fiche.gestes.finaliser ? (
+          <FicheActions
+            id={fiche.id}
+            collaborateur={fiche.collaborateur}
+            finaliser
+            supprimer={false}
+            finalisee={finalisee}
+            complete={fiche.complet}
+          />
+        ) : modifiable && (
           <Link href={`/medical/coaching/${fiche.id}?modifier=1`}>
-            <Button variant="secondary" size="sm"><Pencil className="h-4 w-4" /> Modifier</Button>
+            <Button size="sm" className="h-10 sm:h-8"><Pencil className="h-4 w-4" /> Modifier</Button>
           </Link>
         )}
-        <FicheActions
-          id={fiche.id}
-          collaborateur={fiche.collaborateur}
-          finaliser={fiche.gestes.finaliser}
-          supprimer={fiche.gestes.supprimer}
-          finalisee={finalisee}
-          complete={fiche.complet}
-        />
+        <MenuPlus label="Autres actions sur la fiche" fermerAuClic={false}>
+          {fiche.gestes.finaliser && modifiable && (
+            <EntreeMenu href={`/medical/coaching/${fiche.id}?modifier=1`}>
+              <Pencil className="h-4 w-4" /> Modifier
+            </EntreeMenu>
+          )}
+          <EntreeMenu href={`/api/medical/coaching/${fiche.id}/export`} brut>
+            <Download className="h-4 w-4" /> Télécharger (Excel)
+          </EntreeMenu>
+          <EntreeMenu href={`/impression/coaching/${fiche.id}?auto=1`} brut nouvelOnglet>
+            <Printer className="h-4 w-4" /> Imprimer / PDF
+          </EntreeMenu>
+          {fiche.gestes.supprimer && (
+            <FicheActions
+              id={fiche.id}
+              collaborateur={fiche.collaborateur}
+              finaliser={false}
+              supprimer
+              finalisee={finalisee}
+              complete={fiche.complet}
+              dansUnMenu
+            />
+          )}
+        </MenuPlus>
       </PageHeader>
 
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Badge tone={finalisee ? "success" : "warning"}>{finalisee ? "Finalisée" : "Brouillon"}</Badge>
-        {finalisee && fiche.finalizedAt && (
-          <span>le {fiche.finalizedAt.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" })}{fiche.finalisePar ? ` par ${fiche.finalisePar}` : ""}</span>
-        )}
-        <span>· grille version {fiche.gridVersion}</span>
-        {fiche.creePar && <span>· saisie par {fiche.creePar}</span>}
+      {/* L'ÉTAT EN UNE PHRASE « état — chez qui » ; la version de grille et l'auteur de la saisie derrière le ⓘ. */}
+      <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+        <Badge tone={finalisee ? "success" : "warning"}>
+          {finalisee
+            ? `Finalisée${fiche.finalizedAt ? ` le ${fiche.finalizedAt.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" })}` : ""}${fiche.finalisePar ? ` par ${fiche.finalisePar}` : ""}`
+            : `Brouillon — chez ${fiche.manager ?? "le manager"}`}
+        </Badge>
+        <InfoBulle label="Détails de la fiche" align="left">
+          Grille version {fiche.gridVersion}{fiche.creePar ? ` · saisie par ${fiche.creePar}` : ""}.
+        </InfoBulle>
       </div>
 
       {fiche.grille ? (
@@ -123,7 +148,7 @@ export default async function FicheCoachingPage({ params, searchParams }: { para
         </>
       ) : (
         <p className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-          La grille sous laquelle cette fiche a été remplie ne se lit plus — ses notes ne peuvent pas être affichées sans risquer de les attacher aux mauvais critères.
+          Grille de cette fiche illisible — notes non affichables.
         </p>
       )}
     </div>

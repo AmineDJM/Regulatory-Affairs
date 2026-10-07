@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { ArrowRight, CalendarCheck, CalendarRange, Users } from "lucide-react";
+import { CalendarCheck, CalendarRange, Users } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { loadMyFieldDay } from "@/lib/queries/my-field-day";
@@ -12,6 +11,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { MEDICAL_TABS } from "@/lib/labels";
 import { Card, CardContent } from "@/components/ui/card";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { formatDate } from "@/lib/utils";
 import { DayClient } from "./day-client";
 
@@ -57,10 +57,7 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
-      <PageHeader
-        title={`Bonjour ${user.name.split(" ")[0]}`}
-        description="Qui voir aujourd'hui, et la visite à noter en trois gestes."
-      />
+      <PageHeader title={`Bonjour ${user.name.split(" ")[0]}`} />
       <ModuleTabs tabs={await visibleTabs(user, MEDICAL_TABS)} />
 
       {/* LA LIGNE DE CHIFFRES — grande, lisible d'un coup d'œil, en haut. */}
@@ -78,73 +75,67 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
             <div className={`h-full rounded-full ${p.donePct >= 90 ? "bg-success" : "bg-primary"} transition-all`} style={{ width: `${Math.min(100, p.donePct)}%` }} />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Panel couvert à <strong className="text-foreground">{p.coveragePct} %</strong> ({p.covered}/{p.panelSize} praticiens)
+            Panel couvert <strong className="text-foreground">{p.coveragePct} %</strong> ({p.covered}/{p.panelSize})
             {p.perDay > 0
-              ? <> · <strong className="text-foreground">{p.perDay} visite{p.perDay > 1 ? "s" : ""} par jour</strong> sur les {p.workdaysLeft} jours ouvrés restants</>
-              : p.target > 0 ? " · objectif du mois atteint" : ""}
+              ? <> · <strong className="text-foreground">{p.perDay}/jour</strong> sur {p.workdaysLeft} jours restants</>
+              : p.target > 0 ? " · objectif atteint" : ""}
           </p>
         </CardContent>
       </Card>
 
-      {/* CE QUI MANQUE SE DIT — une page vide laisse croire à une panne, et l'on n'y revient pas. */}
+      {/* CE QUI MANQUE SE DIT — une page vide laisse croire à une panne, et l'on n'y revient pas. En une ligne
+          « état — chez qui » ; le comment est derrière le ⓘ (Direction, 07/10). */}
       {day.panelVide && (
-        <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm">
-          <strong>Aucun praticien ne vous est rattaché.</strong> Votre tournée ne peut pas se construire —
-          demandez à votre superviseur de vous affecter votre panel depuis l&apos;annuaire médical.
+        <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1">Aucun praticien rattaché — chez votre superviseur</span>
+          <InfoBulle label="Pourquoi">
+            Votre tournée ne peut pas se construire sans panel : votre superviseur vous affecte vos praticiens depuis l&apos;annuaire médical.
+          </InfoBulle>
         </div>
       )}
       {!day.panelVide && day.sansAffectation && (
-        <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-sm text-muted-foreground">
-          Aucun produit ne vous est affecté pour ce cycle : vos visites s&apos;enregistrent, mais sans
-          les produits présentés. Votre superviseur les affecte depuis Prévisions &amp; Force de vente.
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">
+          <span className="min-w-0 flex-1">Aucun produit affecté ce cycle — chez votre superviseur</span>
+          <InfoBulle label="Pourquoi">
+            Vos visites s&apos;enregistrent, mais sans les produits présentés. Votre superviseur les affecte depuis Prévisions &amp; Force de vente.
+          </InfoBulle>
         </div>
       )}
 
       {/* ── L'EMPLOI DU TEMPS — le plan de tournée VALIDÉ, jour par jour ─────────────────────
           C'est la surface de travail du KAM : gris tant que le rapport n'est pas fait, vert
           après. Elle vient AVANT la tournée proposée, parce qu'un engagement validé passe devant
-          une suggestion. */}
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            <CalendarRange className="h-4 w-4" /> Mon emploi du temps — {VUE_LABELS[vue]}
-          </h2>
-          <Link href="/medical/plan-de-tournee" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-0">
-            Mon plan de tournée <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-        {canLog ? (
-          <EmploiDuTemps
-            vue={vue}
-            lignes={edt.lignes.map((l) => ({ ...l, date: l.date.toISOString() }))}
-            avancement={edt.avancementDuMois}
-            produits={edt.produits}
-            produitsIncomplets={edt.produitsIncomplets}
-            messages={edt.messages}
-            sansBu={edt.sansBu}
-            panel={day.panel.map((d) => ({ id: d.id, name: d.name }))}
-            stock={stock}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">Vous n&apos;avez pas le droit de saisir des visites.</p>
-        )}
-      </section>
+          une suggestion. Le plan de tournée a son onglet : pas de second lien vers lui ici. */}
+      {!canLog ? (
+        <p className="text-sm text-muted-foreground">Vous n&apos;avez pas le droit de saisir des visites.</p>
+      ) : (
+        <>
+          <section className="space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <CalendarRange className="h-4 w-4" /> Mon emploi du temps — {VUE_LABELS[vue]}
+            </h2>
+            <EmploiDuTemps
+              vue={vue}
+              lignes={edt.lignes.map((l) => ({ ...l, date: l.date.toISOString() }))}
+              avancement={edt.avancementDuMois}
+              produits={edt.produits}
+              produitsIncomplets={edt.produitsIncomplets}
+              messages={edt.messages}
+              sansBu={edt.sansBu}
+              panel={day.panel.map((d) => ({ id: d.id, name: d.name }))}
+              stock={stock}
+            />
+          </section>
 
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            <CalendarCheck className="h-4 w-4" /> À voir en priorité
-          </h2>
-          <Link href="/medical/annuaire" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary hover:underline sm:min-h-0">
-            Mon panel <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-        {canLog ? (
-          <DayClient tournee={day.tournee} panel={day.panel} produits={day.produits} stock={stock} />
-        ) : (
-          <p className="text-sm text-muted-foreground">Vous n&apos;avez pas le droit de saisir des visites.</p>
-        )}
-      </section>
+          {/* L'annuaire n'est plus un onglet du module : pas de lien « Mon panel » ici (Direction, 07/10). */}
+          <section className="space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <CalendarCheck className="h-4 w-4" /> À voir en priorité
+            </h2>
+            <DayClient tournee={day.tournee} panel={day.panel} produits={day.produits} stock={stock} />
+          </section>
+        </>
+      )}
 
       {/* LA PREUVE QUE LA SAISIE EST ARRIVÉE QUELQUE PART. Sans retour visible, on doute d'avoir
           enregistré, on ressaisit, et le compteur ment. */}

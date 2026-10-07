@@ -60,12 +60,9 @@ export function DayClient({
       {/* LA TOURNÉE — chaque ligne est un bouton : le geste principal de l'écran est de
           déclarer une visite faite, il ne doit jamais demander deux clics pour commencer. */}
       {tournee.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center">
+        <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center">
           <Check className="mx-auto h-6 w-6 text-success" />
-          <p className="mt-2 text-sm font-medium">Votre fréquence est à jour ce mois-ci</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Aucun praticien n&apos;est en retard. Vous pouvez tout de même saisir une visite.
-          </p>
+          <p className="mt-2 text-sm font-medium">Fréquence à jour ce mois-ci</p>
         </div>
       ) : (
         <ul className="space-y-2">
@@ -95,9 +92,15 @@ export function DayClient({
         </ul>
       )}
 
-      <Button variant="outline" className="h-12 w-full sm:h-10" onClick={() => { setCible(null); setAutre(true); }}>
-        <Stethoscope className="h-4 w-4" /> Saisir une visite chez quelqu&apos;un d&apos;autre
-      </Button>
+      {/* UN LIEN DISCRET, pas un second gros bouton (Direction, 07/10) : le geste principal de la section
+          reste la ligne de la tournée. */}
+      <button
+        type="button"
+        onClick={() => { setCible(null); setAutre(true); }}
+        className="inline-flex min-h-10 items-center gap-1.5 text-sm text-primary hover:underline"
+      >
+        <Stethoscope className="h-4 w-4" /> Visite chez un autre praticien
+      </button>
 
       {/* Choix libre dans le panel — le terrain improvise, et l'outil ne doit pas l'en empêcher. */}
       {autre && (
@@ -128,7 +131,7 @@ function PickDoctor({
     : panel;
 
   return (
-    <Sheet open onClose={onClose} title="Quel praticien ?" description="Cherchez dans votre panel." width="md">
+    <Sheet open onClose={onClose} title="Quel praticien ?" width="md">
       <div className="space-y-3">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -179,7 +182,7 @@ function CaptureSheet({
     setChecked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
-    <Sheet open onClose={onClose} title={`Visite — ${doctor.name}`} description="Ce qui vient d'avoir lieu. Trois champs, rien de plus." width="md">
+    <Sheet open onClose={onClose} title={`Visite — ${doctor.name}`} width="md">
       <form
         action={async (fd) => {
           setSaving(true); setErr(null);
@@ -200,9 +203,7 @@ function CaptureSheet({
         <div className="space-y-1.5">
           <Label>Produits présentés</Label>
           {produits.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Aucun produit ne vous est affecté ce cycle — la visite s&apos;enregistre quand même.
-            </p>
+            <p className="text-xs text-muted-foreground">Aucun produit affecté ce cycle.</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {produits.map((p) => {
@@ -226,9 +227,8 @@ function CaptureSheet({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="visit-report">Ce qu&apos;il a dit</Label>
-          <Textarea id="visit-report" name="report" rows={3} placeholder="Une phrase suffit — dictez-la avec le micro de votre clavier." />
-          <p className="text-xs text-muted-foreground">Facultatif. Le micro de votre clavier fonctionne ici.</p>
+          <Label htmlFor="visit-report">Ce qu&apos;il a dit <span className="font-normal text-muted-foreground">(facultatif)</span></Label>
+          <Textarea id="visit-report" name="report" rows={3} placeholder="Une phrase suffit — le micro du clavier fonctionne ici." />
         </div>
 
         {/* LE MATÉRIEL REMIS, replié : la saisie rapide reste « trois champs », mais une remise

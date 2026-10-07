@@ -26,13 +26,9 @@ export default async function NouvelleFicheCoachingPage({ searchParams }: { sear
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <BackLink href="/medical/coaching" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">← Coaching</BackLink>
-      <PageHeader title={courante.grille.titre} description="Nouvelle fiche — notez chaque axe sur ce que vous avez observé pendant la tournée en double." />
+      <PageHeader title={courante.grille.titre} description="Nouvelle fiche" />
       {collaborateurs.length === 0 ? (
-        <EmptyState
-          icon="Users"
-          title="Aucun collaborateur à coacher"
-          description="Vous coachez les KAM des Business Units que vous supervisez (Force de vente › Business Units). Le directeur des opérations peut remplir une fiche pour n'importe quel collaborateur."
-        />
+        <EmptyState icon="Users" title="Aucun collaborateur à coacher" description="Vous coachez les KAM des Business Units que vous supervisez." />
       ) : (
         <FicheCoachingForm
           mode="creation"

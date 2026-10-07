@@ -1,6 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { PageHeader } from "@/components/shared/page-header";
 import { BackLink } from "@/components/shared/back-link";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { EditeurGrille } from "@/components/coaching/grille-editor";
 import { BilanLecture, EchelleNiveaux, GrilleEvaluation } from "@/components/coaching/fiche-grille";
 import { grilleCourante, historiqueDesGrilles, lecteurCoaching } from "@/lib/coaching/serveur";
@@ -22,16 +23,22 @@ export default async function GrilleCoachingPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <BackLink href="/medical/coaching" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">← Coaching</BackLink>
-      <PageHeader
-        title="Grille d'évaluation — fiche de coaching"
-        description={l.administre
-          ? "Vous administrez cette grille. Chaque publication crée une nouvelle version : les fiches déjà remplies gardent la grille sous laquelle elles l'ont été."
-          : "La grille sur laquelle les tournées en double sont évaluées. Elle est administrée par le directeur des opérations."}
-      />
+      {/* Le comment de la grille passe derrière le ⓘ, plus en description (Direction, 07/10). */}
+      <PageHeader title={`Grille d'évaluation${courante.version > 0 ? ` · v${courante.version}` : ""}`}>
+        <InfoBulle label="À propos de la grille">
+          {l.administre
+            ? "Chaque publication crée une nouvelle version : les fiches déjà remplies gardent la grille sous laquelle elles l'ont été."
+            : "La grille sur laquelle les tournées en double sont évaluées, administrée par le directeur des opérations."}
+        </InfoBulle>
+      </PageHeader>
 
       {courante.version === 0 && (
-        <p className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-          Aucune version enregistrée ne se lit : la grille d&apos;origine est affichée, et les nouvelles fiches sont refusées tant qu&apos;une version n&apos;est pas publiée.
+        <p className="flex items-center gap-1 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm text-destructive">
+          <span className="min-w-0 flex-1">Grille non publiée — chez la direction des opérations</span>
+          <InfoBulle label="Conséquence">
+            Aucune version enregistrée ne se lit : la grille d&apos;origine est affichée, et les nouvelles fiches sont refusées tant
+            qu&apos;une version n&apos;est pas publiée.
+          </InfoBulle>
         </p>
       )}
 

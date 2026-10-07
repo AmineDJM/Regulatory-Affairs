@@ -38,10 +38,7 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Annuaire"
-        description="Tous les praticiens avec qui nous travaillons — médecins, pharmaciens, hospitaliers — en feuille modifiable, exportable, avec vue par spécialité."
-      />
+      <PageHeader title="Annuaire" />
       <ModuleTabs tabs={await visibleTabs(user, MEDICAL_TABS)} />
       <DirectoryBar
         directories={feuille.directories}
