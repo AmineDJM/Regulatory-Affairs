@@ -597,9 +597,9 @@ function FormulaireRapport({
           {/* Ce qui manque à la gamme, dit derrière le ⓘ plutôt qu'en paragraphe (Direction, 07/10). */}
           {!sansBu && produitsIncomplets.length > 0 && (
             <InfoBulle label="Produits absents" align="left" className="normal-case tracking-normal">
-              {produitsIncomplets.length} produit(s) promu(s) ({produitsIncomplets.slice(0, 3).join(", ")}) n&apos;ont pas de
-              produit canonique rattaché et ne peuvent donc pas figurer dans un rapport — à corriger dans Force de vente ›
-              Business Units.
+              {produitsIncomplets.length} produit(s) promu(s) ({produitsIncomplets.slice(0, 3).join(", ")}) ne sont rattachés
+              à aucun dossier réglementaire et ne peuvent donc pas figurer dans un rapport — à rapprocher dans Produits 360
+              (⋯ › « Rapprocher un produit BD / BU »).
             </InfoBulle>
           )}
         </p>

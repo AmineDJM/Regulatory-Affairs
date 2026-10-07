@@ -14,7 +14,7 @@ import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib
 import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranularite } from "@/lib/sfe/tournee";
 import { ROLES_QUI_TRANCHENT } from "@/lib/personnes/referents-gamme";
 import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
-import { rattacherDossier } from "@/lib/products/canonique";
+import { ensureProduitDuDossier } from "@/lib/products/canonique";
 import { enSerie } from "@/lib/refs";
 import { specialitesDemandees, ecrireSpecialitesBu, resumeSpecialitesBu } from "@/lib/sfe/specialites-bu";
 import { estBuHospitaliere, nomDuTerritoire } from "@/lib/sfe/territoire-kam";
@@ -276,8 +276,9 @@ export async function createPromoProduct(formData: FormData): Promise<ActionResu
     code = code || dossier.reference;
     productId = dossier.productId;
     if (!productId) {
-      const lien = await rattacherDossier(regulatoryProductId, { acteurId: user.id }).catch(() => null);
-      productId = lien && "produitId" in lien && lien.etat !== "INCOMPLET" ? lien.produitId : null;
+      // Produit = dossier : un dossier sans produit (d'avant ce lot) reçoit le sien ici.
+      const lien = await ensureProduitDuDossier(regulatoryProductId, { acteurId: user.id }).catch(() => null);
+      productId = lien && "produitId" in lien ? lien.produitId : null;
     }
   }
   if (!name) return { ok: false, error: "Choisissez un dossier Regulatory, ou donnez un nom de produit." };

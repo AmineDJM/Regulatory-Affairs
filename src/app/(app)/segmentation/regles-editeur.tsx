@@ -109,6 +109,7 @@ export function EditeurRegles({ strategieId, produits, version, contenu, peutPub
         <div className="space-y-2">
           <h3 className="text-sm font-semibold">Ciblage</h3>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={r.ciblage.potentielNulNonCible} onChange={(e) => maj((x) => { x.ciblage.potentielNulNonCible = e.target.checked; return x; })} /> Potentiel déclaré à 0 = non ciblé (ne consulte pas)</label>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!r.ciblage.potentielNulNA} onChange={(e) => maj((x) => { if (e.target.checked) x.ciblage.potentielNulNA = true; else delete x.ciblage.potentielNulNA; return x; })} /> Potentiel déclaré à 0 = NA (non applicable, reste au panel)</label>
           <p className="text-xs text-muted-foreground">Statuts jamais ciblés :</p>
           <div className="flex flex-wrap gap-3">{STATUTS.map((s) => <label key={s} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={r.ciblage.statutsNonCibles.includes(s)} onChange={(e) => maj((x) => { x.ciblage.statutsNonCibles = e.target.checked ? [...x.ciblage.statutsNonCibles, s] : x.ciblage.statutsNonCibles.filter((y) => y !== s); return x; })} />{STATUT_LABELS[s]}</label>)}</div>
         </div>

@@ -155,6 +155,10 @@ export function segmenterProduit(
   } else if (potentiel === null) {
     calcule = "EN_ATTENTE";
     pourquoi.push(`Potentiel (${r.metrique}) non renseigné : en attente — jamais classé D faute de donnée.`);
+  } else if (potentiel === 0 && regles.ciblage.potentielNulNA) {
+    // NA = NON APPLICABLE (glossaire du classeur de la Direction) : ne consulte pas, reste au panel, aucune visite requise.
+    calcule = "EN_ATTENTE";
+    pourquoi.push(`Potentiel déclaré à 0 (${r.metrique}) : non applicable (NA).`);
   } else if (affinite === null) {
     // UNE RÉPONSE MANQUE → NA, avant tout autre verdict (Direction, 07/10) : même un « 0 patient » sans la seconde
     // réponse reste à questionner en visite.

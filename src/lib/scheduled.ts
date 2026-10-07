@@ -37,6 +37,7 @@ import { balayerMissions } from "@/platform/in-process/missions/sweep";
 import { balayerSurveillances } from "@/platform/in-process/missions/watch";
 import { vieillirMemoire } from "@/platform/in-process/missions/memory";
 import { relancerEngagements } from "@/platform/in-process/missions/commitments";
+import { assurerProduitsDesDossiersAuDemarrage } from "@/lib/products/canonique";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -99,6 +100,9 @@ export async function runScheduledJobs(): Promise<void> {
     await sendDueReminders();
     await sendDuePayrollNotifications();
     await accrueMonthlyLeave().catch((e) => console.error("[scheduled] leave accrual failed", e)); // +2,5 j/mois (idempotent)
+    // PRODUIT = DOSSIER (Direction, 08/10) : UNE fois par processus, chaque dossier non verrouillé reçoit
+    // son produit — l'existant rejoint la règle des nouveaux. Idempotent ; le bilan part au journal du serveur.
+    await assurerProduitsDesDossiersAuDemarrage().catch((e) => console.error("[scheduled] produits des dossiers", e));
     await performAiHealthCheck().catch((e) => console.error("[scheduled] ai health check failed", e)); // test IA 1×/jour + alerte Super Admin
     await runDueRegulatoryJobs();
     await pruneStaleUploadSessions().catch(() => 0); // nettoyage des sessions d'upload incomplètes

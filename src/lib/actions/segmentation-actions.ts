@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { lireRegles, STATUTS, SEGMENTS, LETTRES_FORCABLES, type Statut } from "@/lib/segmentation/regles";
 import { impactDesRegles, segmenterPraticien } from "@/lib/segmentation/moteur";
 import { apercuImport, appliquerImport, chargerFaits, chargerStrategie, chargerSecteurs, type ApercuImport, type BilanImport } from "@/lib/segmentation/service";
+import { apercuImportDirection, appliquerImportDirection, type ApercuDirection, type BilanDirection } from "@/lib/segmentation/import-direction";
 import { ouvrirCycle, cloreCycle } from "@/lib/segmentation/cycle-service";
 import { droitsSegmentation, porteeSegmentation, type DroitsSegmentation } from "@/lib/segmentation/droits";
 
@@ -179,6 +180,46 @@ export async function importerSegmentation(fd: FormData): Promise<BilanImport | 
   const r = await appliquerImport(user.id, strategieId, f.buffer, f.nom, { reglesContenu });
   if (r.ok) {
     await recordAudit({ actorId: user.id, action: "IMPORT", module: MODULE, entityId: r.importId, summary: `Import de segmentation « ${f.nom} » : ${r.crees} praticien(s) créé(s), ${r.misAJour} complété(s), ${r.observations} observation(s)${r.reglePubliee ? `, règles v${r.reglePubliee} publiées` : ""}.` });
+    revalidatePath(CHEMIN);
+  }
+  return r;
+}
+
+// ───────────────────────────── Le classeur de la Direction, en une fois ─────────────────────────────
+
+/**
+ * L'APERÇU de l'import « en une fois » (Direction, 08/10) : BU reconnue (ou choisie), stratégie et produit, praticiens
+ * retrouvés / créés dans l'annuaire, établissements et spécialités reliés, lettres, écarts gardés, règles lues. Rien
+ * n'est écrit.
+ */
+export async function apercuImportClasseurDirection(fd: FormData): Promise<ApercuDirection | { ok: false; error: string }> {
+  const { refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const f = await fichierDe(fd);
+  if (!f) return { ok: false, error: "Choisissez le fichier Excel." };
+  try {
+    return await apercuImportDirection(f.buffer, f.nom, String(fd.get("businessUnitId") ?? "") || null);
+  } catch (e) {
+    return { ok: false, error: `Lecture du classeur impossible : ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/**
+ * L'IMPORT « en une fois » : stratégie, produit classé, annuaire, référentiels, fiches, réponses, règles — et les
+ * lettres du fichier gardées là où le calcul diffère, ce qui revient à FORCER une lettre : réservé à qui peut forcer
+ * (Super Admin, ou droit accordé) dès que le fichier en porte.
+ */
+export async function importerClasseurDirection(fd: FormData): Promise<BilanDirection | { ok: false; error: string }> {
+  const { user, refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const f = await fichierDe(fd);
+  if (!f) return { ok: false, error: "Choisissez le fichier Excel." };
+  const r = await appliquerImportDirection(user.id, f.buffer, f.nom, String(fd.get("businessUnitId") ?? "") || null, { peutForcer: droitsSegmentation(user).forcer });
+  if (r.ok && !r.rien) {
+    await recordAudit({
+      actorId: user.id, action: "IMPORT", module: MODULE, entityId: r.strategieId,
+      summary: `Import du classeur de segmentation « ${f.nom} » : ${r.crees} praticien(s) créé(s) dans l'annuaire ${r.annuaire}, ${r.completes} complété(s), ${r.fiches} fiche(s), ${r.observations} réponse(s), ${r.lettresGardees} lettre(s) du fichier gardée(s)${r.reglesVersion ? `, règles v${r.reglesVersion} publiées` : ""}.`,
+    });
     revalidatePath(CHEMIN);
   }
   return r;

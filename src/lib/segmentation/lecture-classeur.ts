@@ -1,6 +1,9 @@
 import { normalizeHeader } from "@/lib/medical/directory-sheet";
 import { segmenterPraticien } from "./moteur";
-import { lireRegles, type Regles, type RegleProduit, type Statut, type Segment, type Comparaison, type MethodeAffinite, type ExceptionZone } from "./regles";
+import {
+  lireRegles, type Regles, type RegleProduit, type Statut, type Segment, type Comparaison, type MethodeAffinite, type ExceptionZone,
+  type Grille, type GrilleFrequence, type GrilleSecteur, type CleFrequence,
+} from "./regles";
 
 /**
  * LIRE UN CLASSEUR DE SEGMENTATION — n'importe lequel, pas seulement « Segmentation Finale ».
@@ -105,11 +108,20 @@ function trouverEntete(rows: unknown[][]): number {
   return -1;
 }
 
-/** Lit la feuille de segmentation d'un classeur (la première qui en a la forme). */
+/**
+ * Lit la feuille de segmentation d'un classeur : celle dont l'en-tête reconnaît le PLUS de colonnes (Région, CDR, Nom,
+ * Statut, Question 1…), puis la plus longue — un glossaire ou une feuille de listes déroulantes ne l'emporte jamais.
+ */
 export function lireClasseur(feuilles: Feuilles): LectureClasseur | null {
-  for (const [feuille, rows] of Object.entries(feuilles)) {
-    const h = trouverEntete(rows);
-    if (h < 0) continue;
+  const candidates = Object.entries(feuilles)
+    .map(([feuille, rows], ordre) => {
+      const h = trouverEntete(rows);
+      const score = h < 0 ? 0 : new Set((rows[h] ?? []).map(champDeLEntete).filter(Boolean)).size;
+      return { feuille, rows, h, score, ordre };
+    })
+    .filter((c) => c.h >= 0)
+    .sort((a, b) => b.score - a.score || b.rows.length - a.rows.length || a.ordre - b.ordre);
+  for (const { feuille, rows, h } of candidates) {
     const brut = rows[h] ?? [];
     const entete = brut.map((t, index) => ({ index, texte: clean(t), champ: champDeLEntete(t) }));
     const pris = new Set<ChampClasseur>();
@@ -173,6 +185,10 @@ export interface ReglesLuesDuTexte {
   comparaisonAffinite: Comparaison;
   /** Zones que le texte déclare en exception (« exception pour le PF de l'Ouest »). */
   zonesEnException: string[];
+  /** Le repère écrit (« en 2026 … en moyenne de 7,21 % ») — affiché, ne classe personne. */
+  reference: { valeur: number; annee: number } | null;
+  /** Le texte définit NA comme « non applicable » (le glossaire du classeur de la Direction). */
+  naNonApplicable: boolean;
 }
 
 /** Les règles que la feuille ÉNONCE en toutes lettres. */
@@ -182,7 +198,11 @@ export function reglesDuTexte(texte: readonly string[]): ReglesLuesDuTexte {
   const a = t.match(/(?:ratio|taux|affinite)[^|]*?(>|superieur|plus de)?\s*a?\s*(\d+(?:[ .]\d+)?)\s*pourcent/);
   const strict = /(>|superieur)/.test(texte.join(" ").match(/ratio[^.]*?%/i)?.[0] ?? "") || /ratio\s*>/i.test(texte.join(" "));
   const zones = [...t.matchAll(/exception pour (?:le |la |les )?(?:pf |portefeuille |zone |region )?(?:de |d |du )?(?:l )?([a-z]+)/g)].map((m) => m[1]).filter(Boolean);
+  const ref = t.match(/(?:en (20\d\d)\b[^|]*?)?moyenne (?:de |d )?(\d+(?: \d{1,2})?)\s*pourcent/);
+  const refValeur = ref ? Number(ref[2].replace(" ", ".")) / 100 : null;
   return {
+    reference: refValeur !== null && refValeur >= 0 && refValeur <= 1 ? { valeur: refValeur, annee: ref?.[1] ? Number(ref[1]) : new Date().getFullYear() } : null,
+    naNonApplicable: /\bna\b[^|]{0,20}non applicable/.test(t),
     seuilPotentiel: p ? Number(p[1].replace(" ", ".")) : null,
     seuilAffinite: a ? Number(a[2].replace(" ", ".")) / 100 : null,
     comparaisonAffinite: strict ? ">" : ">=",
@@ -274,6 +294,47 @@ export function exceptionsDeFrequence(freq: ReturnType<typeof frequencesDesFeuil
   return out.filter((e, i) => out.findIndex((o) => o.zone === e.zone && o.inOut === e.inOut && o.priorite === e.priorite) === i);
 }
 
+/**
+ * LA GRILLE PAR LETTRE lue dans la feuille des KAM : H (sa fréquence), « A & B » et « C & D », In et Out. Les fréquences
+ * d'une zone qui s'écartent deviennent les valeurs PROPRES du secteur de la BU du même nom ; sans un tel secteur, elles
+ * sont dites (à poser dans les Règles), jamais appliquées à une zone qui n'existe pas.
+ */
+export function grilleDesFrequences(
+  freq: ReturnType<typeof frequencesDesFeuilles>,
+  exceptions: ReturnType<typeof exceptionsDeFrequence>,
+  secteurDeZone: OptionsProposition["secteurDeZone"],
+  provenance: string[],
+): Grille | null {
+  const de = (segs: Segment[]) => freq.groupes.find((g) => segs.every((s) => g.segments.includes(s)))?.frequence ?? null;
+  const ab = de(["A", "B"]), cd = de(["C", "D"]), h = freq.h ?? ab;
+  if (ab === null || cd === null || h === null) return null;
+  const defaut: GrilleFrequence = { H_IN: h, H_OUT: h, AB_IN: ab, AB_OUT: ab, CD_IN: cd, CD_OUT: cd };
+  const rangDe = (segs: Segment[]) => `P${freq.groupes.findIndex((g) => segs.every((s) => g.segments.includes(s))) + 1}`;
+  const secteurs = new Map<string, GrilleSecteur>();
+  for (const e of exceptions) {
+    if (!e.zone) continue;
+    const groupe = e.priorite === "H" ? "H" : e.priorite === rangDe(["A", "B"]) ? "AB" : e.priorite === rangDe(["C", "D"]) ? "CD" : null;
+    if (!groupe) continue;
+    const s = secteurDeZone?.(e.zone) ?? null;
+    const cotes = e.inOut ? [e.inOut] : (["IN", "OUT"] as const);
+    if (!s) {
+      provenance.push(`Fréquence propre « ${e.zone} » (${groupe === "AB" ? "A & B" : groupe === "CD" ? "C & D" : "H"}, ${cotes.join(" et ")} : ${e.frequence}) — aucun secteur « ${e.zone} » dans la BU : à poser dans les Règles.`);
+      continue;
+    }
+    const g = secteurs.get(s.id) ?? { secteurId: s.id, nom: s.nom, valeurs: {} };
+    for (const c of cotes) g.valeurs[`${groupe}_${c}` as CleFrequence] = e.frequence;
+    secteurs.set(s.id, g);
+  }
+  // H n'est jamais sous A & B : une valeur propre de A & B entraîne H avec elle.
+  for (const g of secteurs.values()) for (const c of ["IN", "OUT"] as const) {
+    const abv = g.valeurs[`AB_${c}`];
+    if (abv !== undefined && (g.valeurs[`H_${c}`] ?? defaut[`H_${c}`]) < abv) g.valeurs[`H_${c}`] = abv;
+  }
+  for (const g of secteurs.values()) provenance.push(`Secteur ${g.nom} : fréquences propres ${Object.entries(g.valeurs).map(([k, v]) => `${k.replace("_", " ").replace("AB", "A & B").replace("CD", "C & D")} ${v}`).join(", ")} — lues dans la feuille des KAM.`);
+  provenance.push(`Grille : H ${h}, A & B ${ab}, C & D ${cd} visite(s) par cycle — lue dans la feuille des KAM.`);
+  return { defaut, secteurs: [...secteurs.values()] };
+}
+
 /** Le segment calculé pour une ligne, avec des règles données (sans dérogation) — pour comparer au fichier. */
 export function segmentCalcule(l: LigneClasseur, regles: Regles): string {
   const r = segmenterPraticien({
@@ -322,8 +383,37 @@ export interface PropositionRegles {
   concordance: { total: number; identiques: number; divergences: { ligne: number; nom: string; fichier: string; calcule: string }[] };
 }
 
+/** La CAPACITÉ écrite dans la feuille des KAM : « Moyenne Contacts / Jour » → 7 ; « Cycle de 20 Jours » → 20. */
+export function capaciteDesFeuilles(feuilles: Feuilles): { contactsParJour: number; joursParCycle: number } | null {
+  let cj: number | null = null, jc: number | null = null;
+  for (const rows of Object.values(feuilles)) {
+    for (const r of rows.slice(0, 200)) {
+      for (let i = 0; i < (r?.length ?? 0); i++) {
+        const n = normalizeHeader(r[i]);
+        if (!n) continue;
+        if (cj === null && /contacts? jour/.test(n) && !/cycle/.test(n)) {
+          const v = (r ?? []).slice(i + 1).map(nombre).find((x) => x !== null && x > 0);
+          if (v !== undefined && v !== null) cj = v;
+        }
+        const m = n.match(/cycle de (\d+) jours?/);
+        if (jc === null && m) jc = Number(m[1]);
+      }
+    }
+  }
+  return cj !== null && jc !== null && jc > 0 ? { contactsParJour: cj, joursParCycle: jc } : null;
+}
+
+export interface OptionsProposition {
+  /** Déduire les seuils d'une zone que le texte annonce en exception sans chiffre (défaut : oui). */
+  exceptionsDeduites?: boolean;
+  /** Proposer aussi la GRILLE par lettre × In/Out et la capacité lues dans la feuille des KAM. */
+  grille?: boolean;
+  /** Le secteur de la BU qui porte le nom d'une zone du fichier (« Ouest ») — pour ses fréquences propres. */
+  secteurDeZone?: (zone: string) => { id: string; nom: string } | null;
+}
+
 /** La PROPOSITION de règles v1 tirée d'un classeur — à publier par une personne, après lecture. */
-export function proposerRegles(lecture: LectureClasseur, feuilles: Feuilles, productId: string): PropositionRegles {
+export function proposerRegles(lecture: LectureClasseur, feuilles: Feuilles, productId: string, opts: OptionsProposition = {}): PropositionRegles {
   const txt = reglesDuTexte(lecture.texte);
   const meth = methodeDuFichier(lecture.lignes);
   const zones = [...new Set(lecture.lignes.map((l) => l.zone).filter((z): z is string => !!z))];
@@ -332,8 +422,17 @@ export function proposerRegles(lecture: LectureClasseur, feuilles: Feuilles, pro
   const provenance: string[] = [];
   if (txt.seuilPotentiel !== null) provenance.push(`Haut potentiel : à partir de ${txt.seuilPotentiel} (${lecture.metrique ?? "potentiel"}) — lu dans la feuille.`);
   if (txt.seuilAffinite !== null) provenance.push(`Affinité : ${txt.comparaisonAffinite === ">" ? "au-delà de" : "à partir de"} ${Math.round(txt.seuilAffinite * 1000) / 10} % — lu dans la feuille.`);
-  if (meth.methode) provenance.push(`Méthode d'affinité : ${meth.methode === "RATIO_FICHIER" ? "celle du classeur (sur 10 ÷ patients par semaine)" : "part sur 10 patients"} — déduite de ${meth.preuves} pourcentage(s) du fichier.`);
-  const hStatuts = [...new Set(lecture.lignes.filter((l) => l.segmentFichier === "H" && l.statut).map((l) => l.statut!))];
+  if (txt.reference) provenance.push(`Repère : moyenne ${txt.reference.annee} de ${String(Math.round(txt.reference.valeur * 10000) / 100).replace(".", ",")} % — lu dans la feuille, ne classe personne.`);
+  if (meth.methode) provenance.push(`Méthode d'affinité : ${meth.methode === "RATIO_FICHIER" ? "celle du classeur (Q2 ÷ Q1, la colonne « % »)" : "part sur 10 patients"} — déduite de ${meth.preuves} pourcentage(s) du fichier.`);
+  // NA = « non applicable » : 0 patient déclaré reste au panel, en NA (le glossaire), au lieu de « non ciblé ».
+  const potentielNulNA = txt.naNonApplicable && lecture.lignes.some((l) => l.segmentFichier === "NA" && l.potentiel === 0);
+  if (potentielNulNA) provenance.push("0 patient déclaré → NA (non applicable) — défini dans la feuille.");
+  // Un statut est « H » quand ses lignes le sont (presque) toutes — un décideur l'est d'office ; une exception isolée
+  // d'un autre statut reste une lettre du fichier, pas une règle.
+  const hStatuts = [...new Set(lecture.lignes.filter((l) => l.segmentFichier === "H" && l.statut).map((l) => l.statut!))].filter((s) => {
+    const avecLettre = lecture.lignes.filter((l) => l.statut === s && l.segmentFichier);
+    return avecLettre.filter((l) => l.segmentFichier === "H").length >= avecLettre.length * 0.8;
+  });
   if (hStatuts.length) provenance.push(`H = ${hStatuts.join(", ")} — d'après les lignes classées H.`);
   if (freq.h !== null) provenance.push(`Fréquence H : ${freq.h} par cycle — lue dans la feuille des KAM.`);
   freq.groupes.forEach((g, i) => provenance.push(`Priorité P${i + 1} (${g.segments.join(", ")}) : ${g.frequence} visite(s) par cycle — lue dans la feuille des KAM.`));
@@ -344,18 +443,28 @@ export function proposerRegles(lecture: LectureClasseur, feuilles: Feuilles, pro
     productId, metrique: lecture.metrique ?? "patients / semaine",
     seuilPotentiel: txt.seuilPotentiel ?? NaN, seuilAffinite: txt.seuilAffinite ?? NaN,
     comparaisonAffinite: txt.comparaisonAffinite, methodeAffinite: meth.methode ?? "SUR_10", exceptions: [],
+    ...(txt.reference ? { reference: txt.reference } : {}),
   };
+  const grille = opts.grille ? grilleDesFrequences(freq, exceptionsFrequence, opts.secteurDeZone, provenance) : null;
+  const capacite = opts.grille ? capaciteDesFeuilles(feuilles) : null;
+  if (capacite) provenance.push(`Capacité : ${capacite.contactsParJour} contacts par jour, cycle de ${capacite.joursParCycle} jours — lue dans la feuille des KAM.`);
   const contenu = {
     produits: [produit],
-    ciblage: { statutsNonCibles: [], potentielNulNonCible: true },
+    ciblage: { statutsNonCibles: [], potentielNulNonCible: true, ...(potentielNulNA ? { potentielNulNA: true } : {}) },
     h: { statuts: hStatuts, frequence: freq.h },
     priorites: { regles: freq.groupes.map((g, i) => ({ priorite: `P${i + 1}`, rang1: g.segments })), repli: null },
     frequences: Object.fromEntries(freq.groupes.map((g, i) => [`P${i + 1}`, g.frequence])),
     ...(exceptionsFrequence.length ? { exceptionsFrequence } : {}),
+    ...(grille ? { grille } : {}),
+    ...(capacite ? { capacite } : {}),
   };
   const lu = lireRegles(contenu);
   const erreurs = lu.ok ? [] : lu.erreurs;
-  if (lu.ok) {
+  if (lu.ok && opts.exceptionsDeduites === false) {
+    // Le classeur de la Direction : l'exception est annoncée SANS chiffre et ses lettres ont été posées à la main.
+    // Aucun seuil n'est inventé : la règle générale s'applique, et les lettres du fichier sont gardées telles quelles.
+    for (const zone of txt.zonesEnException) provenance.push(`Exception ${zone} annoncée par la feuille, sans chiffre : règle générale ; les lettres de la zone qui s'en écartent sont gardées telles quelles.`);
+  } else if (lu.ok) {
     // Les zones que le texte déclare en exception : seuils déduits des classements du fichier, montrés comme tels.
     for (const zone of txt.zonesEnException) {
       const d = deduireException(lecture.lignes, lu.regles.produits[0], lu.regles, zone);

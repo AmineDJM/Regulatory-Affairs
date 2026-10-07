@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { Link2 } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, regulatoryLockWhere } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
+import { userCan } from "@/lib/rbac";
 import { listeProduits360, type OngletListe } from "@/lib/queries/produits-360";
+import { compterProduitsARapprocher } from "@/lib/queries/product-catalog";
+import { MenuDossier } from "@/components/shared/menu-dossier";
+import { VerifierCatalogue } from "./verifier-catalogue";
 import { montantCourt } from "@/lib/products/fiche-360";
 import { REGULATORY_STATUS } from "@/lib/labels";
 import { Input } from "@/components/ui/input";
@@ -27,10 +29,11 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
   const { lignes, compte, colonnes } = await listeProduits360(user, { q, onglet });
   const lien = (o: OngletListe) => `/produits?onglet=${o}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
   const commerce = onglet === "commercialises";
-  // LES DOSSIERS QUI NE SONT PAS (ENCORE) AU CATALOGUE — dits à qui peut les y rattacher (le réglementaire).
-  const dossiersHorsCatalogue = !commerce && userCan(user, "REGULATORY", "VIEW")
-    ? await prisma.regulatoryProduct.count({ where: { productId: null, ...regulatoryLockWhere(user) } })
-    : 0;
+  // LE MENU ⋯ — rapprocher un produit BD / BU créé sans dossier (le réglementaire, et seulement s'il en reste un), et
+  // vérifier que chaque dossier a son produit (Super Admin).
+  const peutRapprocher = userCan(user, "REGULATORY", "UPDATE");
+  const aRapprocher = peutRapprocher ? await compterProduitsARapprocher() : 0;
+  const estSuperAdmin = user.role === "SUPER_ADMIN";
   const nbColonnes = commerce ? 3 + (colonnes.ventes ? 2 : 0) + (colonnes.marche ? 1 : 0) + (colonnes.stock ? 1 : 0) : 5;
 
   return (
@@ -40,7 +43,7 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
           <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
             Produits 360
             <InfoBulle label="D'où viennent ces produits ?">
-              Un produit = son dossier réglementaire : il naît d&apos;un dossier à l&apos;identité complète (DCI, dosage, forme, conditionnement). Commercialisé = décision d&apos;enregistrement obtenue ou dossier clôturé. Le stock, les ventes, les marchés et la segmentation s&apos;y rattachent par la même clé.
+              Un produit = son dossier réglementaire : chaque dossier en est un, dès sa création, même si son identité (dosage, forme, conditionnement) reste à compléter. Commercialisé = décision d&apos;enregistrement obtenue ou dossier clôturé. Le stock, les ventes, les marchés et la segmentation s&apos;y rattachent par la même clé.
             </InfoBulle>
           </h1>
           <p className="text-sm text-muted-foreground">{compte.commercialises} commercialisé{compte.commercialises > 1 ? "s" : ""} · {compte.enregistrement} en enregistrement</p>
@@ -48,13 +51,18 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
         <div className="flex flex-wrap items-center gap-2">
           <form className="w-full sm:w-72">
             <input type="hidden" name="onglet" value={onglet} />
-            <Input name="q" type="search" defaultValue={q} placeholder="Nom, DCI, code, alias…" aria-label="Rechercher un produit" />
+            <Input name="q" type="search" defaultValue={q} placeholder="Nom, DCI, code, alias, dossier…" aria-label="Rechercher un produit" />
           </form>
-          {userCan(user, "REGULATORY", "VIEW") && (
-            <Link href="/regulatory/catalogue" title="Rattacher les dossiers au catalogue" aria-label="Rattacher les dossiers au catalogue"
-              className="inline-flex h-10 items-center rounded-[var(--radius)] border border-border bg-card px-3 text-muted-foreground hover:bg-secondary hover:text-foreground">
-              <Link2 className="h-4 w-4" />
-            </Link>
+          {((peutRapprocher && aRapprocher > 0) || estSuperAdmin) && (
+            <MenuDossier>
+              {peutRapprocher && aRapprocher > 0 && (
+                <Link href="/produits/rapprocher" role="menuitem" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-secondary">
+                  <Link2 className="h-4 w-4 text-muted-foreground" /> Rapprocher un produit BD / BU
+                  <span className="ml-auto text-xs tabular-nums text-muted-foreground">{aRapprocher}</span>
+                </Link>
+              )}
+              {estSuperAdmin && <VerifierCatalogue />}
+            </MenuDossier>
           )}
         </div>
       </div>
@@ -128,12 +136,6 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
         </div>
       </div>
       {lignes.length >= 200 && <p className="text-xs text-muted-foreground">Les 200 premiers produits sont affichés : précisez la recherche.</p>}
-      {!commerce && dossiersHorsCatalogue > 0 && (
-        <p className="text-xs text-muted-foreground">
-          {dossiersHorsCatalogue} dossier{dossiersHorsCatalogue > 1 ? "s" : ""} pas encore au catalogue (identité incomplète ou non rattachée) —{" "}
-          <Link href="/regulatory/catalogue" className="text-primary underline">les rattacher</Link>.
-        </p>
-      )}
     </div>
   );
 }

@@ -12,17 +12,18 @@ import { createRegulatoryProduct, updateRegulatoryProduct, updateRegulatoryStatu
 import { createPromoProduct, updatePromoProduct } from "@/lib/actions/sales-planning-actions";
 import {
   ajouterAliasProduitCanonique, rattacherDossierCanonique, renommerProduitCanonique, retirerAliasProduitCanonique,
-  simulerRattachementCanonique,
+  verifierProduitsDesDossiers,
 } from "@/lib/actions/produit-canonique-actions";
 import { canAccessEntity } from "@/lib/entity-access";
-import { chargerCatalogueCanonique, chargerProduitCanonique } from "@/lib/queries/produits-canoniques";
+import { chargerProduitCanonique } from "@/lib/queries/produits-canoniques";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { getCatalogReconciliation } from "@/lib/queries/product-catalog";
 import { productRangeScope } from "@/lib/company";
 import { linkProductToDossierFor, unlinkProductFromDossierFor } from "./link";
-import { rattacherDossier, rattacherTout } from "./canonique";
+import { assurerProduitsDesDossiers, ensureProduitDuDossier } from "./canonique";
 import { ensureProduct } from "./resolve";
 import { identityKey, nomCanonique } from "./identity";
+import { PREFIXE_CLE_DOSSIER } from "./produit-du-dossier";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -30,11 +31,12 @@ const suite = dbOk ? describe : describe.skip;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LE PRODUIT CANONIQUE BRANCHÉ — depuis les VRAIS points d'entrée (§118.178).
+ * PRODUIT = DOSSIER — depuis les VRAIS points d'entrée (§118.178 ; Direction, 08/10 : « un seul
+ * catalogue de produits »).
  *
- * Le module pur prouve que la clé distingue ce qu'elle doit distinguer. Il ne dit rien de la
- * question qui compte : quand une personne crée ou corrige un dossier, ajoute un produit à une
- * BU, rattache un produit du planning — le produit canonique est-il le bon, et le même partout ?
+ * Le module pur (`produit-du-dossier.test.ts`) prouve la règle. Il ne dit rien de la question qui
+ * compte : quand une personne crée ou corrige un dossier, ajoute un produit à une BU, rattache un
+ * produit du planning — chaque dossier a-t-il SON produit, et le même partout ?
  * On part donc des actions que les écrans poussent, et l'on relit la base.
  *
  * Les molécules portent un préfixe propre à ce passage : leurs clés d'identité n'existent nulle
@@ -58,7 +60,7 @@ function fd(values: Record<string, string>): FormData {
   return f;
 }
 
-suite("le produit canonique, branché aux portes qui créent et corrigent les dossiers", () => {
+suite("produit = dossier, branché aux portes qui créent et corrigent les dossiers", () => {
   let companyId = "";
   let adminId = "";
   let assistId = "";
@@ -115,18 +117,22 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     expect(d.productId).not.toBeNull();
     expect(d.canonicalProduct!.identityKey).toBe(identityKey({ dci: mol("ALPHA"), dosage: "500", dosageUnit: "MG", form: "COMPRIME_PELLICULE", packaging: "B/30" }));
     expect(d.canonicalProduct!.canonicalName).toBe(nomCanonique({ dci: mol("ALPHA"), dosage: "500", dosageUnit: "MG", form: "COMPRIME_PELLICULE", packaging: "B/30" }));
-    expect(r.message).toMatch(new RegExp(`Produit canonique ${d.canonicalProduct!.code} créé`));
+    expect(r.message).toMatch(new RegExp(`Produit ${d.canonicalProduct!.code} créé`));
+    expect(r.message).not.toMatch(/canonique/);
     const trace = await prisma.auditLog.count({ where: { entityType: "PRODUCT", entityId: d.productId!, action: "CREATE" } });
     expect(trace).toBe(1);
   });
 
-  it("un second dossier de la MÊME identité rejoint le même produit — il n'en crée pas un second", async () => {
+  it("un second dossier de la MÊME identité reçoit SON produit — le catalogue ne fusionne plus deux dossiers", async () => {
     const a = await creer(identite(mol("BETA")));
     const b = await creer(identite(mol("BETA"), { brandName: "Bêtamarque" }));
     const [da, db] = await Promise.all([lire(a.id!), lire(b.id!)]);
-    expect(db.productId).toBe(da.productId);
-    expect(b.message).toMatch(/Rattaché au produit canonique/);
-    expect(await prisma.product.count({ where: { identityKey: da.canonicalProduct!.identityKey } })).toBe(1);
+    expect(db.productId).not.toBeNull();
+    expect(db.productId).not.toBe(da.productId);
+    // La clé d'identité est au premier ; le second porte la même, suffixée de SON dossier.
+    expect(da.canonicalProduct!.identityKey).toBe(identityKey({ dci: mol("BETA"), dosage: "500", dosageUnit: "MG", form: "COMPRIME_PELLICULE", packaging: "B/30" }));
+    expect(db.canonicalProduct!.identityKey).toBe(`${da.canonicalProduct!.identityKey}#${b.id}`);
+    expect(b.message).toMatch(/Produit .* créé/);
   });
 
   it("le cas réel : 120 ml et 300 ml sont deux produits", async () => {
@@ -138,19 +144,34 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     expect(db.productId).not.toBe(da.productId);
   });
 
-  it("un dossier INCOMPLET n'est rattaché à rien — et la phrase dit ce qui manque", async () => {
+  it("un dossier INCOMPLET EST un produit — clé propre au dossier, et la phrase dit ce qui reste à compléter", async () => {
     const r = await creer(identite(mol("GAMMA"), { packaging: "" }));
-    expect((await lire(r.id!)).productId).toBeNull();
-    expect(r.message).toMatch(/il manque le conditionnement/);
+    const d = await lire(r.id!);
+    expect(d.productId).not.toBeNull();
+    expect(d.canonicalProduct!.identityKey).toBe(`${PREFIXE_CLE_DOSSIER}${r.id}`);
+    expect(r.message).toMatch(/Conditionnement à compléter/);
   });
 
-  it("le compléter le rattache — depuis la modification du dossier", async () => {
+  it("deux dossiers INCOMPLETS de même identité ne se confondent jamais", async () => {
+    const a = await creer(identite(mol("GAMMABIS"), { packaging: "" }));
+    const b = await creer(identite(mol("GAMMABIS"), { packaging: "" }));
+    const [da, db] = await Promise.all([lire(a.id!), lire(b.id!)]);
+    expect(da.productId).not.toBeNull();
+    expect(db.productId).not.toBeNull();
+    expect(db.productId).not.toBe(da.productId);
+  });
+
+  it("le compléter met à jour LE MÊME produit — depuis la modification du dossier", async () => {
     const r = await creer(identite(mol("DELTA"), { packaging: "" }));
-    expect((await lire(r.id!)).productId).toBeNull();
+    const avant = await lire(r.id!);
+    expect(avant.productId).not.toBeNull();
     ACTOR = SA;
     const u = await updateRegulatoryProduct(undefined, fd({ id: r.id!, ...identite(mol("DELTA")) }));
     expect(u.ok, u.error).toBe(true);
-    expect((await lire(r.id!)).productId).not.toBeNull();
+    const apres = await lire(r.id!);
+    expect(apres.productId).toBe(avant.productId);
+    expect(apres.canonicalProduct!.identityKey).toBe(identityKey({ dci: mol("DELTA"), dosage: "500", dosageUnit: "MG", form: "COMPRIME_PELLICULE", packaging: "B/30" }));
+    expect(apres.canonicalProduct!.canonicalName).toContain("B/30");
     // Le message de modification reste réservé aux réserves : il ne garde pas la fenêtre ouverte.
     expect(u.message).toBeUndefined();
   });
@@ -166,13 +187,17 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     expect(apres.canonicalProduct!.identityKey).toBe(identityKey({ dci: mol("EPSI"), dosage: "250", dosageUnit: "MG", form: "COMPRIME_PELLICULE", packaging: "B/30" }));
     // Son nom était automatique : il suit la correction.
     expect(apres.canonicalProduct!.canonicalName).toContain("250 mg");
-    expect(await prisma.auditLog.count({ where: { entityType: "PRODUCT", entityId: avant.productId!, summary: { contains: "corrigé" } } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { entityType: "PRODUCT", entityId: avant.productId!, summary: { contains: "mis à jour" } } })).toBe(1);
   });
 
-  it("un produit PARTAGÉ n'est pas corrigé sous les pieds de l'autre dossier : le dossier corrigé en rejoint un autre", async () => {
+  it("un produit PARTAGÉ (ancien catalogue) n'est pas corrigé sous les pieds de l'autre dossier : le dossier qui s'en écarte reçoit le sien", async () => {
     const a = await creer(identite(mol("ZETA")));
     const b = await creer(identite(mol("ZETA")));
     const commun = (await lire(a.id!)).productId!;
+    // L'état laissé par l'ancien catalogue : deux dossiers sur UN produit.
+    await prisma.regulatoryProduct.update({ where: { id: b.id! }, data: { productId: commun } });
+    // Rejoué sans changement d'identité, il ne scinde rien d'office.
+    expect((await ensureProduitDuDossier(b.id!)).etat).toBe("PARTAGE");
     expect((await lire(b.id!)).productId).toBe(commun);
     ACTOR = SA;
     await updateRegulatoryProduct(undefined, fd({ id: b.id!, ...identite(mol("ZETA"), { packaging: "B/60" }) }));
@@ -190,7 +215,7 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     expect((await lire(r.id!)).productId).toBe(lien);
   });
 
-  it("un produit de BU ajouté depuis son dossier porte le produit canonique — même s'il n'était pas encore rattaché", async () => {
+  it("un produit de BU ajouté depuis son dossier porte le produit du dossier — même si le dossier n'en avait pas encore", async () => {
     const r = await creer(identite(mol("THETA")));
     // Le dossier perd son lien (état d'un dossier d'avant ce lot) : l'ajout à la BU doit le rattacher.
     await prisma.regulatoryProduct.update({ where: { id: r.id! }, data: { productId: null } });
@@ -235,8 +260,10 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
       prisma.promoProduct.create({ data: { name: `${TAG} choisi`, regulatoryProductId: r.id!, productId: autre!.id }, select: { id: true } }),
     ]);
     promos.push(heritier.id, choisi.id);
-    // Le produit est PARTAGÉ (un second dossier) : la correction déplace le dossier au lieu de corriger.
-    await creer(identite(mol("KAPPA")));
+    // Le produit est PARTAGÉ (un second dossier, état de l'ancien catalogue) : la correction donne au
+    // dossier son propre produit au lieu de corriger celui de l'autre.
+    const second = await creer(identite(mol("KAPPA")));
+    await prisma.regulatoryProduct.update({ where: { id: second.id! }, data: { productId: ancien } });
     ACTOR = SA;
     await updateRegulatoryProduct(undefined, fd({ id: r.id!, ...identite(mol("KAPPA"), { packaging: "B/90" }) }));
     const nouveau = (await lire(r.id!)).productId!;
@@ -291,17 +318,17 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     expect(r.every((x) => x!.created)).toBe(true);
   });
 
-  it("concurrence : la même identité rattachée six fois à la fois → UN produit", async () => {
+  it("concurrence : trois dossiers de même identité, assurés deux fois chacun à la fois → TROIS produits, un par dossier, aucun orphelin", async () => {
     const ids = await Promise.all([1, 2, 3].map(() => prisma.regulatoryProduct.create({
       data: { reference: `${TAG}-C${Math.random().toString(36).slice(2, 8)}`, dci: mol("OMICRON"), dosage: "10", dosageUnit: "MG", pharmaceuticalForm: "COMPRIME", packaging: "B/14", companyId },
       select: { id: true },
     })));
     dossiers.push(...ids.map((d) => d.id));
-    await Promise.all([...ids, ...ids].map((d) => rattacherDossier(d.id)));
+    await Promise.all([...ids, ...ids].map((d) => ensureProduitDuDossier(d.id)));
     const liens = await prisma.regulatoryProduct.findMany({ where: { id: { in: ids.map((d) => d.id) } }, select: { productId: true } });
-    expect(new Set(liens.map((l) => l.productId)).size).toBe(1);
-    expect(liens[0].productId).not.toBeNull();
-    expect(await prisma.product.count({ where: { dci: mol("OMICRON") } })).toBe(1);
+    expect(liens.every((l) => l.productId !== null)).toBe(true);
+    expect(new Set(liens.map((l) => l.productId)).size).toBe(3);
+    expect(await prisma.product.count({ where: { dci: mol("OMICRON") } })).toBe(3);
   });
 
   it("concurrence : des dossiers créés à la même seconde reçoivent chacun leur référence", async () => {
@@ -321,9 +348,13 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     const vus = await prisma.regulatoryProduct.findMany({ where: { AND: [await regulatoryVisibleWhere(assist), { id: { in: [libre.id!, verrou.id!] } }] }, select: { id: true } });
     expect(vus.map((v) => v.id)).toEqual([libre.id!]);
 
-    const cat = await chargerCatalogueCanonique(assist);
-    expect(cat.produits.some((p) => p.id === pLibre.productId)).toBe(true);
-    expect(cat.produits.some((p) => p.id === pVerrou.productId)).toBe(false);
+    // Un dossier créé verrouillé n'entre au catalogue qu'à l'ouverture du cadenas ; on lui pose un produit
+    // (état d'avant ce lot) pour éprouver la clause de visibilité.
+    expect(pVerrou.productId).toBeNull();
+    const pVerrouId = (await ensureProduct({ dci: mol("RHO"), dosage: "500", dosageUnit: "MG", form: "COMPRIME_PELLICULE", packaging: "B/30" }))!.id;
+    await prisma.regulatoryProduct.update({ where: { id: verrou.id! }, data: { productId: pVerrouId } });
+    Object.assign(pVerrou, { productId: pVerrouId });
+    expect(await chargerProduitCanonique(assist, pLibre.productId!)).not.toBeNull();
     expect(await chargerProduitCanonique(assist, pVerrou.productId!)).toBeNull();
     expect(await canAccessEntity(assist, "PRODUCT", pVerrou.productId!, "VIEW")).toBe(false);
     expect(await canAccessEntity(assist, "PRODUCT", pLibre.productId!, "VIEW")).toBe(true);
@@ -380,41 +411,49 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     expect(await prisma.productAlias.count({ where: { productId: produit } })).toBe(0);
   });
 
-  it("le rattachement de l'existant : la simulation n'écrit RIEN, l'application rattache, et rejouée ne fait plus rien", async () => {
-    // Trois dossiers « d'avant » : deux complets, un incomplet — créés sans passer par l'action.
+  it("le passage du démarrage : chaque dossier d'avant reçoit SON produit, un produit partagé est listé, et rejoué il ne fait plus rien", async () => {
+    // Quatre dossiers « d'avant » : deux complets de même identité, un incomplet, un verrouillé — créés sans l'action.
     const base = { companyId, dosage: "20", dosageUnit: "MG", pharmaceuticalForm: "GELULE" };
     const crees = await Promise.all([
       prisma.regulatoryProduct.create({ data: { reference: `${TAG}-H1`, dci: mol("UPSI"), packaging: "B/28", ...base }, select: { id: true } }),
       prisma.regulatoryProduct.create({ data: { reference: `${TAG}-H2`, dci: mol("UPSI"), packaging: "B/28", ...base }, select: { id: true } }),
       prisma.regulatoryProduct.create({ data: { reference: `${TAG}-H3`, dci: mol("PHI"), ...base }, select: { id: true } }),
+      prisma.regulatoryProduct.create({ data: { reference: `${TAG}-H4`, dci: mol("PSI"), packaging: "B/7", isLocked: true, ...base }, select: { id: true } }),
     ]);
     const ids = crees.map((c) => c.id);
     dossiers.push(...ids);
+    // Un produit de BU attaché au dossier incomplet, sans produit : il doit hériter du produit du dossier.
+    const promo = await prisma.promoProduct.create({ data: { name: `${TAG} promu incomplet`, regulatoryProductId: ids[2] }, select: { id: true } });
+    promos.push(promo.id);
     const perimetre = { dossierIds: ids };
 
-    const sim = await rattacherTout({ appliquer: false, perimetre });
-    expect(sim.simulation).toBe(true);
-    expect(sim.dossiers.crees).toBe(1);
-    expect(sim.dossiers.rattaches).toBe(1);
-    expect(sim.dossiers.incomplets.map((d) => d.reference)).toEqual([`${TAG}-H3`]);
-    expect(sim.dossiers.incomplets[0].manques).toEqual(["CONDITIONNEMENT"]);
-    expect(await prisma.regulatoryProduct.count({ where: { id: { in: ids }, productId: { not: null } } })).toBe(0); // RIEN écrit
-
-    const app = await rattacherTout({ appliquer: true, acteurId: adminId, perimetre });
-    expect(app.dossiers.crees + app.dossiers.rattaches).toBe(2);
+    const app = await assurerProduitsDesDossiers({ acteurId: adminId, perimetre });
+    expect(app.dossiers).toBe(3); // le verrouillé attend l'ouverture du cadenas
+    expect(app.crees).toBe(3);
+    expect(app.aCompleter).toBe(1);
+    expect(app.profilsSuivis).toBe(1);
     const liens = await prisma.regulatoryProduct.findMany({ where: { id: { in: ids } }, select: { productId: true }, orderBy: { reference: "asc" } });
     expect(liens[0].productId).not.toBeNull();
-    expect(liens[1].productId).toBe(liens[0].productId);
-    expect(liens[2].productId).toBeNull();
+    expect(liens[1].productId).not.toBeNull();
+    expect(liens[1].productId).not.toBe(liens[0].productId); // même identité, deux produits
+    expect(liens[2].productId).not.toBeNull(); // incomplet : un produit quand même
+    expect(liens[3].productId).toBeNull(); // verrouillé
+    expect((await prisma.promoProduct.findUniqueOrThrow({ where: { id: promo.id }, select: { productId: true } })).productId).toBe(liens[2].productId);
 
-    const encore = await rattacherTout({ appliquer: true, acteurId: adminId, perimetre });
-    expect(encore.dossiers.crees + encore.dossiers.rattaches + encore.dossiers.corriges).toBe(0);
-    expect(encore.dossiers.deja).toBe(2);
+    const encore = await assurerProduitsDesDossiers({ acteurId: adminId, perimetre });
+    expect(encore.crees + encore.misAJour + encore.separes).toBe(0);
+    expect(encore.deja).toBe(3);
+
+    // Un produit partagé (état de l'ancien catalogue) est NOMMÉ au bilan, et pas scindé.
+    await prisma.regulatoryProduct.update({ where: { id: ids[1] }, data: { productId: liens[0].productId } });
+    const partage = await assurerProduitsDesDossiers({ acteurId: adminId, perimetre });
+    expect(partage.produitsPartages.map((p) => p.id)).toContain(liens[0].productId);
+    expect((await prisma.regulatoryProduct.findUniqueOrThrow({ where: { id: ids[1] }, select: { productId: true } })).productId).toBe(liens[0].productId);
   });
 
-  it("le geste global est réservé au Super Admin ; rattacher UN dossier demande de pouvoir le modifier", async () => {
+  it("le geste global est réservé au Super Admin ; donner son produit à UN dossier demande de pouvoir le modifier", async () => {
     ACTOR = await actorFor(opsId, "OPERATIONS_DIRECTOR");
-    expect((await simulerRattachementCanonique()).ok).toBe(false);
+    expect((await verifierProduitsDesDossiers()).ok).toBe(false);
     const r = await prisma.regulatoryProduct.create({
       data: { reference: `${TAG}-G1`, dci: mol("CHI"), dosage: "1", dosageUnit: "MG", pharmaceuticalForm: "GELULE", packaging: "B/7", companyId },
       select: { id: true },

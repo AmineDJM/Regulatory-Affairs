@@ -84,7 +84,7 @@ export function refusProduitsHorsBu(
     : `${horsBu} produit(s) ne sont pas dans la gamme de ce KAM — un rapport ne porte que les produits de sa Business Unit.`;
   return base + (p.sansCanonique.length > 0
     ? ` À noter : ${p.sansCanonique.length} produit(s) promu(s) de la gamme (${p.sansCanonique.slice(0, 3).join(", ")}) `
-      + "n'ont pas de produit canonique rattaché et ne peuvent donc pas figurer dans un rapport — "
-      + "le « Catalogue produits » de Regulatory dit, pour chacun, ce qui manque (dossier à rattacher ou à compléter)."
+      + "ne sont rattachés à aucun dossier réglementaire et ne peuvent donc pas figurer dans un rapport — "
+      + "à rapprocher dans Produits 360 (⋯ › « Rapprocher un produit BD / BU »)."
     : "");
 }

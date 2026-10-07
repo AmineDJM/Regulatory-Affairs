@@ -5,9 +5,10 @@ import { requireModule } from "@/lib/session";
 import { userCan, isRegulatorySupervisor } from "@/lib/rbac";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { getAppSettings } from "@/lib/settings";
-import { manquesIdentite, phraseManques } from "@/lib/products/identity";
+import { manquesIdentite } from "@/lib/products/identity";
 import { tupleDuDossier } from "@/lib/products/canonique";
-import { RattacherDossierBouton } from "../catalogue/rattacher-dossier";
+import { titreACompleter } from "@/lib/products/produit-du-dossier";
+import { CreerProduitBouton } from "./creer-produit";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { addRegulatoryComment } from "@/lib/actions/regulatory-actions";
@@ -74,7 +75,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
       variations: { orderBy: { createdAt: "desc" } },
       // LA FRISE du dossier : CTD initial → réserves → réponses → versions → décision.
       dossierSteps: { orderBy: { order: "asc" }, include: { createdBy: { select: { name: true } } } },
-      // LE PRODUIT CANONIQUE (§118.178) — dit sur la fiche, en permanence.
+      // SON PRODUIT (produit = dossier) — dit sur la fiche, en permanence.
       canonicalProduct: { select: { id: true, code: true, canonicalName: true } },
     },
   });
@@ -210,7 +211,9 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
     .filter(Boolean)
     .join(" ") || null;
   const formLabel = product.pharmaceuticalForm ? PHARMA_FORM[product.pharmaceuticalForm] ?? product.pharmaceuticalForm : null;
-  const manquesProduit = product.canonicalProduct ? [] : manquesIdentite(tupleDuDossier(product));
+  // PRODUIT = DOSSIER : ce qui manque à l'identité est une INDICATION, jamais un blocage.
+  const aCompleter = titreACompleter(manquesIdentite(tupleDuDossier(product)));
+  const voitProduits = userCan(user, "PRODUCTS", "VIEW");
 
   return (
     <div className="space-y-5">
@@ -232,25 +235,25 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
           </div>
           <h1 className="break-words text-xl font-semibold tracking-tight sm:text-2xl">{product.dci}</h1>
           {product.brandName && <p className="text-muted-foreground">{product.brandName}</p>}
-          {/* LE PRODUIT CANONIQUE — ou ce qui manque pour l'identifier. Un dossier sans produit
-              n'entre dans aucune Business Unit : le dire ici évite de le découvrir au terrain. */}
+          {/* LE PRODUIT DE CE DOSSIER (produit = dossier, Direction 08/10) — et, s'il en manque, ce qu'il
+              reste à compléter : une indication, pas un blocage. */}
           {product.canonicalProduct ? (
             <p className="text-xs text-muted-foreground">
-              Produit canonique :{" "}
-              <Link href={`/regulatory/catalogue/${product.canonicalProduct.id}`} className="font-medium text-foreground hover:underline">
-                {product.canonicalProduct.code} — {product.canonicalProduct.canonicalName}
-              </Link>
+              Produit :{" "}
+              {voitProduits ? (
+                <Link href={`/produits/${product.canonicalProduct.id}`} className="font-medium text-foreground hover:underline">
+                  {product.canonicalProduct.code} — {product.canonicalProduct.canonicalName}
+                </Link>
+              ) : (
+                <span className="font-medium text-foreground">{product.canonicalProduct.code} — {product.canonicalProduct.canonicalName}</span>
+              )}
             </p>
-          ) : manquesProduit.length > 0 ? (
-            <p className="text-xs text-warning">
-              Produit canonique en attente : il manque {phraseManques(manquesProduit)}.
-            </p>
-          ) : (
+          ) : !product.isLocked && canUpdate ? (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>Pas encore rattaché au catalogue produits.</span>
-              {canUpdate && <RattacherDossierBouton dossierId={product.id} />}
+              <CreerProduitBouton dossierId={product.id} />
             </div>
-          )}
+          ) : null}
+          {aCompleter && <p className="text-xs text-warning">{aCompleter}</p>}
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
           {canUpdate ? (

@@ -4,7 +4,7 @@ import { contentDisposition } from "@/lib/http/content-disposition";
 import { DOCTOR_TITLE } from "@/lib/labels";
 import { chargerStrategie, chargerPanel } from "@/lib/segmentation/service";
 import { droitsSegmentation, porteeSegmentation } from "@/lib/segmentation/droits";
-import { STATUT_LABELS } from "@/lib/segmentation/regles";
+import { STATUT_LABELS, affiniteAffichee } from "@/lib/segmentation/regles";
 import { enteteQ1, enteteQ2, libelleLettre } from "@/lib/segmentation/charge";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,9 @@ export async function GET(req: Request) {
   if (!s) return new Response("Stratégie introuvable.", { status: 404 });
   const panel = await chargerPanel(s, porteeSegmentation(user));
   const p1 = s.produits[0];
-  const metrique = s.regle?.regles?.produits.find((p) => p.productId === p1?.productId)?.metrique ?? null;
+  const regleP1 = s.regle?.regles?.produits.find((p) => p.productId === p1?.productId);
+  const metrique = regleP1?.metrique ?? null;
+  const methode = regleP1?.methodeAffinite ?? "SUR_10";
   const lignes: (string | number | null)[][] = [
     ["Secteur", "CDR", "Spécialité", "Nom", "Prénom", "Grade", "Statut", enteteQ1(metrique), enteteQ2(p1?.nom), "%", "Potentiel"],
     ...panel.map((l) => [
@@ -35,7 +37,7 @@ export async function GET(req: Request) {
       l.statut ? STATUT_LABELS[l.statut] : "",
       l.q1,
       l.q2,
-      l.q2 === null ? null : Math.round(l.q2 * 100) / 10,
+      ((a) => (a === null ? null : Math.round(a * 1000) / 10))(affiniteAffichee(l.q1, l.q2, methode)),
       l.resultat ? libelleLettre(l.resultat.lettre) : "",
     ]),
   ];
