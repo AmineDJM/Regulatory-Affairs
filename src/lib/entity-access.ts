@@ -17,12 +17,12 @@ import { projetsBdVisibles } from "@/lib/queries/bd";
 import { clauseProduitsVisibles } from "@/lib/queries/produits-canoniques";
 import { clauseRegulatoryVisible } from "@/lib/queries/regulatory-visibilite";
 import { clauseBonsDeCommandePchVisibles, clauseFormationsVisibles, clauseMarchesPchVisibles } from "@/lib/queries/visibilite-listes";
-import { isManagerOfUser } from "@/lib/departments";
+import { isManagerOfUser, getManagementChain } from "@/lib/departments";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { canViewDeclaration } from "@/lib/queries/medical-info";
 import { accesAuCasPv } from "@/lib/pharmacovigilance/acces";
 import {
-  userCan, hasGlobalView, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
+  userCan, hasGlobalView, isTopManagement, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring,
 } from "@/lib/rbac";
 
@@ -1000,4 +1000,38 @@ export async function canModerateEntity(
   entityId: string,
 ): Promise<boolean> {
   return canAccessEntity(user, entityType, entityId, "UPDATE");
+}
+
+/**
+ * LA DISCUSSION D'UN CONGÉ (Direction, 07/10 : « ajoute une possibilité de discussion dans les congés ») — qui lit et
+ * écrit le fil d'une demande de congé : ceux qui ouvrent déjà le congé (`canAccessEntity`, le module Demandes RH), le
+ * SALARIÉ, son N+1 enregistré ou l'intérimaire de ce N+1, la chaîne au-dessus du salarié (la lecture de `leaveDecider`),
+ * celui à qui la marche a été remontée et ceux qui l'ont remontée (`LeaveEscalation`), les RH qui tranchent et le sommet.
+ *
+ * Le FIL seulement : `canAccessEntity` n'est pas élargi, et les justificatifs d'un congé (un certificat médical) restent
+ * à ceux qui les ouvraient déjà.
+ */
+export async function peutEchangerSurConge(user: SessionUser, leaveId: string): Promise<boolean> {
+  const l = await prisma.leaveRequest.findUnique({
+    where: { id: leaveId },
+    select: {
+      employeeId: true, managerId: true, currentApproverId: true,
+      employee: { select: { userId: true } },
+      escalations: { select: { fromUserId: true, toUserId: true } },
+    },
+  });
+  if (!l) return false;
+  if (l.employee.userId === user.id) return true;
+  if (userCan(user, "HR_REQUESTS", "VALIDATE") || isTopManagement(user)) return true;
+  if (l.currentApproverId === user.id) return true;
+  if (l.escalations.some((e) => e.fromUserId === user.id || e.toUserId === user.id)) return true;
+  if (l.managerId) {
+    const n1 = await prisma.employee.findUnique({ where: { id: l.managerId }, select: { userId: true } });
+    if (n1?.userId && (n1.userId === user.id || (await actsForUser(user.id, n1.userId)))) return true;
+  }
+  // La chaîne au-dessus du salarié — une lecture qui échoue n'ouvre rien (comme `leaveDecider`).
+  let chaine: { userId: string | null }[] = [];
+  try { chaine = await getManagementChain(l.employeeId); } catch { chaine = []; }
+  if (chaine.some((m) => m.userId === user.id)) return true;
+  return canAccessEntity(user, "LEAVE_REQUEST", leaveId, "VIEW");
 }

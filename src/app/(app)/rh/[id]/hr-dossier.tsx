@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Upload, Loader2, Trash2, FileText, Download, Paperclip, FolderArchive, FolderTree } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
@@ -11,22 +10,13 @@ import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/
 import { formatDate, formatMonth, formatCurrency } from "@/lib/utils";
 import { processHrRequest, deleteEmployeeDocument, decideExpenseReport, decideHrLeave, deleteHrRequest, setEmployeeDocumentVisibility } from "@/lib/actions/hr-document-actions";
 import { defaultVisibleToEmployee, visibilityLabel } from "@/lib/hr/document-visibility";
-import { hrNature, HR_DOCUMENT_STATUSES } from "@/lib/hr-request-flow";
+import { hrNature, HR_DOCUMENT_STATUSES, CATEGORIE_DU_DEPOT } from "@/lib/hr-request-flow";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import { ExpenseClaimHrPanel } from "@/components/hr/expense-claim-hr-panel";
 import type { HrDocumentDTO, HrRequestDTO } from "@/lib/queries/hr-documents";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 import { OrdreMissionForm } from "./ordre-mission-form";
-
-const REQ_TO_CAT: Record<string, string> = {
-  WORK_CERTIFICATE: "WORK_CERTIFICATE",
-  CNAS_CERTIFICATE: "CNAS_CERTIFICATE",
-  SALARY_STATEMENT: "SALARY_STATEMENT",
-  DOMICILIATION: "DOMICILIATION",
-  LEAVE_CERTIFICATE: "OTHER",
-  OTHER: "OTHER",
-};
 
 export function HrDossier({ employeeId, employeeName, employeePosition = null, referenceOrdreMission = "", documents, requests, currentUserId }: { employeeId: string; employeeName: string; employeePosition?: string | null; referenceOrdreMission?: string; documents: HrDocumentDTO[]; requests: HrRequestDTO[]; currentUserId: string }) {
   const router = useRouter();
@@ -162,59 +152,8 @@ export function HrDossier({ employeeId, employeeName, employeePosition = null, r
   );
 }
 
-/**
- * LA FILE DES DEMANDES RH (sous-module « Demandes RH », Direction 06/10) — chaque demande ouverte, traitée SUR PLACE avec
- * la même ligne que sur la fiche du salarié (statut, note, pièce à joindre, ordre de mission, fil d'échange) : qui tient
- * les demandes n'a pas à ouvrir le dossier du salarié, ni même à y avoir accès.
- */
-export function FileDemandesRh({ demandes, referenceOrdreMission, currentUserId, lienFiche }: {
-  demandes: (HrRequestDTO & { employeeId: string; employeeName: string; employeePosition: string | null })[];
-  referenceOrdreMission: string;
-  currentUserId: string;
-  /** La personne voit-elle les fiches des salariés (module Employés) ? Le nom mène alors à la fiche. */
-  lienFiche: boolean;
-}) {
-  const { rafraichir } = useRafraichir();
-  const [busy, setBusy] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  const deposer = (employeeId: string) => async (file: File, opts: { category: string; requestId: string }) => {
-    setBusy(true); setErr(null);
-    const fd = new FormData();
-    fd.set("file", file); fd.set("employeeId", employeeId); fd.set("category", opts.category);
-    fd.set("visibleToEmployee", "1");
-    fd.set("requestId", opts.requestId);
-    try {
-      const res = await fetch("/api/rh/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) setErr(data.error ?? "Échec de l'envoi.");
-      else rafraichir();
-    } catch { setErr("Échec de l'envoi."); }
-    finally { setBusy(false); }
-  };
-  if (demandes.length === 0) return <p className="surface p-4 text-sm text-muted-foreground">Aucune demande à traiter.</p>;
-  return (
-    <div className="space-y-2">
-      {err && <p className="text-sm text-destructive">{err}</p>}
-      <ul className="space-y-2">
-        {demandes.map((r) => (
-          <li key={r.id} className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground [overflow-wrap:anywhere]">
-              {lienFiche ? <a href={`/rh/${r.employeeId}`} className="text-primary hover:underline">{r.employeeName}</a> : r.employeeName}
-              {r.employeePosition ? ` · ${r.employeePosition}` : ""}
-            </p>
-            <ul>
-            <RequestRow
-              req={r} employeeId={r.employeeId} employeeName={r.employeeName} employeePosition={r.employeePosition}
-              referenceOrdreMission={referenceOrdreMission} onFulfil={deposer(r.employeeId)} busy={busy} currentUserId={currentUserId}
-            />
-            </ul>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
+// La file du sous-module « Demandes RH » vit dans `rh/demandes/file-demandes-rh.tsx` (Direction, 07/10) : une ligne par
+// demande et un panneau de traitement. La ligne ci-dessous reste celle de la fiche du salarié.
 function RequestRow({ req, employeeId, employeeName, employeePosition, referenceOrdreMission, onFulfil, busy, currentUserId }: { req: HrRequestDTO; employeeId: string; employeeName: string; employeePosition: string | null; referenceOrdreMission: string; onFulfil: (file: File, opts: { category: string; requestId: string }) => void; busy: boolean; currentUserId: string }) {
   const router = useRouter();
   const [status, setStatus] = React.useState(req.status);
@@ -413,7 +352,7 @@ function RequestRow({ req, employeeId, employeeName, employeePosition, reference
           )}
           <div className="mt-2">
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => fileRef.current?.click()}><Paperclip className="h-4 w-4" /> Joindre le document & marquer prêt</Button>
-            <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFulfil(f, { category: REQ_TO_CAT[req.type] ?? "OTHER", requestId: req.id }); e.target.value = ""; }} />
+            <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFulfil(f, { category: CATEGORIE_DU_DEPOT[req.type] ?? "OTHER", requestId: req.id }); e.target.value = ""; }} />
           </div>
         </>
       )}

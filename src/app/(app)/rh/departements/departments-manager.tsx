@@ -3,12 +3,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Loader2, Users, ShieldCheck, UserPlus, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, UserPlus, ChevronRight } from "lucide-react";
 import { createDepartment, updateDepartment, deleteDepartment, assignEmployeeDepartment } from "@/lib/actions/department-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PageHeader } from "@/components/shared/page-header";
 import type { DepartmentNode, DepartmentOption } from "@/lib/departments";
 
 type Result = { ok: boolean; error?: string };
@@ -33,9 +36,22 @@ function useRun() {
 
 type CompanyOpt = { id: string; label: string };
 
+/** L'arbre à plat, dans l'ordre de lecture (chaque département suivi de ses sous-départements). */
+function aplatir(nodes: DepartmentNode[]): DepartmentNode[] {
+  return nodes.flatMap((n) => [n, ...aplatir(n.children)]);
+}
+
+/**
+ * LES DÉPARTEMENTS EN UNE TABLE (maquette « Employés », Direction 07/10) — l'en-tête (titre, résumé d'une ligne, geste
+ * principal, « ⋯ ») vit ici parce que « Nouveau département » ouvre la fenêtre de ce composant. Une ligne par département,
+ * indentée selon sa profondeur ; au téléphone la table reste une table, qui défile dans son cadre.
+ */
 export function DepartmentsManager({
-  tree, options, employees, unassigned, canManage, companies, companyScope,
+  resume, onglets, menu, tree, options, employees, unassigned, canManage, companies, companyScope,
 }: {
+  resume: string;
+  onglets: React.ReactNode;
+  menu: React.ReactNode;
   tree: DepartmentNode[];
   options: DepartmentOption[];
   employees: EmpOpt[];
@@ -46,6 +62,7 @@ export function DepartmentsManager({
 }) {
   const { run } = useRun();
   const [sheet, setSheet] = React.useState<SheetState | null>(null);
+  const lignes = React.useMemo(() => aplatir(tree), [tree]);
 
   const del = (node: DepartmentNode) => {
     const msg = node.children.length > 0
@@ -56,24 +73,40 @@ export function DepartmentsManager({
 
   return (
     <div className="space-y-5">
-      {canManage && (
-        <div className="flex justify-end">
-          <Button size="sm" className="w-full sm:w-auto" onClick={() => setSheet({ mode: "create", parentId: null, parentName: null })}>
+      <PageHeader title="Départements" description={resume}>
+        {canManage && (
+          <Button onClick={() => setSheet({ mode: "create", parentId: null, parentName: null })}>
             <Plus className="h-4 w-4" /> Nouveau département
           </Button>
-        </div>
-      )}
+        )}
+        {menu}
+      </PageHeader>
+      {onglets}
 
-      {tree.length > 0 && (
-        <div className="space-y-2">
-          {tree.map((node) => (
-            <DeptCard
-              key={node.id} node={node} canManage={canManage}
-              onAddChild={(n) => setSheet({ mode: "create", parentId: n.id, parentName: n.name })}
-              onEdit={(n) => setSheet({ mode: "edit", node: n })}
-              onDelete={del}
-            />
-          ))}
+      {lignes.length === 0 ? (
+        <p className="surface p-6 text-center text-sm text-muted-foreground">Aucun département pour l&apos;instant.</p>
+      ) : (
+        <div className="surface overflow-hidden">
+          <Table className={canManage ? "min-w-[40rem]" : "min-w-[32rem]"}>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="sticky left-0 z-[1] bg-card">Département</TableHead>
+                <TableHead>Responsable</TableHead>
+                <TableHead className="text-right">Personnes</TableHead>
+                {canManage && <TableHead><span className="sr-only">Actions</span></TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lignes.map((node) => (
+                <DeptRow
+                  key={node.id} node={node} canManage={canManage}
+                  onAddChild={(n) => setSheet({ mode: "create", parentId: n.id, parentName: n.name })}
+                  onEdit={(n) => setSheet({ mode: "edit", node: n })}
+                  onDelete={del}
+                />
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -88,8 +121,8 @@ export function DepartmentsManager({
   );
 }
 
-/** Carte d'un département : responsable, effectifs, et ses sous-départements en cascade. */
-function DeptCard({
+/** Une ligne de la table : le département (indenté selon sa profondeur), son responsable, son effectif, ses gestes. */
+function DeptRow({
   node, canManage, onAddChild, onEdit, onDelete,
 }: {
   node: DepartmentNode;
@@ -99,44 +132,38 @@ function DeptCard({
   onDelete: (n: DepartmentNode) => void;
 }) {
   const isRoot = node.depth === 0;
+  const icone = "rounded p-2 text-muted-foreground sm:p-1.5";
   return (
-    <div className={isRoot ? "surface p-3 sm:p-4" : "rounded-lg border border-border bg-card/60 p-2.5 sm:p-3"}>
-      <div className="flex flex-wrap items-center gap-2">
-        {!isRoot && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-        <span className={`min-w-0 [overflow-wrap:anywhere] ${isRoot ? "font-semibold" : "text-sm font-medium"}`}>{node.name}</span>
-        <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere]">{node.code}</span>
-        {isRoot && node.companyName && <Badge tone="purple" dot={false} className="text-[0.6875rem]">{node.companyName}</Badge>}
-
-        {node.headName ? (
-          <Badge tone="info" dot={false} className="gap-1"><ShieldCheck className="h-3 w-3" /> {node.headName}</Badge>
-        ) : (
-          <Badge tone="warning" dot={false}>Sans responsable</Badge>
-        )}
-        {node.deputyName && <span className="text-[0.6875rem] text-muted-foreground">adjoint : {node.deputyName}</span>}
-
-        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-          <Users className="h-3 w-3" /> {node.members}
-          {node.totalMembers !== node.members && <span className="opacity-70">({node.totalMembers} avec sous-dép.)</span>}
-        </span>
-
-        {canManage && (
-          <div className="ml-auto flex items-center gap-1">
-            <Button size="sm" variant="outline" onClick={() => onAddChild(node)}><Plus className="h-3.5 w-3.5" /> Sous-département</Button>
-            <button title="Modifier" aria-label="Modifier" onClick={() => onEdit(node)} className="rounded p-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:p-1.5"><Pencil className="h-4 w-4" /></button>
-            <button title="Supprimer" aria-label="Supprimer" onClick={() => onDelete(node)} className="rounded p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-1.5"><Trash2 className="h-4 w-4" /></button>
+    <TableRow>
+      <TableCell className="sticky left-0 z-[1] max-w-[18rem] bg-card" style={{ paddingLeft: `${0.75 + node.depth * 1.25}rem` }}>
+        <div className="flex min-w-0 items-start gap-1.5" title={node.description ?? undefined}>
+          {!isRoot && <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+          <div className="min-w-0">
+            <span className={`block [overflow-wrap:anywhere] ${isRoot ? "font-semibold" : "font-medium"}`}>{node.name}</span>
+            <span className="block font-mono text-[0.6875rem] text-muted-foreground [overflow-wrap:anywhere]">
+              {node.code}{isRoot && node.companyName ? ` · ${node.companyName}` : ""}
+            </span>
           </div>
-        )}
-      </div>
-      {node.description && <p className="mt-1 text-xs text-muted-foreground">{node.description}</p>}
-
-      {node.children.length > 0 && (
-        <div className="mt-3 space-y-2 border-l-2 border-border pl-2.5 sm:pl-4">
-          {node.children.map((c) => (
-            <DeptCard key={c.id} node={c} canManage={canManage} onAddChild={onAddChild} onEdit={onEdit} onDelete={onDelete} />
-          ))}
         </div>
+      </TableCell>
+      <TableCell>
+        {node.headName
+          ? <span className="block">{node.headName}</span>
+          : <Badge tone="warning" dot={false}>Sans responsable</Badge>}
+        {node.deputyName && <span className="block text-xs text-muted-foreground">adjoint : {node.deputyName}</span>}
+      </TableCell>
+      <TableCell className="whitespace-nowrap text-right tabular-nums">
+        {node.members}
+        {node.totalMembers !== node.members && <span className="block text-xs text-muted-foreground">{node.totalMembers} avec sous-dép.</span>}
+      </TableCell>
+      {canManage && (
+        <TableCell className="whitespace-nowrap text-right">
+          <button type="button" title="Ajouter un sous-département" aria-label={`Ajouter un sous-département à ${node.name}`} onClick={() => onAddChild(node)} className={`${icone} hover:bg-secondary hover:text-foreground`}><Plus className="h-4 w-4" /></button>
+          <button type="button" title="Modifier" aria-label={`Modifier ${node.name}`} onClick={() => onEdit(node)} className={`${icone} hover:bg-secondary hover:text-foreground`}><Pencil className="h-4 w-4" /></button>
+          <button type="button" title="Supprimer" aria-label={`Supprimer ${node.name}`} onClick={() => onDelete(node)} className={`${icone} hover:bg-destructive/10 hover:text-destructive`}><Trash2 className="h-4 w-4" /></button>
+        </TableCell>
       )}
-    </div>
+    </TableRow>
   );
 }
 
@@ -147,9 +174,9 @@ function UnassignedPanel({ employees, options }: { employees: EmpOpt[]; options:
     <section className="surface space-y-3 p-3 sm:p-4">
       <div className="flex items-center gap-2">
         <UserPlus className="h-4 w-4 text-warning" />
-        <h2 className="text-sm font-semibold">Personnes non affectées ({employees.length})</h2>
+        <h2 className="text-sm font-semibold">Non affectées ({employees.length})</h2>
+        <InfoBulle align="left">Rattachez chaque personne à un département : son responsable devient leur N+1 par défaut.</InfoBulle>
       </div>
-      <p className="text-xs text-muted-foreground">Rattachez-les à un département — le responsable de ce département devient leur N+1 par défaut.</p>
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="divide-y divide-border">
         {employees.map((e) => (
@@ -224,12 +251,14 @@ function DeptSheet({
         </div>
         {(sheet.mode === "edit" ? !editing?.parentId : !sheet.parentId) && companies.length > 0 && (
           <div className="space-y-1.5 sm:col-span-2">
-            <Label>Entité</Label>
+            <div className="flex items-center gap-1">
+              <Label>Entité</Label>
+              <InfoBulle align="left">Chaque société (Adventum, Pharmagène…) a ses propres départements. Un sous-département hérite automatiquement de l&apos;entité de son parent.</InfoBulle>
+            </div>
             <Select name="companyId" defaultValue={editing ? editing.companyId ?? "" : companyScope ?? ""}>
               <option value="">— Transverse au groupe —</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </Select>
-            <p className="text-xs text-muted-foreground">Chaque société (Adventum, Pharmagène…) a ses propres départements. Un sous-département hérite automatiquement de l&apos;entité de son parent.</p>
           </div>
         )}
         <div className="space-y-1.5">

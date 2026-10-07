@@ -23,6 +23,7 @@ import { MyReminders } from "@/components/reminders/my-reminders";
 import { ReminderButton } from "@/components/reminders/reminder-button";
 import { TaskList, type TaskItem } from "./task-list";
 import { LeaveApprovals } from "@/components/hr/leave-approvals";
+import { discussionsDesConges } from "@/lib/queries/conges-discussion";
 import { MissionItem } from "@/components/missions/mission-item";
 import { getMyMissions } from "@/lib/queries/missions";
 import { isOutstanding, isLate } from "@/lib/doc-request";
@@ -139,6 +140,8 @@ export default async function MonEspacePage() {
   // (§118.51) : il ignorait les congés du bloc des signatures et comptait ceux de l'intérim, montrés deux
   // fois. Les TÂCHES du centre ne sont pas reprises : elles ont leurs sections ici, plus riches.
   const { decisions, conges: congesASigner, aTraiter, aValider } = sectionsMonEspace(centre.items, centre.conges);
+  // LA DISCUSSION DE CHAQUE CONGÉ À SIGNER (Direction, 07/10) — le même fil que les RH et le salarié.
+  const discussionsConges = await discussionsDesConges(congesASigner.map((c) => c.id));
   // Un seul instant pour toute la page : deux blocs ne disent pas « depuis hier » et « depuis 2 j » du même moment.
   const maintenant = new Date();
   const myAdvances: AdvanceItem[] = data.myAdvances.map((a) => ({
@@ -238,7 +241,10 @@ export default async function MonEspacePage() {
             Circuit <strong>responsable (N+1) → ressources humaines → direction générale</strong>.
             Approuver fait monter d&apos;une marche ; refuser arrête le circuit.
           </p>
-          <LeaveApprovals leaves={congesASigner} maintenant={maintenant.toISOString()} />
+          <LeaveApprovals
+            leaves={congesASigner.map((c) => ({ ...c, commentaires: discussionsConges[c.id] ?? [] }))}
+            maintenant={maintenant.toISOString()} currentUserId={user.id}
+          />
         </section>
       )}
 

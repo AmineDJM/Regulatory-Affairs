@@ -110,12 +110,16 @@ suite("RH — qui voit la paie, et jusqu'où", () => {
   });
 
   it("POINTS D'APPEL : les quatre portes lisent la même règle, et le salaire masqué n'est pas sérialisé", () => {
-    // Le tableau de bord des RH est réparti dans ses sous-modules (06/10) : la masse salariale vit dans « Équipe ».
+    // « Équipe » (maquette validée par la Direction, 07/10) n'affiche plus de masse salariale — elle vit dans la Paie.
+    // Reste à garder : la même règle décide de la colonne « Salaire de base », et le salaire masqué n'est pas SÉRIALISÉ.
     const equipe = readFileSync("src/app/(app)/rh/equipe/page.tsx", "utf8");
-    expect(equipe).toMatch(/\{canSeeSalary && <KpiCard\s+label="Masse salariale"/);
-    expect(equipe).toMatch(/canSeeSalary && data\.byCompany\.length > 1/);
     expect(equipe).toMatch(/const canSeeSalary = voitLesSalaires\(user\)/);
     expect(equipe).toMatch(/baseSalary: canSeeSalary \? toNumber\(e\.baseSalary\) : null/);
+    expect(equipe).toMatch(/<TeamDirectory rows=\{rows\} canSeeSalary=\{canSeeSalary\}/);
+    expect(equipe, "aucune masse salariale ne doit réapparaître hors de la règle").not.toMatch(/masseSalariale|byCompany/);
+    const annuaire = readFileSync("src/app/(app)/rh/team-directory.tsx", "utf8");
+    expect(annuaire).toMatch(/\{canSeeSalary && <TableHead[^>]*>Salaire de base<\/TableHead>\}/);
+    expect(annuaire).toMatch(/\{canSeeSalary && \(\s*<TableCell/);
     const fiche = readFileSync("src/app/(app)/rh/[id]/page.tsx", "utf8");
     const porte = fiche.indexOf("entitePermisePourFiche(user.id, employee.companyId)");
     expect(porte).toBeGreaterThan(0);

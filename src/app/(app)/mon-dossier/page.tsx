@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/session";
 import { getMyHrDossier } from "@/lib/queries/hr-documents";
 import { getMyLeaveRequests } from "@/lib/queries/hr";
+import { discussionsDesConges } from "@/lib/queries/conges-discussion";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -31,6 +32,8 @@ export default async function MonDossierPage() {
   const dossier = await getMyHrDossier(user.id);
   // MÊME demande, MÊME liste que « Mon espace » : un congé n'existe qu'une fois.
   const myLeaves = await getMyLeaveRequests(user.id);
+  // La discussion de chacun de MES congés (Direction, 07/10) — le fil où le N+1 et les RH me répondent.
+  const discussionsConges = await discussionsDesConges(myLeaves.map((l) => l.id));
   // Qui peut me remplacer, et sur quoi. Les collègues actifs (moi excepté — on ne se remplace
   // pas soi-même) et ce que JE DÉTIENS et qui se prête — la lecture même de l'action et du calcul des
   // droits (`modulesPretables`), jamais la liste de tous les modules : on proposait des modules que la
@@ -152,8 +155,8 @@ export default async function MonDossierPage() {
           </p>
           {/* « Terminé » se calcule ICI, sur l'horloge du serveur — celle de l'action (§118.196). */}
           <MyLeaves
-            leaves={myLeaves.map((l) => ({ ...l, termine: congeTermine(l.endDate) }))}
-            people={colleagues} modules={delegatable} moduleLabels={MODULE_LABELS}
+            leaves={myLeaves.map((l) => ({ ...l, termine: congeTermine(l.endDate), commentaires: discussionsConges[l.id] ?? [] }))}
+            people={colleagues} modules={delegatable} moduleLabels={MODULE_LABELS} currentUserId={user.id}
           />
         </CardContent>
       </Card>

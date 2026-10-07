@@ -1,16 +1,17 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Loader2, Check, Undo2, Pencil, ChevronLeft, ChevronRight, Paperclip, FileWarning, Send } from "lucide-react";
+import { Loader2, Check, Undo2, Paperclip } from "lucide-react";
 import { markSalaryPaid, unmarkSalaryPaid, updatePayrollEntry } from "@/lib/actions/payroll-hr-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Input, Label } from "@/components/ui/input";
-import { formatBytes, formatCurrency, formatMonth } from "@/lib/utils";
+import { Input, Label, Select } from "@/components/ui/input";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { cn, formatBytes, formatCurrency, formatMontant, formatMonth, initials } from "@/lib/utils";
 import { DocumentPreview } from "@/components/documents/document-preview";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
+import { FILTRE_SANS_ENTITE, masseDuFiltre, type ColonneMasse } from "./masse-mensuelle";
 
 export interface PayrollCell {
   /**
@@ -27,17 +28,18 @@ export interface PayrollCell {
   employerCost?: number | null;
   entryId: string | null;
   /**
-   * LA FICHE DE PAIE ATTACHÉE À CE MOIS, quand elle a été déposée.
-   *
-   * Elle l'était déjà — dans le dossier RH du salarié — mais rien ne la montrait ICI : on
-   * revenait sur l'écran et le bulletin qu'on venait de joindre semblait avoir disparu. Un
-   * fichier qu'on ne peut pas rouvrir depuis l'endroit où on l'a déposé est un fichier perdu.
+   * LA FICHE DE PAIE ATTACHÉE À CE MOIS, quand elle a été déposée — rouvrable d'ici (un clic sur
+   * le montant), car un fichier qu'on ne peut pas revoir depuis l'endroit où on l'a déposé est perdu.
    */
   payslip: { id: string; name: string; sizeBytes: number | null; addedAt: string } | null;
 }
 export interface PayrollRow {
   employeeId: string;
   name: string;
+  /** Poste de la fiche salarié — sous le nom, dans la colonne collante. */
+  poste: string | null;
+  /** Entité de la fiche salarié — ce que filtre le sélecteur d'entité. */
+  companyId: string | null;
   /** Pré-remplissage au marquage : salaire brut (→ budget) et net (→ salarié). */
   defaultGross: number | null;
   /** Coût employeur de référence — ce qui préremplit le champ obligatoire de la paie. */
@@ -46,154 +48,227 @@ export interface PayrollRow {
   months: PayrollCell[]; // index 0 = janvier
 }
 
-const MONTHS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
+const MONTHS = ["Janv.", "Févr.", "Mars", "Avr.", "Mai", "Juin", "Juil.", "Août", "Sept.", "Oct.", "Nov.", "Déc."];
 const ym = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
-const ETAT_CELLULE: Record<Exclude<PayrollCell["state"], "UNPAID">, { texte: string; classe: string; titre: string }> = {
-  SAISI: { texte: "Saisi", classe: "bg-success/15 text-success", titre: "saisi — part au centre de paiement avec la paie de son entité (annulable tant qu'elle n'est pas envoyée)" },
-  ENVOYE: { texte: "Envoyé", classe: "bg-warning/15 text-warning", titre: "dans la paie envoyée au centre de paiement — virée une fois autorisée" },
-  VIRE: { texte: "Viré", classe: "bg-primary/10 text-primary", titre: "viré par les Finances" },
+/** Le POINT d'état d'une case (maquette « Paie ») : gris saisi, orange envoyé au centre, vert viré. */
+const ETAT_CELLULE: Record<Exclude<PayrollCell["state"], "UNPAID">, { texte: string; point: string; titre: string }> = {
+  SAISI: { texte: "Saisi", point: "bg-muted-foreground/60", titre: "saisi — part avec la paie de son entité (annulable tant qu'elle n'est pas envoyée)" },
+  ENVOYE: { texte: "Envoyé au centre", point: "bg-warning", titre: "dans la paie envoyée au centre de paiement" },
+  VIRE: { texte: "Viré", point: "bg-success", titre: "viré par les Finances" },
 };
 
-export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[] }) {
-  const router = useRouter();
+/** Colonne collante : fond opaque, filet droit en ombre (une bordure de table fusionnée ne suit pas le collage). */
+const COLLEE = "sticky left-0 z-10 bg-card shadow-[1px_0_0_hsl(var(--border)),4px_0_6px_-4px_rgb(0_0_0/0.12)]";
+/** La teinte d'en-tête / de pied, peinte par une ombre intérieure sur le fond opaque de la colonne collante. */
+const TEINTE = "shadow-[inset_0_0_0_9999px_hsl(var(--muted)/0.4),1px_0_0_hsl(var(--border)),4px_0_6px_-4px_rgb(0_0_0/0.12)]";
+
+type Mode = "net" | "cout";
+
+export function PayrollMatrix({
+  year, rows, entites, colonnesMasse, moisCourant, futurDes, finFenetre,
+}: {
+  year: number;
+  rows: PayrollRow[];
+  /** Les entités de la paie (portée validée) — le sélecteur d'entité. */
+  entites: { id: string; label: string }[];
+  /** La masse salariale par entité, calculée par la page — le pied de la grille. */
+  colonnesMasse: ColonneMasse[];
+  /** Le mois courant quand l'année affichée est l'année en cours (surligné), sinon `null`. */
+  moisCourant: number | null;
+  /** Premier mois « à venir » (13 = aucun). */
+  futurDes: number;
+  /** Dernier mois de la fenêtre par défaut (6 mois). */
+  finFenetre: number;
+}) {
+  const { enCours, rafraichir } = useRafraichir();
   const [paying, setPaying] = React.useState<{ row: PayrollRow; month: number } | null>(null);
   // CORRIGER une ligne déjà saisie : le même formulaire, prérempli avec ce qui a été enregistré.
   const [editing, setEditing] = React.useState<{ row: PayrollRow; month: number; cell: PayrollCell } | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  const [mode, setMode] = React.useState<Mode>("net");
+  const [filtre, setFiltre] = React.useState("");
+  const [anneeEntiere, setAnneeEntiere] = React.useState(false);
 
-  async function undo(entryId: string, name: string, month: number) {
+  const debut = Math.max(1, finFenetre - 5);
+  const mois = anneeEntiere ? Array.from({ length: 12 }, (_, i) => i + 1) : Array.from({ length: 6 }, (_, i) => debut + i);
+  const aSansEntite = rows.some((r) => !r.companyId);
+  const lignes = rows.filter((r) => (
+    filtre === "" ? true : filtre === FILTRE_SANS_ENTITE ? !r.companyId : r.companyId === filtre
+  ));
+  const masse = masseDuFiltre(colonnesMasse, filtre);
+  const valeur = (c: PayrollCell): number | null => (mode === "net" ? c.net : (c.employerCost ?? c.amount));
+  const valeurMasse = (m: { cost: number; net: number }) => (mode === "net" ? m.net : m.cost);
+
+  async function undo(entryId: string) {
     const fd = new FormData(); fd.set("id", entryId);
+    setBusy(true);
     const r = await unmarkSalaryPaid(fd);
-    if (!r.ok) window.alert(r.error ?? "Échec.");
-    router.refresh();
+    setBusy(false);
+    if (!r.ok) { setErr(r.error ?? "Échec."); return; }
+    setEditing(null);
+    rafraichir();
   }
 
+  const ouvrir = (row: PayrollRow, month: number) => {
+    const cell = row.months[month - 1]!;
+    setErr(null);
+    if (cell.state === "UNPAID") setPaying({ row, month });
+    else setEditing({ row, month, cell });
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <Link href={`/rh/paie?year=${year - 1}`} aria-label={`Année ${year - 1}`} className="rounded-md border border-border p-2.5 hover:bg-secondary sm:p-1.5"><ChevronLeft className="h-4 w-4" /></Link>
-          <span className="min-w-16 text-center text-sm font-semibold">{year}</span>
-          <Link href={`/rh/paie?year=${year + 1}`} aria-label={`Année ${year + 1}`} className="rounded-md border border-border p-2.5 hover:bg-secondary sm:p-1.5"><ChevronRight className="h-4 w-4" /></Link>
+    <section className="surface" aria-labelledby="grille-paie-titre">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-3 sm:px-4">
+        <h2 id="grille-paie-titre" className="text-sm font-semibold">
+          {mode === "net" ? "Salaires nets" : "Coût employeur"} <span className="font-normal text-muted-foreground">· DZD</span>
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="group" aria-label="Montant affiché" className="inline-flex rounded-lg border border-border bg-card p-0.5">
+            {([["net", "Net"], ["cout", "Coût employeur"]] as const).map(([m, libelle]) => (
+              <button
+                key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
+                className={cn(
+                  "min-h-8 rounded-md px-2.5 text-xs font-medium sm:min-h-7",
+                  mode === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {libelle}
+              </button>
+            ))}
+          </div>
+          {(entites.length > 1 || aSansEntite) && (
+            <Select value={filtre} onChange={(e) => setFiltre(e.target.value)} className="h-9 w-auto max-w-[12rem] text-xs sm:h-8" aria-label="Entité">
+              <option value="">Toutes les entités</option>
+              {entites.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              {aSansEntite && <option value={FILTRE_SANS_ENTITE}>Sans entité</option>}
+            </Select>
+          )}
+          <Button type="button" variant="outline" size="sm" aria-pressed={anneeEntiere} onClick={() => setAnneeEntiere((v) => !v)}>
+            {anneeEntiere ? "6 derniers mois" : "Toute l'année"}
+          </Button>
         </div>
-        {/* LE « TRANSFERT AU BUDGET » N'EXISTE PLUS (§118.176) : il écrivait un décaissement par
-            salarié, hors du centre de paiement. La paie part au centre, entité par entité, depuis
-            le panneau « Virement de la paie » — c'est son règlement qui l'inscrit au livre. */}
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Send className="h-3.5 w-3.5" /> Envoi au centre de paiement : panneau « Virement de la paie » ci-dessus.
-        </span>
       </div>
 
-      {/* MATRICE salariés × mois : elle défile DANS ce conteneur, jamais la page. La colonne des
-          noms reste collée à gauche — fond opaque (bg-card, teinte d'en-tête peinte par une ombre
-          intérieure) et filet droit en ombre, car une bordure de tableau fusionné ne suit pas le collage. */}
-      <div className="surface overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
-        <table className="w-full text-sm">
+      {/* La grille défile DANS ce cadre, jamais la page ; la colonne des noms reste collée à gauche. */}
+      <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+        <table className="w-full min-w-[34rem] text-sm">
           <thead>
-            <tr className="border-b border-border bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="sticky left-0 z-10 bg-card px-3 py-2 text-left shadow-[inset_0_0_0_9999px_hsl(var(--muted)/0.4),1px_0_0_hsl(var(--border)),4px_0_6px_-4px_rgb(0_0_0/0.12)]">Employé</th>
-              {MONTHS.map((m) => <th key={m} className="px-2 py-2 text-center">{m}</th>)}
+            <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+              <th scope="col" className={cn(COLLEE, TEINTE, "px-3 py-2 text-left font-medium")}>Salarié</th>
+              {mois.map((m) => (
+                <th
+                  key={m} scope="col"
+                  className={cn("whitespace-nowrap px-2 py-2 text-right font-medium", m === moisCourant && "bg-primary/10 text-primary")}
+                  aria-current={m === moisCourant ? "date" : undefined}
+                >
+                  {MONTHS[m - 1]}
+                </th>
+              ))}
+              <th scope="col" className="whitespace-nowrap px-3 py-2 text-right font-medium">Total {year}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.map((r) => (
-              <tr key={r.employeeId}>
-                <td className="sticky left-0 z-10 min-w-[7.5rem] max-w-[10rem] bg-card px-3 py-1.5 font-medium leading-snug [overflow-wrap:anywhere] shadow-[1px_0_0_hsl(var(--border)),4px_0_6px_-4px_rgb(0_0_0/0.12)] sm:max-w-none">{r.name}</td>
-                {r.months.map((cell, i) => (
-                  <td key={i} className="px-1 py-1.5 text-center">
-                    {cell.state === "UNPAID" ? (
-                      <button
-                        onClick={() => { setErr(null); setPaying({ row: r, month: i + 1 }); }}
-                        className="min-h-9 min-w-9 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary sm:min-h-0 sm:min-w-0"
-                        title={`Marquer payé — ${MONTHS[i]} ${year}`}
-                      >
-                        —
-                      </button>
-                    ) : (
-                      <div className="group relative inline-flex flex-col items-center">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${ETAT_CELLULE[cell.state].classe}`}
-                          title={`${cell.employerCost != null ? `Coût employeur ${formatCurrency(cell.employerCost)}` : cell.amount != null ? `Brut ${formatCurrency(cell.amount)}` : ""}${cell.net != null ? ` · Net ${formatCurrency(cell.net)} (salarié)` : ""} · ${ETAT_CELLULE[cell.state].titre}`}
-                        >
-                          <Check className="h-3 w-3" /> {ETAT_CELLULE[cell.state].texte}
-                        </span>
-                        {/* LA FICHE DE PAIE, VISIBLE SANS SURVOL. Le trombone n'est pas un
-                            ornement : c'est la preuve que le bulletin est bien là, et le lien
-                            pour le rouvrir. Son absence se voit tout autant — un mois payé sans
-                            fiche affiche l'invitation à la déposer. */}
-                        {cell.payslip ? (
-                          // ON REGARDE LA FICHE, ON NE LA TÉLÉCHARGE PAS. Un lien brut envoyait
-                          // le fichier au disque — et un `.docx` cliqué s'ouvrait dans Word,
-                          // hors de l'application, pour une simple vérification. L'aperçu commun
-                          // rend le PDF comme le Word sur place ; le téléchargement reste
-                          // disponible dans sa barre d'outils, pour qui en a vraiment besoin.
-                          <span className="mt-0.5 inline-flex max-w-24 items-center gap-0.5 text-[0.6875rem] text-muted-foreground [&_button]:truncate [&_button]:text-[0.6875rem]">
-                            <Paperclip className="h-3 w-3 shrink-0" />
-                            <DocumentPreview
-                              id={cell.payslip.id}
-                              name={cell.payslip.name}
-                              hasFile
-                              srcOverride={`/api/rh/document/${cell.payslip.id}`}
-                            />
-                          </span>
-                        ) : (
-                          cell.entryId && (
-                            <button
-                              onClick={() => { setErr(null); setEditing({ row: r, month: i + 1, cell }); }}
-                              title="Aucune fiche de paie pour ce mois — la déposer"
-                              className="mt-0.5 inline-flex items-center gap-0.5 py-1 text-[0.6875rem] text-warning hover:underline sm:py-0"
-                            >
-                              <FileWarning className="h-3 w-3" /> sans fiche
-                            </button>
-                          )
-                        )}
-                        {cell.entryId && (
-                          // Au doigt (pas de survol), « modifier / annuler » restent affichés en permanence.
-                          <span className="mt-0.5 inline-flex items-center gap-1.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-focus-within:inline-flex [@media(hover:hover)]:group-hover:inline-flex">
-                            {/* Une paie fausse ne se rattrape pas au mois suivant : elle se
-                                corrige, même transférée — l'écriture budgétaire suit. */}
-                            <button
-                              onClick={() => { setErr(null); setEditing({ row: r, month: i + 1, cell }); }}
-                              className="inline-flex items-center gap-0.5 py-1 text-[0.6875rem] text-muted-foreground hover:text-primary [@media(hover:hover)]:py-0"
-                            >
-                              <Pencil className="h-3 w-3" /> modifier
-                            </button>
-                            {cell.state === "SAISI" && (
-                              <BoutonDecisif brut
-                                confirmation={`annuler la saisie de ${r.name} pour ${formatMonth(ym(year, i + 1))}`}
-                                onClick={() => undo(cell.entryId!, r.name, i + 1)}
-                                className="inline-flex items-center gap-0.5 py-1 text-[0.6875rem] text-muted-foreground hover:text-destructive [@media(hover:hover)]:py-0"
-                              >
-                                <Undo2 className="h-3 w-3" /> annuler
-                              </BoutonDecisif>
+            {lignes.length === 0 && (
+              <tr><td colSpan={mois.length + 2} className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun salarié actif.</td></tr>
+            )}
+            {lignes.map((r) => {
+              const total = r.months.reduce((a, c) => a + (c.state === "UNPAID" ? 0 : (valeur(c) ?? 0)), 0);
+              return (
+                <tr key={r.employeeId}>
+                  <th scope="row" className={cn(COLLEE, "min-w-[10rem] max-w-[12rem] px-3 py-1.5 text-left font-normal sm:min-w-[13rem] sm:max-w-[16rem]")}>
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <span aria-hidden className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[0.6875rem] font-semibold text-primary">
+                        {initials(r.name || "?")}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium" title={r.name}>{r.name}</span>
+                        {r.poste && <span className="block truncate text-xs text-muted-foreground" title={r.poste}>{r.poste}</span>}
+                      </span>
+                    </span>
+                  </th>
+                  {mois.map((m) => {
+                    const cell = r.months[m - 1]!;
+                    const maintenant = m === moisCourant;
+                    if (cell.state === "UNPAID") {
+                      const futur = m >= futurDes;
+                      return (
+                        <td key={m} className={cn("px-1 py-1 text-center", maintenant && "bg-primary/5")}>
+                          <button
+                            type="button" disabled={enCours} onClick={() => ouvrir(r, m)}
+                            title={futur ? `Saisir à l'avance — ${MONTHS[m - 1]} ${year}` : `Saisir le salaire — ${MONTHS[m - 1]} ${year}`}
+                            className={cn(
+                              "min-h-9 w-full rounded-md px-2 text-xs disabled:opacity-50 sm:min-h-8",
+                              futur ? "text-muted-foreground/50 hover:bg-secondary hover:text-muted-foreground" : "font-medium text-primary hover:bg-primary/10",
                             )}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                ))}
-              </tr>
-            ))}
+                          >
+                            {futur ? "·" : "+ Saisir"}
+                          </button>
+                        </td>
+                      );
+                    }
+                    const etat = ETAT_CELLULE[cell.state];
+                    const v = valeur(cell);
+                    return (
+                      <td key={m} className={cn("px-1 py-1 text-right", maintenant && "bg-primary/5")}>
+                        <button
+                          type="button" disabled={enCours} onClick={() => ouvrir(r, m)}
+                          title={`${etat.texte} — ${etat.titre}${cell.employerCost != null ? ` · Coût employeur ${formatCurrency(cell.employerCost)}` : ""}${cell.net != null ? ` · Net ${formatCurrency(cell.net)}` : ""}${cell.payslip ? " · fiche de paie jointe" : " · sans fiche de paie"}`}
+                          className="inline-flex min-h-9 w-full items-center justify-end gap-1.5 whitespace-nowrap rounded-md px-2 tabular-nums hover:bg-secondary disabled:opacity-50 sm:min-h-8"
+                        >
+                          {cell.payslip && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />}
+                          {formatMontant(v)}
+                          <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", etat.point)} />
+                          <span className="sr-only">{etat.texte}{cell.payslip ? ", fiche de paie jointe" : ", sans fiche de paie"}</span>
+                        </button>
+                      </td>
+                    );
+                  })}
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-muted-foreground">{total > 0 ? formatMontant(total) : "—"}</td>
+                </tr>
+              );
+            })}
           </tbody>
+          {/* LA MASSE SALARIALE EN PIED — elle remplace la carte « par entité, mois par mois » et suit le
+              filtre d'entité ; calculée par la page sur les salaires saisis (Direction, 04/10 puis 07/10). */}
+          <tfoot>
+            <tr className="border-t border-border bg-muted/40 font-semibold">
+              <th scope="row" className={cn(COLLEE, TEINTE, "px-3 py-2 text-left")}>Masse salariale</th>
+              {mois.map((m) => {
+                const x = valeurMasse(masse.mois[m - 1]!);
+                return (
+                  <td key={m} className={cn("whitespace-nowrap px-3 py-2 text-right tabular-nums", m === moisCourant && "bg-primary/10", x === 0 && "font-normal text-muted-foreground")}>
+                    {x === 0 ? "—" : formatMontant(x)}
+                  </td>
+                );
+              })}
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{valeurMasse(masse.total) === 0 ? "—" : formatMontant(valeurMasse(masse.total))}</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Vert = saisi (annulable tant que la paie n&apos;est pas envoyée) · Orange = envoyé au centre de paiement ·
-        Bleu = viré par les Finances. Le <strong>trombone</strong> ouvre la fiche de paie du mois ; « sans fiche »
-        signale un mois saisi dont le bulletin manque encore — on le dépose d&apos;un clic. Une ligne se
-        <strong> corrige</strong> à tout moment ; une paie déjà envoyée garde la somme déclarée à l&apos;envoi.
-        L&apos;employé est prévenu au virement, et jamais moins de 24 h après la saisie.
-      </p>
 
-      {/* Marquer payé : montant total + fiche de paie */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border px-3 py-2 text-xs text-muted-foreground sm:px-4">
+        {(["SAISI", "ENVOYE", "VIRE"] as const).map((s) => (
+          <span key={s} className="inline-flex items-center gap-1.5">
+            <span aria-hidden className={cn("h-2 w-2 rounded-full", ETAT_CELLULE[s].point)} /> {ETAT_CELLULE[s].texte}
+          </span>
+        ))}
+        <span>Cliquer un montant : corriger, voir la fiche de paie</span>
+        <InfoBulle label="Règles de la saisie" align="left">
+          Un salaire saisi s&apos;annule tant que la paie de son entité n&apos;est pas envoyée ; ensuite il se corrige,
+          et l&apos;envoi garde la somme déclarée. Le trombone signale une fiche de paie jointe. Le salarié est prévenu
+          au virement, jamais moins de 24 h après la saisie. La masse salariale compte les salaires saisis.
+        </InfoBulle>
+      </div>
+
+      {/* Saisir : coût employeur, net, brut, fiche de paie */}
       <Sheet
         open={paying !== null}
         onClose={() => !busy && setPaying(null)}
         title={paying ? `Saisir la paie — ${paying.row.name}` : ""}
-        description={paying ? `${formatMonth(ym(year, paying.month))} · la fiche de paie (facultative), si jointe, sera déposée dans son dossier RH ; le salarié sera prévenu au virement de la paie de son entité.` : undefined}
+        description={paying ? `${formatMonth(ym(year, paying.month))} · prévenu au virement de son entité` : undefined}
         width="md"
       >
         {paying && (
@@ -205,35 +280,42 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
               fd.set("month", String(paying.month));
               const r = await markSalaryPaid(fd);
               setBusy(false);
-              if (r.ok) { setPaying(null); router.refresh(); } else setErr(r.error ?? "Échec.");
+              if (r.ok) { setPaying(null); rafraichir(); } else setErr(r.error ?? "Échec.");
             }}
             className="space-y-4"
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {/* LE COÛT EMPLOYEUR REMPLACE LE BRUT comme montant obligatoire : c'est ce que la
                   société décaisse réellement, et donc ce qui pèse sur le budget et fait la masse
-                  salariale. Le brut, lui, n'est qu'une ligne du bulletin — l'imputer sous-évaluait
-                  la masse du montant exact des charges patronales. */}
+                  salariale. Le brut, lui, n'est qu'une ligne du bulletin. */}
               <div className="space-y-1.5">
-                <Label htmlFor="pay-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
+                <div className="flex items-center gap-1">
+                  <Label htmlFor="pay-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
+                  <InfoBulle label="Le coût employeur" align="left">
+                    Brut + charges patronales : le total imputé au budget, et la brique de la masse salariale.
+                    Pré-rempli depuis la fiche employé — modifiable.
+                  </InfoBulle>
+                </div>
                 <Input id="pay-cost" name="employerCost" type="number" inputMode="decimal" step="any" min="1" required defaultValue={paying.row.defaultEmployerCost ?? undefined} />
-                <p className="text-xs text-muted-foreground">Brut + <span className="font-medium text-foreground">charges patronales</span> : le total imputé au budget, et la brique de la masse salariale. Pré-rempli depuis la fiche employé — modifiable.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pay-net">Salaire net (DZD) <span className="text-destructive">*</span></Label>
                 <Input id="pay-net" name="net" type="number" inputMode="decimal" step="any" min="1" required defaultValue={paying.row.defaultNet ?? undefined} />
-                <p className="text-xs text-muted-foreground">Montant <span className="font-medium text-foreground">affiché au salarié</span>. Ne peut pas dépasser le coût employeur.</p>
+                <p className="text-xs text-muted-foreground">Affiché au salarié · au plus le coût employeur.</p>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="pay-gross">Salaire brut (DZD) <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
+                <div className="flex items-center gap-1">
+                  <Label htmlFor="pay-gross">Salaire brut (DZD) <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
+                  <InfoBulle label="Le salaire brut" align="left">
+                    Information de bulletin. Laissé vide, il est repris du coût employeur — il n&apos;entre pas dans le calcul du budget.
+                  </InfoBulle>
+                </div>
                 <Input id="pay-gross" name="gross" type="number" inputMode="decimal" step="any" min="0" defaultValue={paying.row.defaultGross ?? undefined} />
-                <p className="text-xs text-muted-foreground">Information de bulletin. Laissé vide, il est repris du coût employeur — il n'entre pas dans le calcul du budget.</p>
               </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pay-file">Fiche de paie <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
               <input id="pay-file" name="payslip" type="file" className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
-              <p className="text-xs text-muted-foreground">Optionnel — vous pouvez saisir le salaire sans joindre la fiche.</p>
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -244,16 +326,15 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
         )}
       </Sheet>
 
-      {/* CORRIGER une ligne déjà saisie — le même formulaire, prérempli. Refuser la correction
-          après l'envoi, c'est garantir qu'on vit avec un bulletin faux : personne ne défera une
-          paie virée pour mille dinars. On corrige la ligne ; le virement, lui, porte la somme
-          déclarée à l'envoi (§118.176) — et l'ancien transfert au budget suit sa ligne comme avant. */}
+      {/* CORRIGER une ligne déjà saisie — le même formulaire, prérempli. Une paie fausse ne se rattrape
+          pas au mois suivant : elle se corrige, même envoyée — le virement, lui, porte la somme déclarée
+          à l'envoi (§118.176). La fiche de paie du mois se voit ici, et l'annulation d'une saisie aussi. */}
       <Sheet
         open={editing !== null}
         onClose={() => !busy && setEditing(null)}
         title={editing ? `Corriger la paie — ${editing.row.name}` : ""}
         description={editing
-          ? `${formatMonth(ym(year, editing.month))}${editing.cell.state === "VIRE" || editing.cell.state === "ENVOYE" ? " · la paie de ce mois est déjà envoyée : la ligne se corrige, la somme déclarée au centre ne change pas." : ""}`
+          ? `${formatMonth(ym(year, editing.month))} · ${ETAT_CELLULE[editing.cell.state === "UNPAID" ? "SAISI" : editing.cell.state].texte.toLowerCase()}${editing.cell.state === "VIRE" || editing.cell.state === "ENVOYE" ? " · la somme déclarée au centre ne change pas" : ""}`
           : undefined}
         width="md"
       >
@@ -264,18 +345,20 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
               fd.set("id", editing.cell.entryId ?? "");
               const r = await updatePayrollEntry(fd);
               setBusy(false);
-              if (r.ok) { setEditing(null); router.refresh(); } else setErr(r.error ?? "Échec.");
+              if (r.ok) { setEditing(null); rafraichir(); } else setErr(r.error ?? "Échec.");
             }}
             className="space-y-4"
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="edit-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
+                <div className="flex items-center gap-1">
+                  <Label htmlFor="edit-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
+                  <InfoBulle label="Le coût employeur" align="left">Le total imputé au budget. Le corriger corrige la masse salariale.</InfoBulle>
+                </div>
                 <Input
                   id="edit-cost" name="employerCost" type="number" inputMode="decimal" step="any" min="1" required
                   defaultValue={editing.cell.employerCost ?? editing.cell.amount ?? undefined}
                 />
-                <p className="text-xs text-muted-foreground">Le total imputé au budget. Le corriger corrige la masse salariale.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="edit-net">Salaire net (DZD) <span className="text-destructive">*</span></Label>
@@ -287,9 +370,8 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
               </div>
             </div>
             <div className="space-y-1.5">
-              {/* CE QUI EST DÉJÀ LÀ, AVANT CE QU'ON PEUT METTRE. Un champ « Remplacer la fiche »
-                  au-dessus du vide laissait croire qu'il n'y en avait pas ; on rejoignait alors
-                  le même bulletin une seconde fois, sans savoir qu'on écrasait le premier. */}
+              {/* CE QUI EST DÉJÀ LÀ, AVANT CE QU'ON PEUT METTRE : sans lui, on rejoignait le même bulletin
+                  une seconde fois, sans savoir qu'on écrasait le premier. */}
               {editing.cell.payslip ? (
                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs">
                   <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -301,34 +383,63 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
                   />
                   <span className="text-muted-foreground">
                     déposée le {new Date(editing.cell.payslip.addedAt).toLocaleDateString("fr-FR")}
-                    {editing.cell.payslip.sizeBytes != null ? ` · ${formatBytes(editing.cell.payslip.sizeBytes)}` : ""} · dans le dossier RH du salarié
+                    {editing.cell.payslip.sizeBytes != null ? ` · ${formatBytes(editing.cell.payslip.sizeBytes)}` : ""}
                   </span>
                 </div>
               ) : (
                 <p className="rounded-lg border border-dashed border-warning/50 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
-                  Aucune fiche de paie n&apos;est jointe à ce mois. Vous pouvez la déposer maintenant.
+                  Sans fiche de paie pour ce mois.
                 </p>
               )}
-              <Label htmlFor="edit-file">
-                {editing.cell.payslip ? "Remplacer la fiche de paie" : "Déposer la fiche de paie"}{" "}
-                <span className="text-xs font-normal text-muted-foreground">(facultatif)</span>
-              </Label>
+              <div className="flex items-center gap-1">
+                <Label htmlFor="edit-file">
+                  {editing.cell.payslip ? "Remplacer la fiche de paie" : "Déposer la fiche de paie"}{" "}
+                  <span className="text-xs font-normal text-muted-foreground">(facultatif)</span>
+                </Label>
+                <InfoBulle label="La fiche de paie" align="left">
+                  {editing.cell.payslip
+                    ? "La nouvelle prend la place de l'ancienne dans le dossier du salarié — deux bulletins pour le même mois lui laisseraient deviner lequel fait foi."
+                    : "Elle sera déposée dans le dossier RH du salarié, visible par lui, et restera rattachée à ce mois."}
+                </InfoBulle>
+              </div>
               <input id="edit-file" name="payslip" type="file" className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
-              <p className="text-xs text-muted-foreground">
-                {editing.cell.payslip
-                  ? "La nouvelle prend la place de l'ancienne dans le dossier du salarié — deux bulletins pour le même mois lui laisseraient deviner lequel fait foi."
-                  : "Elle sera déposée dans le dossier RH du salarié, visible par lui, et restera rattachée à ce mois."}
-              </p>
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setEditing(null)} disabled={busy}>Annuler</Button>
-              <Button type="submit" className="w-full sm:w-auto" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la correction</Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+              {editing.cell.state === "SAISI" && editing.cell.entryId && (
+                <AnnulerLaSaisie
+                  cell={editing.cell} disabled={busy || enCours} undo={undo}
+                  confirmation={`annuler la saisie de ${editing.row.name} pour ${formatMonth(ym(year, editing.month))}`}
+                />
+              )}
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setEditing(null)} disabled={busy}>Fermer</Button>
+              <Button type="submit" className="w-full sm:w-auto" disabled={busy || enCours}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la correction</Button>
             </div>
           </form>
         )}
       </Sheet>
+    </section>
+  );
+}
 
-    </div>
+/**
+ * ANNULER UNE SAISIE — tant que la paie de l'entité n'est pas envoyée (`SAISI`). Le geste vivait au
+ * survol de la case ; il est maintenant dans la fiche de correction, qu'ouvre un clic sur le montant.
+ */
+function AnnulerLaSaisie({ cell, confirmation, disabled, undo }: {
+  cell: PayrollCell;
+  confirmation: string;
+  disabled: boolean;
+  undo: (entryId: string) => void;
+}) {
+  return (
+    <BoutonDecisif brut type="button"
+      confirmation={confirmation}
+      disabled={disabled}
+      onClick={() => undo(cell.entryId!)}
+      className="inline-flex min-h-9 items-center justify-center gap-1 rounded-md px-3 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 sm:mr-auto"
+    >
+      <Undo2 className="h-3.5 w-3.5" /> Annuler la saisie
+    </BoutonDecisif>
   );
 }

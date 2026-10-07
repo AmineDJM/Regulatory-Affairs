@@ -3,7 +3,6 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
-import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -45,12 +44,17 @@ export default async function RhConsultantsPage() {
   const awaiting = contracts.filter((c) => c.status === "AWAITING_VALIDATION");
   const overdue = contracts.filter((c) => isOverdue(c));
 
+  // UNE LIGNE DE RÉSUMÉ au lieu de quatre chiffres (maquette « Employés », Direction 07/10) — un compteur nul se tait.
+  const resume = [
+    `${contracts.length} contrat${contracts.length > 1 ? "s" : ""}`,
+    active.length > 0 ? `${active.length} actif${active.length > 1 ? "s" : ""}` : null,
+    awaiting.length > 0 ? `${awaiting.length} en validation` : null,
+    overdue.length > 0 ? `${overdue.length} terme${overdue.length > 1 ? "s" : ""} dépassé${overdue.length > 1 ? "s" : ""}` : null,
+  ].filter(Boolean).join(" · ");
+
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Consultants"
-        description="Les contrats des consultants suivis par les RH : mission, rémunération, durée, tâches attendues et pièces signées."
-      >
+      <PageHeader title="Consultants" description={contracts.length > 0 ? resume : undefined}>
         {canCreate && (
           <CreateRecordButton
             autoOpenParam="new"
@@ -66,23 +70,13 @@ export default async function RhConsultantsPage() {
 
       <ModuleTabs tabs={tabs} />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Contrats" value={contracts.length} icon="Handshake" />
-        <KpiCard label="Actifs" value={active.length} icon="CircleCheck" tone="success" />
-        <KpiCard label="En cours de validation" value={awaiting.length} icon="Hourglass" tone={awaiting.length > 0 ? "warning" : "default"} />
-        <KpiCard label="Terme dépassé" value={overdue.length} icon="CalendarX" tone={overdue.length > 0 ? "danger" : "default"} />
-      </div>
-
       {contracts.length === 0 ? (
         <EmptyState
           icon="Handshake"
           title="Aucun contrat de consultant"
           // L'état vide NOMME le geste : un contrat déjà suivi par Ad & Pro se transfère depuis sa
           // fiche — le recréer ici en ferait deux, avec deux références et deux historiques.
-          description={
-            "Un contrat déjà enregistré dans Ad & Pro › Consulting se transfère depuis sa fiche (« Transférer vers Ressources humaines »)"
-            + (canCreate ? " ; un nouveau contrat se crée ici." : ".")
-          }
+          description="Un contrat d'Ad & Pro › Consulting se transfère depuis sa fiche (« Transférer vers Ressources humaines »)."
         />
       ) : (
         <ContractsTable contracts={contracts} />
