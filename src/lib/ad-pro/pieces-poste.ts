@@ -95,6 +95,9 @@ export type BcDePoste = PieceDePoste & {
   copieSignee: { documentId: string; signataire: string | null; constat: string | null } | null;
   /** Ce que l'éditeur natif reprend (version, lignes, objet…) — `null` si la pièce n'est pas de la fabrique ou ne se modifie plus. */
   revision: { version: number; numero: string; spec: RevisionBcSpec } | null;
+  /** Les DATES de sa frise sur la carte du poste (Direction, 07/10 : « je ne sais pas si le BC a été envoyé aux Finances ») — ISO. */
+  creeLe: string;
+  signeLe: string | null;
 };
 
 /**
@@ -180,6 +183,7 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
         ...piece, etape: annulee ? null : etats.get(d.id)?.etape ?? null,
         copieSignee: copie ? { documentId: copie, signataire: d.signedByName, constat: verdict ? phraseVerdictSignature(verdict) : null } : null,
         revision: null,
+        creeLe: d.createdAt.toISOString(), signeLe: d.signedAt ? d.signedAt.toISOString() : null,
       };
       if (!annulee) p.bcs.push(bc);
       // Sans BC vivant, le plus récent annulé : la case dit « annulé » au lieu de se taire.

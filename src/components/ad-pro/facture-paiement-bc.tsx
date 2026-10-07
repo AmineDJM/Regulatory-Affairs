@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Receipt, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { formatCurrency } from "@/lib/utils";
 import type { BcDePoste, PieceDePoste } from "@/lib/ad-pro/pieces-poste";
 import { refusDemandePaiementBC } from "@/lib/bons-de-commande/copie-signee";
@@ -71,10 +72,13 @@ export function DeposerFactureBC({ itemId, bcs, factures, busy, run, onClose }: 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-background p-2.5 text-xs" aria-label="Déposer la facture">
       <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 font-medium text-foreground">Déposer la facture du bon de commande</p>
+        <p className="min-w-0 flex-1 font-medium text-foreground">Déposer la facture</p>
+        <InfoBulle label="Comment la facture est contrôlée">
+          Luna compare la facture au bon de commande signé : montant total, numéro de BC cité, fournisseur. Si tout concorde, la
+          demande de paiement s&apos;ouvre.
+        </InfoBulle>
         <button type="button" onClick={onClose} className="min-h-9 px-2 text-muted-foreground hover:text-foreground sm:min-h-0 sm:px-0">Fermer</button>
       </div>
-      <p className="text-muted-foreground">Luna lit la facture et la compare au(x) bon(s) de commande signé(s) qu&apos;elle couvre : montant total, numéro de BC cité, fournisseur.</p>
       <label className="block space-y-0.5">
         <span className="font-medium text-foreground">Facture (PDF ou photo) — obligatoire</span>
         <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*" aria-label="Fichier de la facture" onChange={(e) => setFichier(e.target.files?.[0] ?? null)} className="block w-full min-w-0 max-w-full py-1 [overflow-wrap:anywhere]" />
@@ -114,7 +118,7 @@ export function DemandePaiementBC({ itemId, bcs, factures, accorde, peutDemander
   if (expenseOrder) {
     return (
       <p className="inline-flex flex-wrap items-center gap-1 text-muted-foreground [overflow-wrap:anywhere]">
-        <Receipt className="h-3 w-3 shrink-0" /> Paiement {expenseOrder.reference} · {expenseOrder.status === "PAID" ? "réglé" : "au centre de paiement"}
+        <Receipt className="h-3 w-3 shrink-0" /> {expenseOrder.reference} · {expenseOrder.status === "PAID" ? "payé" : "au centre de paiement"}
       </p>
     );
   }
@@ -122,7 +126,14 @@ export function DemandePaiementBC({ itemId, bcs, factures, accorde, peutDemander
   const attente = refusDemandePaiementBC({
     bcs: bcs.map((b) => ({ id: b.id, reference: b.reference, signe: b.etape === "SIGNE" })), factures: vivantes, argumentation: "x", confirme: true,
   });
-  if (attente) return <p className="text-muted-foreground">{bcs.length === 0 ? "Après la facture." : attente}</p>;
+  if (attente) {
+    return (
+      <p className="flex items-center gap-1 text-muted-foreground">
+        Après la signature du BC et sa facture.
+        {bcs.length > 0 && <InfoBulle label="Ce qui manque" align="left">{attente}</InfoBulle>}
+      </p>
+    );
+  }
   const ecarts = vivantes.flatMap((f) => (f.controle && !f.controle.coherente ? f.controle.ecarts : []));
   const montants = vivantes.map((f) => f.controle?.montant ?? f.montant);
   const total = montants.every((m): m is number => m != null) ? montants.reduce((s, m) => s + m, 0) : null;

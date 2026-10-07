@@ -55,7 +55,7 @@ describe("le geste suivant d'un poste", () => {
     const p = poste({ status: "PENDING", amountEstimated: 120_000 });
     expect(prochainPas(p, OPERATIONS).geste?.cle).toBe("VALIDER_OPS");
     // Ce qui ferait tomber la règle : proposer DECIDER à la Direction Marketing avant le premier temps.
-    expect(prochainPas(p, MARKETING)).toEqual({ geste: null, attente: "En attente de la validation de la Direction des opérations." });
+    expect(prochainPas(p, MARKETING)).toEqual({ geste: null, attente: "En attente — chez la Direction des opérations." });
     expect(prochainPas(p, DEMANDEUR).geste).toBeNull();
     // `canAllocate` seul ne suffit plus : sans droit sur le temps, rien n'est proposé.
     expect(prochainPas(p, regard({ canAllocate: true })).geste).toBeNull();
@@ -65,11 +65,11 @@ describe("le geste suivant d'un poste", () => {
   it("DEUX TEMPS : validé par les opérations, la Direction Marketing tranche montant ET budget", () => {
     const p = poste({ status: "PENDING", amountEstimated: 120_000, opsDecidedAt: "2026-10-01" });
     expect(prochainPas(p, MARKETING).geste).toEqual({ cle: "DECIDER", libelle: "Valider et choisir le budget" });
-    expect(prochainPas(p, OPERATIONS).attente).toBe("Validé par la Direction des opérations — en attente de la Direction Marketing (montant et budget).");
+    expect(prochainPas(p, OPERATIONS).attente).toBe("En attente — chez la Direction Marketing (montant et budget).");
     // Demande de la Direction Marketing : c'est la Direction des opérations qui tient le second temps.
     const parOps = regard({ secondTempsParOperations: true, validation: { operations: true, marketing: true } });
     expect(prochainPas(p, parOps).geste?.cle).toBe("DECIDER");
-    expect(prochainPas(p, regard({ secondTempsParOperations: true })).attente).toMatch(/en attente de la Direction des opérations \(montant et budget\)/);
+    expect(prochainPas(p, regard({ secondTempsParOperations: true })).attente).toMatch(/chez la Direction des opérations \(montant et budget\)/);
     expect(prochainPas(p, regard({ ...MARKETING, fige: true })).geste).toBeNull();
   });
 
@@ -94,15 +94,15 @@ describe("le geste suivant d'un poste", () => {
   it("le BC : centre (au-dessus du seuil), assistante, vérification par le demandeur, signature des Finances", () => {
     const auCentre = pret({ orderStage: "REQUESTED", demandeBC: "CHEZ_ASSISTANTE" });
     expect(prochainPas(auCentre, regard({ canViserBC: true })).geste?.cle).toBe("VISER_BC");
-    expect(prochainPas(auCentre, DEMANDEUR).attente).toMatch(/centre de validation/);
+    expect(prochainPas(auCentre, DEMANDEUR).attente).toMatch(/centre Ad & Pro/);
     const chezElle = pret({ orderStage: "DIRECTION_OK", demandeBC: "CHEZ_ASSISTANTE" });
-    expect(prochainPas(chezElle, DEMANDEUR).attente).toMatch(/assistante de direction établit/);
+    expect(prochainPas(chezElle, DEMANDEUR).attente).toMatch(/chez l'assistante de direction/);
     const depose = { ...chezElle, demandeBC: "DEPOSE" as const };
     expect(prochainPas(depose, regard({ canEdit: true, verifieLeBC: true })).geste?.cle).toBe("VERIFIER_BC");
     // Le demandeur d'un autre — pas celui qui a demandé le BC — ne vérifie pas.
     expect(prochainPas(depose, DEMANDEUR).geste).toBeNull();
     const aSigner = pret({ orderStage: "DIRECTION_OK", bc: "A_SIGNER" });
-    expect(prochainPas(aSigner, DEMANDEUR)).toEqual({ geste: null, attente: "Bon de commande à signer par les Finances." });
+    expect(prochainPas(aSigner, DEMANDEUR)).toEqual({ geste: null, attente: "En attente de signature — chez les Finances." });
     // Signé : le demandeur dépose la facture. C'est le SEUL chemin qui ouvre le paiement d'un poste à BC.
     const signe = pret({ orderStage: "DIRECTION_OK", bc: "SIGNE" });
     expect(prochainPas(signe, DEMANDEUR).geste?.cle).toBe("DEMANDER_PAIEMENT");
@@ -192,7 +192,7 @@ describe("le geste suivant d'un poste", () => {
 
   it("le paiement demandé : le poste attend le centre de paiement, puis il est arrivé au bout", () => {
     const emis = pret({ orderStage: "ISSUED", expenseOrderId: "o", expenseOrderStatus: "PENDING", bc: "SIGNE", factures: 1 });
-    expect(prochainPas(emis, MARKETING)).toEqual({ geste: null, attente: "Paiement demandé — au centre de paiement." });
+    expect(prochainPas(emis, MARKETING)).toEqual({ geste: null, attente: "Paiement en cours — chez le centre de paiement." });
     expect(prochainPas({ ...emis, expenseOrderStatus: "PAID" }, MARKETING)).toEqual({ geste: null, attente: null });
     expect(etapesDuPoste({ ...emis, expenseOrderStatus: "PAID" }).every((e) => e.etat === "FAIT")).toBe(true);
     // Sans facture, l'étape « Facture » n'est pas faite : on ne dit pas « fait » ce qui n'a pas eu lieu.

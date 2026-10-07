@@ -66,7 +66,7 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
 
   // Depuis le panneau commun, « Annuler » ne ferme pas : il ramène à la liste des natures. C'est
   // le geste attendu quand on s'est trompé de nature — refermer obligerait à tout reprendre.
-  const nav = { onDone: close, onCancel: back, cancelLabel: "Changer de nature" };
+  const nav = { onDone: close, onCancel: back, cancelLabel: "Annuler" };
 
   return (
     <>
@@ -75,7 +75,8 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
         open={open}
         onClose={close}
         title={spec ? spec.label : "Nouvelle demande Ad & Pro"}
-        description={spec ? spec.hint : "Que souhaitez-vous faire ? Le formulaire s'ouvre ici même — vous ne quittez pas cet écran."}
+        // La phrase d'aide de la nature sert à CHOISIR (dans la liste) ; une fois choisie, le titre suffit (Direction, 07/10).
+        description={spec ? undefined : "Que souhaitez-vous faire ?"}
         width="lg"
       >
         {!spec ? (

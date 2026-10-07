@@ -9,6 +9,7 @@ import {
   submitFinalMaterial, recordInvoice, settle, cancelPromoMaterial,
 } from "@/lib/actions/promo-material-actions";
 import { Button } from "@/components/ui/button";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ActionResult } from "@/lib/actions/types";
@@ -271,12 +272,20 @@ function CancelButton({ id }: { id: string }) {
   );
 }
 
+/** Le titre d'une étape, et son explication à la demande (ⓘ) — plus de paragraphe sous chaque titre (Direction, 07/10). */
+function TitreEtape({ title, hint }: { title: string; hint: string }) {
+  return (
+    <CardHeader>
+      <CardTitle className="flex items-center gap-1 text-base">{title} <InfoBulle label={`À propos : ${title}`} align="left">{hint}</InfoBulle></CardTitle>
+    </CardHeader>
+  );
+}
+
 function Step({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
   return (
     <Card className="border-primary/40">
-      <CardHeader><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <TitreEtape title={title} hint={hint} />
       <CardContent className="space-y-3">
-        <p className="text-xs text-muted-foreground">{hint}</p>
         {children}
       </CardContent>
     </Card>
@@ -286,10 +295,9 @@ function Step({ title, hint, children }: { title: string; hint: string; children
 function StepForm({ title, hint, children, onSubmit, saving, err, submit }: { title: string; hint: string; children: React.ReactNode; onSubmit: (fd: FormData) => void; saving: boolean; err: string | null; submit: string }) {
   return (
     <Card className="border-primary/40">
-      <CardHeader><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <TitreEtape title={title} hint={hint} />
       <CardContent>
         <form action={onSubmit} className="space-y-3">
-          <p className="text-xs text-muted-foreground">{hint}</p>
           {children}
           <Err msg={err} />
           <Button type="submit" className={bouton} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} {submit}</Button>

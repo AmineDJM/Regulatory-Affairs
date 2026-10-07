@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, FileText, FileDown, FileCheck, Wand2, Pencil, ScanText, CheckCircle2, AlertTriangle, Paperclip } from "lucide-react";
+import { Loader2, FileText, FileDown, FileCheck, Wand2, Pencil, ScanText, CheckCircle2, AlertTriangle, Paperclip, Clock, Circle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatCurrency } from "@/lib/utils";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import type { DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
 import type { BcDePoste } from "@/lib/ad-pro/pieces-poste";
-import { LIBELLE_ETAPE_BC } from "@/lib/bons-de-commande/regle";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
 import { refusDepassement } from "@/lib/ad-pro/devis-poste";
 import {
@@ -67,21 +67,17 @@ function PieceDuBC({ bc, itemId, peutModifier }: { bc: BcDePoste; itemId: string
   const lien = "inline-flex min-h-9 items-center gap-0.5 text-primary hover:underline sm:min-h-0";
   if (bc.copieSignee) {
     return (
-      <>
-        <span className="inline-flex flex-wrap items-center gap-x-2">
-          <a className={lien} href={`/api/documents/${bc.copieSignee.documentId}`} target="_blank" rel="noreferrer" aria-label={`Ouvrir le bon de commande signé ${bc.reference ?? bc.titre}`}>
-            <FileCheck className="h-3 w-3" /> BC signé
-          </a>
-          {bc.copieSignee.signataire && <span className="text-muted-foreground">par {bc.copieSignee.signataire}</span>}
-        </span>
-        {bc.copieSignee.constat && <p className="text-muted-foreground">{bc.copieSignee.constat}</p>}
-      </>
+      <span className="inline-flex flex-wrap items-center gap-x-2">
+        <a className={lien} href={`/api/documents/${bc.copieSignee.documentId}`} target="_blank" rel="noreferrer" aria-label={`Ouvrir le bon de commande signé ${bc.reference ?? bc.titre}`}>
+          <FileCheck className="h-3 w-3" /> Voir le BC signé
+        </a>
+        {bc.copieSignee.constat && <InfoBulle label="Ce que Luna a vérifié" align="left">{bc.copieSignee.constat}</InfoBulle>}
+      </span>
     );
   }
   return (
-    <>
+    <span className="inline-flex flex-wrap items-center gap-x-3">
       <LiensBC bc={bc} />
-      {bc.etape === "A_SIGNER" && <p className="text-muted-foreground">Les Finances le signent et téléversent la copie signée (module « Bons de commande »).</p>}
       {peutModifier && bc.revision && bc.etape !== "SIGNE" && (
         <ReviserPieceButton
           discret libelle="Modifier le BC" motifFacultatif
@@ -91,7 +87,53 @@ function PieceDuBC({ bc, itemId, peutModifier }: { bc: BcDePoste; itemId: string
           envoyer={(fd) => { fd.set("id", itemId); return modifierBcDuPoste(fd); }}
         />
       )}
-    </>
+    </span>
+  );
+}
+
+/**
+ * LA FRISE D'UN BC — dates à l'appui (Direction, 07/10 : « je ne sais pas si le BC a été envoyé aux Finances ou pas »).
+ * Une ligne par étape franchie ou en cours, et QUI a la main : l'écran répond à la question sans paragraphe.
+ */
+function FriseBC({ bc }: { bc: BcDePoste }) {
+  const etape = bc.etape ?? "HORS_CIRCUIT";
+  type Ton = "fait" | "en-cours" | "alerte" | "refus" | "a-venir";
+  const lignes: { cle: string; ton: Ton; texte: string; aide?: string }[] = [
+    { cle: "cree", ton: "fait", texte: `Créé le ${formatDate(bc.creeLe)}` },
+  ];
+  if (etape === "HORS_CIRCUIT") lignes.push({ cle: "hors", ton: "a-venir", texte: "Antérieur au circuit de signature" });
+  if (etape === "SANS_PORTE") lignes.push({ cle: "centre", ton: "alerte", texte: "À adresser au centre de validation" });
+  if (etape === "A_VALIDER") lignes.push({ cle: "centre", ton: "en-cours", texte: "En validation — centre Ad & Pro" });
+  if (etape === "A_REVOIR") lignes.push({ cle: "centre", ton: "alerte", texte: "À revoir — demandé par le centre" });
+  if (etape === "REFUSE") lignes.push({ cle: "centre", ton: "refus", texte: "Refusé par le centre" });
+  if (etape === "A_SIGNER") {
+    lignes.push({
+      cle: "finances", ton: "en-cours", texte: "Chez les Finances — en attente de signature",
+      aide: "Les Finances signent le BC et téléversent la copie signée depuis leur module « Bons de commande ». La facture se dépose ensuite.",
+    });
+  }
+  if (etape === "A_CORRIGER") lignes.push({ cle: "finances", ton: "alerte", texte: "Renvoyé par les Finances — à corriger" });
+  if (etape === "SIGNE") {
+    lignes.push({ cle: "signe", ton: "fait", texte: `Signé${bc.signeLe ? ` le ${formatDate(bc.signeLe)}` : ""}${bc.copieSignee?.signataire ? ` par ${bc.copieSignee.signataire}` : ""}` });
+  } else if (etape === "A_VALIDER" || etape === "A_REVOIR" || etape === "SANS_PORTE") {
+    lignes.push({ cle: "signe", ton: "a-venir", texte: "Signature des Finances" });
+  }
+  const style: Record<Ton, { classe: string; icone: React.ReactNode }> = {
+    "fait": { classe: "text-success", icone: <CheckCircle2 className="h-3.5 w-3.5" /> },
+    "en-cours": { classe: "font-medium text-primary", icone: <Clock className="h-3.5 w-3.5" /> },
+    "alerte": { classe: "font-medium text-warning", icone: <AlertTriangle className="h-3.5 w-3.5" /> },
+    "refus": { classe: "font-medium text-destructive", icone: <XCircle className="h-3.5 w-3.5" /> },
+    "a-venir": { classe: "text-muted-foreground", icone: <Circle className="h-3.5 w-3.5" /> },
+  };
+  return (
+    <ol className="space-y-1" aria-label={`Étapes du bon de commande ${bc.reference ?? bc.titre}`}>
+      {lignes.map((l) => (
+        <li key={l.cle} className={`flex items-center gap-1.5 ${style[l.ton].classe}`}>
+          {style[l.ton].icone}<span>{l.texte}</span>
+          {l.aide && <InfoBulle label="Ce qui se passe à cette étape" align="left">{l.aide}</InfoBulle>}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -133,21 +175,19 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
     <>
       {bcs.length === 0 ? repli : bcs.map((bc) => {
         const source = vivants.find((d) => d.bc?.id === bc.id);
-        const etape = bc.etape ?? "HORS_CIRCUIT";
         return (
-          <div key={bc.id} className="min-w-0 space-y-0.5">
-            <div className="flex min-w-0 items-start gap-1.5">
-              <FileText className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <span className="block truncate font-medium" title={bc.titre}>{bc.reference ?? bc.titre}</span>
-                <p className="text-muted-foreground [overflow-wrap:anywhere]">
-                  {bc.montant != null ? <span className="tabular-nums">{dzd(bc.montant)}</span> : "montant non saisi"}
-                  {source && <> · devis {source.reference ?? source.titre}</>}
-                </p>
-                <p className={etape === "SIGNE" ? "text-success" : etape === "REFUSE" ? "text-destructive" : "text-muted-foreground"}>{LIBELLE_ETAPE_BC[etape]}</p>
-                <PieceDuBC bc={bc} itemId={itemId} peutModifier={peutModifier} />
-              </div>
+          <div key={bc.id} className="min-w-0 space-y-2 rounded-lg border border-border bg-card p-3 text-sm">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+              <span className="inline-flex min-w-0 items-center gap-1.5 font-medium" title={bc.titre}>
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" /> {bc.reference ?? bc.titre}
+              </span>
+              <span className="tabular-nums text-muted-foreground">
+                {bc.montant != null ? dzd(bc.montant) : "montant non saisi"}
+                {source?.reference && <span className="text-xs"> · d&apos;après {source.reference}</span>}
+              </span>
             </div>
+            <FriseBC bc={bc} />
+            <PieceDuBC bc={bc} itemId={itemId} peutModifier={peutModifier} />
           </div>
         );
       })}
