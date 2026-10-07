@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, FileText, Loader2, PackageCheck, Pencil, Send, Stethoscope, Trash2, Undo2, Upload, Wand2, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Circle, Clock, FileText, Loader2, PackageCheck, Pencil, Send, Stethoscope, Trash2, Undo2, Upload, Wand2, X, XCircle } from "lucide-react";
 import {
   genererBonsDeCommandePromo, modifierBonDeCommandePromo, annulerBonDeCommandePromo, marquerBonDeCommandeEnvoye,
   deposerFacturePromo, lireFacturePromo, demanderPaiementFacturePromo, adresserInfoMedicaleFacturePromo,
@@ -19,6 +19,7 @@ import { Input, Label, Textarea } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
 import type { OptionCatalogue } from "@/lib/queries/promo-achats";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 /**
  * L'EXÉCUTION D'UN DOSSIER DU CIRCUIT 2 — du devis retenu au stock (§118.152, §118.165).
@@ -203,9 +204,12 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
       className="space-y-3 rounded-lg border border-border p-3"
       action={(f: FormData) => { f.set("promoMaterialId", id); f.set("quoteId", e.quoteId); run(() => deposerFacturePromo(f), onDone); }}
     >
-      <p className="text-xs text-muted-foreground">
-        Les lignes du bon de commande, pré-remplies avec ce qui reste à facturer : corrigez la quantité et le prix pour coller à la facture
-        (une ligne absente de cette facture : mettez 0). Les écarts avec le BC sont signalés ; on ne facture pas plus que commandé.
+      <p className="flex items-center gap-1 text-sm font-medium">
+        Déposer une facture
+        <InfoBulle label="Comment remplir la facture" align="left">
+          Les lignes du bon de commande sont pré-remplies avec ce qui reste à facturer : corrigez la quantité et le prix pour coller à la
+          facture (une ligne absente : mettez 0). Les écarts avec le BC sont signalés ; on ne facture pas plus que commandé.
+        </InfoBulle>
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <div><Label htmlFor={`fa-ref-${e.quoteId}`}>N° de facture *</Label><Input id={`fa-ref-${e.quoteId}`} name="reference" required value={reference} onChange={(ev) => setReference(ev.target.value)} /></div>
@@ -519,6 +523,45 @@ function Facture({ id, f, agir, canReceive, options }: {
   );
 }
 
+// ───────────────────────── La frise d'un BC ─────────────────────────
+
+/**
+ * OÙ EN EST LE BC — une ligne par étape, et QUI a la main (Direction, 07/10 : « je ne sais pas si le BC a été envoyé aux
+ * Finances ou pas »). Remplace la phrase « il part chez le fournisseur une fois signé ».
+ */
+function FriseBcPromo({ etape, libelleEtape, envoyeLe, envoyer }: { etape: string; libelleEtape: string; envoyeLe: string | null; envoyer: React.ReactNode }) {
+  type Ton = "fait" | "en-cours" | "alerte" | "refus" | "a-venir";
+  const signe = etape === "SIGNE";
+  const lignes: { cle: string; ton: Ton; texte: string; extra?: React.ReactNode }[] = [{ cle: "genere", ton: "fait", texte: "BC généré" }];
+  if (etape === "A_VALIDER") lignes.push({ cle: "centre", ton: "en-cours", texte: "En validation — centre Ad & Pro" });
+  else if (etape === "A_REVOIR") lignes.push({ cle: "centre", ton: "alerte", texte: "À revoir — demandé par le centre" });
+  else if (etape === "REFUSE") lignes.push({ cle: "centre", ton: "refus", texte: "Refusé par le centre" });
+  else if (etape === "SANS_PORTE") lignes.push({ cle: "centre", ton: "alerte", texte: "À adresser au centre de validation" });
+  else if (etape === "A_CORRIGER") lignes.push({ cle: "finances", ton: "alerte", texte: "Renvoyé par les Finances — à corriger" });
+  else if (etape === "A_SIGNER") lignes.push({ cle: "finances", ton: "en-cours", texte: "Chez les Finances — en attente de signature" });
+  else if (!signe) lignes.push({ cle: "etat", ton: "a-venir", texte: libelleEtape });
+  lignes.push(signe ? { cle: "signe", ton: "fait", texte: "Signé par les Finances" } : { cle: "signe", ton: "a-venir", texte: "Signature des Finances" });
+  lignes.push(envoyeLe
+    ? { cle: "envoye", ton: "fait", texte: `Envoyé au fournisseur le ${new Date(envoyeLe).toLocaleDateString("fr-FR")}` }
+    : signe ? { cle: "envoye", ton: "en-cours", texte: "À envoyer au fournisseur", extra: envoyer } : { cle: "envoye", ton: "a-venir", texte: "Envoi au fournisseur" });
+  const style: Record<Ton, { classe: string; icone: React.ReactNode }> = {
+    "fait": { classe: "text-success", icone: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> },
+    "en-cours": { classe: "font-medium text-primary", icone: <Clock className="h-3.5 w-3.5 shrink-0" /> },
+    "alerte": { classe: "font-medium text-warning", icone: <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> },
+    "refus": { classe: "font-medium text-destructive", icone: <XCircle className="h-3.5 w-3.5 shrink-0" /> },
+    "a-venir": { classe: "text-muted-foreground", icone: <Circle className="h-3.5 w-3.5 shrink-0" /> },
+  };
+  return (
+    <ol className="space-y-1 text-sm" aria-label="Étapes du bon de commande">
+      {lignes.map((l) => (
+        <li key={l.cle} className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 ${style[l.ton].classe}`}>
+          {style[l.ton].icone}<span>{l.texte}</span>{l.extra}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 // ───────────────────────── Une ligne d'exécution (un devis retenu) ─────────────────────────
 
 function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
@@ -543,9 +586,18 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
           </p>
         </div>
         {bc
-          ? <Badge tone={signe ? "success" : bc.etape === "A_REVOIR" ? "danger" : "info"}>{bc.reference ? `BC ${bc.reference} — ` : "BC — "}{bc.libelleEtape}</Badge>
+          ? <span className="inline-flex items-center gap-1.5 text-sm font-medium"><FileText className="h-4 w-4 text-muted-foreground" /> {bc.reference ? `BC ${bc.reference}` : "Bon de commande"}</span>
           : <Badge tone="warning">Bon de commande à générer</Badge>}
       </div>
+
+      {bc && (
+        <FriseBcPromo
+          etape={bc.etape} libelleEtape={bc.libelleEtape} envoyeLe={e.envoyeLe}
+          envoyer={signe && !e.envoyeLe && agir
+            ? <Button size="sm" variant="outline" className={aLaLigne} disabled={saving} onClick={() => run(() => marquerBonDeCommandeEnvoye(form({})))}><Send className="h-4 w-4" /> Marquer envoyé</Button>
+            : null}
+        />
+      )}
 
       {bc && (
         <div className="flex flex-wrap items-center gap-2">
@@ -553,11 +605,6 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
           {bc.docx && <a className={lien} href={lienFichierEmis(bc.id, "docx", true)}><FileText className="h-3.5 w-3.5" /> Word</a>}
           <a className={lien} href={lienFichierEmis(bc.id, "xlsx", true)} aria-label="Générer ce bon de commande sur Excel"><FileText className="h-3.5 w-3.5" /> Excel</a>
           {bc.montant != null && <span className="text-xs text-muted-foreground">{formatDzd(bc.montant)} TTC</span>}
-          {e.envoyeLe
-            ? <Badge tone="success">Envoyé le {new Date(e.envoyeLe).toLocaleDateString("fr-FR")}</Badge>
-            : signe
-              ? (agir && <Button size="sm" variant="outline" className={aLaLigne} disabled={saving} onClick={() => run(() => marquerBonDeCommandeEnvoye(form({})))}><Send className="h-4 w-4" /> Marquer envoyé au fournisseur</Button>)
-              : <span className="text-xs text-muted-foreground">Il part chez le fournisseur une fois signé par les Finances.</span>}
           {agir && !fige && mode === null && (
             <>
               <Button size="sm" variant="ghost" disabled={saving} onClick={() => setMode("modifier")}><Pencil className="h-4 w-4" /> Modifier</Button>
@@ -569,7 +616,13 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
 
       {mode === "modifier" && bc && (
         <form className="space-y-2 rounded-lg border border-border p-3" action={(f: FormData) => { f.set("promoMaterialId", id); f.set("quoteId", e.quoteId); run(() => modifierBonDeCommandePromo(f), () => setMode(null)); }}>
-          <p className="text-xs text-muted-foreground">Renseignez ce qui change : un champ laissé vide garde sa valeur. Les lignes ne se modifient pas — elles sont ce qui a été validé. Une modification retire la signature des Finances : la pièce est à signer de nouveau.</p>
+          <p className="flex items-center gap-1 text-sm font-medium">
+            Modifier le bon de commande
+            <InfoBulle label="Ce que change une modification" align="left">
+              Un champ laissé vide garde sa valeur. Les lignes ne se modifient pas — elles sont ce qui a été validé. Une modification retire
+              la signature des Finances : le BC est à signer de nouveau.
+            </InfoBulle>
+          </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div><Label htmlFor={`bc-adr-${e.quoteId}`}>Adresse de livraison</Label><Input id={`bc-adr-${e.quoteId}`} name="livraisonAdresse" /></div>
             <div><Label htmlFor={`bc-del-${e.quoteId}`}>Délai de livraison</Label><Input id={`bc-del-${e.quoteId}`} name="livraisonDelai" placeholder="15 jours" /></div>
@@ -631,14 +684,25 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
           <p className="text-sm">
             {/* LES BC SE GÉNÈRENT D'EUX-MÊMES à la dernière validation (§118.204) : ce cadre n'apparaît que pour
                 ce que la génération automatique n'a pas pu émettre — le geste de repli, avec livraison et taxe. */}
-            <strong>{aGenerer}</strong> bon{aGenerer > 1 ? "s" : ""} de commande n&apos;{aGenerer > 1 ? "ont" : "a"} pas pu être généré{aGenerer > 1 ? "s" : ""} automatiquement à la dernière validation — un par fournisseur, composé{aGenerer > 1 ? "s" : ""} par la plateforme d&apos;après les lignes validées. Relancez la génération (le message dira ce qui bloque).
+            <span className="inline-flex items-center gap-1">
+              <strong>{aGenerer}</strong>&nbsp;bon{aGenerer > 1 ? "s" : ""} de commande à générer.
+              <InfoBulle label="Pourquoi ils ne sont pas générés" align="left">
+                Ils n&apos;ont pas pu être générés automatiquement à la dernière validation (un par fournisseur, d&apos;après les lignes
+                validées). Relancez la génération : le message dira ce qui bloque.
+              </InfoBulle>
+            </span>
           </p>
           <form className="space-y-2" action={(f: FormData) => { f.set("promoMaterialId", id); run(() => genererBonsDeCommandePromo(f)); }}>
             {/* LA CASE DES TAXES SUPPLÉMENTAIRES, toujours visible : « Taxe Pub 2 % » sur le HT, hors base de TVA. Vide = celle de chaque devis ; 0 = aucune. */}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_9rem]">
               <div><Label htmlFor="gen-taxe">Taxe supplémentaire (libellé)</Label><Input id="gen-taxe" name="extraTaxLabel" placeholder="Taxe Pub" /></div>
-              <div><Label htmlFor="gen-taux">Taux (%)</Label><Input id="gen-taux" name="extraTaxRate" inputMode="decimal" placeholder="2" /></div>
-              <p className="text-xs text-muted-foreground sm:col-span-2">Calculée sur le HT, hors base de TVA. Vide : on garde celle de chaque devis ; 0 : aucune.</p>
+              <div>
+                <Label htmlFor="gen-taux" className="inline-flex items-center gap-1">
+                  Taux (%)
+                  <InfoBulle label="Comment la taxe est calculée">Calculée sur le HT, hors base de TVA. Vide : on garde celle de chaque devis ; 0 : aucune.</InfoBulle>
+                </Label>
+                <Input id="gen-taux" name="extraTaxRate" inputMode="decimal" placeholder="2" />
+              </div>
             </div>
             {options && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

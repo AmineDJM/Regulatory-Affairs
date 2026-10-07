@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Eye, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { Sheet } from "@/components/ui/sheet";
 import { useAutoOpen } from "@/components/shared/use-auto-open";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
@@ -144,11 +145,12 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
       </div>
 
       <fieldset className="space-y-3">
-        <legend className="text-sm font-semibold">Articles demandés <span className="text-destructive">*</span></legend>
-        <p className="text-xs text-muted-foreground">
-          Une ligne par article du catalogue : sa quantité et ce qu&apos;on attend du fournisseur. C&apos;est ce qui
-          sera fait chiffrer.
-        </p>
+        <legend className="flex items-center gap-1 text-sm font-semibold">
+          Articles demandés <span className="text-destructive">*</span>
+          <InfoBulle label="Comment remplir les articles" align="left">
+            Une ligne par article du catalogue : sa quantité et ce qu&apos;on attend du fournisseur. C&apos;est ce qui sera fait chiffrer.
+          </InfoBulle>
+        </legend>
         {catalogue.length === 0 && (
           <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
             Le catalogue promotionnel est vide : le Super Admin (ou qui il désigne) y ajoute les supports, depuis
@@ -227,11 +229,11 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
                         searchPlaceholder: "Rechercher un produit, une gamme…", emptyLabel: "Aucune gamme ni produit actif dans les Business Units.",
                       }}
                     />
-                    <Input name={`${l.uid}:autre`} aria-label={`Autre produit promu, ligne ${i + 1}`} placeholder="Autre (saisie libre) — un produit qui n'est dans aucune liste" />
+                    <Input name={`${l.uid}:autre`} aria-label={`Autre produit promu, ligne ${i + 1}`} placeholder="Autre produit (saisie libre)" />
                   </div>
                 ) : (
                   <button type="button" onClick={() => maj(l.uid, { produitsOuverts: true })} className="min-h-9 py-2 text-left text-xs font-medium text-primary hover:underline sm:min-h-0 sm:py-0">
-                    + Préciser ce que la ligne promeut (société, gamme, produits…)
+                    + Produits promus (facultatif)
                   </button>
                 )}
                 <div className="space-y-1">
@@ -245,16 +247,19 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
         <Button type="button" size="sm" variant="outline" className="h-10 w-full sm:h-8 sm:w-auto" disabled={busy || catalogue.length === 0} onClick={() => setLignes((ls) => [...ls, nouvelleLigne()])}>
           <Plus className="h-4 w-4" /> Ajouter une ligne
         </Button>
-        {/* L'APERÇU AVANT ENVOI — la demande de devis part d'elle-même : à l'enregistrement si la demande n'a
-            pas de validation, sinon dès qu'elle est validée. */}
-        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="min-w-0 flex-1 basis-56 text-xs text-muted-foreground">
-              La demande de devis part d&apos;elle-même au secrétariat — à l&apos;enregistrement, ou dès que votre demande est validée.
-            </p>
-            <Button type="button" size="sm" variant="outline" onClick={() => setApercuOuvert((o) => !o)} aria-expanded={apercuOuvert}>
-              <Eye className="h-4 w-4" /> {apercuOuvert ? "Masquer l'aperçu" : "Aperçu de la demande de devis"}
-            </Button>
+        {/* L'APERÇU AVANT ENVOI — fermé, discret : on vérifie si l'on veut, on ne lit pas un encadré de plus. La demande
+            de devis part d'elle-même (à l'enregistrement, ou dès que la demande est validée) : c'est dit dans le ⓘ. */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-1">
+            <button
+              type="button" onClick={() => setApercuOuvert((o) => !o)} aria-expanded={apercuOuvert}
+              className="inline-flex min-h-9 items-center gap-1.5 text-xs font-medium text-primary hover:underline sm:min-h-0"
+            >
+              <Eye className="h-3.5 w-3.5" /> {apercuOuvert ? "Masquer la demande de devis" : "Voir la demande de devis"}
+            </button>
+            <InfoBulle label="Où part la demande de devis" align="left">
+              La demande de devis part d&apos;elle-même au secrétariat : à l&apos;enregistrement, ou dès que votre demande est validée.
+            </InfoBulle>
           </div>
           {apercuOuvert && (
             <pre aria-label="Aperçu de la demande de devis" className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs">{apercu}</pre>
@@ -294,7 +299,7 @@ export function NouvelleDemandeMaterielButton({ catalogue, produits }: {
       <Sheet
         open={open} onClose={() => setOpen(false)} width="lg"
         title="Demande de matériel promotionnel"
-        description="Les articles que vous voulez faire produire, acheter ou louer, piochés dans le catalogue. La demande est d'abord validée (N+1, ou directrice marketing), puis la demande de devis part d'elle-même au secrétariat."
+        description="Les articles à faire produire, acheter ou louer."
       >
         {open && <DemandeMaterielForm catalogue={catalogue} produits={produits} onDone={() => setOpen(false)} onCancel={() => setOpen(false)} />}
       </Sheet>

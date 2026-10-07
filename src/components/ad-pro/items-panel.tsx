@@ -6,10 +6,12 @@ import { useRafraichir } from "@/components/shared/use-rafraichir";
 import {
   Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink, Send, FileText,
   ThumbsUp, ThumbsDown, RotateCcw, History, Pencil, MoreHorizontal, Circle, X, Wallet, Split,
-  Undo2, Ban, Scale, Paperclip, ShieldCheck, FileCheck2, MessageSquarePlus, Inbox,
+  Undo2, Ban, Scale, Paperclip, ShieldCheck, FileCheck2, MessageSquarePlus, Inbox, Clock,
 } from "lucide-react";
 import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, AdProItemOrderStage } from "@prisma/client";
 import { Button } from "@/components/ui/button";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { cn } from "@/lib/utils";
 import { ItemAskPanel } from "./item-ask-panel";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -34,7 +36,7 @@ import {
 } from "@/lib/ad-pro/pieces-secretariat";
 import {
   etapesDuPoste, prochainPas, grouperParRepartition, faitsDuPoste, VERSEMENT_SANS_BC, LIBELLE_JUSTIFICATIF_DIRECT,
-  type CleGeste, type Etape, type RegardPoste,
+  type CleGeste, type EtatEtape, type RegardPoste,
 } from "@/lib/ad-pro/poste-etapes";
 import { NATURES_REPARTITION } from "@/lib/ad-pro/repartition";
 import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
@@ -339,10 +341,10 @@ export function AdProItemsPanel({
       {fige && (
         <p className="flex items-start gap-2 rounded-xl border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-          <span>
-            Demande <strong className="text-foreground">clôturée</strong> : les postes, leurs montants et leurs budgets sont arrêtés.
-            Les bons de commande et factures des postes accordés suivent leur cours ; pour corriger un poste, rouvrez la demande.
-          </span>
+          <span className="flex-1">Demande <strong className="text-foreground">clôturée</strong> : postes et montants arrêtés.</span>
+          <InfoBulle label="Ce que veut dire « clôturée »">
+            Les bons de commande et factures des postes accordés suivent leur cours. Pour corriger un poste, rouvrez la demande.
+          </InfoBulle>
         </p>
       )}
 
@@ -361,12 +363,12 @@ export function AdProItemsPanel({
       {b.overrunDzd > 0 && (
         <p className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            La ventilation dépasse l&apos;enveloppe accordée de <strong>{formatCurrency(b.overrunDzd)}</strong>.
+          <span className="flex-1">Dépassement de l&apos;enveloppe : <strong>{formatCurrency(b.overrunDzd)}</strong>.</span>
+          <InfoBulle label="Que faire du dépassement">
             {b.hasLateAdditions
-              ? " Des postes ont été ajoutés après la décision — c'est autorisé, mais la Direction doit le savoir avant le règlement."
-              : " Réduisez un poste ou faites relever l'enveloppe."}
-          </span>
+              ? "Des postes ont été ajoutés après la décision — c'est autorisé, mais la Direction doit le savoir avant le règlement."
+              : "Réduisez un poste ou faites relever l'enveloppe."}
+          </InfoBulle>
         </p>
       )}
 
@@ -377,16 +379,15 @@ export function AdProItemsPanel({
           <span>
             {gaps.boothUnbudgeted && <>Un <strong>stand</strong> est annoncé sur cet événement mais aucun poste ne le chiffre. </>}
             {gaps.symposiumUnbudgeted && <>Un <strong>symposium</strong> est annoncé mais aucun poste ne le chiffre. </>}
-            S&apos;il est offert par l&apos;organisateur, ignorez ce rappel — sinon le budget est incomplet.
           </span>
+          <InfoBulle label="Faut-il le chiffrer ?">S&apos;il est offert par l&apos;organisateur, ignorez ce rappel — sinon le budget est incomplet.</InfoBulle>
         </p>
       )}
 
       {/* ── Les postes ── */}
       {items.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-          Aucun poste. Détaillez ce que couvre cette opération — appui, stand, imprimerie, billetterie, prestation —
-          pour savoir de quoi est fait le montant et à qui va l&apos;argent.
+          Aucun poste. Ajoutez ce que couvre l&apos;opération : appui, stand, imprimerie, billetterie, prestation…
         </p>
       ) : (
         <ul className="space-y-3">
@@ -704,45 +705,43 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
           )}
           {item.supplier && <span>· {item.supplier}</span>}
           {item.budgetCategoryLabel && <span>· {item.budgetCategoryLabel}</span>}
-          {item.budgetKind === "ADDITIONAL" && <span className="text-warning">· rallonge</span>}
-          {item.addedAfterDecision && <span className="text-warning">· ajouté après décision</span>}
+          {item.budgetKind === "ADDITIONAL" && <span className={ETIQUETTE}>Rallonge</span>}
+          {item.addedAfterDecision && <span className={ETIQUETTE}>Ajouté après décision</span>}
         </p>
       )}
-
-      {/* 2. OÙ IL EN EST — la frise. */}
-      {etapes.length > 0 && <Frise etapes={etapes} />}
 
       {/* La parole de qui a renvoyé ou refusé le poste — ce qu'il faut corriger. */}
       {item.decisionNote && (item.status === "REVISION" || item.status === "REJECTED") && (
         <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground"><strong>Motif :</strong> {item.decisionNote}</p>
       )}
-      {item.status === "PENDING" && item.opsDecidedAt && item.opsDecisionNote && (
-        <p className="text-xs text-muted-foreground"><strong className="text-foreground">Direction des opérations :</strong> {item.opsDecisionNote}</p>
-      )}
 
       {/* 3. LE PROCHAIN GESTE — un bouton, ou une phrase qui dit qui on attend.
           JAMAIS DEUX FOIS LE MÊME CTA (Direction, 06/10) : « Générer le BC » vit dans la case « Bon de commande »,
           en bas — le geste ne se répète pas en haut de la carte. */}
-      {(pas.geste || pas.attente) && pas.geste?.cle !== "GENERER_BC" && (
-        pas.geste ? (
-          <Button size="sm" className="w-full sm:w-auto" onClick={() => agir(pas.geste!.cle)} disabled={enCours}>
-            {enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <IconeGeste cle={pas.geste.cle} />}
-            {pas.geste.libelle}
-          </Button>
-        ) : (
-          <p className="text-xs text-muted-foreground">{pas.attente}</p>
-        )
-      )}
-
-      {/* UN BC ÉTABLI DANS LEGAL lit sa validation sur ce poste : la carte dit pourquoi le menu n'offre plus
-          le retrait de la demande de BC (§118.83). */}
-      {bcLegal && (
-        <p className="text-xs text-muted-foreground">
-          BC établi dans Legal : {item.bcEtablis.join(", ")} — il lit sa validation sur ce poste.{" "}
-          {item.refusAnnulationBc
-            ? item.refusAnnulationBc
-            : "« Annuler la demande de BC » l'annule au registre avec la demande ; pour refuser ou rendre le poste à la Direction, annulez d'abord la demande."}
-        </p>
+      {/* UNE PHRASE, PAS UN PARAGRAPHE (Direction, 07/10 : « trop d'infos, trop d'écriture ») : le geste de la personne
+          qui regarde, sinon OÙ en est le poste et CHEZ QUI. Le pourquoi — un BC établi dans Legal qui empêche de retirer
+          la demande (§118.83) — passe dans un ⓘ. */}
+      {((pas.geste && pas.geste?.cle !== "GENERER_BC") || (!pas.geste && pas.attente) || bcLegal) && (
+        <div className="flex items-start gap-2">
+          {pas.geste && pas.geste?.cle !== "GENERER_BC" ? (
+            <Button size="sm" className="w-full sm:w-auto" onClick={() => agir(pas.geste!.cle)} disabled={enCours}>
+              {enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <IconeGeste cle={pas.geste.cle} />}
+              {pas.geste.libelle}
+            </Button>
+          ) : !pas.geste && pas.attente ? (
+            <p className="flex min-w-0 flex-1 items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-sm font-medium text-primary">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0" /> <span>{pas.attente}</span>
+            </p>
+          ) : null}
+          {bcLegal && (
+            <InfoBulle label="À propos du bon de commande">
+              Bon de commande {item.bcEtablis.join(", ")} établi dans Legal.{" "}
+              {item.refusAnnulationBc
+                ? item.refusAnnulationBc
+                : "Pour l'annuler : menu ⋯ › « Annuler la demande de BC ». Pour refuser le poste ou le rendre à la Direction, annulez d'abord cette demande."}
+            </InfoBulle>
+          )}
+        </div>
       )}
 
       {/* Les petits formulaires qu'un geste ouvre — un seul à la fois. */}
@@ -1047,91 +1046,133 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
         />
       )}
 
-      {/* 4. LES PIÈCES — la chaîne d'achat en trois cases alignées. */}
-      {!stock && (
-        <div className={`grid grid-cols-1 gap-2 border-t border-border/70 pt-2 ${!direct ? "sm:grid-cols-2 lg:grid-cols-4" : !item.pieces.bc && item.orderStage === "NONE" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
-          <CasePiece titre={direct ? LIBELLE_JUSTIFICATIF_DIRECT : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
-            {item.pieces.devis.length === 0 ? (
-              <p className="text-muted-foreground">—</p>
-            ) : item.pieces.devis.map((d) => {
-              const lu = item.devisLignes.find((v) => v.pieceId === d.id);
-              return (
-                <div key={d.id} className="space-y-0.5">
-                  <LignePiece
-                    piece={d}
-                    retirer={editer && !d.annulee ? () => {
-                      void run(`rdev:${item.id}`, () => retirerDevisDuPoste(undefined, fdOf({ pieceId: d.id })), "Pièce retirée du poste.");
-                    } : undefined}
-                  />
-                  {lu && !d.annulee && (
-                    <button type="button" onClick={() => basculer(`LIGNES:${d.id}`)} className="ml-4 py-1 text-primary hover:underline" aria-label={`Lignes du devis ${d.reference ?? d.titre}`}>
-                      {lu.structure ? `Lignes (${lu.nbValidees}/${lu.lignes.length} validées)` : "Lignes à lire"}
-                    </button>
-                  )}
+      {/* 4. LA CHAÎNE DU POSTE — une barre d'étapes, et SEULE l'étape choisie dépliée (Direction, 07/10). Elle s'ouvre
+          sur l'étape EN COURS : on voit où en est le poste sans rien lire, et le détail d'une étape se lit en un clic. */}
+      {!stock && (() => {
+        const accord = etapes.filter((e) => e.cle === "CHIFFRE" || e.cle === "OPERATIONS" || e.cle === "MARKETING");
+        const etatAccord: EtatEtape = accord.some((e) => e.etat === "REFUSE") ? "REFUSE" : accord.every((e) => e.etat === "FAIT") ? "FAIT" : "EN_COURS";
+        const etatDe = (cle: string): EtatEtape => etapes.find((e) => e.cle === cle)?.etat ?? "A_VENIR";
+        const avecBC = !(direct && !item.pieces.bc && item.orderStage === "NONE");
+        const onglets: OngletChaine[] = [
+          {
+            cle: "accord", libelle: "Accord", etat: etatAccord,
+            contenu: (
+              <CasePiece titre="Accord">
+                <ul className="space-y-1">
+                  {accord.map((e) => (
+                    <li key={e.cle} className={cn("flex items-center gap-1.5", STYLE_ETAPE[e.etat].texte)}>{STYLE_ETAPE[e.etat].icone} {e.libelle}</li>
+                  ))}
+                </ul>
+                {item.opsDecidedAt && item.opsDecisionNote && (
+                  <p className="text-muted-foreground"><span className="font-medium text-foreground">Direction des opérations :</span> {item.opsDecisionNote}</p>
+                )}
+              </CasePiece>
+            ),
+          },
+          {
+            cle: "devis", libelle: direct ? "Justificatif" : "Devis",
+            etat: direct ? etatDe("FACTURE") : item.pieces.devis.some((d) => !d.annulee) ? "FAIT" : "A_VENIR",
+            contenu: (
+              <CasePiece titre={direct ? LIBELLE_JUSTIFICATIF_DIRECT : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
+                {item.pieces.devis.length === 0 ? (
+                  <p className="text-muted-foreground">Aucun pour l&apos;instant.</p>
+                ) : item.pieces.devis.map((d) => {
+                  const lu = item.devisLignes.find((v) => v.pieceId === d.id);
+                  return (
+                    <div key={d.id} className="space-y-0.5">
+                      <LignePiece
+                        piece={d}
+                        retirer={editer && !d.annulee ? () => {
+                          void run(`rdev:${item.id}`, () => retirerDevisDuPoste(undefined, fdOf({ pieceId: d.id })), "Pièce retirée du poste.");
+                        } : undefined}
+                      />
+                      {lu && !d.annulee && (
+                        <button type="button" onClick={() => basculer(`LIGNES:${d.id}`)} className="ml-4 py-1 text-primary hover:underline" aria-label={`Lignes du devis ${d.reference ?? d.titre}`}>
+                          {lu.structure ? `Lignes (${lu.nbValidees}/${lu.lignes.length} validées)` : "Lignes à lire"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {conseil("DEVIS")}
+              </CasePiece>
+            ),
+          },
+        ];
+        if (avecBC) {
+          onglets.push({
+            cle: "bc", libelle: "Bon de commande", court: "BC", etat: etatDe("BC"),
+            contenu: (
+              <CasePiece titre="Bon de commande">
+                <BlocBonDeCommande
+                  itemId={item.id}
+                  bcs={item.pieces.bcs}
+                  devis={item.devisLignes}
+                  accorde={item.amountGranted}
+                  refusGeneration={refusGeneration}
+                  peutGenerer={peutGenerer}
+                  peutJoindre={peutJoindreBC}
+                  peutModifier={regard.canEdit && !regard.fige && !item.expenseOrderId}
+                  busy={busy}
+                  run={run}
+                  onJoindre={() => basculer("DEMANDER_BC")}
+                  repli={<EtatBC item={item} />}
+                />
+              </CasePiece>
+            ),
+          });
+        }
+        onglets.push({
+          cle: "facture", libelle: "Facture",
+          etat: direct ? (item.pieces.factures.some((f) => !f.annulee) ? "FAIT" : "A_VENIR") : etatDe("FACTURE"),
+          contenu: (
+            <CasePiece
+              titre={direct ? "Facture (facultative)" : "Facture"}
+              ajouter={direct
+                ? (paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined)
+                : (factureOuverte && !enCours ? () => basculer("FACTURE_BC") : undefined)}
+            >
+              {item.pieces.factures.length === 0 ? (
+                <p className="text-muted-foreground">{direct ? "Non exigée pour le paiement." : factureOuverte ? "Le BC est signé : déposez la facture." : "Après la signature du BC."}</p>
+              ) : item.pieces.factures.map((f) => (
+                <div key={f.id} className="space-y-0.5">
+                  <LignePiece piece={f} />
+                  <ControleDeFacture piece={f} />
                 </div>
-              );
-            })}
-            {conseil("DEVIS")}
-          </CasePiece>
-          {!(direct && !item.pieces.bc && item.orderStage === "NONE") && (
-            <CasePiece titre="Bon de commande">
-              <BlocBonDeCommande
-                itemId={item.id}
-                bcs={item.pieces.bcs}
-                devis={item.devisLignes}
-                accorde={item.amountGranted}
-                refusGeneration={refusGeneration}
-                peutGenerer={peutGenerer}
-                peutJoindre={peutJoindreBC}
-                peutModifier={regard.canEdit && !regard.fige && !item.expenseOrderId}
-                busy={busy}
-                run={run}
-                onJoindre={() => basculer("DEMANDER_BC")}
-                repli={<EtatBC item={item} />}
-              />
+              ))}
+              {conseil("FACTURE")}
             </CasePiece>
-          )}
-          <CasePiece
-            titre={direct ? "Facture (facultative)" : "Facture"}
-            ajouter={direct
-              ? (paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined)
-              : (factureOuverte && !enCours ? () => basculer("FACTURE_BC") : undefined)}
-          >
-            {item.pieces.factures.length === 0 ? (
-              <p className="text-muted-foreground">{direct ? "Non exigée pour le paiement." : factureOuverte ? "Le BC est signé : déposez la facture." : "Après la signature du BC."}</p>
-            ) : item.pieces.factures.map((f) => (
-              <div key={f.id} className="space-y-0.5">
-                <LignePiece piece={f} />
-                <ControleDeFacture piece={f} />
-              </div>
-            ))}
-            {conseil("FACTURE")}
-            {direct && item.expenseOrder && (
-              <p className="inline-flex items-center gap-1 text-muted-foreground">
-                <Receipt className="h-3 w-3" /> Paiement {item.expenseOrder.reference} · {item.expenseOrder.status === "PAID" ? "réglé" : "au centre de paiement"}
-              </p>
-            )}
-          </CasePiece>
-          {/* LA DEMANDE DE PAIEMENT SE DÉCLENCHE quand chaque BC signé a sa facture (Direction, 06/10). */}
-          {!direct && (
-            <CasePiece titre="Demande de paiement">
-              <DemandePaiementBC
-                itemId={item.id} bcs={item.pieces.bcs} factures={item.pieces.factures} accorde={item.amountGranted}
-                peutDemander={(regard.canEdit || regard.canAllocate) && item.status === "APPROVED"}
-                expenseOrder={item.expenseOrder ?? null} busy={busy} run={run}
-              />
+          ),
+        });
+        onglets.push({
+          cle: "paiement", libelle: "Paiement", etat: etatDe("PAIEMENT"),
+          contenu: (
+            <CasePiece titre="Paiement">
+              {direct ? (
+                item.expenseOrder ? (
+                  <p className="inline-flex items-center gap-1 text-muted-foreground">
+                    <Receipt className="h-3.5 w-3.5" /> {item.expenseOrder.reference} · {item.expenseOrder.status === "PAID" ? "payé" : "au centre de paiement"}
+                  </p>
+                ) : <p className="text-muted-foreground">Après le justificatif.</p>
+              ) : (
+                <DemandePaiementBC
+                  itemId={item.id} bcs={item.pieces.bcs} factures={item.pieces.factures} accorde={item.amountGranted}
+                  peutDemander={(regard.canEdit || regard.canAllocate) && item.status === "APPROVED"}
+                  expenseOrder={item.expenseOrder ?? null} busy={busy} run={run}
+                />
+              )}
             </CasePiece>
-          )}
-        </div>
-      )}
-    </li>
+          ),
+        });
+        return <ChaineDuPoste onglets={onglets} />;
+      })()}    </li>
   );
 }
 
 /** Une case de la chaîne d'achat — son titre, son contenu, et un « Ajouter » discret quand il y a lieu. */
 function CasePiece({ titre, ajouter, children }: { titre: string; ajouter?: () => void; children: React.ReactNode }) {
   return (
-    <div className="min-w-0 space-y-1 rounded-lg bg-secondary/30 px-2.5 py-2 text-xs">
+    <div className="min-w-0 space-y-1.5 rounded-lg bg-secondary/30 px-3 py-2.5 text-sm">
       <div className="flex items-center gap-2">
         <p className="min-w-0 flex-1 font-medium text-foreground">{titre}</p>
         {/* Au téléphone, une vraie cible (40 px, bordée) : c'est ici qu'on dépose devis et factures. */}
@@ -1237,24 +1278,56 @@ function IconeGeste({ cle }: { cle: CleGeste }) {
   }
 }
 
-/** La frise : ce qui est fait, ce qui se passe, ce qui vient — et un refus, là où il a eu lieu. */
-function Frise({ etapes }: { etapes: Etape[] }) {
+/** Une étiquette sur la ligne du poste (« Rallonge », « Ajouté après décision ») — un mot, pas une phrase. */
+const ETIQUETTE = "rounded-md bg-warning/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-warning";
+
+/** Le rendu d'un état d'étape — le même partout sur la carte : fait, en cours, à venir, refusé. */
+const STYLE_ETAPE: Record<EtatEtape, { texte: string; barre: string; icone: React.ReactNode; dit: string }> = {
+  FAIT: { texte: "text-success", barre: "border-success", icone: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />, dit: "fait" },
+  EN_COURS: { texte: "font-medium text-primary", barre: "border-primary", icone: <Clock className="h-3.5 w-3.5 shrink-0" />, dit: "en cours" },
+  A_VENIR: { texte: "text-muted-foreground", barre: "border-border", icone: <Circle className="h-3.5 w-3.5 shrink-0" />, dit: "à venir" },
+  REFUSE: { texte: "font-medium text-destructive", barre: "border-destructive", icone: <X className="h-3.5 w-3.5 shrink-0" />, dit: "refusé" },
+};
+
+interface OngletChaine { cle: string; libelle: string; court?: string; etat: EtatEtape; contenu: React.ReactNode }
+
+/**
+ * LA CHAÎNE DU POSTE — Accord → Devis → Bon de commande → Facture → Paiement, en une barre ; dessous, UNE étape à la fois.
+ * Elle s'ouvre sur l'étape en cours (ou refusée), à défaut sur la dernière faite : quatre colonnes serrées obligeaient
+ * à tout lire pour trouver la seule qui comptait.
+ */
+function ChaineDuPoste({ onglets }: { onglets: OngletChaine[] }) {
+  const parDefaut = (onglets.find((o) => o.etat === "EN_COURS" || o.etat === "REFUSE")
+    ?? [...onglets].reverse().find((o) => o.etat === "FAIT")
+    ?? onglets[0]).cle;
+  const [choisi, setChoisi] = React.useState<string | null>(null);
+  const actif = onglets.find((o) => o.cle === choisi) ?? onglets.find((o) => o.cle === parDefaut) ?? onglets[0];
   return (
-    <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-[0.6875rem]" aria-label="Étapes du poste">
-      {etapes.map((e, i) => {
-        const ton = e.etat === "FAIT" ? "text-success" : e.etat === "EN_COURS" ? "font-semibold text-primary" : e.etat === "REFUSE" ? "text-destructive" : "text-muted-foreground";
-        const icone = e.etat === "FAIT" ? <CheckCircle2 className="h-3 w-3" />
-          : e.etat === "REFUSE" ? <X className="h-3 w-3" />
-          : <Circle className={`h-3 w-3 ${e.etat === "EN_COURS" ? "fill-current" : ""}`} />;
-        const etat = e.etat === "FAIT" ? "fait" : e.etat === "EN_COURS" ? "en cours" : e.etat === "REFUSE" ? "refusé" : "à venir";
-        return (
-          <li key={e.cle} className="flex items-center gap-1">
-            {i > 0 && <span aria-hidden className="text-border">—</span>}
-            <span className={`inline-flex items-center gap-1 ${ton}`} aria-label={`${e.libelle} : ${etat}`}>{icone} {e.libelle}</span>
-          </li>
-        );
-      })}
-    </ol>
+    <div className="space-y-2 border-t border-border/70 pt-2.5">
+      <div role="tablist" aria-label="Étapes du poste" className="grid gap-1" style={{ gridTemplateColumns: `repeat(${onglets.length}, minmax(0, 1fr))` }}>
+        {onglets.map((o) => {
+          const s = STYLE_ETAPE[o.etat];
+          const selectionne = o.cle === actif.cle;
+          return (
+            <button
+              key={o.cle} type="button" role="tab" aria-selected={selectionne} aria-label={`${o.libelle} : ${s.dit}`}
+              onClick={() => setChoisi(o.cle)}
+              className={cn(
+                "flex min-h-10 min-w-0 items-center gap-1 rounded-b-md border-t-[3px] px-1.5 py-1.5 text-left text-xs transition-colors",
+                s.barre, s.texte, selectionne ? "bg-secondary/70" : "hover:bg-secondary/40",
+              )}
+            >
+              {s.icone}
+              <span className="truncate">
+                <span className="sm:hidden">{o.court ?? o.libelle}</span>
+                <span className="hidden sm:inline">{o.libelle}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel" aria-label={actif.libelle}>{actif.contenu}</div>
+    </div>
   );
 }
 

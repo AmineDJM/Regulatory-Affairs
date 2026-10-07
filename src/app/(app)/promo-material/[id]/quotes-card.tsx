@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 /**
  * LES DEVIS DU DOSSIER — le tableau interne de l'entreprise (§118.152).
@@ -219,8 +220,10 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
               onClick={() => { const fichier = scanRef.current?.files?.[0]; if (fichier) void lireLeScan(fichier); }}>
               {enLecture ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanText className="h-4 w-4" />} Lire le scan
             </Button>
+            <InfoBulle label="Comment le scan est lu">
+              Le scan est lu sur ce serveur : la lecture propose les lignes, vous comparez au papier et cochez chaque ligne.
+            </InfoBulle>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">Choisi, le scan est lu sur ce serveur : la lecture propose, vous comparez au papier et cochez chaque ligne.</p>
         </div>
         {erreurLecture && <div className="sm:col-span-2"><Erreur msg={erreurLecture} /></div>}
         {lecture && (
@@ -413,11 +416,13 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
           fichier n'est pas retéléversé : le devis le DÉSIGNE. Plus de « Créer sa fiche » ici. */}
       {aRanger.length > 0 && (
         <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
-          <p className="text-sm font-medium">Devis déposés sans fournisseur ({aRanger.length})</p>
-          <p className="text-xs text-muted-foreground">
-            {peutRanger
-              ? "Choisissez l'agence à qui appartient chaque devis : il entre dans le tableau sans être téléversé une seconde fois, puis ses lignes se retranscrivent (« Corriger »)."
-              : refusRangement ?? "L'assistante de direction (ou la Direction) les range comme devis d'une agence."}
+          <p className="flex items-center gap-1 text-sm font-medium">
+            Devis déposés sans fournisseur ({aRanger.length})
+            <InfoBulle label="Que faire de ces devis" align="left">
+              {peutRanger
+                ? "Choisissez l'agence de chaque devis : il entre dans le tableau sans être téléversé une seconde fois, puis ses lignes se retranscrivent (« Corriger »)."
+                : refusRangement ?? "L'assistante de direction (ou la Direction) les range comme devis d'une agence."}
+            </InfoBulle>
           </p>
           <ul className="space-y-2">
             {aRanger.map((d) => (
@@ -609,9 +614,10 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
             Retenu : <strong>{selection.lignes}</strong> ligne{selection.lignes > 1 ? "s" : ""} sur {selection.devis} devis —{" "}
             <strong className="tabular-nums">{formatDzd(selection.ttc)} TTC</strong>
             <span className="text-muted-foreground"> (HT {formatDzd(selection.ht)})</span>
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Votre choix part ensuite à la Direction Marketing{auDg ? ", puis au Directeur Général (au-dessus du seuil)" : ""}. Les bons de commande seront générés d&apos;après ces lignes, un par fournisseur.
+            <InfoBulle label="Ce qui se passe ensuite" className="ml-1 align-middle">
+              Votre choix part à la Direction Marketing{auDg ? ", puis au Directeur Général (au-dessus du seuil)" : ""}. Les bons de commande
+              seront générés d&apos;après ces lignes, un par fournisseur.
+            </InfoBulle>
           </p>
           {!correction && !redemande ? (
             <div className="flex flex-wrap gap-2">

@@ -264,12 +264,12 @@ export function etapesDuPoste(p: FaitsPoste): Etape[] {
 
 /** Ce que la carte dit d'un BC au registre qui n'est pas encore signé. */
 const ATTENTE_BC: Partial<Record<EtapeBC, string>> = {
-  A_VALIDER: "Bon de commande au centre de validation Ad & Pro.",
-  A_REVOIR: "Bon de commande à revoir au centre de validation Ad & Pro.",
-  A_SIGNER: "Bon de commande à signer par les Finances.",
-  A_CORRIGER: "Bon de commande renvoyé à l'émetteur par les Finances — à corriger.",
-  REFUSE: "Bon de commande refusé : demandez-en un autre.",
-  SANS_PORTE: "Bon de commande à adresser au centre de validation.",
+  A_VALIDER: "BC en validation — chez le centre Ad & Pro.",
+  A_REVOIR: "BC à revoir — demandé par le centre Ad & Pro.",
+  A_SIGNER: "En attente de signature — chez les Finances.",
+  A_CORRIGER: "BC renvoyé par les Finances — à corriger.",
+  REFUSE: "BC refusé — à redemander.",
+  SANS_PORTE: "BC à adresser au centre de validation.",
 };
 
 /**
@@ -331,16 +331,16 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
     if (!p.opsDecidedAt) {
       return droits.operations && !r.fige
         ? { geste: { cle: "VALIDER_OPS", libelle: "Valider (Direction des opérations)" }, attente: null }
-        : { geste: null, attente: "En attente de la validation de la Direction des opérations." };
+        : { geste: null, attente: "En attente — chez la Direction des opérations." };
     }
     return droits.marketing && !r.fige
       ? { geste: { cle: "DECIDER", libelle: "Valider et choisir le budget" }, attente: null }
-      : { geste: null, attente: `Validé par la Direction des opérations — en attente de ${qui2} (montant et budget).` };
+      : { geste: null, attente: `En attente — chez ${qui2} (montant et budget).` };
   }
 
   // ── ACCORDÉ ────────────────────────────────────────────────────────────────────────────
   if (p.expenseOrderId) {
-    return { geste: null, attente: p.expenseOrderStatus === "PAID" ? null : "Paiement demandé — au centre de paiement." };
+    return { geste: null, attente: p.expenseOrderStatus === "PAID" ? null : "Paiement en cours — chez le centre de paiement." };
   }
   if (p.orderStage === "ISSUED") return { geste: null, attente: null };
   // Un poste accordé d'AVANT la validation en deux temps peut n'avoir ni montant ni budget.
@@ -375,7 +375,7 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
     if (p.demandeBC === "DEPOSE") {
       return r.verifieLeBC
         ? { geste: { cle: "VERIFIER_BC", libelle: "Vérifier le bon de commande déposé" }, attente: null }
-        : { geste: null, attente: "Bon de commande déposé par l'assistante — le demandeur le vérifie." };
+        : { geste: null, attente: "BC déposé — à vérifier par le demandeur." };
     }
     // UNE DEMANDE D'AVANT LA RÈGLE (§118.204) : demandée au secrétariat, elle ne reviendrait jamais sur
     // le poste. L'action accepte de l'envoyer à l'assistante ; la carte doit le proposer. Des lignes de devis
@@ -389,8 +389,8 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
     return {
       geste: null,
       attente: p.orderStage === "REQUESTED"
-        ? "L'assistante de direction établit le bon de commande — le centre de validation Ad & Pro le vise en parallèle."
-        : "L'assistante de direction établit le bon de commande.",
+        ? "BC en préparation — chez l'assistante de direction (visé en parallèle par le centre Ad & Pro)."
+        : "BC en préparation — chez l'assistante de direction.",
     };
   }
   // Bon de commande à demander (ou à redemander après un refus du centre). Cette demande reste un
