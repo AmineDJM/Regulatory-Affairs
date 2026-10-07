@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowRight, CalendarRange } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
+import { signaleDesCasPv } from "@/lib/pharmacovigilance/acces";
 import { prisma } from "@/lib/prisma";
 import { standInForUserIds } from "@/lib/hr/stand-in-resolve";
 import { getAppSettings } from "@/lib/settings";
@@ -185,6 +186,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             }}
             stock={stock}
             peutRapporter={peutRapporter}
+            peutSignalerPv={peutRapporter && signaleDesCasPv(user)}
           />
         </>
       ) : (

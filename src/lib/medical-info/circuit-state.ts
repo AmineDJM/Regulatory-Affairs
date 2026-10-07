@@ -34,6 +34,8 @@ export interface SlipRow extends SlipLike {
   position: number;
   deliveredById: string | null;
   deliveryNote: string | null;
+  /** Le dernier mouvement du bon — ce qui dit depuis quand le lot attend. */
+  updatedAt: Date;
 }
 
 export interface MedicalCircuitState {
@@ -49,22 +51,35 @@ export interface MedicalCircuitState {
 }
 
 export async function circuitStateOf(decl: DeclarationLike): Promise<MedicalCircuitState> {
-  const circuit = circuitOfDeclaration(decl);
+  const etats = await circuitStatesOf([decl]);
+  return etats.get(decl.id)!;
+}
+
+/**
+ * LA MÊME LECTURE, POUR TOUTE UNE LISTE — un aller-retour par TABLE, pas par dossier.
+ *
+ * La liste du registre dit « où en est-il, chez qui » sur chaque ligne : appeler `circuitStateOf`
+ * ligne à ligne multipliait cinq requêtes par le nombre de dossiers. Une seule fonction fait les
+ * deux — la fiche lit un dossier, la liste en lit cent, et c'est la même vérité.
+ */
+export async function circuitStatesOf(decls: readonly DeclarationLike[]): Promise<Map<string, MedicalCircuitState>> {
+  if (decls.length === 0) return new Map();
+  const validationIds = decls
+    .flatMap((d) => [d.declareValidationId, d.bvValidationId])
+    .filter((x): x is string => Boolean(x));
 
   // LES LECTURES PARTENT ENSEMBLE : elles ne dépendent pas les unes des autres, et l'écran du
   // pharmacien attendrait trois allers-retours au lieu d'un.
-  const [declareValidation, lotValidation, slipRows] = await Promise.all([
-    decl.declareValidationId
-      ? prisma.validationRequest.findUnique({ where: { id: decl.declareValidationId }, select: { status: true } })
-      : Promise.resolve(null),
-    decl.bvValidationId
-      ? prisma.validationRequest.findUnique({ where: { id: decl.bvValidationId }, select: { status: true } })
-      : Promise.resolve(null),
+  const [validations, slipRows] = await Promise.all([
+    validationIds.length
+      ? prisma.validationRequest.findMany({ where: { id: { in: validationIds } }, select: { id: true, status: true } })
+      : Promise.resolve([] as { id: string; status: unknown }[]),
     prisma.medicalInfoSlip.findMany({
-      where: { declarationId: decl.id },
+      where: { declarationId: { in: decls.map((d) => d.id) } },
       orderBy: [{ position: "asc" }, { createdAt: "asc" }],
     }),
   ]);
+  const validationById = new Map(validations.map((v) => [v.id, v]));
 
   // La route de chaque bon se lit sur son ordre de dépense. Un seul aller-retour pour tous : un
   // par bon multiplierait les requêtes par le nombre de matériels.
@@ -85,10 +100,11 @@ export async function circuitStateOf(decl: DeclarationLike): Promise<MedicalCirc
   const orderById = new Map(orders.map((o) => [o.id, o]));
   const reqById = new Map(requests.map((r) => [r.id, r]));
 
-  const slips: SlipRow[] = slipRows.map((s) => {
+  const slipsByDecl = new Map<string, SlipRow[]>();
+  for (const s of slipRows) {
     const req = s.requestId ? reqById.get(s.requestId) : null;
     const order = req?.expenseOrderId ? orderById.get(req.expenseOrderId) : null;
-    return {
+    const row: SlipRow = {
       id: s.id,
       label: s.label,
       // LE MONTANT AFFICHÉ EST CELUI DE LA DEMANDE quand elle existe : la quittance réelle n'est
@@ -103,27 +119,38 @@ export async function circuitStateOf(decl: DeclarationLike): Promise<MedicalCirc
       deliveredAt: s.deliveredAt,
       deliveredById: s.deliveredById,
       deliveryNote: s.deliveryNote,
+      updatedAt: s.updatedAt,
     };
-  });
+    const liste = slipsByDecl.get(s.declarationId);
+    if (liste) liste.push(row);
+    else slipsByDecl.set(s.declarationId, [row]);
+  }
 
-  return {
-    circuit,
-    declare: {
-      // Une validation SUPPRIMÉE (retirée par son demandeur) n'est plus une demande : son
-      // identifiant resté sur le dossier le laissait « en validation » à vie (audit 360°, I9).
-      validationId: declareValidation ? decl.declareValidationId : null,
-      validationStatus: declareValidation ? String(declareValidation.status) : null,
-      intent: decl.declareIntent,
-      grantedAt: decl.declareGrantedAt,
-    },
-    lot: slipsLotStage({
-      validationId: lotValidation ? decl.bvValidationId : null,
-      validationStatus: lotValidation ? String(lotValidation.status) : null,
-    }),
-    slips,
-    summary: slipsSummary(slips),
-    skipped: Boolean(decl.bvSkippedAt),
-  };
+  const out = new Map<string, MedicalCircuitState>();
+  for (const decl of decls) {
+    const declareValidation = decl.declareValidationId ? validationById.get(decl.declareValidationId) : null;
+    const lotValidation = decl.bvValidationId ? validationById.get(decl.bvValidationId) : null;
+    const slips = slipsByDecl.get(decl.id) ?? [];
+    out.set(decl.id, {
+      circuit: circuitOfDeclaration(decl),
+      declare: {
+        // Une validation SUPPRIMÉE (retirée par son demandeur) n'est plus une demande : son
+        // identifiant resté sur le dossier le laissait « en validation » à vie (audit 360°, I9).
+        validationId: declareValidation ? decl.declareValidationId : null,
+        validationStatus: declareValidation ? String(declareValidation.status) : null,
+        intent: decl.declareIntent,
+        grantedAt: decl.declareGrantedAt,
+      },
+      lot: slipsLotStage({
+        validationId: lotValidation ? decl.bvValidationId : null,
+        validationStatus: lotValidation ? String(lotValidation.status) : null,
+      }),
+      slips,
+      summary: slipsSummary(slips),
+      skipped: Boolean(decl.bvSkippedAt),
+    });
+  }
+  return out;
 }
 
 /**

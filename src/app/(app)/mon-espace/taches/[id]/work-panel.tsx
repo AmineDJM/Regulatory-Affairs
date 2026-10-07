@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Check, X, Loader2, RotateCcw } from "lucide-react";
 import { respondTaskRequest, submitTaskWork, reopenTaskWork } from "@/lib/actions/task-actions";
 import { submitLabel } from "@/lib/tasks/request-flow";
@@ -29,7 +29,7 @@ export function TaskWorkPanel({
   canRespond: boolean;
   canWork: boolean;
 }) {
-  const router = useRouter();
+  const { enCours, rafraichir } = useRafraichir();
   const [declining, setDeclining] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -38,7 +38,7 @@ export function TaskWorkPanel({
     setBusy(true); setErr(null);
     const r = await fn();
     setBusy(false);
-    if (r.ok) router.refresh(); else setErr(r.error ?? "Échec.");
+    if (r.ok) rafraichir(); else setErr(r.error ?? "Échec.");
   };
 
   if (canRespond) {
@@ -54,12 +54,12 @@ export function TaskWorkPanel({
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  type="button" disabled={busy} className="flex-1 sm:flex-none"
+                  type="button" disabled={busy || enCours} className="flex-1 sm:flex-none"
                   onClick={() => run(() => { const fd = new FormData(); fd.set("id", id); fd.set("accept", "1"); return respondTaskRequest(fd); })}
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Accepter
                 </Button>
-                <Button type="button" variant="outline" disabled={busy} className="flex-1 sm:flex-none" onClick={() => setDeclining(true)}>
+                <Button type="button" variant="outline" disabled={busy || enCours} className="flex-1 sm:flex-none" onClick={() => setDeclining(true)}>
                   <X className="h-4 w-4" /> Refuser
                 </Button>
               </div>
@@ -80,10 +80,10 @@ export function TaskWorkPanel({
                 </p>
               </div>
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap">
-                <Button type="submit" variant="destructive" disabled={busy}>
+                <Button type="submit" variant="destructive" disabled={busy || enCours}>
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Confirmer le refus
                 </Button>
-                <Button type="button" variant="outline" disabled={busy} onClick={() => setDeclining(false)}>Annuler</Button>
+                <Button type="button" variant="outline" disabled={busy || enCours} onClick={() => setDeclining(false)}>Annuler</Button>
               </div>
             </form>
           )}
@@ -130,12 +130,12 @@ export function TaskWorkPanel({
             <Textarea id="work-note" name="note" rows={4} defaultValue={note ?? ""} placeholder="Ce qui a été fait, ce qui reste, où sont les pièces…" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" disabled={busy} className="w-full sm:w-auto">
+            <Button type="submit" disabled={busy || enCours} className="w-full sm:w-auto">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} {submitLabel({ status })}
             </Button>
             {status === "DONE" && (
               <Button
-                type="button" variant="outline" disabled={busy}
+                type="button" variant="outline" disabled={busy || enCours}
                 onClick={() => run(() => { const fd = new FormData(); fd.set("id", id); return reopenTaskWork(fd); })}
               >
                 <RotateCcw className="h-4 w-4" /> Reprendre

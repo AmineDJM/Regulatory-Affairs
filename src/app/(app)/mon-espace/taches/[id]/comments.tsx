@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { MessageSquare, Send, Loader2 } from "lucide-react";
 import { addTaskComment } from "@/lib/actions/task-actions";
 import { commentsSummary } from "@/lib/tasks/request-flow";
@@ -33,21 +33,21 @@ export interface TaskCommentItem {
  * silencieuse qui remplacerait la question à laquelle l'autre a répondu rendrait le fil illisible.
  */
 export function TaskComments({ id, items, canWrite }: { id: string; items: TaskCommentItem[]; canWrite: boolean }) {
-  const router = useRouter();
+  const { enCours, rafraichir } = useRafraichir();
   const [body, setBody] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
   const send = async () => {
     const text = body.trim();
-    if (!text || busy) return;
+    if (!text || busy || enCours) return;
     setBusy(true); setErr(null);
     const fd = new FormData();
     fd.set("id", id);
     fd.set("body", text);
     const r = await addTaskComment(fd);
     setBusy(false);
-    if (r.ok) { setBody(""); router.refresh(); }
+    if (r.ok) { setBody(""); rafraichir(); }
     else setErr(r.error ?? "Échec de l'envoi.");
   };
 
@@ -92,7 +92,7 @@ export function TaskComments({ id, items, canWrite }: { id: string; items: TaskC
             />
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">Facultatif — tout le cercle de la tâche le lit.</span>
-              <Button type="button" size="sm" onClick={() => void send()} disabled={busy || body.trim().length === 0}>
+              <Button type="button" size="sm" onClick={() => void send()} disabled={busy || enCours || body.trim().length === 0}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer
               </Button>
             </div>

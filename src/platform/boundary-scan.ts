@@ -215,6 +215,13 @@ export const NEUTRAL = new Set([
   //
   // Le chemin est EXACT, pas le dossier.
   "src/lib/chemins/bons-de-commande",
+  // `chemins/rapports-terrain` dit OÙ VIVENT les rapports terrain depuis qu'ils sont un onglet de la Promotion médicale
+  // (Direction, 07/10) : des adresses et des fabricants de liens — zéro import, sans état, sans base, sans règle métier.
+  // Même raison que les deux précédents : le menu (`labels`, neutre) le lit, et les opérations d'Adam sur les comptes
+  // rendus rafraîchissaient l'ancienne adresse `/field-reports` en toutes lettres. Le compteur ne bouge pas.
+  //
+  // Le chemin est EXACT, pas le dossier.
+  "src/lib/chemins/rapports-terrain",
 ]);
 
 export interface Violation {

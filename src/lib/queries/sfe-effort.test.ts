@@ -88,7 +88,7 @@ suite("effort × ventes — qui lit le chiffre d'affaires", () => {
   });
 
   it("POINT D'APPEL : la page lit le chargeur, ne relit plus les ventes elle-même, et masque le tableau quand rien n'est lisible", () => {
-    const page = readFileSync("src/app/(app)/planning/pilotage/page.tsx", "utf8");
+    const page = readFileSync("src/app/(app)/planning/page.tsx", "utf8");
     expect(page).toMatch(/await chargerEffortVentes\(user\.id, scope, repIds,/);
     expect(page).not.toMatch(/prisma\.sale\./);
     expect(page).toMatch(/\{ventesLisibles && effort\.length > 0 && \(/);

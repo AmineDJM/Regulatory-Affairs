@@ -14,6 +14,7 @@ import { analyzeFieldReport, aiModelCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import type { CurrentUser } from "@/lib/session";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { CHEMIN_RAPPORTS_TERRAIN, lienRapportTerrain } from "@/lib/chemins/rapports-terrain";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
 import {
   dejaDansLeRapport, ecrireRemises, formulairePorteDuMateriel, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise,
@@ -43,7 +44,7 @@ export async function createFieldReport(): Promise<ActionResult> {
   // par défaut — se voyait refuser (« Non autorisé ») en cliquant sur « Parler ».
   if (!userCan(user, "FIELD_REPORTS", "VIEW")) return { ok: false, error: "Non autorisé." };
   const created = await prisma.fieldReport.create({ data: { delegateId: user.id, status: "DRAFT", companyId: await companyIdForNew(user.id) }, select: { id: true } });
-  revalidatePath("/field-reports");
+  revalidatePath(CHEMIN_RAPPORTS_TERRAIN);
   return { ok: true, id: created.id };
 }
 
@@ -68,7 +69,7 @@ export async function updateFieldReport(formData: FormData): Promise<ActionResul
       specialty: fdStr(formData, "specialty"),
     },
   });
-  revalidatePath(`/field-reports/${id}`);
+  revalidatePath(lienRapportTerrain(id));
   return { ok: true };
 }
 
@@ -137,7 +138,7 @@ export async function analyzeFieldReportAction(
       aiNotes: d.aiNotes || null,
     },
   });
-  revalidatePath(`/field-reports/${id}`);
+  revalidatePath(lienRapportTerrain(id));
   return {
     ok: true,
     configured: true,
@@ -249,8 +250,8 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
     throw e;
   }
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: `Compte rendu de visite envoyé${phraseMateriel(lu.materiel)}` });
-  revalidatePath(`/field-reports/${id}`);
-  revalidatePath("/field-reports");
+  revalidatePath(lienRapportTerrain(id));
+  revalidatePath(CHEMIN_RAPPORTS_TERRAIN);
   if (toucheLeStock(lu.materiel, deja)) revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true };
 }
@@ -273,8 +274,8 @@ export async function validateFieldReport(formData: FormData): Promise<ActionRes
   if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
   await prisma.fieldReport.update({ where: { id }, data: { status: "VALIDATED", validatedAt: new Date() } });
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: "Rapport de visite validé" });
-  revalidatePath(`/field-reports/${id}`);
-  revalidatePath("/field-reports");
+  revalidatePath(lienRapportTerrain(id));
+  revalidatePath(CHEMIN_RAPPORTS_TERRAIN);
   return { ok: true };
 }
 
@@ -284,7 +285,7 @@ export async function reopenFieldReport(formData: FormData): Promise<ActionResul
   if (!id) return { ok: false, error: "Rapport introuvable." };
   if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
   await prisma.fieldReport.update({ where: { id }, data: { status: "DRAFT", validatedAt: null } });
-  revalidatePath(`/field-reports/${id}`);
+  revalidatePath(lienRapportTerrain(id));
   return { ok: true };
 }
 
@@ -324,10 +325,10 @@ export async function deleteFieldReport(formData: FormData): Promise<DeleteResul
       userId: rapport.delegateId, type: "GENERIC",
       title: "Votre rapport terrain a été supprimé",
       body: `${nom} a été supprimé par ${user.name}. Le Super Admin peut le restaurer depuis la corbeille.`,
-      link: "/field-reports",
+      link: CHEMIN_RAPPORTS_TERRAIN,
     });
   }
-  revalidatePath("/field-reports");
+  revalidatePath(CHEMIN_RAPPORTS_TERRAIN);
   return r;
 }
 
@@ -340,6 +341,6 @@ export async function deleteFieldReportAttachment(formData: FormData): Promise<A
   if (!(await canEdit(user, att.reportId))) return { ok: false, error: "Non autorisé." };
   await prisma.fieldReportAttachment.delete({ where: { id } });
   await releaseBlob(att.blobId);
-  revalidatePath(`/field-reports/${att.reportId}`);
+  revalidatePath(lienRapportTerrain(att.reportId));
   return { ok: true };
 }

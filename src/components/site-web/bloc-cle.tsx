@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
  * ligne compris ; si le navigateur refuse l'accès au presse-papiers, le bloc est sélectionné pour un
  * Ctrl+C — jamais un « copié » qui ne l'est pas.
  */
-export function BlocCle({ bloc }: { bloc: string }) {
+export function BlocCle({ bloc, libelle = "Copier le bloc" }: { bloc: string; libelle?: string }) {
   const pre = React.useRef<HTMLPreElement>(null);
   const [etat, setEtat] = React.useState<"repos" | "copie" | "manuel">("repos");
 
@@ -45,7 +45,7 @@ export function BlocCle({ bloc }: { bloc: string }) {
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => void copier()}>
           {etat === "copie" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          {etat === "copie" ? "Copié" : "Copier le bloc"}
+          {etat === "copie" ? "Copié" : libelle}
         </Button>
         {etat === "manuel" && (
           <span role="status" className="text-xs text-muted-foreground">

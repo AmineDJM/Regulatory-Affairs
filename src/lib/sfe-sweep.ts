@@ -156,7 +156,7 @@ export async function runSfeFieldSweep(now: Date = new Date()): Promise<SfeSweep
       for (const userId of cibles) {
         await notifyUser({
           userId, type: "MEDICAL_TOUR", title: a.title, body: a.body,
-          link: "/planning/pilotage",
+          link: "/planning",
         }).catch(() => undefined);
       }
       // Le verrou se pose sur le PROFIL du KAM : sans profil (KAM non configuré), l'alerte
@@ -212,7 +212,7 @@ export async function runSfeFieldSweep(now: Date = new Date()): Promise<SfeSweep
           userId: supervisorId, type: "GENERIC",
           title: `Revue ${String(prev.month).padStart(2, "0")}/${prev.year} — ${info.equipes.join(", ")}`,
           body: monthlyReviewLine(siens),
-          link: `/planning/pilotage?y=${prev.year}&m=${prev.month}`,
+          link: `/planning?y=${prev.year}&m=${prev.month}`,
         }).catch(() => undefined);
         out.reviews += 1;
       }

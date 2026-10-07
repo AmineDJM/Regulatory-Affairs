@@ -72,13 +72,18 @@ suite("le menu d'un employé ordinaire ne promet que ce qui s'ouvre", () => {
     expect(destinations(await navigationFor(dir))).toContain("/business-development/projets");
   });
 
-  it("« Mon Équipe » sans recrutement : une entrée, pas un sous-menu qui se répète", async () => {
+  it("« Mon Équipe » est une entrée simple — le recrutement n'y est plus, même pour qui l'a", async () => {
     const ns = await acteur(u.ns, "NATIONAL_SALES");
-    // PRÉMISSES : il encadre (sinon l'entrée n'existe pas du tout) et n'a pas le recrutement.
-    expect(userCan(ns, "RECRUITMENT", "VIEW")).toBe(false);
-    const equipe = (await navigationFor(ns)).find((i) => i.href === "/mon-equipe");
+    // PRÉMISSES : il encadre (sinon l'entrée n'existe pas du tout) et A le recrutement — n'importe qui peut
+    // demander un poste (Direction, 07/10) : l'absence de sous-menu vient du déplacement, pas d'un droit manquant.
+    expect(userCan(ns, "RECRUITMENT", "CREATE")).toBe(true);
+    const menu = await navigationFor(ns);
+    const equipe = menu.find((i) => i.href === "/mon-equipe");
     expect(equipe, "l'encadrant doit voir « Mon Équipe »").toBeDefined();
     expect(equipe?.children ?? []).toEqual([]);
+    // … et le recrutement l'attend sous les Ressources humaines.
+    const rh = menu.find((i) => i.label === "Ressources humaines");
+    expect((rh?.children ?? []).map((c) => c.href)).toContain("/recrutement");
   });
 
   it("Adam (assistant ET chief of staff) n'est PAS au menu de la Direction — qui a pourtant les deux modules", async () => {
@@ -97,10 +102,14 @@ suite("le menu d'un employé ordinaire ne promet que ce qui s'ouvre", () => {
     expect(destinations(await navigationFor(sa))).toEqual(expect.arrayContaining(["/assistant", "/chief-of-staff"]));
   });
 
-  it("… et avec le recrutement, les deux enfants restent — ce n'est pas « retirer les enfants »", async () => {
+  it("… et le recrutement est un sous-module des Ressources humaines, une seule fois dans le menu", async () => {
     const dir = await acteur(u.dir, "DIRECTION");
     expect(userCan(dir, "RECRUITMENT", "VIEW")).toBe(true);
-    const equipe = (await navigationFor(dir)).find((i) => i.href === "/mon-equipe");
-    expect((equipe?.children ?? []).map((c) => c.href)).toEqual(["/mon-equipe", "/recrutement"]);
+    const menu = await navigationFor(dir);
+    const equipe = menu.find((i) => i.href === "/mon-equipe");
+    expect(equipe?.children ?? []).toEqual([]);
+    const rh = menu.find((i) => i.label === "Ressources humaines");
+    expect((rh?.children ?? []).map((c) => c.href)).toContain("/recrutement");
+    expect(destinations(menu).filter((d) => d === "/recrutement")).toHaveLength(1);
   });
 });

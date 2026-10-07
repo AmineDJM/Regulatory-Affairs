@@ -1,58 +1,37 @@
 "use client";
 
 import * as React from "react";
-import {
-  AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Package, Plus,
-  Star, Stethoscope, Trash2, UserCog, Users, Wallet,
-} from "lucide-react";
-import {
-  createBusinessUnit, updateBusinessUnit, deleteBusinessUnit, openBusinessUnitBudget,
-  createPromoProduct, updatePromoProduct, deletePromoProduct,
-  saveRepProfile,
-  addBuMarketingReferent, removeBuMarketingReferent, enregistrerSpecialitesBu,
-} from "@/lib/actions/sales-planning-actions";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Plus } from "lucide-react";
+import { createBusinessUnit, updateBusinessUnit } from "@/lib/actions/sales-planning-actions";
 import { ChoixSpecialites, type ChoixSpecialitesValeur } from "./choix-specialites";
-import {
-  CHANNELS, CHANNEL_LABELS, buSetupProgress, buSetupSteps, channelCovers, channelLabel,
-  type Channel,
-} from "@/lib/sfe-setup";
+import { CHANNELS, CHANNEL_LABELS, buSetupProgress, buSetupSteps, channelLabel, type BuStepKey } from "@/lib/sfe-setup";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { estBuHospitaliere, kamsSansTerritoire } from "@/lib/sfe/territoire-kam";
-import { TerritoireKam, type TerritoireRow } from "./territoire-kam";
+import type { TerritoireRow } from "./territoire-kam";
 import type { EtabOpt } from "./choix-etablissements";
 import { Sheet } from "@/components/ui/sheet";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
+import { cn } from "@/lib/utils";
+import { EtapeIdentite, EtapeProduits, EtapeKams, EtapeSecteurs, inputCls, btnCls, type Run } from "./bu-etapes";
 
 /**
- * LE MONTAGE D'UNE BU, DE HAUT EN BAS.
+ * LE MONTAGE D'UNE BU, PAR ÉTAPES (Direction, 07/10 : « découpées en étapes au lieu d'un écran de 14 blocs »).
  *
- * Une BU par carte, dépliable. À l'intérieur, l'ordre est celui du montage réel : identité →
- * superviseur → terrain → KAM → produits. Chaque carte fermée dit CE QUI MANQUE (« Désigner le
- * superviseur ») plutôt qu'un compteur muet : une BU sans superviseur ne prévient personne quand
- * le terrain décroche, et cette panne-là ne produit aucune erreur — juste un silence.
+ * Une BU par carte, dépliable. À l'intérieur, quatre étapes dans l'ordre du montage réel : la BU et son superviseur →
+ * spécialités et produits → KAM → secteurs. Chaque carte fermée dit CE QUI MANQUE (« Désigner le superviseur ») plutôt
+ * qu'un compteur muet ; chaque étape porte un point quand il lui manque quelque chose.
  *
  * Ce module n'importe que `sfe-setup` (pur) et les actions serveur : la frontière client tient.
  */
-
-// `max-w-full` : un menu dont une option est longue ne pousse jamais la carte hors de l'écran.
-const inputCls = "h-10 max-w-full rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none sm:h-9";
-// Bouton secondaire « Rattacher / Désigner / Ajouter » : 40 px au doigt, compact au bureau.
-const btnLigneCls = "inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-2 text-sm hover:bg-secondary disabled:opacity-60 sm:py-1.5";
-const iconBtnCls = "rounded-md p-2.5 sm:p-1.5";
-const caseCls = "flex min-h-10 items-center gap-1 text-xs text-muted-foreground sm:min-h-0";
-const btnCls = "inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60";
 
 export interface Opt { id: string; name: string }
 export interface BuRow {
   id: string; name: string; code: string | null; color: string | null;
   companyId: string | null; headId: string | null; supervisorId: string | null;
   channel: string; isActive: boolean;
-  /**
-   * LE SOUS-DÉPARTEMENT de la gamme, quand son budget a été ouvert. C'est lui qui porte son
-   * enveloppe Ad&Pro et sa masse salariale — une BU sans département ne compte nulle part.
-   */
+  /** LE SOUS-DÉPARTEMENT de la gamme, quand son budget a été ouvert. */
   departmentId: string | null;
   /** LES SPÉCIALITÉS QU'ELLE VISE (§118.183) — la principale d'abord quand elle existe. */
   specialites: { id: string; name: string; principale: boolean }[];
@@ -75,9 +54,17 @@ type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 /** Une personne désignée référente Direction Marketing d'une gamme. */
 export interface ReferentRow { id: string; userId: string; name: string; porteLeRole: boolean; businessUnitId: string }
 
+export const ETAPES = ["identite", "produits", "kams", "secteurs"] as const;
+export type Etape = (typeof ETAPES)[number];
+const ETAPE_LABELS: Record<Etape, string> = { identite: "BU & superviseur", produits: "Spécialités & produits", kams: "KAM", secteurs: "Secteurs" };
+/** Les étapes du montage (`sfe-setup`) que chaque écran règle — un point s'y allume quand l'une manque. */
+const CLES_ETAPE: Record<Etape, BuStepKey[]> = {
+  identite: ["SUPERVISEUR", "CANAL", "REFERENTS"], produits: ["SPECIALITES", "PRODUITS"], kams: ["KAM"], secteurs: ["TERRITOIRES"],
+};
+
 export function BusinessUnitsManager({
   businessUnits, companies, supervisors, users, kams, products, dossiers, config,
-  territoires, etablissements, referents, referentsEligibles, specialitesReferentiel,
+  territoires, etablissements, referents, referentsEligibles, specialitesReferentiel, etapeInitiale, buInitiale,
 }: {
   businessUnits: BuRow[];
   companies: Opt[];
@@ -87,34 +74,32 @@ export function BusinessUnitsManager({
   products: ProductRow[];
   dossiers: { id: string; label: string }[];
   config: { daysPerMonth: number; visitsPerDay: number; fieldPct: number };
-  /**
-   * Les TERRITOIRES PROPRES des KAM, de TOUTES les BU, groupés à l'affichage — comme les KAM et les
-   * produits (04/10/2026 : le territoire d'un KAM se choisit sur sa ligne ; les secteurs partagés ne
-   * s'affichent plus).
-   */
+  /** Les TERRITOIRES PROPRES des KAM, de TOUTES les BU, groupés à l'affichage. */
   territoires: (TerritoireRow & { businessUnitId: string })[];
   /** Le référentiel des établissements, à cocher. Vide → l'annuaire est vide, et on le DIT. */
   etablissements: EtabOpt[];
-  /** Les référents de TOUTES les gammes, groupés à l'affichage — comme les KAM et les territoires. */
+  /** Les référents de TOUTES les gammes, groupés à l'affichage. */
   referents: ReferentRow[];
   /** Les personnes qui PORTENT le rôle Direction Marketing : les seules désignables. */
   referentsEligibles: Opt[];
-  /** Le référentiel des spécialités, à cocher (§118.183). Vide → le choix dit où il se remplit. */
+  /** Le référentiel des spécialités, à cocher (§118.183). */
   specialitesReferentiel: Opt[];
+  /** L'étape ouverte d'arrivée (« ⋯ › Secteurs », « Affecter » d'un secteur vacant). */
+  etapeInitiale?: Etape | null;
+  /** La BU dépliée d'arrivée ; sans elle et avec une étape, toutes les BU s'ouvrent sur cette étape. */
+  buInitiale?: string | null;
 }) {
-  // LES GESTES ATTENDENT LES NOUVELLES DONNÉES (§118.172) : le panneau d'un territoire naît de la
-  // couverture qu'il lit à l'ouverture. Rouvert avant le rafraîchissement, il remontrait l'état
-  // d'AVANT, et l'enregistrer le RÉÉCRIVAIT par-dessus ce qu'on venait de changer.
+  // LES GESTES ATTENDENT LES NOUVELLES DONNÉES (§118.172) : rouvert avant le rafraîchissement, un panneau remontrerait
+  // l'état d'AVANT, et l'enregistrer le RÉÉCRIVAIT par-dessus ce qu'on venait de changer.
   const { enCours: rafraichit, rafraichir } = useRafraichir();
   const [enAction, setBusy] = React.useState(false);
   const busy = enAction || rafraichit;
   const [creating, setCreating] = React.useState(false);
-  const [open, setOpen] = React.useState<Record<string, boolean>>({});
-  // LE CHOIX DES SPÉCIALITÉS À LA CRÉATION (§118.183) — contrôlé : il part en champs cachés, et se vide
-  // à chaque ouverture du tiroir pour ne pas reproposer la sélection de la BU précédente.
+  const [open, setOpen] = React.useState<Record<string, boolean>>(() =>
+    buInitiale ? { [buInitiale]: true } : etapeInitiale ? Object.fromEntries(businessUnits.map((b) => [b.id, true])) : {});
   const [choixCreation, setChoixCreation] = React.useState<ChoixSpecialitesValeur>({ ids: [], principaleId: null });
 
-  const run = React.useCallback(async (action: Action, fd: FormData, refresh = true) => {
+  const run = React.useCallback<Run>(async (action: Action, fd: FormData, refresh = true) => {
     setBusy(true);
     const r = await action(fd);
     setBusy(false);
@@ -132,9 +117,6 @@ export function BusinessUnitsManager({
 
   return (
     <div className="space-y-5">
-      {/* LE FORMULAIRE DE CRÉATION VIT DANS UN TIROIR, pas en tête de page. Déplié en permanence,
-          il repoussait les BU existantes sous la ligne de flottaison — alors qu'on vient ici dix
-          fois pour en consulter une, et une fois pour en créer une. */}
       <div className="flex justify-end">
         <Button onClick={() => { setChoixCreation({ ids: [], principaleId: null }); setCreating(true); }} disabled={busy}>
           <Plus className="h-4 w-4" /> Créer une BU
@@ -142,14 +124,7 @@ export function BusinessUnitsManager({
       </div>
 
       <Sheet open={creating} onClose={() => setCreating(false)} title="Créer une Business Unit" width="md">
-        <form
-          className="space-y-3"
-          action={async (fd) => { if (await run(createBusinessUnit, fd)) setCreating(false); }}
-        >
-          <p className="text-sm text-muted-foreground">
-            Une BU est une franchise ET son équipe : un superviseur, un terrain, des KAM, des
-            produits. On la crée ici, puis on la déplie pour lui rattacher ses KAM et ses produits.
-          </p>
+        <form className="space-y-3" action={async (fd) => { if (await run(createBusinessUnit, fd)) setCreating(false); }}>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <input name="name" required placeholder="Nom de la BU (ex. Neurologie)" className={`${inputCls} w-full sm:col-span-2`} />
             <input name="code" placeholder="Code (facultatif)" className={`${inputCls} w-full`} />
@@ -170,8 +145,7 @@ export function BusinessUnitsManager({
             </select>
             <input name="color" type="color" defaultValue="#2563eb" className="h-10 w-16 rounded-lg border border-input bg-background sm:h-9" title="Couleur" aria-label="Couleur" />
           </div>
-          {/* LES SPÉCIALITÉS VISÉES, dès la création (§118.183) — « BU ≠ spécialité » : plusieurs, dont une
-              principale facultative. Elles se règlent aussi plus tard, dans la carte de la BU. */}
+          {/* LES SPÉCIALITÉS VISÉES, dès la création (§118.183) — elles se règlent aussi plus tard, à l'étape 2. */}
           <fieldset className="space-y-1.5">
             <legend className="text-sm font-medium">Spécialités visées</legend>
             <ChoixSpecialites referentiel={specialitesReferentiel} valeur={choixCreation} onChange={setChoixCreation} disabled={busy} />
@@ -199,22 +173,14 @@ export function BusinessUnitsManager({
           bu={bu}
           open={open[bu.id] ?? false}
           onToggle={() => setOpen((o) => ({ ...o, [bu.id]: !o[bu.id] }))}
-          companies={companies}
-          supervisors={supervisors}
-          users={users}
-          dossiers={dossiers}
-          config={config}
-          busy={busy}
-          run={run}
-          kamsInside={kamsOf(bu.id)}
-          kamsFree={orphelinsKam}
-          territoiresInside={territoiresOf(bu.id)}
-          etablissements={etablissements}
-          referentsInside={referentsOf(bu.id)}
-          referentsEligibles={referentsEligibles}
+          etapeInitiale={etapeInitiale ?? null}
+          companies={companies} supervisors={supervisors} users={users} dossiers={dossiers} config={config}
+          busy={busy} run={run}
+          kamsInside={kamsOf(bu.id)} kamsFree={orphelinsKam}
+          territoiresInside={territoiresOf(bu.id)} etablissements={etablissements}
+          referentsInside={referentsOf(bu.id)} referentsEligibles={referentsEligibles}
           specialitesReferentiel={specialitesReferentiel}
-          productsInside={productsOf(bu.id)}
-          productsFree={orphelinsProd}
+          productsInside={productsOf(bu.id)} productsFree={orphelinsProd}
         />
       ))}
 
@@ -227,17 +193,9 @@ export function BusinessUnitsManager({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <p className="text-muted-foreground">
-              Ces éléments existent mais n&apos;apparaissent nulle part au pilotage : un KAM sans BU n&apos;a
-              pas de superviseur, un produit sans BU ne peut porter aucune affectation.
-            </p>
-            {orphelinsKam.length > 0 && (
-              <p><span className="font-medium">{orphelinsKam.length} KAM</span> : {orphelinsKam.map((k) => k.name).join(", ")}</p>
-            )}
-            {orphelinsProd.length > 0 && (
-              <p><span className="font-medium">{orphelinsProd.length} produit(s)</span> : {orphelinsProd.map((p) => p.name).join(", ")}</p>
-            )}
-            <p className="text-muted-foreground">Dépliez une BU ci-dessus pour les y rattacher.</p>
+            {orphelinsKam.length > 0 && <p><span className="font-medium">{orphelinsKam.length} KAM</span> : {orphelinsKam.map((k) => k.name).join(", ")}</p>}
+            {orphelinsProd.length > 0 && <p><span className="font-medium">{orphelinsProd.length} produit(s)</span> : {orphelinsProd.map((p) => p.name).join(", ")}</p>}
+            <p className="text-muted-foreground">Invisibles au pilotage tant qu&apos;ils n&apos;ont pas de BU : rattachez-les depuis une BU (étapes KAM, Spécialités &amp; produits).</p>
           </CardContent>
         </Card>
       )}
@@ -246,35 +204,30 @@ export function BusinessUnitsManager({
 }
 
 function BuCard({
-  bu, open, onToggle, companies, supervisors, users, dossiers, config, busy, run,
+  bu, open, onToggle, etapeInitiale, companies, supervisors, users, dossiers, config, busy, run,
   kamsInside, kamsFree, productsInside, productsFree, territoiresInside, etablissements,
   referentsInside, referentsEligibles, specialitesReferentiel,
 }: {
-  bu: BuRow; open: boolean; onToggle: () => void;
+  bu: BuRow; open: boolean; onToggle: () => void; etapeInitiale: Etape | null;
   companies: Opt[]; supervisors: Opt[]; users: Opt[];
   dossiers: { id: string; label: string }[];
   config: { daysPerMonth: number; visitsPerDay: number; fieldPct: number };
-  busy: boolean; run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
+  busy: boolean; run: Run;
   kamsInside: KamRow[]; kamsFree: KamRow[]; productsInside: ProductRow[]; productsFree: ProductRow[];
   territoiresInside: TerritoireRow[]; etablissements: EtabOpt[];
-  /** Les référents Direction Marketing DE CETTE GAMME, et les personnes éligibles à l'être. */
   referentsInside: ReferentRow[]; referentsEligibles: Opt[];
   specialitesReferentiel: Opt[];
 }) {
-  // LES DEUX FAITS QUE L'ÉTAPE « TERRITOIRES » RÉCLAME (voir `sfe-setup.ts`) : combien de KAM sont
-  // actifs, et LESQUELS n'ont aucun établissement — la raison les nomme.
+  const [etape, setEtape] = React.useState<Etape>(etapeInitiale ?? "identite");
+  // LES DEUX FAITS QUE L'ÉTAPE « TERRITOIRES » RÉCLAME (voir `sfe-setup.ts`) : combien de KAM sont actifs, et LESQUELS
+  // n'ont aucun établissement — la raison les nomme.
   const hospitaliere = estBuHospitaliere(bu.channel);
   const territoireDe = (repId: string) => territoiresInside.find((t) => t.repId === repId) ?? null;
   const etat = {
     supervisorId: bu.supervisorId, channel: bu.channel,
     repCount: kamsInside.length, productCount: productsInside.length,
     kamsActifs: kamsInside.filter((k) => k.isActive).length,
-    kamsSansTerritoire: kamsSansTerritoire(
-      kamsInside,
-      territoiresInside.map((t) => ({ repId: t.repId, etablissements: t.liens.length })),
-    ),
-    // LES DEUX NOMBRES DE L'ÉTAPE « RÉFÉRENTS », pour la même raison : aucun référent et un
-    // référent sans le rôle sont DEUX pannes distinctes, et toutes deux silencieuses.
+    kamsSansTerritoire: kamsSansTerritoire(kamsInside, territoiresInside.map((t) => ({ repId: t.repId, etablissements: t.liens.length }))),
     referentCount: referentsInside.length,
     referentsSansRole: referentsInside.filter((r) => !r.porteLeRole).length,
     specialtyCount: bu.specialites.length,
@@ -283,6 +236,7 @@ function BuCard({
   const manquantes = steps.filter((s) => !s.done);
   const { done, total } = buSetupProgress(etat);
   const superviseur = supervisors.find((u) => u.id === bu.supervisorId)?.name ?? null;
+  const manque = (e: Etape) => steps.some((s) => CLES_ETAPE[e].includes(s.key) && !s.done);
 
   function saveBu(patch: Partial<BuRow>) {
     const next = { ...bu, ...patch };
@@ -310,19 +264,10 @@ function BuCard({
             </span>
             {/* CE QUI MANQUE, NOMMÉ — pas un compteur muet. */}
             <span className="mt-0.5 block text-sm text-muted-foreground">
-              {superviseur ? `Supervisée par ${superviseur}` : "Sans superviseur"}
-              {" · "}{kamsInside.length} KAM{" · "}{productsInside.length} produit(s)
+              {superviseur ? `Supervisée par ${superviseur}` : "Sans superviseur"}{" · "}{kamsInside.length} KAM{" · "}{productsInside.length} produit(s)
             </span>
-            {/* CE QU'ELLE VISE, lisible carte fermée (§118.183) : la principale marquée d'une étoile. */}
-            {bu.specialites.length > 0 && (
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {bu.specialites.map((s) => `${s.name}${s.principale ? " ★" : ""}`).join(" · ")}
-              </span>
-            )}
             {manquantes.length > 0 && (
-              <span className="mt-1 block text-xs text-amber-700 dark:text-amber-500">
-                À faire : {manquantes.map((s) => s.label.toLowerCase()).join(", ")}.
-              </span>
+              <span className="mt-1 block text-xs text-amber-700 dark:text-amber-500">À faire : {manquantes.map((s) => s.label.toLowerCase()).join(", ")}.</span>
             )}
           </span>
         </button>
@@ -333,418 +278,35 @@ function BuCard({
       </CardHeader>
 
       {open && (
-        <CardContent className="space-y-5">
-          {/* ── 1. Identité ─────────────────────────────────────────────── */}
-          <section className="space-y-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Identité</h4>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <input className={`${inputCls} min-w-40 flex-1`} defaultValue={bu.name} onBlur={(e) => e.target.value !== bu.name && saveBu({ name: e.target.value })} />
-              <input className={`${inputCls} w-28`} defaultValue={bu.code ?? ""} placeholder="Code" onBlur={(e) => saveBu({ code: e.target.value || null })} />
-              <select className={inputCls} defaultValue={bu.companyId ?? ""} onChange={(e) => saveBu({ companyId: e.target.value || null })}>
-                <option value="">— Société —</option>
-                {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <select className={inputCls} defaultValue={bu.headId ?? ""} onChange={(e) => saveBu({ headId: e.target.value || null })}>
-                <option value="">— Chef de BU —</option>
-                {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-              <input type="color" className="h-10 w-12 rounded-lg border border-input bg-background sm:h-9" defaultValue={bu.color ?? "#2563eb"} onBlur={(e) => saveBu({ color: e.target.value })} title="Couleur" aria-label="Couleur" />
-              <label className={caseCls}>
-                <input type="checkbox" defaultChecked={bu.isActive} onChange={(e) => saveBu({ isActive: e.target.checked })} /> Active
-              </label>
-              {/* OUVRIR LE BUDGET DE LA GAMME — un geste explicite, pas un effet de bord de la
-                  création. Créer le sous-département à chaque nouvelle BU remplirait l'arbre de
-                  départements vides pour des gammes qu'on essaie, qu'on renomme et qu'on
-                  supprime la semaine suivante. */}
-              {bu.departmentId ? (
-                <span className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success" title="Cette gamme a son sous-département : son budget et sa masse salariale se lisent dans Budgets.">
-                  <Wallet className="h-3.5 w-3.5" /> Budget ouvert
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  title="Ouvrir le budget de cette gamme : elle devient un sous-département de la Direction commerciale, avec son enveloppe Ad&Pro et sa masse salariale."
-                  className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-2 text-xs font-medium hover:bg-secondary sm:py-1"
-                  onClick={() => {
-                    const fd = new FormData(); fd.set("id", bu.id);
-                    void run(openBusinessUnitBudget, fd);
-                  }}
-                >
-                  <Wallet className="h-3.5 w-3.5" /> Ouvrir le budget
-                </button>
-              )}
-              <button
-                type="button"
-                title="Supprimer la BU"
-                aria-label="Supprimer la BU"
-                className={`${iconBtnCls} text-destructive hover:bg-destructive/10`}
-                onClick={() => {
-                  if (!window.confirm(`Supprimer la BU « ${bu.name} » ?`)) return;
-                  const fd = new FormData(); fd.set("id", bu.id);
-                  void run(deleteBusinessUnit, fd);
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
+        <CardContent className="space-y-4">
+          <nav className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto border-b border-border px-1" aria-label={`Étapes de ${bu.name}`}>
+            {ETAPES.map((e, i) => (
+              <button key={e} type="button" onClick={() => setEtape(e)} aria-current={etape === e ? "step" : undefined}
+                className={cn("inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium",
+                  etape === e ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+                <span className="text-xs tabular-nums text-muted-foreground">{i + 1}</span> {ETAPE_LABELS[e]}
+                {manque(e) && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-label="à compléter" />}
               </button>
-            </div>
-          </section>
+            ))}
+          </nav>
 
-          {/* ── 2. Superviseur & terrain ────────────────────────────────── */}
-          <section className="space-y-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Supervision &amp; terrain</h4>
-            <div className="flex flex-wrap items-center gap-2">
-              <select className={inputCls} defaultValue={bu.supervisorId ?? ""} onChange={(e) => saveBu({ supervisorId: e.target.value || null })}>
-                <option value="">— Superviseur —</option>
-                {supervisors.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-              <select className={inputCls} defaultValue={bu.channel} onChange={(e) => saveBu({ channel: e.target.value })}>
-                {CHANNELS.map((c) => <option key={c} value={c}>Terrain : {CHANNEL_LABELS[c]}</option>)}
-              </select>
-            </div>
-            {!bu.supervisorId && (
-              <p className="text-xs text-muted-foreground">{steps.find((s) => s.key === "SUPERVISEUR")!.why}</p>
-            )}
-          </section>
-
-          {/* ── 2 bis. Les spécialités visées (§118.183) ────────────────── */}
-          <section className="space-y-2">
-            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <Stethoscope className="h-3.5 w-3.5" aria-hidden /> Spécialités visées ({bu.specialites.length})
-            </h4>
-            <SpecialitesDeLaBu
-              bu={bu} referentiel={specialitesReferentiel} busy={busy} run={run}
-              why={bu.specialites.length === 0 ? steps.find((s) => s.key === "SPECIALITES")!.why : null}
-            />
-          </section>
-
-          {/* ── 3. Les KAM ──────────────────────────────────────────────── */}
-          <section className="space-y-2">
-            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <Users className="h-3.5 w-3.5" aria-hidden /> KAM de la BU ({kamsInside.length})
-            </h4>
-            {kamsInside.length === 0 && (
-              <p className="text-xs text-muted-foreground">{steps.find((s) => s.key === "KAM")!.why}</p>
-            )}
-            {/* LE TERRITOIRE DE CHAQUE KAM (04/10/2026) : dans une BU hospitalière, il se choisit sur SA
-                ligne — la raison de l'étape nomme ceux qui n'en ont pas, jamais un reproche générique. */}
-            {kamsInside.length > 0 && !steps.find((x) => x.key === "TERRITOIRES")!.done && (
-              <p className="text-xs text-muted-foreground">{steps.find((x) => x.key === "TERRITOIRES")!.why}</p>
-            )}
-            <div className="space-y-1.5">
-              {kamsInside.map((k) => (
-                <KamLine
-                  key={k.repId} kam={k} buId={bu.id} config={config} busy={busy} run={run}
-                  hospitaliere={hospitaliere} territoire={territoireDe(k.repId)} etablissements={etablissements}
-                />
-              ))}
-            </div>
-            {kamsFree.length > 0 && (
-              <form
-                className="flex flex-wrap items-center gap-2"
-                action={(fd) => { fd.set("businessUnitId", bu.id); void run(saveRepProfile, fd); }}
-              >
-                <select name="repId" required className={inputCls} defaultValue="">
-                  <option value="" disabled>— Rattacher un KAM —</option>
-                  {kamsFree.map((k) => <option key={k.repId} value={k.repId}>{k.name}</option>)}
-                </select>
-                <button type="submit" disabled={busy} className={btnLigneCls}>
-                  <Plus className="h-4 w-4" /> Rattacher
-                </button>
-              </form>
-            )}
-          </section>
-
-          {/* ── 5. Les référents DIRECTION MARKETING ────────────────────── */}
-          <section className="space-y-2">
-            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <Users className="h-3.5 w-3.5" aria-hidden /> Référents Direction Marketing ({referentsInside.length})
-            </h4>
-            {/* La RAISON dit laquelle des deux pannes on tient — jamais un reproche générique. */}
-            {!steps.find((x) => x.key === "REFERENTS")!.done && (
-              <p className="text-xs text-muted-foreground">{steps.find((x) => x.key === "REFERENTS")!.why}</p>
-            )}
-            <div className="space-y-1.5">
-              {referentsInside.map((r) => (
-                <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
-                  <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                  {/* CE QUI MANQUE SE DIT SUR LA LIGNE : une désignation cible la notification,
-                      elle n'accorde aucun droit — le taire ferait attendre un arbitrage de
-                      quelqu'un qui ne peut pas le rendre. */}
-                  {!r.porteLeRole && (
-                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[0.6875rem] text-amber-700 dark:text-amber-400">
-                      ne porte plus le rôle — prévenu, sans pouvoir trancher
-                    </span>
-                  )}
-                  <button
-                    type="button" disabled={busy}
-                    onClick={() => { const fd = new FormData(); fd.set("id", r.id); void run(removeBuMarketingReferent, fd); }}
-                    className="rounded-lg border border-input px-2.5 py-2 text-xs hover:bg-secondary disabled:opacity-60 sm:px-2 sm:py-1"
-                  >
-                    Retirer
-                  </button>
-                </div>
-              ))}
-            </div>
-            {referentsEligibles.filter((u) => !referentsInside.some((r) => r.userId === u.id)).length > 0 ? (
-              <form
-                className="flex flex-wrap items-center gap-2"
-                action={(fd) => { fd.set("businessUnitId", bu.id); void run(addBuMarketingReferent, fd); }}
-              >
-                <select name="userId" required className={inputCls} defaultValue="">
-                  <option value="" disabled>— Désigner un référent —</option>
-                  {referentsEligibles
-                    .filter((u) => !referentsInside.some((r) => r.userId === u.id))
-                    .map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-                <button type="submit" disabled={busy} className={btnLigneCls}>
-                  <Plus className="h-4 w-4" /> Désigner
-                </button>
-              </form>
-            ) : (
-              // ON NE PROPOSE QUE DES PERSONNES QUI PORTENT LE RÔLE, et quand il n'y en a
-              // aucune on le DIT avec le geste : un menu vide est un cul-de-sac.
-              <p className="text-xs text-muted-foreground">
-                {referentsEligibles.length === 0
-                  ? "Personne ne porte le rôle Direction Marketing : attribuez-le depuis Administration › Comptes, puis revenez désigner."
-                  : "Toutes les personnes de la Direction Marketing sont déjà référentes de cette gamme."}
-              </p>
-            )}
-          </section>
-
-          {/* ── 6. Les produits, DEPUIS REGULATORY ──────────────────────── */}
-          <section className="space-y-2">
-            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <Package className="h-3.5 w-3.5" aria-hidden /> Produits de la BU ({productsInside.length})
-            </h4>
-            {productsInside.length === 0 && (
-              <p className="text-xs text-muted-foreground">{steps.find((s) => s.key === "PRODUITS")!.why}</p>
-            )}
-            <div className="space-y-1.5">
-              {productsInside.map((p) => (
-                <ProductLine key={p.id} prod={p} buChannel={bu.channel} users={users} busy={busy} run={run} />
-              ))}
-            </div>
-            <form
-              className="flex flex-wrap items-center gap-2"
-              action={(fd) => { fd.set("businessUnitId", bu.id); void run(createPromoProduct, fd); }}
-            >
-              <select name="regulatoryProductId" required className={`${inputCls} w-full flex-1 sm:w-auto sm:min-w-64`} defaultValue="">
-                <option value="" disabled>— Choisir un dossier Regulatory —</option>
-                {dossiers.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-              </select>
-              <button type="submit" disabled={busy} className={btnLigneCls}>
-                <Plus className="h-4 w-4" /> Ajouter le produit
-              </button>
-            </form>
-            {/* Les produits déjà créés ailleurs se rattachent sans repasser par Regulatory. */}
-            {productsFree.length > 0 && (
-              <form
-                className="flex flex-wrap items-center gap-2"
-                action={(fd) => { fd.set("businessUnitId", bu.id); void run(updatePromoProduct, fd); }}
-              >
-                <select name="id" required className={inputCls} defaultValue="">
-                  <option value="" disabled>— Rattacher un produit existant —</option>
-                  {productsFree.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <button type="submit" disabled={busy} className={btnLigneCls}>
-                  <Plus className="h-4 w-4" /> Rattacher
-                </button>
-              </form>
-            )}
-          </section>
+          {etape === "identite" && (
+            <EtapeIdentite bu={bu} companies={companies} supervisors={supervisors} users={users} steps={steps} saveBu={saveBu}
+              busy={busy} run={run} referentsInside={referentsInside} referentsEligibles={referentsEligibles} />
+          )}
+          {etape === "produits" && (
+            <EtapeProduits bu={bu} steps={steps} specialitesReferentiel={specialitesReferentiel} productsInside={productsInside}
+              productsFree={productsFree} users={users} dossiers={dossiers} busy={busy} run={run} />
+          )}
+          {etape === "kams" && (
+            <EtapeKams bu={bu} steps={steps} kamsInside={kamsInside} kamsFree={kamsFree} config={config} hospitaliere={hospitaliere} busy={busy} run={run} />
+          )}
+          {etape === "secteurs" && (
+            <EtapeSecteurs bu={bu} steps={steps} kamsInside={kamsInside} hospitaliere={hospitaliere} territoireDe={territoireDe}
+              etablissements={etablissements} busy={busy} run={run} />
+          )}
         </CardContent>
       )}
     </Card>
-  );
-}
-
-/**
- * Une ligne de KAM : son territoire (BU hospitalière) ou son secteur en texte (BU de ville), sa
- * capacité, son ETP, et le bouton qui le sort de la BU.
- */
-function KamLine({ kam, buId, config, busy, run, hospitaliere, territoire, etablissements }: {
-  kam: KamRow; buId: string;
-  config: { daysPerMonth: number; visitsPerDay: number; fieldPct: number };
-  busy: boolean; run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
-  /** BU hospitalière : le territoire se choisit dans l'annuaire, le texte « Secteur » disparaît. */
-  hospitaliere: boolean;
-  territoire: TerritoireRow | null;
-  etablissements: EtabOpt[];
-}) {
-  function save(patch: Partial<KamRow>, refresh = false) {
-    const next = { ...kam, ...patch };
-    const fd = new FormData();
-    fd.set("repId", next.repId);
-    fd.set("businessUnitId", next.businessUnitId ?? "");
-    // CE QUE LA LIGNE NE MONTRE PAS NE S'ÉCRIT PAS (§118.152c) : dans une BU hospitalière le texte
-    // « Secteur » n'est pas affiché, il ne repart donc pas.
-    if (!hospitaliere) fd.set("region", next.region ?? "");
-    fd.set("capDaysPerMonth", next.capDaysPerMonth == null ? "" : String(next.capDaysPerMonth));
-    fd.set("capVisitsPerDay", next.capVisitsPerDay == null ? "" : String(next.capVisitsPerDay));
-    fd.set("capFieldPct", next.capFieldPct == null ? "" : String(next.capFieldPct));
-    fd.set("fteBudget", String(next.fteBudget));
-    fd.set("seniority", next.seniority ?? "");
-    fd.set("isActive", next.isActive ? "on" : "off");
-    void run(saveRepProfile, fd, refresh);
-  }
-  const num = (v: string) => (v.trim() === "" ? null : Number(v));
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border p-1.5 text-sm">
-      <UserCog className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-      <span className="min-w-28 flex-1 font-medium [overflow-wrap:anywhere]">{kam.name}</span>
-      {!hospitaliere && (
-        <input className={`${inputCls} w-32`} defaultValue={kam.region ?? ""} placeholder="Secteur" aria-label={`Secteur de ${kam.name}`} onBlur={(e) => save({ region: e.target.value || null })} />
-      )}
-      {/* La capacité vide = la valeur globale du paramétrage : le placeholder le DIT. */}
-      <input className={`${inputCls} w-20`} type="number" inputMode="numeric" defaultValue={kam.capDaysPerMonth ?? ""} placeholder={`${config.daysPerMonth} j`} title="Jours terrain / mois" aria-label="Jours terrain / mois" onBlur={(e) => save({ capDaysPerMonth: num(e.target.value) })} />
-      <input className={`${inputCls} w-20`} type="number" inputMode="decimal" defaultValue={kam.capVisitsPerDay ?? ""} placeholder={`${config.visitsPerDay} v/j`} title="Visites / jour" aria-label="Visites / jour" onBlur={(e) => save({ capVisitsPerDay: num(e.target.value) })} />
-      <input className={`${inputCls} w-20`} type="number" inputMode="decimal" defaultValue={kam.capFieldPct ?? ""} placeholder={`${config.fieldPct} %`} title="% de temps terrain" aria-label="% de temps terrain" onBlur={(e) => save({ capFieldPct: num(e.target.value) })} />
-      <input className={`${inputCls} w-20`} type="number" inputMode="decimal" step="0.1" defaultValue={kam.fteBudget} title="ETP contractuel" aria-label="ETP contractuel" onBlur={(e) => save({ fteBudget: Number(e.target.value) || 1 })} />
-      <label className={caseCls}>
-        <input type="checkbox" defaultChecked={kam.isActive} onChange={(e) => save({ isActive: e.target.checked }, true)} /> Actif
-      </label>
-      <button
-        type="button"
-        title="Retirer de la BU"
-        aria-label="Retirer de la BU"
-        disabled={busy}
-        className={`${iconBtnCls} text-muted-foreground hover:bg-secondary hover:text-destructive`}
-        onClick={() => { if (kam.businessUnitId === buId) save({ businessUnitId: null }, true); }}
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
-      {hospitaliere && (
-        <TerritoireKam buId={buId} kam={kam} territoire={territoire} etablissements={etablissements} busy={busy} run={run} />
-      )}
-    </div>
-  );
-}
-
-/** Une ligne de produit : son dossier d'origine, son canal, son Direction Marketing. */
-function ProductLine({ prod, buChannel, users, busy, run }: {
-  prod: ProductRow; buChannel: string; users: Opt[];
-  busy: boolean; run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
-}) {
-  function save(patch: Partial<ProductRow>, refresh = false) {
-    const next = { ...prod, ...patch };
-    const fd = new FormData();
-    fd.set("id", next.id); fd.set("name", next.name); fd.set("code", next.code ?? "");
-    fd.set("channel", next.channel); fd.set("businessUnitId", next.businessUnitId ?? "");
-    fd.set("managerId", next.managerId ?? "");
-    // « on » OU « off » : n'envoyer que « on » laissait un produit décoché actif (§118.172).
-    fd.set("isActive", next.isActive ? "on" : "off");
-    void run(updatePromoProduct, fd, refresh);
-  }
-  // L'INCOHÉRENCE SE DIT, elle ne se corrige pas toute seule : c'est peut-être l'exception voulue.
-  const horsTerrain = !channelCovers(buChannel, prod.channel);
-
-  return (
-    <div className="space-y-1 rounded-lg border border-border p-1.5">
-      <div className="flex flex-wrap items-center gap-1.5 text-sm">
-        <Package className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-        <input className={`${inputCls} min-w-32 flex-1`} defaultValue={prod.name} onBlur={(e) => e.target.value !== prod.name && save({ name: e.target.value })} />
-        <select className={inputCls} defaultValue={prod.channel} onChange={(e) => save({ channel: e.target.value }, true)}>
-          {CHANNELS.map((c) => <option key={c} value={c}>{CHANNEL_LABELS[c as Channel]}</option>)}
-        </select>
-        <select className={inputCls} defaultValue={prod.managerId ?? ""} onChange={(e) => save({ managerId: e.target.value || null })}>
-          <option value="">— Référent Direction Marketing —</option>
-          {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-        </select>
-        <label className={caseCls}>
-          <input type="checkbox" defaultChecked={prod.isActive} onChange={(e) => save({ isActive: e.target.checked }, true)} /> Actif
-        </label>
-        <button
-          type="button"
-          title="Supprimer le produit"
-          aria-label="Supprimer le produit"
-          disabled={busy}
-          className={`${iconBtnCls} text-destructive hover:bg-destructive/10`}
-          onClick={() => {
-            if (!window.confirm(`Supprimer « ${prod.name} » du catalogue promotionnel ?`)) return;
-            const fd = new FormData(); fd.set("id", prod.id);
-            void run(deletePromoProduct, fd, true);
-          }}
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
-      <p className="pl-6 text-xs text-muted-foreground [overflow-wrap:anywhere]">
-        {prod.dossier ? `Dossier : ${prod.dossier}` : "Aucun dossier Regulatory rattaché."}
-        {horsTerrain && (
-          <span className="ml-2 text-amber-700 dark:text-amber-500">
-            Ce produit ({channelLabel(prod.channel)}) sort du terrain de la BU ({channelLabel(buChannel)}).
-          </span>
-        )}
-      </p>
-    </div>
-  );
-}
-
-/** LES SPÉCIALITÉS D'UNE BU — ce qu'elle vise, et le geste qui le change (§118.183). */
-function SpecialitesDeLaBu({ bu, referentiel, busy, run, why }: {
-  bu: BuRow;
-  referentiel: Opt[];
-  busy: boolean;
-  run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
-  /** La raison de l'étape quand elle manque — celle de `buSetupSteps`, jamais réécrite ici. */
-  why: string | null;
-}) {
-  const [edite, setEdite] = React.useState(false);
-  const initial = React.useMemo<ChoixSpecialitesValeur>(
-    () => ({ ids: bu.specialites.map((s) => s.id), principaleId: bu.specialites.find((s) => s.principale)?.id ?? null }),
-    [bu.specialites],
-  );
-  const [valeur, setValeur] = React.useState<ChoixSpecialitesValeur>(initial);
-  // L'ÉDITEUR S'OUVRE SUR L'ÉTAT DU JOUR : rouvert après un enregistrement, il ne doit pas remontrer
-  // la sélection d'avant (§118.172) — les gestes attendent déjà le rafraîchissement (`busy`).
-  React.useEffect(() => { if (!edite) setValeur(initial); }, [initial, edite]);
-
-  async function enregistrer() {
-    const fd = new FormData();
-    fd.set("businessUnitId", bu.id);
-    for (const id of valeur.ids) fd.append("specialtyIds", id);
-    if (valeur.principaleId) fd.set("principaleId", valeur.principaleId);
-    if (await run(enregistrerSpecialitesBu, fd)) setEdite(false);
-  }
-
-  const principale = bu.specialites.find((s) => s.principale) ?? null;
-  const associees = bu.specialites.filter((s) => !s.principale);
-  return (
-    <div className="space-y-2">
-      {bu.specialites.length > 0 ? (
-        <ul className="flex flex-wrap gap-1.5" aria-label="Spécialités de la BU">
-          {principale && (
-            <li className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-300">
-              <Star className="h-3 w-3 fill-current" aria-hidden /> {principale.name}
-              <span className="sr-only">(principale)</span>
-            </li>
-          )}
-          {associees.map((s) => (
-            <li key={s.id} className="rounded-full bg-secondary px-2.5 py-0.5 text-xs">{s.name}</li>
-          ))}
-        </ul>
-      ) : (
-        why && <p className="text-xs text-muted-foreground">{why}</p>
-      )}
-      {edite ? (
-        <div className="space-y-2 rounded-lg border border-border p-2.5">
-          <ChoixSpecialites referentiel={referentiel} valeur={valeur} onChange={setValeur} disabled={busy} />
-          <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" onClick={() => setEdite(false)} disabled={busy} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary sm:py-1.5">Annuler</button>
-            <button type="button" onClick={enregistrer} disabled={busy} className={btnCls}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer les spécialités
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button" onClick={() => setEdite(true)} disabled={busy}
-          className={btnLigneCls}
-        >
-          <Stethoscope className="h-4 w-4" aria-hidden /> {bu.specialites.length > 0 ? "Modifier les spécialités" : "Choisir les spécialités"}
-        </button>
-      )}
-    </div>
   );
 }

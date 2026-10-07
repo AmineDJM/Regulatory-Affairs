@@ -4,16 +4,17 @@ import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getSfeConfig } from "@/lib/sfe";
-import { PageHeader } from "@/components/shared/page-header";
-import { PlanningTabs } from "../tabs";
+import { EnteteReglages } from "../reglages";
 import { ROLES_QUI_TRANCHENT, porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
-import { BusinessUnitsManager } from "./bu-manager";
+import { BusinessUnitsManager, ETAPES, type Etape } from "./bu-manager";
 import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
 
 export const dynamic = "force-dynamic";
 
 /**
- * LE MONTAGE DE LA FORCE DE VENTE — un seul écran, lu de haut en bas.
+ * LE MONTAGE DE LA FORCE DE VENTE — « ⋯ › Réglages › Business units » : une carte par BU, quatre étapes (la BU et son
+ * superviseur, spécialités et produits, KAM, secteurs). `?etape=secteurs` ouvre toutes les BU sur leurs secteurs ;
+ * `?bu=` en déplie une.
  *
  * Avant, il fallait quatre allers-retours entre « Catalogue » (la BU, ses produits) et
  * « Équipes & KAM » (une ÉQUIPE, son superviseur, ses membres) — deux objets pour une seule
@@ -24,10 +25,11 @@ export const dynamic = "force-dynamic";
  * référentiel qui divergeait du premier au premier changement de nom, et interdisait de remonter
  * du terrain au dossier.
  */
-export default async function BusinessUnitsPage() {
+export default async function BusinessUnitsPage({ searchParams }: { searchParams?: { etape?: string; bu?: string } }) {
   const user = await requireModule("SALES_PLANNING");
   const canConfigure = userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user);
-  if (!canConfigure) redirect("/planning/pilotage");
+  if (!canConfigure) redirect("/planning");
+  const etape = (ETAPES as readonly string[]).includes(searchParams?.etape ?? "") ? (searchParams!.etape as Etape) : null;
 
   const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config, secteurs, etablissements, referents, marketing, specialites] = await Promise.all([
     prisma.businessUnit.findMany({
@@ -119,12 +121,10 @@ export default async function BusinessUnitsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Prévisions & Force de vente"
-        description="Une Business Unit, son superviseur, son terrain, ses KAM et ses produits — tout se monte ici, dans cet ordre."
-      />
-      <PlanningTabs active="business-units" canConfigure isSupervisor />
+      <EnteteReglages actif={etape === "secteurs" ? "secteurs" : "business-units"} />
       <BusinessUnitsManager
+        etapeInitiale={etape}
+        buInitiale={searchParams?.bu ?? null}
         businessUnits={bus.map(({ specialites: liens, ...b }) => ({
           ...b, channel: String(b.channel),
           // La principale d'abord, puis l'ordre alphabétique : c'est l'ordre de la carte et de son en-tête.

@@ -1,298 +1,550 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { entityHref } from "@/lib/entity-href";
+import { CATEGORY_LABELS, CATEGORY_PATH, isWorkflowCategory } from "@/lib/workflow/types";
 import {
-  REGULATORY_STATUS, CONGRESS_REQUEST_STATUS, ADMIN_REQUEST_STATUS,
-  SPONSORING_STATUS, TASK_STATUS, VALIDATION_STATUS,
+  ADMIN_REQUEST_STATUS, LOGISTICS_STATUS, MEDICAL_INFO_STATUS, MODULE_LABELS, PROMO_MATERIAL_STATUS,
 } from "@/lib/labels";
+import {
+  analyzeCircuit, median, responseTimesByActor, segmentsOf, DAY_MS,
+  type CircuitStats, type EventKind, type MiningCase, type MiningEvent,
+} from "@/lib/process/mining";
 
 /**
- * Process Intelligence — analyse des lenteurs et de la charge, à partir des
- * données déjà présentes : statut + updatedAt de chaque workflow (« sans action
- * depuis X jours ») et AuditLog (actions réalisées). Aucune instrumentation
- * supplémentaire requise ; la couverture s'affine à mesure que les modules
- * journalisent. Réservé au Super Admin (gardé par requireModule).
+ * PROCESS INTELLIGENCE — les LECTURES (refonte 07/10). Le calcul est dans `lib/process/mining.ts` (pur, testé) ;
+ * ici, on lit les journaux qui existent déjà et on les met à la forme d'un dossier (`MiningCase`) :
+ *
+ *   • les circuits Ad & Pro (moteur de workflow) — `WorkflowStepEvent` ;
+ *   • les validations — `ValidationStep` (demandé → décidé), niveau par niveau ;
+ *   • les demandes de paiement — `PaymentRequestEvent` ;
+ *   • les demandes d'achat — `PurchaseRequestLogEntry` ;
+ *   • le recrutement — `RecruitmentApproval` (la chaîne de validation) ;
+ *   • à défaut de journal propre (matériel promotionnel, information médicale, secrétariat, logistique) : les
+ *     changements de statut de l'`AuditLog` (ancien → nouveau).
+ *
+ * Réservé au Super Admin (les pages sont gardées par `requireModule("PROCESS_INTELLIGENCE")`).
  */
 
-const STUCK_DAYS = 14;
-const DAY = 86_400_000;
-
-function daysSince(d: Date): number {
-  return Math.floor((Date.now() - d.getTime()) / DAY);
+export type Periode = "30j" | "90j" | "12m";
+export const PERIODES: { cle: Periode; label: string; jours: number }[] = [
+  { cle: "30j", label: "30 jours", jours: 30 },
+  { cle: "90j", label: "90 jours", jours: 90 },
+  { cle: "12m", label: "12 mois", jours: 365 },
+];
+export function periodeDe(p: string | null | undefined): { cle: Periode; label: string; jours: number } {
+  return PERIODES.find((x) => x.cle === p) ?? PERIODES[1];
 }
 
-export interface WorkItem {
-  key: string;
-  moduleKey: string;
-  moduleName: string;
-  label: string;
-  reference: string | null;
-  statusLabel: string;
-  ownerId: string | null;
-  ownerName: string | null;
-  ageDays: number;
-  lastActivity: string;
-  link: string;
-  overdue: boolean;
-}
+/** Bloqué par défaut au-delà de ce nombre de jours à une étape sans délai fixé. */
+export const STUCK_DAYS_DEFAULT = 14;
 
-export interface ModuleStat { moduleKey: string; moduleName: string; count: number; avgAge: number; stuck: number; overdue: number }
-export interface StageStat { label: string; count: number; avgAge: number }
-export interface PendingValidation { id: string; reference: string; title: string; validatorName: string | null; ageDays: number; link: string }
-export interface PiAlert { level: "danger" | "warning" | "info"; title: string; detail: string; link: string }
+// ───────────────────────────── Les dossiers, par source ─────────────────────────────
 
-export interface ProcessOverview {
-  stats: { inProgress: number; stuck: number; overdue: number; validationsPending: number };
-  topBlockers: WorkItem[];
-  byModule: ModuleStat[];
-  bottleneckStages: StageStat[];
-  staleItems: WorkItem[];
-  pendingValidations: PendingValidation[];
-  alerts: PiAlert[];
-  generatedAt: string;
-}
+interface Source { label: string; cases: MiningCase[] }
 
-async function userMap(): Promise<Map<string, string>> {
-  const users = await prisma.user.findMany({ select: { id: true, name: true } });
-  return new Map(users.map((u) => [u.id, u.name]));
-}
+const WF_KIND: Record<string, EventKind> = {
+  CREATE: "start",
+  APPROVE: "advance", AUTO_SKIP: "advance", SKIP: "advance", AUTO_APPROVE_REQUESTER: "advance", OPINION_AGAINST: "advance",
+  RETURN: "return", RESUBMIT: "resubmit", REJECT: "reject", CANCEL: "end",
+};
 
-const label = (map: Record<string, { label: string }>, k: string) => map[k]?.label ?? k;
-
-async function collectWorkItems(users: Map<string, string>): Promise<WorkItem[]> {
-  const now = Date.now();
-  const owner = (...ids: (string | null | undefined)[]) => {
-    const id = ids.find(Boolean) ?? null;
-    return { ownerId: id, ownerName: id ? users.get(id) ?? null : null };
-  };
-
-  const [regs, ci, cn, admin, spons, vals, tasks] = await Promise.all([
-    prisma.regulatoryProduct.findMany({
-      where: { status: { notIn: ["DECISION_OBTAINED", "CLOSED"] } },
-      select: { id: true, reference: true, brandName: true, dci: true, status: true, updatedAt: true, targetDate: true, responsibleId: true, assistantId: true },
-    }),
-    prisma.congressInternational.findMany({
-      where: { requestStatus: { notIn: ["APPROVED", "REJECTED", "CANCELLED", "COMPLETED"] } },
-      select: { id: true, name: true, requestStatus: true, updatedAt: true, productManagerId: true, requesterId: true },
-    }),
-    prisma.congressNational.findMany({
-      where: { requestStatus: { notIn: ["APPROVED", "REJECTED", "CANCELLED", "COMPLETED"] } },
-      select: { id: true, name: true, requestStatus: true, updatedAt: true, productManagerId: true, requesterId: true },
-    }),
-    prisma.administrativeRequest.findMany({
-      // deletedAt: null → exclut les demandes supprimées (suppression douce traçable : la ligne
-      // reste en base mais ne doit PLUS apparaître dans Process Intelligence).
-      where: { status: { notIn: ["DONE", "CANCELLED"] }, deletedAt: null },
-      select: { id: true, reference: true, title: true, status: true, updatedAt: true, deadline: true, assignedToId: true, requesterId: true },
-    }),
-    prisma.sponsoringRequest.findMany({
-      // Exclut TOUS les états terminaux : refusée, réglée, clôturée, ANNULÉE et APPROUVÉE
-      // (accordée / décision définitive rendue) — sinon une demande « terminée » resterait
-      // comptée comme en cours.
-      where: { status: { notIn: ["REFUSED", "PAID", "CLOSED", "CANCELLED", "APPROVED"] } },
-      select: { id: true, reference: true, institution: true, status: true, updatedAt: true, requesterId: true },
-    }),
-    prisma.validationRequest.findMany({
-      where: { status: { in: ["PENDING", "CHANGES_REQUESTED"] } },
-      select: { id: true, reference: true, title: true, status: true, updatedAt: true, deadline: true, requesterId: true, link: true },
-    }),
-    prisma.task.findMany({
-      where: { status: { in: ["TODO", "IN_PROGRESS"] } },
-      select: { id: true, title: true, status: true, updatedAt: true, dueDate: true, assignedToId: true },
-    }),
+async function workflowCases(since: Date): Promise<Map<string, Source>> {
+  const instances = await prisma.workflowInstance.findMany({
+    where: { OR: [{ status: { in: ["IN_PROGRESS", "RETURNED"] } }, { updatedAt: { gte: since } }] },
+    select: {
+      id: true, entityType: true, entityId: true, category: true, status: true, currentSlug: true, createdAt: true, updatedAt: true,
+      definition: { select: { name: true, steps: { select: { slug: true, title: true } } } },
+      events: { orderBy: { createdAt: "asc" }, select: { stepSlug: true, stepTitle: true, action: true, actorName: true, note: true, createdAt: true } },
+    },
+  });
+  const ids = (t: string) => instances.filter((i) => i.entityType === t).map((i) => i.entityId);
+  const [spo, ci, cn, evts] = await Promise.all([
+    prisma.sponsoringRequest.findMany({ where: { id: { in: ids("SPONSORING") } }, select: { id: true, reference: true, institution: true } }),
+    prisma.congressInternational.findMany({ where: { id: { in: ids("CONGRESS_INTERNATIONAL") } }, select: { id: true, name: true } }),
+    prisma.congressNational.findMany({ where: { id: { in: ids("CONGRESS_NATIONAL") } }, select: { id: true, name: true } }),
+    prisma.event.findMany({ where: { id: { in: ids("EVENT") } }, select: { id: true, name: true } }),
+  ]);
+  const noms = new Map<string, string>([
+    ...spo.map((s) => [s.id, `${s.reference} — ${s.institution}`] as [string, string]),
+    ...ci.map((c) => [c.id, c.name] as [string, string]),
+    ...cn.map((c) => [c.id, c.name] as [string, string]),
+    ...evts.map((e) => [e.id, e.name] as [string, string]),
   ]);
 
-  const items: WorkItem[] = [];
-  for (const r of regs) {
-    const o = owner(r.responsibleId, r.assistantId);
-    items.push({ key: `REG:${r.id}`, moduleKey: "REGULATORY", moduleName: "Regulatory", label: r.brandName || r.dci, reference: r.reference, statusLabel: label(REGULATORY_STATUS, r.status), ...o, ageDays: daysSince(r.updatedAt), lastActivity: r.updatedAt.toISOString(), link: `/regulatory/${r.id}`, overdue: Boolean(r.targetDate && r.targetDate.getTime() < now) });
+  const out = new Map<string, Source>();
+  for (const i of instances) {
+    const key = `WF:${i.category}`;
+    const label = isWorkflowCategory(i.category) ? CATEGORY_LABELS[i.category] : i.definition.name;
+    const titres = new Map(i.definition.steps.map((s) => [s.slug, s.title]));
+    const termine = ["APPROVED", "REJECTED", "CANCELLED"].includes(i.status);
+    const events: MiningEvent[] = i.events.map((e) => ({
+      at: e.createdAt, step: e.stepSlug, stepLabel: e.stepTitle || titres.get(e.stepSlug) || e.stepSlug,
+      kind: WF_KIND[e.action] ?? "other", actor: e.actorName, note: e.note,
+    }));
+    // La décision qui clôt est la dernière avancée d'un circuit terminé.
+    const fin = termine ? (i.events[i.events.length - 1]?.createdAt ?? i.updatedAt) : null;
+    const href = isWorkflowCategory(i.category) ? `${CATEGORY_PATH[i.category]}/${i.entityId}` : entityHref(i.entityType, i.entityId);
+    const src = out.get(key) ?? { label, cases: [] };
+    src.cases.push({
+      id: i.id, circuit: key, label: noms.get(i.entityId) ?? label, href,
+      startedAt: i.createdAt, endedAt: fin,
+      currentStep: termine ? null : i.currentSlug, currentStepLabel: i.currentSlug ? titres.get(i.currentSlug) ?? i.currentSlug : null,
+      events,
+    });
+    out.set(key, src);
   }
-  for (const c of ci) {
-    const o = owner(c.productManagerId, c.requesterId);
-    items.push({ key: `CI:${c.id}`, moduleKey: "CONGRESS_INTERNATIONAL", moduleName: "Congrès int.", label: c.name, reference: null, statusLabel: label(CONGRESS_REQUEST_STATUS, c.requestStatus), ...o, ageDays: daysSince(c.updatedAt), lastActivity: c.updatedAt.toISOString(), link: `/congress-international/${c.id}`, overdue: false });
-  }
-  for (const c of cn) {
-    const o = owner(c.productManagerId, c.requesterId);
-    items.push({ key: `CN:${c.id}`, moduleKey: "CONGRESS_NATIONAL", moduleName: "Congrès nat.", label: c.name, reference: null, statusLabel: label(CONGRESS_REQUEST_STATUS, c.requestStatus), ...o, ageDays: daysSince(c.updatedAt), lastActivity: c.updatedAt.toISOString(), link: `/congress-national/${c.id}`, overdue: false });
-  }
-  for (const a of admin) {
-    const o = owner(a.assignedToId, a.requesterId);
-    items.push({ key: `ADM:${a.id}`, moduleKey: "ADMIN_REQUESTS", moduleName: "Demandes admin.", label: a.title, reference: a.reference, statusLabel: label(ADMIN_REQUEST_STATUS, a.status), ...o, ageDays: daysSince(a.updatedAt), lastActivity: a.updatedAt.toISOString(), link: `/demandes/${a.id}`, overdue: Boolean(a.deadline && a.deadline.getTime() < now) });
-  }
-  for (const s of spons) {
-    const o = owner(s.requesterId);
-    items.push({ key: `SPO:${s.id}`, moduleKey: "SPONSORING", moduleName: "Sponsoring", label: s.institution, reference: s.reference, statusLabel: label(SPONSORING_STATUS, s.status), ...o, ageDays: daysSince(s.updatedAt), lastActivity: s.updatedAt.toISOString(), link: `/sponsoring/${s.id}`, overdue: false });
-  }
-  for (const v of vals) {
-    const o = owner(v.requesterId);
-    items.push({ key: `VAL:${v.id}`, moduleKey: "VALIDATIONS", moduleName: "Validations", label: v.title, reference: v.reference, statusLabel: label(VALIDATION_STATUS, v.status), ...o, ageDays: daysSince(v.updatedAt), lastActivity: v.updatedAt.toISOString(), link: v.link || "/validations", overdue: Boolean(v.deadline && v.deadline.getTime() < now) });
-  }
-  for (const t of tasks) {
-    const o = owner(t.assignedToId);
-    items.push({ key: `TSK:${t.id}`, moduleKey: "WORKSPACE", moduleName: "Tâches", label: t.title, reference: null, statusLabel: label(TASK_STATUS, t.status), ...o, ageDays: daysSince(t.updatedAt), lastActivity: t.updatedAt.toISOString(), link: "/mon-travail", overdue: Boolean(t.dueDate && t.dueDate.getTime() < now) });
-  }
-  return items;
+  return out;
 }
 
-export async function getProcessOverview(): Promise<ProcessOverview> {
-  const users = await userMap();
-  const [items, pendingSteps] = await Promise.all([
-    collectWorkItems(users),
-    prisma.validationStep.findMany({
-      where: { status: "PENDING" },
-      orderBy: { createdAt: "asc" },
-      take: 30,
-      select: { id: true, createdAt: true, validatorId: true, request: { select: { reference: true, title: true, link: true } } },
-    }),
+async function validationCases(since: Date): Promise<Map<string, Source>> {
+  const reqs = await prisma.validationRequest.findMany({
+    where: { OR: [{ status: { in: ["PENDING", "CHANGES_REQUESTED"] } }, { updatedAt: { gte: since } }] },
+    select: {
+      id: true, reference: true, title: true, module: true, status: true, link: true, mode: true, createdAt: true, decidedAt: true, updatedAt: true,
+      steps: { orderBy: { order: "asc" }, select: { order: true, status: true, decidedAt: true, reason: true, validator: { select: { name: true } } } },
+    },
+  });
+  const out = new Map<string, Source>();
+  for (const r of reqs) {
+    const key = `VAL:${r.module}`;
+    const termine = ["APPROVED", "REJECTED", "CANCELLED"].includes(r.status);
+    const events: MiningEvent[] = [];
+    if (r.mode === "SEQUENTIAL") {
+      for (const s of r.steps) {
+        if (!s.decidedAt) continue;
+        const kind: EventKind = s.status === "APPROVED" ? "advance" : s.status === "REJECTED" ? "reject" : s.status === "CHANGES_REQUESTED" ? "return" : "other";
+        events.push({ at: s.decidedAt, step: `n${s.order}`, stepLabel: `Niveau ${s.order}`, kind, actor: s.validator?.name ?? null, note: s.reason });
+      }
+    } else {
+      // En parallèle, chacun décide sur la même attente : on ne garde que la dernière décision.
+      const decides = r.steps.filter((s) => s.decidedAt).sort((a, b) => a.decidedAt!.getTime() - b.decidedAt!.getTime());
+      const last = decides[decides.length - 1];
+      if (last) events.push({ at: last.decidedAt!, step: "parallele", stepLabel: "Validateurs (en parallèle)", kind: termine ? "advance" : "other", actor: last.validator?.name ?? null, note: last.reason });
+    }
+    const courant = r.steps.find((s) => s.status === "PENDING");
+    const src = out.get(key) ?? { label: `Validation · ${r.module}`, cases: [] };
+    src.cases.push({
+      id: r.id, circuit: key, label: `${r.reference} — ${r.title}`, href: r.link || `/validations/${r.id}`,
+      startedAt: r.createdAt, endedAt: termine ? r.decidedAt ?? r.updatedAt : null,
+      currentStep: r.mode === "SEQUENTIAL" ? (courant ? `n${courant.order}` : null) : "parallele",
+      currentStepLabel: r.mode === "SEQUENTIAL" ? (courant ? `Niveau ${courant.order}` : null) : "Validateurs (en parallèle)",
+      events,
+    });
+    out.set(key, src);
+  }
+  return out;
+}
+
+async function paymentCases(since: Date): Promise<Source> {
+  const reqs = await prisma.paymentRequest.findMany({
+    where: { OR: [{ status: { in: ["SUBMITTED", "UNDER_REVIEW", "ON_HOLD", "CHANGES_REQUESTED"] } }, { updatedAt: { gte: since } }] },
+    select: { id: true, reference: true, title: true, status: true, createdAt: true, events: { orderBy: { at: "asc" }, select: { kind: true, message: true, at: true, actorId: true } } },
+  });
+  const acteurs = await nomsDe(reqs.flatMap((r) => r.events.map((e) => e.actorId)));
+  const cases: MiningCase[] = [];
+  for (const r of reqs) {
+    if (r.status === "DRAFT") continue;
+    const events: MiningEvent[] = [];
+    let soumis = false;
+    let renvoye = false;
+    let suspendu = false;
+    for (const e of r.events) {
+      const actor = e.actorId ? acteurs.get(e.actorId) ?? null : null;
+      const base = { at: e.at, actor, note: e.message };
+      switch (e.kind) {
+        case "SUBMIT":
+          events.push({ ...base, step: "examen", stepLabel: "Examen aux Finances", kind: soumis && renvoye ? "resubmit" : "start" });
+          soumis = true; renvoye = false;
+          break;
+        case "HOLD": events.push({ ...base, step: "examen", stepLabel: "Examen aux Finances", kind: "advance" }); suspendu = true; break;
+        case "RESUME": events.push({ ...base, step: "attente", stepLabel: "Mise en attente", kind: "advance" }); suspendu = false; break;
+        case "CHANGES": events.push({ ...base, step: "examen", stepLabel: "Examen aux Finances", kind: "return" }); renvoye = true; break;
+        case "APPROVE": events.push({ ...base, step: "examen", stepLabel: "Examen aux Finances", kind: "end" }); break;
+        case "REJECT": events.push({ ...base, step: "examen", stepLabel: "Examen aux Finances", kind: "reject" }); break;
+        default: events.push({ ...base, step: "examen", kind: "other" });
+      }
+    }
+    const fin = ["APPROVED", "REJECTED", "CANCELLED"].includes(r.status)
+      ? [...r.events].reverse().find((e) => ["APPROVE", "REJECT"].includes(e.kind))?.at ?? null
+      : null;
+    if (["APPROVED", "REJECTED", "CANCELLED"].includes(r.status) && !fin) continue; // clos sans trace de décision : illisible
+    cases.push({
+      id: r.id, circuit: "PAY", label: `${r.reference} — ${r.title}`, href: `/validations/paiements/${r.id}`,
+      startedAt: r.events.find((e) => e.kind === "SUBMIT")?.at ?? r.createdAt, endedAt: fin,
+      currentStep: suspendu ? "attente" : "examen", currentStepLabel: suspendu ? "Mise en attente" : "Examen aux Finances",
+      events,
+    });
+  }
+  return { label: "Demande de paiement", cases };
+}
+
+async function purchaseCases(since: Date): Promise<Source> {
+  const lignes = await prisma.purchaseRequestLogEntry.findMany({
+    where: { createdAt: { gte: new Date(since.getTime() - 365 * DAY_MS) } },
+    orderBy: { createdAt: "asc" },
+    select: { requestId: true, reference: true, title: true, event: true, actorName: true, note: true, createdAt: true },
+  });
+  const parDemande = new Map<string, typeof lignes>();
+  for (const l of lignes) parDemande.set(l.requestId, [...(parDemande.get(l.requestId) ?? []), l]);
+  const cases: MiningCase[] = [];
+  for (const [id, ls] of parDemande) {
+    const depot = ls.find((l) => l.event === "SUBMITTED");
+    if (!depot) continue;
+    const derniere = ls[ls.length - 1];
+    const fin = ["APPROVED", "REJECTED", "WITHDRAWN"].includes(derniere.event) ? derniere.createdAt : null;
+    const events: MiningEvent[] = ls.map((l) => ({
+      at: l.createdAt, step: "validation", stepLabel: "Validation de l'achat", actor: l.actorName, note: l.note,
+      kind: l.event === "SUBMITTED" ? "start" : l.event === "APPROVED" ? "end" : l.event === "REJECTED" ? "reject" : l.event === "WITHDRAWN" ? "end" : "other",
+    }));
+    cases.push({
+      id, circuit: "ACHAT", label: `${depot.reference} — ${depot.title}`, href: `/demandes/${id}`,
+      startedAt: depot.createdAt, endedAt: fin, currentStep: "validation", currentStepLabel: "Validation de l'achat", events,
+    });
+  }
+  return { label: "Demande d'achat", cases };
+}
+
+async function recruitmentCases(since: Date): Promise<Source> {
+  const reqs = await prisma.recruitmentRequest.findMany({
+    where: { OR: [{ stage: { in: ["CHAIN", "HR_REVIEW", "INFO_REQUESTED", "RETURNED"] } }, { updatedAt: { gte: since } }] },
+    select: {
+      id: true, reference: true, position: true, stage: true, createdAt: true, closedAt: true, returnedAt: true, returnNote: true,
+      approvals: { orderBy: { order: "asc" }, select: { order: true, status: true, decidedAt: true, reason: true, approver: { select: { name: true } } } },
+    },
+  });
+  const cases: MiningCase[] = [];
+  for (const r of reqs) {
+    const events: MiningEvent[] = [];
+    for (const a of r.approvals) {
+      if (!a.decidedAt) continue;
+      events.push({
+        at: a.decidedAt, step: `n${a.order}`, stepLabel: `Validation niveau ${a.order}`,
+        kind: a.status === "APPROVED" ? "advance" : a.status === "REJECTED" ? "reject" : "other",
+        actor: a.approver?.name ?? null, note: a.reason,
+      });
+    }
+    if (r.returnedAt) events.push({ at: r.returnedAt, step: "rh", stepLabel: "Revue RH", kind: "return", note: r.returnNote });
+    const enChaine = ["CHAIN", "HR_REVIEW", "INFO_REQUESTED", "RETURNED"].includes(r.stage);
+    const derniere = [...r.approvals].reverse().find((a) => a.decidedAt)?.decidedAt ?? null;
+    // Le circuit de VALIDATION finit quand la demande part au sourcing (ou se clôt) : la suite est un autre travail.
+    const fin = enChaine ? null : ["REJECTED", "CANCELLED", "CLOSED"].includes(r.stage) ? r.closedAt ?? derniere : derniere;
+    if (!enChaine && !fin) continue;
+    const courant = r.approvals.find((a) => a.status === "PENDING");
+    cases.push({
+      id: r.id, circuit: "REC", label: `${r.reference} — ${r.position}`, href: `/recrutement/${r.id}`,
+      startedAt: r.createdAt, endedAt: fin,
+      currentStep: r.stage === "HR_REVIEW" ? "rh" : courant ? `n${courant.order}` : "rh",
+      currentStepLabel: r.stage === "HR_REVIEW" ? "Revue RH" : courant ? `Validation niveau ${courant.order}` : "Revue RH",
+      events,
+    });
+  }
+  return { label: "Recrutement", cases };
+}
+
+/** Circuits sans journal propre : leurs changements de statut dans l'AuditLog. */
+const AUDIT_CIRCUITS: { type: "PROMO_MATERIAL" | "MEDICAL_INFO_DECLARATION" | "ADMIN_REQUEST" | "LOGISTICS"; label: string; statuts: Record<string, { label: string }>; fins: string[]; refus: string[] }[] = [
+  { type: "PROMO_MATERIAL", label: "Matériel promotionnel", statuts: PROMO_MATERIAL_STATUS, fins: ["SETTLED", "CANCELLED"], refus: ["CANCELLED"] },
+  { type: "MEDICAL_INFO_DECLARATION", label: "Information médicale", statuts: MEDICAL_INFO_STATUS, fins: ["VALIDATED", "CANCELLED"], refus: ["CANCELLED"] },
+  { type: "ADMIN_REQUEST", label: "Bureau du secrétariat", statuts: ADMIN_REQUEST_STATUS, fins: ["DONE", "CANCELLED"], refus: ["CANCELLED"] },
+  { type: "LOGISTICS", label: "Logistique", statuts: LOGISTICS_STATUS, fins: ["DELIVERED", "CANCELLED"], refus: ["CANCELLED"] },
+];
+
+async function auditCases(since: Date): Promise<Map<string, Source>> {
+  const debut = new Date(since.getTime() - 365 * DAY_MS);
+  const rows = await prisma.auditLog.findMany({
+    where: {
+      entityType: { in: AUDIT_CIRCUITS.map((c) => c.type) }, entityId: { not: null }, createdAt: { gte: debut },
+      OR: [{ action: "CREATE" }, { field: { in: ["status", "stage", "requestStatus"] }, newValue: { not: null } }],
+    },
+    orderBy: { createdAt: "asc" },
+    take: 20_000,
+    select: { entityType: true, entityId: true, action: true, field: true, oldValue: true, newValue: true, summary: true, createdAt: true, actor: { select: { name: true } } },
+  });
+  const parObjet = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const k = `${r.entityType}:${r.entityId}`;
+    parObjet.set(k, [...(parObjet.get(k) ?? []), r]);
+  }
+  const out = new Map<string, Source>();
+  for (const [k, rs] of parObjet) {
+    const [type, id] = k.split(":");
+    const def = AUDIT_CIRCUITS.find((c) => c.type === type);
+    if (!def) continue;
+    const changements = rs.filter((r) => r.field && r.newValue);
+    if (changements.length === 0) continue;
+    const creation = rs.find((r) => r.action === "CREATE");
+    const lib = (s: string) => def.statuts[s]?.label ?? s;
+    const events: MiningEvent[] = [];
+    let precedent: string | null = null;
+    for (const c of changements) {
+      const quitte: string = c.oldValue ?? precedent ?? "__ouverture";
+      const nouveau = c.newValue!;
+      if (quitte === nouveau) continue;
+      const fin = def.fins.includes(nouveau);
+      events.push({
+        at: c.createdAt, step: quitte, stepLabel: quitte === "__ouverture" ? "Ouverture" : lib(quitte),
+        kind: fin ? (def.refus.includes(nouveau) ? "reject" : "end") : "advance",
+        actor: c.actor?.name ?? null, note: c.summary,
+      });
+      precedent = nouveau;
+    }
+    if (events.length === 0) continue;
+    const dernier = precedent!;
+    const clos = def.fins.includes(dernier);
+    const key = `AUD:${type}`;
+    const src = out.get(key) ?? { label: def.label, cases: [] };
+    src.cases.push({
+      id, circuit: key, label: creation?.summary?.slice(0, 90) || `${def.label} ${id.slice(-6)}`, href: entityHref(type, id),
+      startedAt: creation?.createdAt ?? changements[0].createdAt,
+      endedAt: clos ? events[events.length - 1].at : null,
+      currentStep: clos ? null : dernier, currentStepLabel: clos ? null : lib(dernier),
+      events,
+    });
+    out.set(key, src);
+  }
+  return out;
+}
+
+async function nomsDe(ids: readonly (string | null)[]): Promise<Map<string, string>> {
+  const uniques = [...new Set(ids.filter((x): x is string => !!x))];
+  if (!uniques.length) return new Map();
+  const us = await prisma.user.findMany({ where: { id: { in: uniques } }, select: { id: true, name: true } });
+  return new Map(us.map((u) => [u.id, u.name]));
+}
+
+/** Tous les dossiers de tous les circuits, regroupés par circuit. Chaque source est tolérante aux pannes. */
+export async function chargerCircuits(since: Date): Promise<Map<string, Source>> {
+  const garde = <T>(p: Promise<T>, vide: T, nom: string) => p.catch((e) => { console.error(`[process] ${nom}`, e); return vide; });
+  const [wf, val, pay, achat, rec, aud] = await Promise.all([
+    garde(workflowCases(since), new Map<string, Source>(), "workflow"),
+    garde(validationCases(since), new Map<string, Source>(), "validations"),
+    garde(paymentCases(since), { label: "Demande de paiement", cases: [] }, "paiements"),
+    garde(purchaseCases(since), { label: "Demande d'achat", cases: [] }, "achats"),
+    garde(recruitmentCases(since), { label: "Recrutement", cases: [] }, "recrutement"),
+    garde(auditCases(since), new Map<string, Source>(), "audit"),
   ]);
-
-  const stuck = items.filter((i) => i.ageDays >= STUCK_DAYS);
-  const overdue = items.filter((i) => i.overdue);
-
-  // Synthèse par module
-  const moduleMap = new Map<string, { moduleName: string; ages: number[]; stuck: number; overdue: number }>();
-  for (const i of items) {
-    const m = moduleMap.get(i.moduleKey) ?? { moduleName: i.moduleName, ages: [], stuck: 0, overdue: 0 };
-    m.ages.push(i.ageDays);
-    if (i.ageDays >= STUCK_DAYS) m.stuck += 1;
-    if (i.overdue) m.overdue += 1;
-    moduleMap.set(i.moduleKey, m);
-  }
-  const byModule: ModuleStat[] = [...moduleMap.entries()].map(([moduleKey, m]) => ({
-    moduleKey, moduleName: m.moduleName, count: m.ages.length,
-    avgAge: Math.round(m.ages.reduce((a, b) => a + b, 0) / m.ages.length),
-    stuck: m.stuck, overdue: m.overdue,
-  })).sort((a, b) => b.avgAge - a.avgAge);
-
-  // Étapes les plus lentes (module · statut)
-  const stageMap = new Map<string, number[]>();
-  for (const i of items) {
-    const k = `${i.moduleName} · ${i.statusLabel}`;
-    if (!stageMap.has(k)) stageMap.set(k, []);
-    stageMap.get(k)!.push(i.ageDays);
-  }
-  const bottleneckStages: StageStat[] = [...stageMap.entries()]
-    .map(([label, ages]) => ({ label, count: ages.length, avgAge: Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) }))
-    .filter((s) => s.count > 0)
-    .sort((a, b) => b.avgAge - a.avgAge)
-    .slice(0, 8);
-
-  const pendingValidations: PendingValidation[] = pendingSteps.map((s) => ({
-    id: s.id, reference: s.request.reference, title: s.request.title,
-    validatorName: s.validatorId ? users.get(s.validatorId) ?? null : null,
-    ageDays: daysSince(s.createdAt), link: s.request.link || "/validations",
-  }));
-
-  // Alertes prioritaires
-  const alerts: PiAlert[] = [];
-  for (const i of [...items].sort((a, b) => b.ageDays - a.ageDays)) {
-    if (i.overdue) alerts.push({ level: "danger", title: `Échéance dépassée — ${i.moduleName}`, detail: `${i.label}${i.ownerName ? ` · ${i.ownerName}` : ""}`, link: i.link });
-    else if (i.ageDays >= 21) alerts.push({ level: "warning", title: `Sans action depuis ${i.ageDays} j — ${i.moduleName}`, detail: `${i.label}${i.ownerName ? ` · ${i.ownerName}` : ""}`, link: i.link });
-    if (alerts.length >= 12) break;
-  }
-  for (const v of pendingValidations) {
-    if (v.ageDays >= 5 && alerts.length < 16) alerts.push({ level: "warning", title: `Validation en attente depuis ${v.ageDays} j`, detail: `${v.title}${v.validatorName ? ` · ${v.validatorName}` : ""}`, link: v.link });
-  }
-
-  return {
-    stats: { inProgress: items.length, stuck: stuck.length, overdue: overdue.length, validationsPending: pendingSteps.length },
-    topBlockers: [...items].sort((a, b) => b.ageDays - a.ageDays).slice(0, 12),
-    byModule,
-    bottleneckStages,
-    staleItems: stuck.sort((a, b) => b.ageDays - a.ageDays).slice(0, 20),
-    pendingValidations,
-    alerts,
-    generatedAt: new Date().toISOString(),
-  };
+  const out = new Map<string, Source>([...wf, ...val, ...aud]);
+  if (pay.cases.length) out.set("PAY", pay);
+  if (achat.cases.length) out.set("ACHAT", achat);
+  if (rec.cases.length) out.set("REC", rec);
+  return out;
 }
 
-// ─────────────────────── People & Workload Analyzer ───────────────────────
+/** Les délais cibles par circuit → (étape → jours). */
+export async function chargerSla(): Promise<Map<string, Map<string, number>>> {
+  const rows = await prisma.processStepSla.findMany({ select: { circuit: true, stepKey: true, targetDays: true } }).catch(() => []);
+  const out = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const m = out.get(r.circuit) ?? new Map<string, number>();
+    m.set(r.stepKey, r.targetDays);
+    out.set(r.circuit, m);
+  }
+  return out;
+}
 
-export interface WorkloadRow {
+async function stuckDaysSetting(): Promise<number> {
+  const r = await prisma.riskSetting.findUnique({ where: { id: "global" }, select: { processStuckDays: true } }).catch(() => null);
+  return r?.processStuckDays ?? STUCK_DAYS_DEFAULT;
+}
+
+// ───────────────────────────── Vue « Circuits » ─────────────────────────────
+
+export interface VueCircuits {
+  circuits: CircuitStats[];
+  stuckDays: number;
+}
+
+export async function getCircuitsView(periode: Periode, now: Date = new Date()): Promise<VueCircuits> {
+  const since = new Date(now.getTime() - periodeDe(periode).jours * DAY_MS);
+  const [sources, sla, stuckDays] = await Promise.all([chargerCircuits(since), chargerSla(), stuckDaysSetting()]);
+  const circuits = [...sources.entries()]
+    .map(([key, s]) => analyzeCircuit(key, s.label, s.cases, { now, since, sla: sla.get(key), stuckDays }))
+    .filter((c) => c.cases > 0)
+    .sort((a, b) => b.stuck.length - a.stuck.length || b.cases - a.cases);
+  return { circuits, stuckDays };
+}
+
+/** Les dossiers au-delà du délai FIXÉ pour leur étape (pour le détecteur d'Adventum Brain). */
+export async function dossiersHorsDelai(now: Date = new Date()): Promise<{ circuit: string; circuitLabel: string; item: CircuitStats["stuck"][number] }[]> {
+  const sla = await chargerSla();
+  if (sla.size === 0) return [];
+  const since = new Date(now.getTime() - 90 * DAY_MS);
+  const sources = await chargerCircuits(since);
+  const out: { circuit: string; circuitLabel: string; item: CircuitStats["stuck"][number] }[] = [];
+  for (const [key, cible] of sla) {
+    const s = sources.get(key);
+    if (!s) continue;
+    const st = analyzeCircuit(key, s.label, s.cases, { now, since, sla: cible, stuckDays: Number.MAX_SAFE_INTEGER });
+    for (const item of st.stuck) if (item.sla) out.push({ circuit: key, circuitLabel: s.label, item });
+  }
+  return out;
+}
+
+// ───────────────────────────── Vue « Personnes » ─────────────────────────────
+
+export interface LignePersonne {
   userId: string;
   name: string;
   department: string | null;
-  openTasks: number;
+  received: number;
+  medianResponseDays: number | null;
+  pending: number;
   overdueTasks: number;
-  pendingValidations: number;
-  openAdmin: number;
-  regulatory: number;
-  actions30: number;
-  total: number;
-  lastActivity: string | null;
+  lastSeenAt: string | null;
 }
 
-export interface WorkloadAnalysis {
-  rows: WorkloadRow[];
-  topLoaded: WorkloadRow[];
-  topOverdue: WorkloadRow[];
-  tasksWithoutOwner: number;
-  byDepartment: { department: string; total: number; overdue: number }[];
-  inactive: { name: string; lastActivity: string | null }[];
-  generatedAt: string;
-}
-
-function countMap(rows: { _count: { id: number } }[], key: string): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const r of rows) {
-    const id = (r as Record<string, unknown>)[key] as string | null;
-    if (id) m.set(id, r._count.id);
-  }
-  return m;
-}
-
-export async function getWorkloadAnalysis(): Promise<WorkloadAnalysis> {
-  const now = new Date();
-  const since30 = new Date(now.getTime() - 30 * DAY);
-
-  const [users, departments, openTasks, overdueTasks, pendingVals, openAdmin, regulatory, actions, noOwner] = await Promise.all([
+export async function getPeopleView(periode: Periode, now: Date = new Date()): Promise<LignePersonne[]> {
+  const since = new Date(now.getTime() - periodeDe(periode).jours * DAY_MS);
+  const [users, departments, recus, decides, enAttente, recAttente, retards, sources] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, departmentId: true, lastSeenAt: true } }),
     prisma.department.findMany({ select: { id: true, name: true } }),
-    prisma.task.groupBy({ by: ["assignedToId"], where: { status: { in: ["TODO", "IN_PROGRESS"] } }, _count: { id: true } }),
-    prisma.task.groupBy({ by: ["assignedToId"], where: { status: { in: ["TODO", "IN_PROGRESS"] }, dueDate: { lt: now } }, _count: { id: true } }),
-    prisma.validationStep.groupBy({ by: ["validatorId"], where: { status: "PENDING" }, _count: { id: true } }),
-    prisma.administrativeRequest.groupBy({ by: ["assignedToId"], where: { status: { notIn: ["DONE", "CANCELLED"] }, deletedAt: null }, _count: { id: true } }),
-    prisma.regulatoryProduct.groupBy({ by: ["responsibleId"], where: { status: { notIn: ["DECISION_OBTAINED", "CLOSED"] } }, _count: { id: true } }),
-    prisma.auditLog.groupBy({ by: ["actorId"], where: { createdAt: { gte: since30 } }, _count: { id: true } }),
-    prisma.task.count({ where: { assignedToId: null, status: { in: ["TODO", "IN_PROGRESS"] } } }),
+    prisma.validationStep.groupBy({ by: ["validatorId"], where: { createdAt: { gte: since } }, _count: { _all: true } }),
+    prisma.validationStep.findMany({
+      where: { decidedAt: { gte: since } },
+      select: { validatorId: true, order: true, createdAt: true, decidedAt: true, request: { select: { mode: true, steps: { select: { order: true, decidedAt: true } } } } },
+    }),
+    prisma.validationStep.groupBy({ by: ["validatorId"], where: { status: "PENDING" }, _count: { _all: true } }),
+    prisma.recruitmentApproval.groupBy({ by: ["approverId"], where: { status: "PENDING" }, _count: { _all: true } }),
+    prisma.task.groupBy({ by: ["assignedToId"], where: { status: { in: ["TODO", "IN_PROGRESS"] }, dueDate: { lt: now } }, _count: { _all: true } }),
+    chargerCircuits(since).catch(() => new Map<string, Source>()),
   ]);
 
-  const deptName = new Map(departments.map((d) => [d.id, d.name]));
-  const mOpenTasks = countMap(openTasks, "assignedToId");
-  const mOverdue = countMap(overdueTasks, "assignedToId");
-  const mPending = countMap(pendingVals, "validatorId");
-  const mAdmin = countMap(openAdmin, "assignedToId");
-  const mReg = countMap(regulatory, "responsibleId");
-  const mActions = countMap(actions, "actorId");
-
-  const rows: WorkloadRow[] = users.map((u) => {
-    const openT = mOpenTasks.get(u.id) ?? 0;
-    const adminN = mAdmin.get(u.id) ?? 0;
-    const regN = mReg.get(u.id) ?? 0;
-    const pend = mPending.get(u.id) ?? 0;
-    return {
-      userId: u.id, name: u.name, department: u.departmentId ? deptName.get(u.departmentId) ?? null : null,
-      openTasks: openT, overdueTasks: mOverdue.get(u.id) ?? 0, pendingValidations: pend,
-      openAdmin: adminN, regulatory: regN, actions30: mActions.get(u.id) ?? 0,
-      total: openT + adminN + regN + pend,
-      lastActivity: u.lastSeenAt?.toISOString() ?? null,
-    };
-  });
-
-  const byDeptMap = new Map<string, { total: number; overdue: number }>();
-  for (const r of rows) {
-    const d = r.department ?? "Sans département";
-    const cur = byDeptMap.get(d) ?? { total: 0, overdue: 0 };
-    cur.total += r.total; cur.overdue += r.overdueTasks;
-    byDeptMap.set(d, cur);
+  // Réponses aux validations : de l'arrivée RÉELLE chez le valideur (après le niveau précédent) à sa décision.
+  const reponses = new Map<string, number[]>();
+  for (const s of decides) {
+    let arrivee = s.createdAt;
+    if (s.request.mode === "SEQUENTIAL") {
+      const prec = s.request.steps.find((x) => x.order === s.order - 1)?.decidedAt;
+      if (prec && prec > arrivee) arrivee = prec;
+    }
+    const d = Math.max(0, (s.decidedAt!.getTime() - arrivee.getTime()) / DAY_MS);
+    reponses.set(s.validatorId, [...(reponses.get(s.validatorId) ?? []), d]);
   }
+  // + les décisions des circuits Ad & Pro et du recrutement, lues par nom (le journal des circuits garde le nom).
+  const parNom = new Map<string, number[]>();
+  const tousCas = [...sources.values()].flatMap((s) => s.cases.filter((c) => !c.circuit.startsWith("VAL:")));
+  for (const [nom, d] of responseTimesByActor(tousCas, since, now)) parNom.set(nom, d);
 
-  const inactiveThreshold = now.getTime() - 7 * DAY;
-  return {
-    rows: [...rows].sort((a, b) => b.total - a.total),
-    topLoaded: [...rows].filter((r) => r.total > 0).sort((a, b) => b.total - a.total).slice(0, 10),
-    topOverdue: [...rows].filter((r) => r.overdueTasks > 0).sort((a, b) => b.overdueTasks - a.overdueTasks).slice(0, 10),
-    tasksWithoutOwner: noOwner,
-    byDepartment: [...byDeptMap.entries()].map(([department, v]) => ({ department, ...v })).sort((a, b) => b.total - a.total),
-    inactive: rows.filter((r) => !r.lastActivity || new Date(r.lastActivity).getTime() < inactiveThreshold).map((r) => ({ name: r.name, lastActivity: r.lastActivity })).slice(0, 15),
-    generatedAt: new Date().toISOString(),
+  const count = (rows: { _count: { _all: number } }[], key: string) => {
+    const m = new Map<string, number>();
+    for (const r of rows) { const id = (r as unknown as Record<string, string | null>)[key]; if (id) m.set(id, r._count._all); }
+    return m;
   };
+  const mRecus = count(recus, "validatorId");
+  const mAttente = count(enAttente, "validatorId");
+  const mRec = count(recAttente, "approverId");
+  const mRetards = count(retards, "assignedToId");
+  const dept = new Map(departments.map((d) => [d.id, d.name]));
+
+  return users
+    .map((u) => {
+      const d = [...(reponses.get(u.id) ?? []), ...(parNom.get(u.name) ?? [])];
+      return {
+        userId: u.id, name: u.name, department: u.departmentId ? dept.get(u.departmentId) ?? null : null,
+        received: (mRecus.get(u.id) ?? 0) + (parNom.get(u.name)?.length ?? 0),
+        medianResponseDays: median(d),
+        pending: (mAttente.get(u.id) ?? 0) + (mRec.get(u.id) ?? 0),
+        overdueTasks: mRetards.get(u.id) ?? 0,
+        lastSeenAt: u.lastSeenAt?.toISOString() ?? null,
+      };
+    })
+    .filter((r) => r.received > 0 || r.pending > 0 || r.overdueTasks > 0)
+    .sort((a, b) => b.pending - a.pending || (b.medianResponseDays ?? 0) - (a.medianResponseDays ?? 0));
+}
+
+// ───────────────────────────── Vue « Plateforme » ─────────────────────────────
+
+export interface LigneAdoption { module: string; label: string; vues: number; utilisateurs: number; tendance: number | null }
+export interface LigneTache { id: string; nom: string; passages: number; echecs: number; derniereErreur: string | null; dureeMedianeMs: number | null; dernierPassage: string | null; statut: string }
+export interface LigneIa { feature: string; appels: number; erreurs: number; latenceMedianeMs: number | null; coutUsd: number | null }
+export interface VuePlateforme { adoption: LigneAdoption[]; taches: LigneTache[]; ia: LigneIa[] }
+
+const num = (v: unknown): number => (typeof v === "bigint" ? Number(v) : v === null || v === undefined ? 0 : Number(v));
+
+export async function getPlatformView(periode: Periode, now: Date = new Date()): Promise<VuePlateforme> {
+  const jours = periodeDe(periode).jours;
+  const since = new Date(now.getTime() - jours * DAY_MS);
+  const milieu = new Date(now.getTime() - (jours / 2) * DAY_MS);
+
+  const [adoption, taches, ia, coutsAppels] = await Promise.all([
+    prisma.$queryRaw<{ module: string | null; vues: bigint; utilisateurs: bigint; recentes: bigint }[]>`
+      SELECT "module", COUNT(*) AS vues, COUNT(DISTINCT "userId") AS utilisateurs,
+             SUM(CASE WHEN "createdAt" >= ${milieu} THEN 1 ELSE 0 END) AS recentes
+      FROM "ActivityLog"
+      WHERE "type" = 'PAGE_VIEW' AND "createdAt" >= ${since}
+      GROUP BY "module"
+      ORDER BY vues DESC
+      LIMIT 60`.catch(() => []),
+    prisma.$queryRaw<{ id: string; nom: string; statut: string; passages: bigint; echecs: bigint; mediane: number | null; dernier: Date | null; erreur: string | null }[]>`
+      SELECT w."id", w."name" AS nom, w."status" AS statut, COUNT(r."id") AS passages,
+             SUM(CASE WHEN r."status" = 'FAILED' THEN 1 ELSE 0 END) AS echecs,
+             percentile_cont(0.5) WITHIN GROUP (ORDER BY r."ms") AS mediane,
+             MAX(r."startedAt") AS dernier,
+             (SELECT r2."error" FROM "WorkflowRun" r2 WHERE r2."workflowId" = w."id" AND r2."status" = 'FAILED' ORDER BY r2."startedAt" DESC LIMIT 1) AS erreur
+      FROM "ScheduledWorkflow" w
+      LEFT JOIN "WorkflowRun" r ON r."workflowId" = w."id" AND r."startedAt" >= ${since}
+      GROUP BY w."id", w."name", w."status"
+      ORDER BY echecs DESC, passages DESC`.catch(() => []),
+    prisma.$queryRaw<{ feature: string; appels: bigint; erreurs: bigint; latence: number | null; cout: Prisma.Decimal | null; sanstarif: bigint }[]>`
+      SELECT "feature", COUNT(*) AS appels, SUM(CASE WHEN "ok" THEN 0 ELSE 1 END) AS erreurs,
+             percentile_cont(0.5) WITHIN GROUP (ORDER BY "latencyMs") AS latence,
+             SUM("costUsd") AS cout, SUM(CASE WHEN "costUsd" IS NULL THEN 1 ELSE 0 END) AS sanstarif
+      FROM "AiUsageLog"
+      WHERE "createdAt" >= ${since}
+      GROUP BY "feature"
+      ORDER BY appels DESC`.catch(() => []),
+    prisma.$queryRaw<{ feature: string | null; cout: Prisma.Decimal | null }[]>`
+      SELECT "feature", SUM("costUsd") AS cout FROM "ModelCallLog" WHERE "at" >= ${since} GROUP BY "feature"`.catch(() => []),
+  ]);
+
+  const coutParAppels = new Map(coutsAppels.map((c) => [c.feature ?? "", c.cout === null ? null : Number(c.cout)]));
+  const labelModule = (m: string | null) => (m && (MODULE_LABELS as Record<string, string>)[m]) || m || "Sans module";
+
+  return {
+    adoption: adoption.map((a) => {
+      const vues = num(a.vues);
+      const recentes = num(a.recentes);
+      const anciennes = vues - recentes;
+      return { module: a.module ?? "", label: labelModule(a.module), vues, utilisateurs: num(a.utilisateurs), tendance: anciennes > 0 ? (recentes - anciennes) / anciennes : null };
+    }),
+    taches: taches.map((t) => ({
+      id: t.id, nom: t.nom, statut: t.statut, passages: num(t.passages), echecs: num(t.echecs), derniereErreur: t.erreur,
+      dureeMedianeMs: t.mediane === null ? null : Math.round(Number(t.mediane)), dernierPassage: t.dernier ? new Date(t.dernier).toISOString() : null,
+    })),
+    ia: ia.map((x) => {
+      // Le coût du tour quand il est connu en entier ; sinon celui du journal des appels de modèle.
+      const parTour = num(x.sanstarif) === 0 && x.cout !== null ? Number(x.cout) : null;
+      return {
+        feature: x.feature, appels: num(x.appels), erreurs: num(x.erreurs),
+        latenceMedianeMs: x.latence === null ? null : Math.round(Number(x.latence)),
+        coutUsd: parTour ?? coutParAppels.get(x.feature) ?? null,
+      };
+    }),
+  };
+}
+
+// ───────────────────────────── Pour l'instantané horaire ─────────────────────────────
+
+/** Les compteurs de l'instantané horaire (Adventum Pulse) — lus sans recalcul de tous les circuits. */
+export async function processPulseStats(now: Date = new Date()): Promise<{ inProgress: number; stuck: number; overdue: number; validationsPending: number }> {
+  const since = new Date(now.getTime() - 90 * DAY_MS);
+  const [sources, sla, stuckDays, overdue, validationsPending] = await Promise.all([
+    chargerCircuits(since),
+    chargerSla(),
+    stuckDaysSetting(),
+    prisma.task.count({ where: { status: { in: ["TODO", "IN_PROGRESS"] }, dueDate: { lt: now } } }),
+    // Un COMPTE, pas une liste bornée : la liste de 30 plafonnait le compteur à 30.
+    prisma.validationStep.count({ where: { status: "PENDING" } }),
+  ]);
+  let inProgress = 0;
+  let stuck = 0;
+  for (const [key, s] of sources) {
+    for (const c of s.cases) {
+      if (c.endedAt) continue;
+      inProgress++;
+      const w = segmentsOf(c, now).waiting;
+      if (w && w.days > (sla.get(key)?.get(w.step) ?? stuckDays)) stuck++;
+    }
+  }
+  return { inProgress, stuck, overdue, validationsPending };
 }

@@ -12,11 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { visibleTabs } from "@/lib/nav-tabs";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createDirective } from "@/lib/actions/directive-actions";
-import { DIRECTIVE_STATUS, PRIORITY, ROLE_LABELS, WORKSPACE_TABS } from "@/lib/labels";
+import { DIRECTIVE_STATUS, PRIORITY, ROLE_LABELS } from "@/lib/labels";
 import { canIssueDirective } from "@/lib/directives/access";
 import { AUDIENCE_LABELS, canPublishDirectives, describeAudience } from "@/lib/directives/audience";
 
@@ -103,7 +101,8 @@ export default async function DirectivesPage() {
           />
         )}
       </PageHeader>
-      <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
+      {/* Plus d'onglets « Mon espace » ici (Direction, 07/10) : les Directives ne sont plus un onglet de l'espace —
+          on y arrive par « Aujourd'hui », le centre d'actions, la recherche ou une notification. */}
 
       {canPublish && attente.length > 0 && (
         <Card className="border-warning/30 bg-warning/5">

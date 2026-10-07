@@ -1269,6 +1269,9 @@ model User {
   recruitmentInfoAsked    RecruitmentInfoRequest[]   @relation("RecruitmentInfoAsker")
   recruitmentInfoAnswered RecruitmentInfoRequest[]   @relation("RecruitmentInfoAnswerer")
   recruitmentCandidates   RecruitmentCandidate[]     @relation("RecruitmentCandidateAdder")
+  recruitmentsAEncadrer   RecruitmentRequest[]       @relation("RecruitmentFutureManager")
+  recruitmentSuivis       RecruitmentFollower[]      @relation("RecruitmentFollowerUser")
+  recruitmentDiffusions   RecruitmentChannelPost[]   @relation("RecruitmentChannelPublisher")
   leaveStandIns           LeaveRequest[]             @relation("LeaveStandIn")
   leaveDecisions          LeaveRequest[]             @relation("LeaveDecider")
   advanceDecisions        SalaryAdvance[]            @relation("AdvanceDecider")
@@ -1942,6 +1945,12 @@ model RecruitmentRequest {
   candidates   RecruitmentCandidate[]
   /// L'offre publiée sur le site public, si les RH en ont préparé une (§118.158).
   jobPosting   JobPosting?
+  /// LE N+1 DE LA FUTURE RECRUE et LES PERSONNES EN CHARGE DU SUIVI — décidés par le DG quand il valide (Direction, 07/10).
+  futureManagerId String?
+  futureManager   User?                    @relation("RecruitmentFutureManager", fields: [futureManagerId], references: [id], onDelete: SetNull)
+  followers       RecruitmentFollower[]
+  /// LES CANAUX DE DIFFUSION de l'offre (site, LinkedIn, Emploitic…) — choisis par les RH (Direction, 07/10).
+  channelPosts    RecruitmentChannelPost[]
 
   @@index([stage])
   @@index([requesterId])
@@ -8246,6 +8255,14 @@ model RiskSetting {
   deliveryGraceDays    Int      @default(3)
   eventHorizonDays     Int      @default(7)
   eventMinAttendance   Int      @default(5)
+  /// Détecteurs ajoutés avec la refonte d'Adventum Brain (07/10) — voir `lib/adventum/risks-plus.ts`.
+  recruitmentUnpublishedDays Int @default(3)
+  fieldCoverageMinPct        Int @default(50)
+  adproCdMaxPct              Int @default(25)
+  bcUnsignedDays             Int @default(5)
+  tourPlanLeadDays           Int @default(3)
+  aiCostDriftPct             Int @default(50)
+  processStuckDays           Int @default(14)
   updatedAt            DateTime @updatedAt
   updatedById          String?
 }
@@ -8272,6 +8289,88 @@ model IntelligenceSnapshot {
   detail             Json? /// { byCategory: {CAT: n}, criticalIds: [id], topRisks: [{id,level,module,title,object,href}] }
 
   @@index([createdAt])
+}
+
+/// UN RISQUE QUI A UNE VIE (Adventum Brain, refonte 07/10). Le Risk Radar recalcule les risques chaque
+/// heure ; cette table les fait DURER : la clé stable (détecteur + objet) relie le risque d'une heure à
+/// celui de l'heure suivante. NOUVEAU → PRIS_EN_CHARGE (une tâche, une personne) → RESOLU (le détecteur
+/// ne le voit plus, ou une personne l'a dit) ; IGNORE jusqu'à une date (`snoozedUntil`, motif dans `note`).
+/// Un risque résolu qui réapparaît repasse NOUVEAU. Réconciliation pure : `lib/adventum/lifecycle.ts`.
+model BrainRisk {
+  id             String    @id @default(cuid())
+  key            String    @unique
+  category       String
+  module         String
+  level          String // critical | high | medium | low
+  title          String
+  object         String
+  owner          String
+  href           String?
+  /// Le dernier calcul du détecteur : preuves, cause, impact, recommandation, gestes proposés.
+  detail         Json
+  recommendation String
+  status         String    @default("NOUVEAU") // NOUVEAU | PRIS_EN_CHARGE | RESOLU | IGNORE
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  snoozedUntil   DateTime?
+  assigneeId     String?
+  taskId         String?
+  resolvedAt     DateTime?
+  /// Vrai quand la résolution vient du détecteur (il ne le voit plus) et non d'une personne.
+  resolvedAuto   Boolean   @default(false)
+  note           String?
+  /// L'histoire du risque : `[{ at, kind, by, note }]` — apparu, pris en charge, relancé, ignoré, résolu, réapparu.
+  history        Json      @default("[]")
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, level])
+  @@index([lastSeenAt])
+}
+
+/// LE BRIEFING DU MATIN, GARDÉ — un par jour (heure d'Alger). Généré à 7 h par le planificateur (ou à la
+/// demande), chaque phrase cite ses sources (`content.paragraphs[].sentences[].refs` → risques connus).
+/// `source` dit qui l'a écrit : « ia » (modèle, coût dans `costUsd`) ou « regles » (repli déterministe).
+model BrainBriefing {
+  id            String   @id @default(cuid())
+  day           String   @unique // YYYY-MM-DD, heure d'Alger
+  content       Json
+  risks         Json /// instantané des risques cités (clé, titre, module, lien)
+  source        String   @default("regles")
+  model         String?
+  costUsd       Decimal? @db.Decimal(12, 6)
+  error         String?
+  generatedById String?
+  generatedAt   DateTime @default(now())
+
+  @@index([generatedAt])
+}
+
+/// UNE QUESTION POSÉE À ADVENTUM BRAIN, et sa réponse — avec ses sources et les gestes proposés.
+model BrainQuestion {
+  id        String   @id @default(cuid())
+  userId    String
+  question  String
+  answer    String
+  ok        Boolean  @default(true)
+  sources   Json     @default("[]")
+  proposals Json     @default("[]")
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+/// LE DÉLAI CIBLE D'UNE ÉTAPE DE CIRCUIT (Process Intelligence). Au-delà, le dossier est « bloqué » et
+/// Adventum Brain le signale. `circuit` + `stepKey` sont ceux de `lib/process/mining.ts`.
+model ProcessStepSla {
+  id          String   @id @default(cuid())
+  circuit     String
+  stepKey     String
+  stepLabel   String
+  targetDays  Int
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([circuit, stepKey])
 }
 
 /// Réglage du score d'adoption — **poids** de chaque dimension et **seuils** de
@@ -8442,7 +8541,8 @@ model AppSetting {
   /// praticiens et les visites — une empreinte réelle bien plus large que la demande (§118.16).
   /// C'est le mécanisme que le dépôt emploie déjà pour ce genre de question, et il laisse la
   /// DÉCISION DE PERMISSION au Super Admin, à qui elle appartient (§118.86).
-  promoMessageAuthorRoles       String[]  @default([])
+  /// Défaut : la Direction Marketing (Direction, 07/10) — `20270115140000_cockpit_marketing_auteurs`.
+  promoMessageAuthorRoles       String[]  @default(["PRODUCT_MANAGER"])
   // ORGANIGRAMME — qui a le droit de le CONSULTER (l'édition reste au Super Admin). Les RH en
   // ont besoin au quotidien ; d'autres personnes peuvent y être ajoutées nommément. Un
   // consultant voit toutes les entités ou filtre sur l'une d'elles ; il ne modifie rien.
@@ -10814,6 +10914,8 @@ model SalesSector {
 
   institutions SalesSectorInstitution[]
   reps         SalesSectorRep[]
+  /// Les fiches de segmentation rangées À LA MAIN dans ce secteur (les autres s'y rangent par l'établissement).
+  segmentationFiches SegmentationFiche[]
 
   /// Deux secteurs « Est » dans la même BU sont une erreur de saisie, pas deux territoires.
   @@unique([businessUnitId, name])
@@ -13950,10 +14052,35 @@ model Product {
   affiniteConfig       AffiniteConfig?
   /// SA PART des coûts partagés de ses BU (règle d'allocation, année par année).
   repartitionsCouts    CoutRepartitionBu[]
+  /// SES PRIX SAISIS À LA MAIN (Produits 360) — ils l'emportent sur ceux de l'Explorateur produits.
+  prixSaisis           ProductPrice[]
 
   @@index([dci])
   @@index([companyId])
   @@index([lifecycle])
+}
+
+/// UN PRIX D'UN PRODUIT, SAISI À LA MAIN (Direction, 07/10 : « les prix existent dans l'Explorateur de produits, mais
+/// ils doivent être modifiables manuellement quand on veut »).
+///
+/// L'Explorateur donne le prix OBSERVÉ (IQVIA ville : valeur ÷ boîtes ; réceptions PCH : prix unitaire) ; une saisie
+/// l'emporte à partir de sa date d'effet. Rien ne s'écrase : chaque saisie est une LIGNE (historique), et une ligne
+/// sans montant rend la main à l'Explorateur. Le calcul du prix qui fait foi est `products/fiche-360.ts`.
+model ProductPrice {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// PPA · SHP · TARIF_REFERENCE · PRIX_HOPITAL (`TYPES_PRIX`).
+  kind      String
+  /// En DZD. NUL = retour à la valeur de l'Explorateur à partir de `validFrom`.
+  amountDzd Decimal? @db.Decimal(14, 2)
+  validFrom DateTime
+  note      String?
+  /// Qui l'a saisi — l'identifiant seul : le nom se relit à l'affichage.
+  setById   String?
+  createdAt DateTime @default(now())
+
+  @@index([productId, kind, validFrom])
 }
 
 /// LES AUTRES NOMS D'UN PRODUIT — « Nivo », « Opdivo », le nom du marché PCH, celui d'IQVIA.
@@ -14812,7 +14939,12 @@ model SegmentationFiche {
   doctor      MedicalDoctor         @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   /// DECIDEUR · INFLUENCEUR · REFERENT · PRESCRIPTEUR — nul = non renseigné.
   statut      String?
+  /// Zone libre héritée (« Centre », « Ouest ») — lue seulement par les règles d'avant les secteurs.
   zone        String?
+  /// LE SECTEUR DE LA BU, posé à la main (Direction, 07/10). Nul = déduit de l'établissement / du service
+  /// du praticien (le secteur qui le couvre, `clausePanelDuKam`). Secteur supprimé = retour au calcul.
+  secteurId   String?
+  secteur     SalesSector?          @relation(fields: [secteurId], references: [id], onDelete: SetNull)
   /// D'où vient la fiche : IMPORT (avec le lot et la ligne) ou MANUEL.
   source      String                @default("MANUEL")
   importId    String?
@@ -14826,6 +14958,7 @@ model SegmentationFiche {
 
   @@unique([strategieId, doctorId])
   @@index([doctorId])
+  @@index([secteurId])
 }
 
 /// LE POTENTIEL TERRAIN D'UN PRATICIEN, HISTORISÉ — « 27 patients VIH / semaine », « 3 sur 10 sous
@@ -15066,4 +15199,75 @@ model CoutRepartitionBu {
 
   @@unique([businessUnitId, annee, productId])
   @@index([productId])
+}
+
+/// QUI SUIT UN RECRUTEMENT — désigné(s) par le DG à la validation (Direction, 07/10) : ils voient la demande, sont prévenus de
+/// chaque étape et participent au suivi avec les RH.
+model RecruitmentFollower {
+  id          String             @id @default(cuid())
+  requestId   String
+  request     RecruitmentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User               @relation("RecruitmentFollowerUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedById   String?
+  createdAt   DateTime           @default(now())
+
+  @@unique([requestId, userId])
+  @@index([userId])
+}
+
+/// UNE DIFFUSION DE L'OFFRE SUR UN CANAL (Direction, 07/10) — site web, LinkedIn (post préparé selon l'entité), Emploitic
+/// (quand l'API sera configurée), autre. Les RH choisissent le ou les canaux ; chaque canal garde son état.
+model RecruitmentChannelPost {
+  id            String             @id @default(cuid())
+  requestId     String
+  request       RecruitmentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  /// SITE_WEB | LINKEDIN | EMPLOITIC | AUTRE
+  channel       String
+  /// PREPARE | PUBLIE | RETIRE | ECHEC
+  status        String             @default("PREPARE")
+  /// Le texte préparé (le post LinkedIn, l'annonce) — modifiable avant publication.
+  content       String?
+  url           String?
+  error         String?
+  publishedAt   DateTime?
+  publishedById String?
+  publishedBy   User?              @relation("RecruitmentChannelPublisher", fields: [publishedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@unique([requestId, channel])
+}
+
+/// L'AUDIENCE DU SITE PUBLIC (Direction, 07/10) — un événement par page vue ou par clic, envoyé par le site (adventumdz.com).
+/// Sans cookie : `visitor` est une empreinte du JOUR (sel + IP + navigateur), qui compte les visiteurs uniques sans les suivre
+/// d'un jour à l'autre ni les identifier.
+model SiteAnalyticsEvent {
+  id         String   @id @default(cuid())
+  at         DateTime @default(now())
+  /// PAGEVIEW | CLICK | LEAVE
+  type       String
+  path       String
+  title      String?
+  /// L'hôte d'où vient le visiteur (google.com, linkedin.com…), sans le chemin.
+  referrer   String?
+  /// La source lue (utm_source, sinon déduite du référent) : Google, LinkedIn, Facebook, Direct, Emploitic…
+  source     String?
+  medium     String?
+  campaign   String?
+  visitor    String
+  session    String?
+  device     String?
+  browser    String?
+  os         String?
+  country    String?
+  /// Pour un CLIC : ce qu'on a cliqué (postuler, telephone, email, whatsapp, lien externe, cta…) et sa cible.
+  label      String?
+  target     String?
+  /// Pour LEAVE : le temps passé sur la page.
+  durationMs Int?
+
+  @@index([at])
+  @@index([type, at])
+  @@index([path, at])
 }

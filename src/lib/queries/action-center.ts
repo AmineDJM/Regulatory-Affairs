@@ -134,7 +134,8 @@ export async function getActionCenter(user: SessionUser) {
   for (const t of tasks) {
     items.push({
       key: `task-${t.id}`, objet: `TASK:${t.id}`, title: t.title, subtitle: t.module ?? "", module: "Mon espace",
-      href: "/mon-espace", kind: "task", priority: t.priority,
+      // La tâche s'ouvre DANS son onglet (07/10) — « Mon espace » ne liste plus les tâches.
+      href: `/mon-espace/taches?tache=${t.id}`, kind: "task", priority: t.priority,
       deadline: t.dueDate?.toISOString() ?? null, depuis: t.createdAt.toISOString(), owner: "", ...resolve(TASK_STATUS, t.status),
     });
   }

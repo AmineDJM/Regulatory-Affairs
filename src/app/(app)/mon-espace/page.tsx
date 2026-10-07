@@ -1,27 +1,22 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { accessibleModules, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getMyWorkspace } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent } from "@/components/ui/card";
-import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
-import { optionsFromMap } from "@/components/shared/form-fields";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { visibleTabs } from "@/lib/nav-tabs";
-import { createTask } from "@/lib/actions/task-actions";
+import { ongletsEspace } from "@/lib/queries/mes-taches";
 import { getActionCenter, type ActionItem } from "@/lib/queries/action-center";
 import { sectionsMonEspace } from "@/lib/queries/mes-decisions";
 import { depuisLisible } from "@/lib/calendar-tz";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, daysUntil } from "@/lib/utils";
-import { ROLE_LABELS, PRIORITY, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
+import { ROLE_LABELS, PRIORITY } from "@/lib/labels";
 import { listMyReminders } from "@/lib/queries/reminders";
 import { MyReminders } from "@/components/reminders/my-reminders";
 import { ReminderButton } from "@/components/reminders/reminder-button";
-import { TaskList, type TaskItem } from "./task-list";
 import { LeaveApprovals } from "@/components/hr/leave-approvals";
 import { discussionsDesConges } from "@/lib/queries/conges-discussion";
 import { MissionItem } from "@/components/missions/mission-item";
@@ -29,11 +24,9 @@ import { getMyMissions } from "@/lib/queries/missions";
 import { isOutstanding, isLate } from "@/lib/doc-request";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PIECE_REQUEST_STATUS } from "@/lib/labels";
-import { refusAnnulationDemande } from "@/lib/tasks/request-flow";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
 import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
 import { getMyPortfolio } from "@/lib/queries/portfolio";
-import { PurchaseSection } from "@/components/purchase/purchase-section";
 import { TrainingRequestButton } from "@/components/purchase/training-request-button";
 import { ExpenseClaimButton } from "@/components/hr/expense-claim-button";
 import { getManagerOfUser } from "@/lib/departments";
@@ -41,78 +34,18 @@ import { getManagerOfUser } from "@/lib/departments";
 export default async function MonEspacePage() {
   const user = await requireModule("WORKSPACE");
   const data = await getMyWorkspace(user.id);
-  const canCreateDossier = userCan(user, "DOSSIERS", "CREATE");
 
-  const [users, requested, reminders, articles, manager] = await Promise.all([
-    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    // Tâches **demandées** à l'utilisateur (à accepter / refuser), comme des DM.
-    prisma.task.findMany({
-      where: { assignedToId: user.id, status: "REQUESTED" },
-      include: { createdBy: { select: { name: true } } },
-      orderBy: { createdAt: "desc" },
-    }),
+  // LES TÂCHES ONT LEUR ONGLET (Direction, 07/10) : « Tâches demandées », « Mes tâches », partagées, « que j'ai
+  // demandées », « déléguées » — cinq listes dispersées ici — vivent désormais dans « Mon espace › Tâches ».
+  // LES DEMANDES D'ACHAT passent par le Bureau du secrétariat : elles ont quitté cet écran.
+  const [reminders, manager] = await Promise.all([
     listMyReminders(user.id),
-    // LE CATALOGUE D'ACHAT — proposé à tout le monde : c'est lui qui rend la demande possible
-    // sans connaître les références internes.
-    prisma.officeSupplyArticle.findMany({
-      where: { active: true },
-      select: { id: true, name: true, unit: true, estimatedPrice: true },
-      orderBy: { name: "asc" },
-    }),
-    // Le responsable hiérarchique — nommé dans les deux formulaires, pour qu'on sache à qui
+    // Le responsable hiérarchique — nommé dans le formulaire de formation, pour qu'on sache à qui
     // l'on écrit. Il ne se choisit pas : laisser choisir son validateur reviendrait à laisser
     // choisir qui vous dit oui.
     getManagerOfUser(user.id).catch(() => null),
   ]);
-  const articleOptions = articles.map((a) => ({
-    id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
-  }));
   const reminderRows = reminders.map((r) => ({ ...r, remindAt: r.remindAt.toISOString(), sentAt: r.sentAt ? r.sentAt.toISOString() : null }));
-
-  // Le cercle d'une tâche, en clair : « Participants : … · Lecture : … ». Les identifiants sont
-  // résolus une fois, contre la liste déjà chargée.
-  const nameById = new Map(users.map((u) => [u.id, u.name]));
-  const involvedText = (participantIds: string[], readerIds: string[]): string | null => {
-    const names = (ids: string[]) => ids.map((id) => nameById.get(id)).filter((n): n is string => Boolean(n));
-    const parts: string[] = [];
-    const p = names(participantIds); if (p.length) parts.push(`Participants : ${p.join(", ")}`);
-    const r = names(readerIds); if (r.length) parts.push(`Lecture : ${r.join(", ")}`);
-    return parts.length ? parts.join(" · ") : null;
-  };
-
-  // Course / livraison : on remonte aussi adresse + horodatages pour le suivi de durée.
-  const toItem = (t: (typeof data.myTasks)[number]): TaskItem => ({
-    id: t.id, title: t.title, description: t.description, status: t.status,
-    priority: t.priority, dueDate: t.dueDate ? t.dueDate.toISOString() : null, module: t.module,
-    address: t.address, startedAt: t.startedAt ? t.startedAt.toISOString() : null,
-    completedAt: t.completedAt ? t.completedAt.toISOString() : null, expectedMinutes: t.expectedMinutes,
-    requestedAt: t.requestedAt ? t.requestedAt.toISOString() : null,
-    declineReason: t.declineReason, completionNote: t.completionNote,
-    involved: involvedText(t.participantIds, t.readerIds),
-    // QUI EST QUI — sans ces trois-là, aucun bouton ne peut savoir si la ligne vous appartient.
-    assignedToId: t.assignedToId, createdById: t.createdById, participantIds: t.participantIds,
-    lastNudgeAt: t.lastNudgeAt ? t.lastNudgeAt.toISOString() : null, nudgeCount: t.nudgeCount,
-    // Supprimer = retirer SA saisie : le créateur (ou l'admin). Une tâche reçue se REFUSE.
-    // UNE DEMANDE OUVERTE CHEZ QUELQU'UN D'AUTRE S'ANNULE, elle ne s'efface pas (décision du 04/10) :
-    // la même règle que l'action (`refusAnnulationDemande`).
-    canCancelRequest: refusAnnulationDemande(t, user.id) === null,
-    canDelete: user.role === "SUPER_ADMIN" || (t.createdById === user.id && refusAnnulationDemande(t, user.id) !== null),
-  });
-  const myTasks: TaskItem[] = data.myTasks.map(toItem);
-  // Ce que J'AI demandé à quelqu'un, séparé de ce que j'ai simplement délégué : le premier
-  // attend une réponse (ou en a reçu une), le second est déjà en route. Les mélanger, c'est
-  // perdre de vue la demande qu'on vient d'envoyer — exactement ce qui manquait.
-  const delegatedAll: TaskItem[] = data.delegated.map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
-  const myRequests: TaskItem[] = delegatedAll.filter((t) => t.requestedAt || t.status === "REQUESTED" || t.status === "DECLINED");
-  const delegated: TaskItem[] = delegatedAll.filter((t) => !myRequests.includes(t));
-  const requestedTasks: TaskItem[] = requested.map((t) => ({ ...toItem(t), requestedBy: t.createdBy?.name ?? null }));
-  // Tâches partagées avec moi : je PARTICIPE (je peux agir) ou je suis en LECTURE (je vois).
-  const participating: TaskItem[] = data.shared
-    .filter((t) => t.participantIds.includes(user.id))
-    .map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
-  const watching: TaskItem[] = data.shared
-    .filter((t) => !t.participantIds.includes(user.id))
-    .map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
   // « MES CONGÉS » NE VIT PLUS ICI : le congé est une affaire de dossier RH — demande, solde,
   // historique se lisent dans « Mon dossier RH », et là seulement. Rester ici, c'était deux
   // écrans pour le même objet. Ce qui RESTE dans l'espace : signer les congés des autres (le
@@ -138,7 +71,7 @@ export default async function MonEspacePage() {
   // CE QUI ATTEND MA DÉCISION — une ligne par objet, l'attente la plus ancienne d'abord (lot E2). Les
   // validations et les congés à signer sont deux blocs, et « À valider » compte EXACTEMENT leurs lignes
   // (§118.51) : il ignorait les congés du bloc des signatures et comptait ceux de l'intérim, montrés deux
-  // fois. Les TÂCHES du centre ne sont pas reprises : elles ont leurs sections ici, plus riches.
+  // fois. Les TÂCHES du centre ne sont pas reprises : elles ont leur onglet (« Tâches »).
   const { decisions, conges: congesASigner, aTraiter, aValider } = sectionsMonEspace(centre.items, centre.conges);
   // LA DISCUSSION DE CHAQUE CONGÉ À SIGNER (Direction, 07/10) — le même fil que les RH et le salarié.
   const discussionsConges = await discussionsDesConges(congesASigner.map((c) => c.id));
@@ -148,47 +81,14 @@ export default async function MonEspacePage() {
     id: a.id, amount: Number(a.amount), reason: a.reason, status: a.status, createdAt: a.createdAt.toISOString(),
   }));
 
-  const userOptions = users.map((u) => ({ value: u.id, label: u.name }));
-  const moduleOptions = accessibleModules(user)
-    .filter((m) => m !== "WORKSPACE")
-    .map((m) => ({ value: m, label: MODULE_LABELS[m] ?? m }));
-
-  const taskFields: FieldDef[] = [
-    { type: "text", name: "title", label: "Intitulé", required: true, full: true },
-    { type: "textarea", name: "description", label: "Description" },
-    // LE DESTINATAIRE DÉCIDE DE LA NATURE DU GESTE. Pour soi, c'est une to-do ; pour quelqu'un
-    // d'autre, c'est une DEMANDE qu'il accepte ou refuse. On le dit ici, sur le champ qui
-    // tranche — pas dans la description du formulaire, que personne ne relit.
-    { type: "select", name: "assignedToId", label: "Assignée à", options: userOptions, defaultValue: user.id,
-      hint: "Vous-même : simple to-do. Quelqu'un d'autre : une demande, qu'il accepte ou refuse — il est prévenu tout de suite." },
-    { type: "select", name: "priority", label: "Priorité", options: optionsFromMap(PRIORITY), defaultValue: "MEDIUM" },
-    { type: "date", name: "dueDate", label: "Échéance" },
-    { type: "select", name: "module", label: "Module concerné", options: moduleOptions, placeholder: "—" },
-    { type: "multiselect", name: "participantIds", label: "Participants", options: userOptions.filter((o) => o.value !== user.id), hint: "Ils peuvent agir sur la tâche (démarrer, terminer).", full: true },
-    { type: "multiselect", name: "readerIds", label: "En lecture", options: userOptions.filter((o) => o.value !== user.id), hint: "Ils voient la tâche sans pouvoir la modifier.", full: true },
-    { type: "text", name: "address", label: "Adresse / lieu (course, livraison)", full: true, placeholder: "ex. PCH, Route de…, Alger" },
-    { type: "number", name: "expectedMinutes", label: "Durée estimée (min, pour détecter un retard)" },
-    // Les pièces DÈS LA CRÉATION : une demande arrive avec le bon de commande à retirer ou le
-    // plan du lieu. Les faire déposer après coup, c'est envoyer une demande incomplète puis
-    // rouvrir le dossier — deux gestes pour un.
-    { type: "file", name: "files", label: "Pièces jointes (facultatif)", multiple: true, full: true,
-      hint: "Le contexte de la tâche : bon de commande, plan, facture à régler…" },
-  ];
-
   return (
     <div className="space-y-6">
       <PageHeader
         title={`Bonjour ${user.name.split(" ")[0]} 👋`}
         description={`Votre espace de travail — ${ROLE_LABELS[user.role] ?? user.role}.`}
       >
-        {/* UN SEUL BOUTON. Il y en avait deux — « Nouvelle tâche » et « Demander une tâche » —
-            pour un même geste, et personne ne devinait lequel prendre : on choisissait presque
-            toujours le premier, et la tâche atterrissait chez l'autre sans qu'il l'ait acceptée
-            ni qu'il ait où déposer son travail. C'est le champ « Assignée à » qui tranche
-            désormais, à l'endroit où l'on choisit la personne. */}
-        <CreateRecordButton label="Nouvelle tâche" title="Créer une tâche" width="md"
-          description="Pour vous, c'est une to-do. Pour quelqu'un d'autre, c'est une demande : il l'accepte ou la refuse, puis dépose son travail dans le dossier."
-          action={createTask} fields={taskFields} />
+        {/* « NOUVELLE TÂCHE » VIT DANS L'ONGLET « TÂCHES » (07/10) : une ligne pour créer, « Pour moi » ou
+            « Demander à… », et le formulaire complet à côté. */}
         {/* « DEMANDER UN CONGÉ » A ÉTÉ RETIRÉ D'ICI (2026-08). Ce n'était pas une action de cet
             écran mais un lien vers « Mon dossier RH » — où le congé se demande, avec son solde
             sous les yeux, ses justificatifs et l'historique de ses décisions. Deux portes pour
@@ -201,7 +101,7 @@ export default async function MonEspacePage() {
             bouton n'ouvre pas un second circuit, il ouvre une porte. */}
         <ExpenseClaimButton />
       </PageHeader>
-      <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
+      <ModuleTabs tabs={await ongletsEspace(user)} />
 
       {/* Ce que je porte ce cycle. L'affectation existait dans « Prévisions & Force de vente »
           mais personne ne la voyait depuis son espace. */}
@@ -250,17 +150,6 @@ export default async function MonEspacePage() {
 
       {aTraiter.length > 0 && (
         <ActionSection title={`Demandes & dossiers à traiter (${aTraiter.length})`} items={aTraiter} maintenant={maintenant} />
-      )}
-
-      {requestedTasks.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches demandées ({requestedTasks.length})</h2>
-          <p className="text-xs text-muted-foreground">
-            Acceptez ou refusez. En acceptant, vous entrez directement dans la demande — aucune
-            étape de plus : vous y déposez les pièces et vous validez votre travail.
-          </p>
-          <TaskList tasks={requestedTasks} userId={user.id} />
-        </section>
       )}
 
       {/* LES PIÈCES QU'ON ME DEMANDE — sur place, plus dans un onglet à part : déposer une
@@ -319,23 +208,6 @@ export default async function MonEspacePage() {
         <MyReminders reminders={reminderRows} />
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes tâches</h2>
-        <TaskList tasks={myTasks} userId={user.id} canCreateDossier={canCreateDossier} />
-      </section>
-
-      {/* MES DEMANDES D'ACHAT — venues des Moyens généraux (2026-08).
-          Demander un stylo et tenir la caisse d'un département sont deux métiers : le second
-          reste là-bas, le premier appartient à l'espace de chacun, à côté du congé, de la
-          formation et des tâches. Le circuit ne change pas : le responsable valide, l'achat suit.
-
-          Le bloc porte le MÊME titre de section que ses voisins : une carte isolée au milieu de
-          sections titrées se lit comme un encart, pas comme un espace où l'on vient travailler. */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes demandes d&apos;achat</h2>
-        <PurchaseSection userId={user.id} articles={articleOptions} />
-      </section>
-
       {/* MES ORDRES DE MISSION — sur place, plus un onglet à part : la mission en cours fait
           partie de « mon travail », au même titre que les tâches. La carte est la MÊME que
           l'écran /missions (demande d'ordre, pièces, échange) — pas une copie qui divergerait. */}
@@ -349,40 +221,6 @@ export default async function MonEspacePage() {
               <MissionItem key={m.id} m={m} canManage={false} currentUserId={user.id} path="/mon-espace" showParent />
             ))}
           </div>
-        </section>
-      )}
-
-      {participating.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches où je participe ({participating.length})</h2>
-          <TaskList tasks={participating} userId={user.id} showAssignee canCreateDossier={canCreateDossier} />
-        </section>
-      )}
-
-      {watching.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches partagées en lecture ({watching.length})</h2>
-          <TaskList tasks={watching} userId={user.id} showAssignee readOnly />
-        </section>
-      )}
-
-      {myRequests.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Tâches que j'ai demandées ({myRequests.length})
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            Où en est chaque demande : en attente de réponse, acceptée, refusée (avec son motif)
-            ou travail validé.
-          </p>
-          <TaskList tasks={myRequests} userId={user.id} showAssignee />
-        </section>
-      )}
-
-      {delegated.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Tâches que j'ai déléguées</h2>
-          <TaskList tasks={delegated} userId={user.id} showAssignee canCreateDossier={canCreateDossier} />
         </section>
       )}
 

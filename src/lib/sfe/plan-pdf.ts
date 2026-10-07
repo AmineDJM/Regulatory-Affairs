@@ -21,8 +21,10 @@ export interface VisitePdf {
   nom: string;
   /** « Infectiologie · EHU Oran ». */
   detail: string;
-  /** Le niveau de potentiel (`SegmentLevel`), ou `null`. */
+  /** Le niveau de potentiel (`SegmentLevel`), ou `null` — le repère des seuls praticiens hors segmentation. */
   potentiel: string | null;
+  /** LA LETTRE DE SEGMENTATION (H, A–D, NA, NC) — la référence du liseré quand elle existe (Direction, 07/10). */
+  lettre?: string | null;
   etat: EtatVisitePdf;
 }
 
@@ -61,10 +63,15 @@ export function pagesDuPlan(joursOuvres: readonly string[], visites: readonly Vi
   return pages;
 }
 
-/** Le résumé du plan : visites, et leur répartition par potentiel (dans l'ordre fort → faible, inconnu à part). */
-export function resumeDuPlan(visites: readonly VisitePdf[]): { total: number; faites: number; nonTenues: number; parPotentiel: Map<string, number> } {
+/**
+ * Le résumé du plan : visites, leur répartition par LETTRE de segmentation, et — pour les seules visites dont le praticien
+ * n'a pas de lettre — par potentiel (inconnu à part).
+ */
+export function resumeDuPlan(visites: readonly VisitePdf[]): { total: number; faites: number; nonTenues: number; parLettre: Map<string, number>; parPotentiel: Map<string, number> } {
   const parPotentiel = new Map<string, number>();
+  const parLettre = new Map<string, number>();
   for (const v of visites) {
+    if (v.lettre) { parLettre.set(v.lettre, (parLettre.get(v.lettre) ?? 0) + 1); continue; }
     const cle = v.potentiel ?? "INCONNU";
     parPotentiel.set(cle, (parPotentiel.get(cle) ?? 0) + 1);
   }
@@ -72,6 +79,7 @@ export function resumeDuPlan(visites: readonly VisitePdf[]): { total: number; fa
     total: visites.length,
     faites: visites.filter((v) => v.etat === "FAITE").length,
     nonTenues: visites.filter((v) => v.etat === "NON_TENUE").length,
+    parLettre,
     parPotentiel,
   };
 }

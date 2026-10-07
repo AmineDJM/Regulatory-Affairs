@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
@@ -28,6 +28,10 @@ export default async function ProduitCanoniquePage({ params }: { params: { id: s
   const user = await requireModule("REGULATORY");
   const p = await chargerProduitCanonique(user, params.id);
   if (!p) notFound();
+  // UN SEUL CATALOGUE (Direction, 07/10 : « Produit = dossier réglementaire ») : la fiche du produit est celle de
+  // Produits 360, dont l'onglet « Réglementaire & qualité » porte l'identité, le nom, les alias et l'historique. Cette
+  // page ne reste que pour qui n'a pas Produits 360 — le réglementaire n'y perd aucun geste.
+  if (userCan(user, "PRODUCTS", "VIEW")) redirect(`/produits/${p.id}?onglet=reglementaire`);
   const peutEcrire = userCan(user, "REGULATORY", "UPDATE");
 
   const dosage = [p.dosage, p.dosageUnit ? DOSAGE_UNIT[p.dosageUnit] ?? p.dosageUnit : null].filter(Boolean).join(" ") || "—";

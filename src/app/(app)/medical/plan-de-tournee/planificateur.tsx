@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
-  ArrowRight, ArrowUpRight, CalendarRange, Check, Clock, FilePlus2, Loader2, MapPin, RotateCcw, Send, Users, X,
+  ArrowRight, ArrowUpRight, CalendarRange, Check, Clock, FilePlus2, Loader2, MapPin, RotateCcw, Send, ShieldAlert, Users, X,
 } from "lucide-react";
+import { lienSignalerPv } from "@/lib/chemins/rapports-terrain";
 import {
   planifierVisites, soumettrePlanTournee, escaladerPlanTournee, deciderPlanTournee, demanderRevisionPlanTournee,
 } from "@/lib/actions/tour-plan-actions";
@@ -23,6 +25,8 @@ import { cn } from "@/lib/utils";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { EntreeMenu, MenuPlus } from "../menu-plus";
+import { LettreBadge } from "@/app/(app)/segmentation/lettre-badge";
+import type { Lettre } from "@/lib/segmentation/regles";
 
 /**
  * Au téléphone, les deux gestes de la barre se partagent la largeur à hauteur de pouce, et leur
@@ -38,6 +42,8 @@ const BARRE_FEUILLE =
 export interface PraticienVue {
   id: string; name: string; specialty: string | null; institution: string | null;
   wilaya: string | null; potential: string | null; secteur: string | null;
+  /** La lettre de segmentation (Direction, 07/10) et les visites qu'elle demande par cycle ; null = hors segmentation. */
+  lettre?: Lettre | null; requis?: number;
 }
 
 /**
@@ -56,7 +62,7 @@ export interface PraticienVue {
  *
  * Toucher un praticien « à faire » ouvre le rapport de SA visite — la même feuille, la même action (`rapporterVisite`)
  * que « Ma journée » : une seule porte vers le compte rendu d'une visite planifiée, et la cellule passe au vert sur le
- * même fait que la ligne de l'emploi du temps. Le bouton « Nouveau rapport terrain », au-dessus de la grille, ouvre une
+ * même fait que la ligne de l'emploi du temps. Le bouton « Faire un rapport », au-dessus de la grille, ouvre une
  * visite du plan à rapporter, ou la visite IMPRÉVUE de « Ma journée » pour une rencontre hors plan.
  *
  * ── POURQUOI LE CHOIX SE FAIT TOUJOURS PAR JOUR ─────────────────────────────────────────────
@@ -82,8 +88,10 @@ export function Planificateur({
   reviewerName, escalatedToName, rejectionComment,
   praticiens, panelVide, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jePeuxDecider, jePeuxEscalader,
   revisionNote, revisionPar, revisionLe, jePeuxDemanderRevision, jeSuisLeKam,
-  aujourdhui, dejaValide, lignes, gamme, stock, peutRapporter,
+  aujourdhui, dejaValide, lignes, gamme, stock, peutRapporter, peutSignalerPv = false,
 }: {
+  /** Le KAM peut signaler un cas de pharmacovigilance (`signaleDesCasPv`) : le bouton au-dessus de la grille, et la feuille d'une visite. */
+  peutSignalerPv?: boolean;
   /** `AAAA-MM-JJ` du jour, calculé par le serveur. */
   aujourdhui: string;
   /** Validé au moins une fois : ses visites sont dans l'emploi du temps, et la grille ouvre leur rapport. */
@@ -228,7 +236,7 @@ export function Planificateur({
       m.set(id, { name: l.doctorName, specialty: l.specialty, institution: l.institution, wilaya: l.wilaya, potential: null, secteur: null });
     }
     for (const p of praticiens) {
-      m.set(p.id, { name: p.name, specialty: p.specialty, institution: p.institution, wilaya: p.wilaya, potential: p.potential, secteur: p.secteur });
+      m.set(p.id, { name: p.name, specialty: p.specialty, institution: p.institution, wilaya: p.wilaya, potential: p.potential, lettre: p.lettre ?? null, secteur: p.secteur });
     }
     return m;
   }, [lignes, praticiens]);
@@ -252,7 +260,7 @@ export function Planificateur({
     return null;
   };
 
-  // LES VISITES À RAPPORTER MAINTENANT — pour le choix « Nouveau rapport terrain » : celles que la grille ouvrirait
+  // LES VISITES À RAPPORTER MAINTENANT — pour le choix « Faire un rapport » : celles que la grille ouvrirait
   // (la même règle, `etatCellule` + `gesteCellule`), la plus récente d'abord.
   const aRapporterMaintenant = React.useMemo(
     () => lignes
@@ -413,12 +421,23 @@ export function Planificateur({
               </InfoBulle>
             )}
           </h2>
-          {/* LE RAPPORT TERRAIN, AU-DESSUS DE L'EMPLOI DU TEMPS (Direction, 06/10) : une visite du plan à rapporter, ou une
-              rencontre hors plan — les deux portes de « Ma journée », jamais une troisième. */}
+          {/* LE RAPPORT TERRAIN, AU-DESSUS DE L'EMPLOI DU TEMPS (Direction, 06-07/10) : une visite du plan à rapporter, ou
+              une rencontre hors plan — les deux portes de « Ma journée », jamais une troisième. Sans visite à rapporter
+              maintenant, le bouton ouvre directement la rencontre hors plan. La pharmacovigilance, en geste secondaire. */}
           {peutRapporter && (
-            <Button size="sm" className="h-12 w-full text-sm sm:h-8 sm:w-auto sm:text-xs" onClick={() => { setErr(null); setNouveauRapport(true); }} disabled={occupe}>
-              <FilePlus2 className="h-4 w-4" /> Nouveau rapport terrain
-            </Button>
+            <div className="grid w-full grid-cols-[1fr_auto] gap-2 sm:flex sm:w-auto">
+              <Button
+                size="sm" className="h-12 text-sm sm:h-8 sm:text-xs" disabled={occupe}
+                onClick={() => { setErr(null); if (dejaValide && aRapporterMaintenant.length > 0) setNouveauRapport(true); else setImprevue(true); }}
+              >
+                <FilePlus2 className="h-4 w-4" /> Faire un rapport
+              </Button>
+              {peutSignalerPv && (
+                <Link href={lienSignalerPv()} className="inline-flex h-12 items-center justify-center gap-1.5 rounded-lg border border-warning/50 px-3 text-sm font-medium hover:bg-warning/10 sm:h-8 sm:text-xs">
+                  <ShieldAlert className="h-4 w-4" /> Pharmacovigilance
+                </Link>
+              )}
+            </div>
           )}
         </div>
         {praticiens.length === 0 && modifiable && (
@@ -444,6 +463,7 @@ export function Planificateur({
           onRetirer={retirer}
           onRapporter={(l) => { setErr(null); setARapporter(l); }}
           onNonTenue={(l) => { setErr(null); setNonTenue(l); }}
+          lienPv={peutRapporter && peutSignalerPv ? lienSignalerPv : null}
         />
       </section>
 
@@ -559,8 +579,11 @@ export function Planificateur({
                         onChange={() => basculer(jour, p.id)}
                         className="mt-0.5 h-5 w-5 shrink-0 rounded border-input sm:h-4 sm:w-4"
                       />
+                      {/* LA LETTRE DE SEGMENTATION d'abord (H, A–D) : elle dit qui voir en priorité et combien de fois. */}
+                      {p.lettre && <LettreBadge lettre={p.lettre} className="mt-0.5 shrink-0" />}
                       <span className="min-w-0 flex-1">
                         <span className="font-medium [overflow-wrap:anywhere]">{p.name}</span>
+                        {p.requis ? <span className="ml-1.5 text-xs text-muted-foreground">{p.requis} visite{p.requis > 1 ? "s" : ""} / cycle</span> : null}
                         <span className="block text-xs text-muted-foreground">
                           {[p.specialty, p.institution].filter(Boolean).join(" · ") || "—"}
                         </span>
@@ -595,7 +618,7 @@ export function Planificateur({
       <Sheet
         open={nouveauRapport}
         onClose={() => setNouveauRapport(false)}
-        title="Nouveau rapport terrain"
+        title="Faire un rapport"
         width="md"
       >
         <div className="space-y-4">

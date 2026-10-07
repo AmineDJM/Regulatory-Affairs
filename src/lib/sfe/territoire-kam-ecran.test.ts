@@ -62,13 +62,17 @@ describe("un panel vide dit sa cause — l'ordre où elle se répare", () => {
 
 describe("les points d'appel — ce que l'écran montre est ce que le panel lit", () => {
   it("l'écran BU n'a plus de section « Secteurs de la BU », et la ligne du KAM porte son territoire", () => {
-    const bu = lire("src/app/(app)/planning/business-units/bu-manager.tsx");
+    // LE MONTAGE EST DÉCOUPÉ EN ÉTAPES (07/10) : la ligne du KAM vit à l'étape « KAM », son territoire à l'étape
+    // « Secteurs » — les deux dans `bu-etapes.tsx`, montées par `bu-manager.tsx`.
+    const bu = lire("src/app/(app)/planning/business-units/bu-manager.tsx") + lire("src/app/(app)/planning/business-units/bu-etapes.tsx");
     expect(bu).not.toMatch(/Secteurs de la BU/);
     expect(bu).not.toMatch(/createSector|updateSector|deleteSector/);
     // Le texte « Secteur » ne se montre ni ne repart dans une BU hospitalière.
     expect(bu).toMatch(/\{!hospitaliere && \(\s*<input[^>]*placeholder="Secteur"/);
     expect(bu).toMatch(/if \(!hospitaliere\) fd\.set\("region"/);
-    expect(bu).toMatch(/\{hospitaliere && \(\s*<TerritoireKam /);
+    // Le territoire ne se choisit que dans une BU hospitalière ; une BU de ville renvoie au texte de la ligne.
+    expect(bu).toMatch(/!hospitaliere \? <p[^>]*>BU de ville/);
+    expect(bu).toMatch(/<TerritoireKam buId=\{bu\.id\} kam=\{k\}/);
     const page = lire("src/app/(app)/planning/business-units/page.tsx");
     expect(page).toMatch(/repId: \{ not: null \}, isActive: true/);
   });

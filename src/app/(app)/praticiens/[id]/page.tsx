@@ -7,6 +7,9 @@ import { praticienVisible, segmentationDuPraticien } from "@/lib/queries/vue-360
 import { STATUT_LABELS, ETAT_LABELS, pct } from "@/lib/segmentation/regles";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
+import { userCan } from "@/lib/rbac";
+import { chargerFdvDuPraticien, type FdvDuPraticien } from "@/lib/queries/force-de-vente";
+import { LettreBadge } from "@/app/(app)/segmentation/lettre-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +34,7 @@ export default async function Praticien360Page({ params }: { params: { id: strin
     },
   });
   if (!d) notFound();
-  const strategies = await segmentationDuPraticien(d.id);
+  const [strategies, fdv] = await Promise.all([segmentationDuPraticien(d.id), chargerFdvDuPraticien(d.id)]);
   const cycles = await prisma.segmentationCycle.findMany({ where: { strategieId: { in: strategies.map((s) => s.strategieId) }, statut: "OUVERT" }, select: { strategieId: true, debut: true, fin: true, libelle: true, instantane: true } });
   const visitesDuCycle = async (debut: Date, fin: Date) => prisma.medicalVisit.count({ where: { doctorId: d.id, status: "COMPLETED", date: { gte: debut, lt: new Date(fin.getTime() + 86_400_000) } } });
 
@@ -52,6 +55,8 @@ export default async function Praticien360Page({ params }: { params: { id: strin
         <Link href="/medical/annuaire" className="inline-flex min-h-10 items-center text-sm text-primary underline sm:min-h-9">Annuaire</Link>
       </PageHeader>
       {d.archivedAt && <p className="text-sm text-warning">Fiche archivée dans l&apos;annuaire.</p>}
+
+      <BlocForceDeVente fdv={fdv} voitFdv={userCan(user, "SALES_PLANNING", "VIEW")} voitSegmentation={userCan(user, "SEGMENTATION", "VIEW")} />
 
       {await Promise.all(strategies.map(async (s) => {
         const r = s.ligne?.resultat;
@@ -93,5 +98,48 @@ export default async function Praticien360Page({ params }: { params: { id: strin
         {d.visits.map((v) => <p key={v.id} className="text-xs">{v.date.toLocaleDateString("fr-FR")} · {v.status} · {v.delegate?.name ?? "—"}{v.productLinks.length ? ` · ${v.productLinks.map((l) => l.product.canonicalName).join(", ")}` : ""}{v.objective ? ` · ${v.objective}` : ""}</p>)}
       </section>
     </div>
+  );
+}
+
+/**
+ * LE PRATICIEN POUR LA FORCE DE VENTE (Direction, 07/10 — « Annuaires branchés ») : sa lettre et son statut, son délégué,
+ * sa dernière visite, les messages reçus, ce qu'il a reçu en Ad & Pro. Un bloc compact ; les liens mènent à la
+ * Segmentation et à la fiche du délégué dans Force de vente.
+ */
+function BlocForceDeVente({ fdv, voitFdv, voitSegmentation }: { fdv: FdvDuPraticien; voitFdv: boolean; voitSegmentation: boolean }) {
+  const jour = (x: Date) => x.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  const ligne = "flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5";
+  return (
+    <section className="surface min-w-0 space-y-2 p-3 text-sm sm:p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {fdv.lettres.length === 0 ? <span className="text-muted-foreground">Hors segmentation</span> : fdv.lettres.map((l) => (
+          <span key={l.strategieId} className="inline-flex items-center gap-1.5">
+            <LettreBadge lettre={l.lettre} />
+            <span className="text-xs text-muted-foreground">{[l.statut ? STATUT_LABELS[l.statut] : null, `BU ${l.buNom}`, l.visites ? `${l.visites} visite${l.visites > 1 ? "s" : ""} / cycle` : null].filter(Boolean).join(" · ")}</span>
+            {voitSegmentation && <Link href={`/segmentation?s=${l.strategieId}&vue=praticiens`} className="text-xs text-primary hover:underline">Segmentation</Link>}
+          </span>
+        ))}
+      </div>
+      <p className={ligne}>
+        <span className="text-muted-foreground">Délégué</span>
+        <span className="[overflow-wrap:anywhere]">
+          {fdv.kams.length === 0 ? <span className="text-warning">aucun — hors panel</span> : fdv.kams.map((k, i) => (
+            <span key={k.id}>{i > 0 ? ", " : ""}{voitFdv ? <Link href={`/planning?kam=${k.id}`} className="text-primary hover:underline">{k.nom}</Link> : k.nom}</span>
+          ))}
+        </span>
+      </p>
+      <p className={ligne}>
+        <span className="text-muted-foreground">Dernière visite</span>
+        <span>{fdv.derniereVisite ? `${jour(fdv.derniereVisite.date)}${fdv.derniereVisite.delegue ? ` · ${fdv.derniereVisite.delegue}` : ""}` : "jamais"}</span>
+      </p>
+      <p className={ligne}>
+        <span className="text-muted-foreground">Messages reçus (3 dernières visites)</span>
+        <span className="[overflow-wrap:anywhere]">{fdv.messages.length ? fdv.messages.join(" · ") : "aucun"}</span>
+      </p>
+      <p className={ligne}>
+        <span className="text-muted-foreground">Ad &amp; Pro (12 mois)</span>
+        <span className="[overflow-wrap:anywhere]">{fdv.adPro.length ? fdv.adPro.map((a) => `${a.nom}${a.date ? ` (${jour(a.date)})` : ""}`).join(" · ") : "rien"}</span>
+      </p>
+    </section>
   );
 }

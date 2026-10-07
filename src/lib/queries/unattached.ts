@@ -1,4 +1,5 @@
 import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
+import { CHEMIN_RAPPORTS_TERRAIN } from "@/lib/chemins/rapports-terrain";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -42,7 +43,7 @@ const TABLES: { label: string; model: string; href: string | null; count: () => 
   { label: "Mouvements de trésorerie", model: "financeTransaction", href: "/finances", count: () => prisma.financeTransaction.count({ where: { companyId: null } }) },
   { label: "Ordres de dépense", model: "expenseOrder", href: "/finances/paiements-a-faire", count: () => prisma.expenseOrder.count({ where: { companyId: null } }) },
   { label: "Praticiens (annuaire)", model: "medicalDoctor", href: "/medical/annuaire", count: () => prisma.medicalDoctor.count({ where: { companyId: null } }) },
-  { label: "Rapports terrain", model: "fieldReport", href: "/field-reports", count: () => prisma.fieldReport.count({ where: { companyId: null } }) },
+  { label: "Rapports terrain", model: "fieldReport", href: CHEMIN_RAPPORTS_TERRAIN, count: () => prisma.fieldReport.count({ where: { companyId: null } }) },
   { label: "Information médicale", model: "medicalInfoDeclaration", href: "/information-medicale", count: () => prisma.medicalInfoDeclaration.count({ where: { companyId: null } }) },
   { label: "Marchés PCH", model: "pchTender", href: "/pch", count: () => prisma.pchTender.count({ where: { companyId: null } }) },
   { label: "Commandes logistiques", model: "logisticsOrder", href: "/logistics", count: () => prisma.logisticsOrder.count({ where: { companyId: null } }) },

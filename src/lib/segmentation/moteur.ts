@@ -1,6 +1,6 @@
 import {
-  SEGMENTS, seuilsPourZone, pct, STATUT_LABELS, frequenceEffective, type InOut,
-  type EtatProduit, type Regles, type RegleProduit, type Segment, type Statut, type ReglePriorite,
+  SEGMENTS, seuilsPourZone, pct, STATUT_LABELS, frequenceEffective, grilleDuSecteur, LETTRES_FORCABLES, type InOut,
+  type EtatProduit, type Regles, type RegleProduit, type Segment, type Statut, type ReglePriorite, type Lettre, type CleFrequence,
 } from "./regles";
 
 /**
@@ -47,6 +47,9 @@ export interface FaitsPraticien {
   institutionId?: string | null;
   /** IN = dans la wilaya pivot d'un KAM qui le couvre, OUT = ailleurs, null = inconnu (aucune ville pivot). */
   inOut?: InOut | null;
+  /** SON SECTEUR DANS LA BU (posé à la main, sinon déduit de l'établissement) — nul = sans secteur. */
+  secteurId?: string | null;
+  secteurNom?: string | null;
 }
 
 /**
@@ -86,6 +89,12 @@ export interface ResultatPraticien {
   pourquoiPriorite: string;
   visites: number;
   pourquoiVisites: string;
+  /** LA LETTRE (produit #1) qui s'applique — la forcée s'il y en a une, sinon la calculée. */
+  lettre: Lettre;
+  /** Ce que les règles donnent, sans décision manuelle. */
+  lettreCalculee: Lettre;
+  /** La décision manuelle en vigueur (motif obligatoire), ou null. */
+  lettreForcee: { valeur: Lettre; motif: string } | null;
 }
 
 const actif = (d: Derogation, maintenant: Date) => !d.expireLe || d.expireLe.getTime() > maintenant.getTime();
@@ -132,7 +141,7 @@ export function segmenterProduit(
   const affinite = parEtab ? etab?.valeur ?? null : declaree;
   const nomEtab = f.institutionId ? ctx.nomsEtablissements?.[f.institutionId] ?? "son établissement" : "son établissement";
   const specialitesVisees = ctx.specialitesParProduit?.[r.productId] ?? [];
-  const z = seuilsPourZone(r, f.zone);
+  const z = seuilsPourZone(r, f.zone, { id: f.secteurId ?? null, nom: f.secteurNom ?? null });
   let calcule: EtatProduit;
   if (f.statut && regles.ciblage.statutsNonCibles.includes(f.statut)) {
     calcule = "NON_CIBLE";
@@ -146,14 +155,16 @@ export function segmenterProduit(
   } else if (potentiel === null) {
     calcule = "EN_ATTENTE";
     pourquoi.push(`Potentiel (${r.metrique}) non renseigné : en attente — jamais classé D faute de donnée.`);
-  } else if (potentiel === 0 && regles.ciblage.potentielNulNonCible) {
-    calcule = "NON_CIBLE";
-    pourquoi.push(`Potentiel déclaré à 0 (${r.metrique}) : ne consulte pas, non ciblé.`);
   } else if (affinite === null) {
+    // UNE RÉPONSE MANQUE → NA, avant tout autre verdict (Direction, 07/10) : même un « 0 patient » sans la seconde
+    // réponse reste à questionner en visite.
     calcule = "EN_ATTENTE";
     pourquoi.push(parEtab
       ? `Potentiel ${potentiel} ; affinité de ${nomEtab} non calculée (aucune consommation importée) : en attente.`
       : `Potentiel ${potentiel} ; affinité non renseignée : en attente.`);
+  } else if (potentiel === 0 && regles.ciblage.potentielNulNonCible) {
+    calcule = "NON_CIBLE";
+    pourquoi.push(`Potentiel déclaré à 0 (${r.metrique}) : ne consulte pas, non ciblé.`);
   } else {
     if (parEtab && etab) pourquoi.push(`Affinité : proxy établissement — ${nomEtab}, ${pct(etab.valeur)} (${etab.periode}), règle explicite de la BU.`);
     const haut = potentiel >= z.seuilPotentiel;
@@ -211,32 +222,67 @@ export function prioriteDe(segs: (Segment | null)[], regles: Regles): { priorite
 /** Le résultat complet d'un praticien pour une stratégie. */
 export function segmenterPraticien(f: FaitsPraticien, regles: Regles, maintenant: Date = new Date(), ctx: ContexteSegmentation = {}): ResultatPraticien {
   const produits = regles.produits.map((r, i) => segmenterProduit(r, i + 1, f, regles, maintenant, ctx));
-  const h = !!f.statut && regles.h.statuts.includes(f.statut);
+  const hStatut = !!f.statut && regles.h.statuts.includes(f.statut);
   const dc = f.derogations.find((x) => x.nature === "CIBLAGE" && actif(x, maintenant));
+  // LA LETTRE FORCÉE (produit #1) : H, A, B, C, D posée à la main — ou « non ciblé », qui est une décision de ciblage.
+  const p1 = regles.produits[0]?.productId ?? null;
+  const dl = f.derogations.find((x) => x.nature === "SEGMENT" && x.productId === p1 && actif(x, maintenant) && (LETTRES_FORCABLES as readonly string[]).includes(x.valeur) && x.valeur !== "NC");
+  const forcee: { valeur: Lettre; motif: string } | null = dl
+    ? { valeur: dl.valeur as Lettre, motif: dl.motif }
+    : dc?.valeur === "NON_CIBLE" ? { valeur: "NC", motif: dc.motif } : null;
+  const h = forcee ? forcee.valeur === "H" : hStatut;
   const segs = produits.map((p) => ((SEGMENTS as readonly string[]).includes(p.etat) ? (p.etat as Segment) : null));
   const toutNonCible = produits.every((p) => p.etat === "NON_CIBLE");
   let cible: boolean;
-  if (dc) cible = dc.valeur === "CIBLE";
-  else cible = h || !toutNonCible;
+  if (dl) cible = true;
+  else if (dc) cible = dc.valeur === "CIBLE";
+  else cible = hStatut || !toutNonCible;
+  const premier = produits[0];
+  const lettreDe = (e: EtatProduit | undefined): Lettre => (e === undefined || e === "NON_CIBLE" ? "NC" : e === "EN_ATTENTE" ? "NA" : e);
+  const lettreCalculee: Lettre = hStatut ? "H" : lettreDe(premier?.calcule);
+  const lettre: Lettre = forcee ? forcee.valeur : !cible ? "NC" : hStatut ? "H" : lettreDe(premier?.etat);
   const { priorite, pourquoi: pourquoiPriorite } = cible ? prioriteDe(segs, regles) : { priorite: null, pourquoi: "Non ciblé : pas de priorité." };
   let visites = 0;
   let pourquoiVisites: string;
+  const base = { doctorId: f.doctorId, cible, h, produits, priorite, pourquoiPriorite, lettre, lettreCalculee, lettreForcee: forcee, affichage: produits.map((p) => (p.etat === "NON_CIBLE" ? "NC" : p.etat === "EN_ATTENTE" ? "?" : p.etat)).join(" / ") };
+  if (regles.grille) {
+    // LA GRILLE PAR LETTRE (Direction, 07/10) : la lettre, l'In/Out (inconnu = Out) et le secteur donnent les visites.
+    const cle = cleFrequence(lettre, f.inOut ?? null);
+    if (!cle) {
+      pourquoiVisites = lettre === "NA" ? "Réponse manquante (NA) : à questionner en visite, aucune visite requise par la grille." : "Non ciblé : aucune visite requise.";
+    } else {
+      const g = grilleDuSecteur(regles.grille, f.secteurId ?? null);
+      visites = g[cle];
+      const propre = !!f.secteurId && regles.grille.secteurs.some((s) => s.secteurId === f.secteurId && s.valeurs[cle] !== undefined);
+      pourquoiVisites = `${LIBELLE_GROUPE[cle]} — ${f.inOut === "IN" ? "In" : f.inOut === "OUT" ? "Out" : "Out (wilaya inconnue)"}${propre ? ` — fréquence du secteur ${f.secteurNom ?? ""}`.trimEnd() : ""} : ${visites} visite${visites > 1 ? "s" : ""} par cycle.`;
+    }
+    return { ...base, visites, pourquoiVisites };
+  }
   if (!cible) {
     pourquoiVisites = dc ? `Non ciblé par décision : ${dc.motif}` : "Non ciblé : aucune visite requise.";
   } else {
     // LA FRÉQUENCE SE LIT AVEC LA ZONE ET LE IN/OUT (wilaya pivot du KAM) : l'exception la plus précise l'emporte.
-    const p = priorite ? frequenceEffective(regles, priorite, f.zone, f.inOut ?? null) : { frequence: 0, exception: null };
-    const fh = frequenceEffective(regles, "H", f.zone, f.inOut ?? null);
+    const zone = f.zone ?? f.secteurNom ?? null;
+    const p = priorite ? frequenceEffective(regles, priorite, zone, f.inOut ?? null) : { frequence: 0, exception: null };
+    const fh = frequenceEffective(regles, "H", zone, f.inOut ?? null);
     const fp = p.frequence;
     const ou = (x: string | null) => (x ? ` — ${x}` : "");
     if (h && fh.frequence >= fp) { visites = fh.frequence; pourquoiVisites = `Décideur (H)${ou(fh.exception)} : ${visites} visite${visites > 1 ? "s" : ""} par cycle${priorite ? ` (la priorité ${priorite} en demanderait ${fp})` : ""}.`; }
     else if (priorite) { visites = fp; pourquoiVisites = `Priorité ${priorite}${ou(p.exception)} : ${fp} visite${fp > 1 ? "s" : ""} par cycle.`; }
     else pourquoiVisites = "Ciblé, mais sans priorité calculable (données en attente) : 0 visite requise tant que le potentiel manque.";
   }
-  return {
-    doctorId: f.doctorId, cible, h, produits, priorite, pourquoiPriorite, visites, pourquoiVisites,
-    affichage: produits.map((p) => (p.etat === "NON_CIBLE" ? "NC" : p.etat === "EN_ATTENTE" ? "?" : p.etat)).join(" / "),
-  };
+  return { ...base, visites, pourquoiVisites };
+}
+
+const LIBELLE_GROUPE: Record<CleFrequence, string> = { H_IN: "Décideur (H)", H_OUT: "Décideur (H)", AB_IN: "A & B", AB_OUT: "A & B", CD_IN: "C & D", CD_OUT: "C & D" };
+
+/** La case de la grille d'une lettre : H, A & B, C & D × In / Out (inconnu = Out). NA et NC n'en ont pas. */
+export function cleFrequence(lettre: Lettre, inOut: InOut | null): CleFrequence | null {
+  const io = inOut === "IN" ? "IN" : "OUT";
+  if (lettre === "H") return `H_${io}`;
+  if (lettre === "A" || lettre === "B") return `AB_${io}`;
+  if (lettre === "C" || lettre === "D") return `CD_${io}`;
+  return null;
 }
 
 export interface ChangementImpact {

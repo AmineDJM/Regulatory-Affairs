@@ -61,10 +61,10 @@ describe("le point d'appel — une règle, lue par l'onglet, la page et les cinq
     }
   });
   it("la page lit la même règle pour s'ouvrir et pour chaque bouton", () => {
-    // L'écran est PARTAGÉ avec Force de vente › Spécialités (§118.209) : la règle se lit dans le composant.
-    // L'ancienne adresse des Annuaires MÈNE à la porte unique (Direction, 06/10).
-    expect(code("src/app/(app)/annuaires/specialites/page.tsx")).toContain('redirect("/marketing-cockpit/specialites")');
-    const page = code("src/app/(app)/marketing-cockpit/specialites/page.tsx");
+    // L'écran est le composant partagé (§118.209) : la règle se lit dans le composant.
+    // Porte unique : Annuaires › Spécialités (Direction, 07/10) ; l'ancienne adresse du Marketing cockpit y MÈNE.
+    expect(code("src/app/(app)/marketing-cockpit/specialites/page.tsx")).toContain('redirect("/annuaires/specialites")');
+    const page = code("src/app/(app)/annuaires/specialites/page.tsx");
     expect(page).toContain(`peutGererSpecialites(user, "VIEW")`);
     expect(page).toContain("<EcranSpecialites user={user} />");
     const src = code("src/components/directory/ecran-specialites.tsx");
@@ -157,9 +157,9 @@ suite("le référentiel des spécialités — les deux directeurs des opération
     expect(peutGererSpecialites(DEL, "DELETE")).toBe(false);
   });
 
-  it("UNE porte d'entrée (Direction, 06/10) : plus d'onglet dans les Annuaires ; Marketing cockpit › Spécialités suit la règle", async () => {
-    expect(ANNUAIRES_TABS.some((t) => t.href === "/annuaires/specialites")).toBe(false);
-    const onglet = async (u: SessionUser) => (await visibleTabs(u, MARKETING_COCKPIT_TABS)).find((t) => t.href === "/marketing-cockpit/specialites")?.show;
+  it("UNE porte d'entrée (Direction, 07/10) : Annuaires › Spécialités, qui suit la règle ; le Marketing cockpit n'en porte plus", async () => {
+    expect(MARKETING_COCKPIT_TABS.some((t) => t.label === "Spécialités")).toBe(false);
+    const onglet = async (u: SessionUser) => (await visibleTabs(u, ANNUAIRES_TABS)).find((t) => t.href === "/annuaires/specialites")?.show;
     expect(await onglet(OD)).toBe(true);
     expect(await onglet(DIR)).toBe(true);
     const nu = await acteur(viewer, "VIEWER");

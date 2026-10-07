@@ -4,7 +4,7 @@ import { ANNUAIRES_TABS } from "@/lib/labels";
 import { peutAnnuaire, ANNUAIRES_ACCORDABLES, LECTURE_POUR_TOUS, type FaitsAnnuaire } from "./acces";
 
 /**
- * ANNUAIRES (Direction, 06/10) — Spécialités : une seule porte (Marketing cockpit) ; « Autres annuaires » retiré ;
+ * ANNUAIRES (Direction, 06/10) — Spécialités : une seule porte (les Annuaires depuis le 07/10) ; « Autres annuaires » retiré ;
  * Fournisseurs Regulatory et Partenaires publics deviennent des annuaires à part entière ; l'annuaire des personnes
  * permet d'ajouter, modifier et retirer ; un message supprimé ne s'aperçoit plus dans la liste des conversations.
  */
@@ -15,9 +15,10 @@ const faits = (modules: Record<string, string[]>): FaitsAnnuaire => ({
 });
 
 describe("onglets des Annuaires", () => {
-  it("plus de Spécialités ni d'Autres annuaires ; Partenaires publics et Fournisseurs Regulatory présents", () => {
+  it("Spécialités revenues (07/10, porte unique), plus d'Autres annuaires ; Partenaires publics et Fournisseurs Regulatory présents", () => {
     const hrefs = ANNUAIRES_TABS.map((t) => t.href);
-    expect(hrefs).not.toContain("/annuaires/specialites");
+    expect(hrefs).toContain("/annuaires/specialites");
+    expect(ANNUAIRES_TABS.find((t) => t.href === "/annuaires/specialites")?.regle).toBe("specialites");
     expect(hrefs).not.toContain("/annuaires/autres");
     expect(hrefs).toContain("/annuaires/partenaires-publics");
     expect(hrefs).toContain("/annuaires/fournisseurs");

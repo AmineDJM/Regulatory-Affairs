@@ -97,6 +97,8 @@ export function panelRequiredVisits(countByTier: Record<string, number>, freqByT
 /**
  * Portée d'accès à la force de vente (profondeur hiérarchique) :
  *  - `all` : configurateur (Direction / Manager promo / Super Admin) ou vue globale → tous les KAM ;
+ *    ou LECTEUR de pilotage (Direction Marketing, directeur des opérations… : le module en lecture sans être KAM
+ *    ni superviseur) → tous les KAM, en LECTURE SEULE (`lectureSeule`) ;
  *  - `team` : superviseur national → uniquement les KAM de ses équipes ;
  *  - `self` : KAM → uniquement lui-même.
  */
@@ -104,8 +106,26 @@ export interface RepScope {
   mode: "all" | "team" | "self";
   canConfigure: boolean;
   isSupervisor: boolean;
+  /**
+   * Portée `all` SANS pouvoir de configuration ni d'équipe : on lit tout, on ne touche rien — et ce n'est pas un
+   * périmètre de coaching (`lecteurCoaching` ne l'étend pas) ni de chiffre d'affaires (`chargerEffortVentes`).
+   */
+  lectureSeule?: boolean;
   buIds: string[]; // BU supervisées (pour team/all)
   repIds: string[] | null; // null = tous ; sinon liste explicite
+}
+
+/** Les rôles terrain : un KAM (délégué médical) ou un National Sales qui n'encadre aucune BU se voit lui-même. */
+const ROLES_TERRAIN = ["MEDICAL_DELEGATE", "NATIONAL_SALES"] as const;
+
+/**
+ * La portée d'un LECTEUR : le module Force de vente en lecture, sans être un rôle terrain (rôle principal OU
+ * secondaire) ni porter un profil de KAM. Avant (07/10), un Product Manager ou un directeur des opérations tombait en
+ * `self` — la portée d'un KAM — et voyait un pilotage VIDE : on ne lui montrait que ses propres visites, qui n'existent pas.
+ */
+export function estLecteurDePilotage(u: { role: string; secondaryRole?: string | null }, aUnProfilKam: boolean, voitLeModule: boolean): boolean {
+  if (!voitLeModule || aUnProfilKam) return false;
+  return !ROLES_TERRAIN.some((r) => u.role === r || u.secondaryRole === r);
 }
 
 export async function resolveRepScope(user: SessionUser): Promise<RepScope> {
@@ -121,6 +141,10 @@ export async function resolveRepScope(user: SessionUser): Promise<RepScope> {
     const members = await prisma.salesRepProfile.findMany({ where: { businessUnitId: { in: buIds } }, select: { repId: true } });
     const repIds = Array.from(new Set([...members.map((m) => m.repId), user.id]));
     return { mode: "team", canConfigure: false, isSupervisor: true, buIds, repIds };
+  }
+  const profil = await prisma.salesRepProfile.findUnique({ where: { repId: user.id }, select: { id: true } }).catch(() => null);
+  if (estLecteurDePilotage(user, !!profil, userCan(user, "SALES_PLANNING", "VIEW"))) {
+    return { mode: "all", canConfigure: false, isSupervisor: false, lectureSeule: true, buIds: [], repIds: null };
   }
   return { mode: "self", canConfigure: false, isSupervisor: false, buIds: [], repIds: [user.id] };
 }

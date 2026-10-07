@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { CarriedProduct, TourneeItem } from "@/lib/sfe-day";
 import type { StockPourVisite } from "@/lib/queries/promo-remises";
 import { BlocMaterielRemis } from "./materiel-remis";
+import { LettreBadge } from "@/app/(app)/segmentation/lettre-badge";
 
 /**
  * LA SAISIE D'UNE VISITE, EN TROIS GESTES — l'écran que le terrain ouvre debout.
@@ -75,7 +76,11 @@ export function DayClient({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{t.name}</p>
+                    <p className="flex min-w-0 items-center gap-1.5">
+                      {/* LA LETTRE DE SEGMENTATION (Direction, 07/10) — absente pour un praticien hors segmentation. */}
+                      {t.lettre && <LettreBadge lettre={t.lettre} className="h-5 min-w-[22px] shrink-0" />}
+                      <span className="truncate font-medium">{t.name}</span>
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {[t.specialty, t.institution, t.wilaya].filter(Boolean).join(" · ") || "—"}
                     </p>

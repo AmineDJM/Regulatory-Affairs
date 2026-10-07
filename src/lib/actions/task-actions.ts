@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import {
   canRespond, canDoWork, canComment, declineSummary, peutRelancer, relanceTitre,
   ACCEPTED_STATUS, DECLINED_STATUS, refusAnnulationDemande, STATUTS_ANNULABLES,
+  refusReattribution, STATUTS_REATTRIBUABLES,
 } from "@/lib/tasks/request-flow";
 import { createTaskRecord } from "@/lib/tasks/create-core";
 import { attachFiles, validateAttachments } from "@/lib/attach-files";
@@ -479,4 +480,63 @@ export async function annulerDemandeTache(formData: FormData): Promise<ActionRes
   revalidatePath("/mon-espace");
   revalidatePath(`/mon-espace/taches/${id}`);
   return { ok: true, id, message: "Demande annulée — la personne est prévenue." };
+}
+
+/**
+ * RÉATTRIBUER UNE DEMANDE (Direction, 07/10) — refusée ou restée sans réponse, elle part chez quelqu'un
+ * d'autre au lieu d'être recréée à la main. La nouvelle personne reçoit une DEMANDE (pop-up : elle
+ * attend sa réponse) ; l'ancienne, si elle n'avait pas encore répondu, apprend qu'elle n'a plus à le
+ * faire. Le fil garde la trace. Écriture CONDITIONNELLE : une acceptation pendant le clic l'emporte.
+ */
+export async function reattribuerDemandeTache(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const nouveauId = fdStr(formData, "assignedToId");
+  if (!id) return { ok: false, error: "Tâche introuvable." };
+
+  const task = await prisma.task.findUnique({
+    where: { id },
+    select: { title: true, status: true, assignedToId: true, createdById: true, requestedAt: true, participantIds: true, readerIds: true, assignedTo: { select: { name: true } } },
+  });
+  if (!task) return { ok: false, error: "Tâche introuvable." };
+  const refus = refusReattribution(task, user.id, nouveauId);
+  if (refus) return { ok: false, error: refus };
+  const nouveau = await prisma.user.findFirst({ where: { id: nouveauId!, isActive: true }, select: { id: true, name: true } });
+  if (!nouveau) return { ok: false, error: "Cette personne n'est pas (ou plus) active." };
+
+  const pris = await prisma.task.updateMany({
+    where: { id, createdById: user.id, status: { in: [...STATUTS_REATTRIBUABLES] } },
+    data: {
+      assignedToId: nouveau.id, status: "REQUESTED", requestedAt: new Date(), respondedAt: null,
+      declineReason: null, lastNudgeAt: null, nudgeCount: 0, startedAt: null,
+      // La nouvelle personne est RESPONSABLE : elle ne figure plus parmi les participants ou les lecteurs.
+      participantIds: task.participantIds.filter((p) => p !== nouveau.id),
+      readerIds: task.readerIds.filter((p) => p !== nouveau.id),
+    },
+  });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient de changer — rechargez la page." };
+
+  const ancien = task.assignedTo?.name ?? null;
+  await prisma.taskComment.create({
+    data: { taskId: id, authorId: user.id, body: `Demande réattribuée à ${nouveau.name}${ancien ? ` (auparavant : ${ancien})` : ""}.` },
+  }).catch(() => undefined);
+  const lignes = [
+    { userId: nouveau.id, type: "ASSIGNMENT" as const, title: "Demande de tâche", body: task.title, link: `/mon-espace/taches/${id}`, popup: true },
+    ...(task.status === "REQUESTED" && task.assignedToId && task.assignedToId !== nouveau.id
+      ? [{ userId: task.assignedToId, type: "ASSIGNMENT" as const, title: "Demande réattribuée", body: `${task.title} — vous n'avez plus à la traiter.`, link: `/mon-espace/taches/${id}`, popup: false }]
+      : []),
+  ];
+  try {
+    await prisma.notification.createMany({ data: lignes });
+  } catch (err) {
+    await rejouerNotifications(lignes, err);
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id,
+    field: "assignedToId", oldValue: task.assignedToId ?? undefined, newValue: nouveau.id,
+    summary: `Demande « ${task.title} » réattribuée à ${nouveau.name}`,
+  });
+  revalidatePath("/mon-espace/taches");
+  revalidatePath(`/mon-espace/taches/${id}`);
+  return { ok: true, id, message: `Demande envoyée à ${nouveau.name}.` };
 }

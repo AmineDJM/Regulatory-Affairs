@@ -880,7 +880,7 @@ export async function saveAssignment(formData: FormData): Promise<ActionResult> 
     create: { cycleId, repId, productId, ...data },
     update: data,
   });
-  revalidatePath(`${PATH}/affectations`);
+  revalidatePath(`${PATH}/produits`);
   return { ok: true };
 }
 
@@ -892,7 +892,7 @@ export async function deleteAssignment(formData: FormData): Promise<ActionResult
   if (!cycleId || !repId || !productId) return { ok: false, error: "Paramètres manquants." };
   if (!(await canEditRep(user, repId))) return { ok: false, error: "Non autorisé sur ce KAM." };
   await prisma.promotionAssignment.deleteMany({ where: { cycleId, repId, productId } });
-  revalidatePath(`${PATH}/affectations`);
+  revalidatePath(`${PATH}/produits`);
   return { ok: true };
 }
 
@@ -917,7 +917,7 @@ export async function carryForwardAssignments(formData: FormData): Promise<Actio
     copied++;
   }
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Report de ${copied} affectation(s)` });
-  revalidatePath(`${PATH}/affectations`);
+  revalidatePath(`${PATH}/produits`);
   return { ok: true };
 }
 

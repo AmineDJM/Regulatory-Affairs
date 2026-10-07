@@ -117,7 +117,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   regulatoryHiddenColumns: [],
   driveSpaceCreatorRoles: [],
   fieldReportsOverviewRoles: [],
-  promoMessageAuthorRoles: [],
+  // LA DIRECTION MARKETING ÉCRIT SES MESSAGES PAR DÉFAUT (Direction, 07/10) — le Super Admin peut toujours
+  // retirer ou ajouter des rôles ; la migration `20270115140000_cockpit_marketing_auteurs` a posé le même défaut en base.
+  promoMessageAuthorRoles: ["PRODUCT_MANAGER"],
   orgChartViewerRoles: [],
   orgChartViewerUserIds: [],
   // Listes VIDES : par défaut, le pipeline reste ce qu'il était — le Super Admin, et lui seul.

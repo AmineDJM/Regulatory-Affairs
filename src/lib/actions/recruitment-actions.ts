@@ -5,7 +5,7 @@ import { synchroniserOffreDeLaDemande } from "@/lib/site-web/contenus";
 import type { ContractType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { userCan, rolesWithModule } from "@/lib/rbac";
+import { userCan, rolesWithModule, isTopManagement } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
@@ -19,8 +19,32 @@ import {
   abilities, ETAPES_RETIRABLES, prevenusAuRetrait, applyChainDecision, canDecideStep, canSelectCandidate, currentStep,
   needsOnboarding, summarize, validateDraft, CONTRACT_LABEL,
   marchesChangees, changementsMateriels, reouverture, STAGE_LABEL,
+  completerJusquAuSommet, ORDRE_DU_SOMMET, cibleDeLaDecision, decisionDuSommetExigeSuivi,
+  nettoyerIds, refusDesignationDuSommet, suiveursAPrevenir,
   type ChainStep, type RecruitmentContract, type RecruitmentStage,
 } from "@/lib/recruitment/request-flow";
+
+/** Les valeurs multiples d'un champ (`followerIds`) — lu par nom littéral, comme les autres champs. */
+const fdList = (formData: FormData, key: string): string[] => formData.getAll(key).map((v) => String(v)).filter(Boolean);
+
+/**
+ * PRÉVENIR LE SUIVI — le futur N+1 et les personnes en charge du suivi (désignés par le DG, Direction 07/10)
+ * reçoivent les notifications d'étape là où le demandeur les reçoit. Jamais l'auteur du geste ni ceux de `sauf`
+ * (le demandeur, déjà prévenu). Un échec de notification ne défait pas le geste.
+ */
+async function prevenirLeSuivi(
+  id: string,
+  n: { title: string; body: string },
+  sauf: (string | null | undefined)[],
+): Promise<void> {
+  const r = await prisma.recruitmentRequest.findUnique({
+    where: { id }, select: { futureManagerId: true, followers: { select: { userId: true } } },
+  });
+  if (!r) return;
+  for (const userId of suiveursAPrevenir(r.futureManagerId, r.followers.map((f) => f.userId), sauf)) {
+    await notifyUser({ userId, type: "GENERIC", title: n.title, body: n.body, link: `/recrutement/${id}` }).catch(() => undefined);
+  }
+}
 
 /**
  * LE CIRCUIT DE RECRUTEMENT — la porte de l'écran.
@@ -52,19 +76,40 @@ const MOTIF_REFUS = "Un refus se motive — c'est ce que le demandeur lira.";
  *
  * Le demandeur est écarté de sa propre chaîne : un directeur qui est aussi son propre N+1 dans
  * l'organigramme ne se valide pas lui-même.
+ *
+ * ELLE MONTE JUSQU'AU DG (Direction, 07/10) : si l'organigramme s'arrête avant le sommet (`isTopManagement`), le
+ * premier sommet actif — DG, puis Direction, puis Super Admin — est ajouté en dernière marche
+ * (`completerJusquAuSommet`). Un demandeur sans fiche employé part donc directement au sommet.
  */
 async function buildChain(requesterUserId: string): Promise<{ approverId: string; name: string }[]> {
   const emp = await prisma.employee.findUnique({ where: { userId: requesterUserId }, select: { id: true } });
-  if (!emp) return [];
-  const chain = await getManagementChain(emp.id);
-  const out: { approverId: string; name: string }[] = [];
+  const chain = emp ? await getManagementChain(emp.id) : [];
+  const ids: string[] = [];
+  const noms = new Map<string, string>();
   const seen = new Set<string>([requesterUserId]);
   for (const m of chain) {
     if (!m.userId || seen.has(m.userId)) continue;
     seen.add(m.userId);
-    out.push({ approverId: m.userId, name: m.fullName });
+    ids.push(m.userId);
+    noms.set(m.userId, m.fullName);
   }
-  return out;
+  const [comptes, sommets] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true, secondaryRole: true } }),
+    prisma.user.findMany({
+      where: { isActive: true, OR: [{ role: { in: [...ORDRE_DU_SOMMET] } }, { secondaryRole: { in: [...ORDRE_DU_SOMMET] } }] },
+      select: { id: true, name: true, role: true, secondaryRole: true },
+    }),
+  ]);
+  const top = new Map(comptes.map((c) => [c.id, isTopManagement(c)]));
+  const rang = (u: { role: string; secondaryRole: string | null }) => Math.min(
+    ...[u.role, u.secondaryRole].map((r) => { const i = (ORDRE_DU_SOMMET as readonly string[]).indexOf(r ?? ""); return i < 0 ? 99 : i; }),
+  );
+  const sommetsTries = [...sommets].sort((a, b) => rang(a) - rang(b) || a.name.localeCompare(b.name));
+  return completerJusquAuSommet(
+    ids.map((id) => ({ approverId: id, name: noms.get(id) ?? "", isTop: top.get(id) ?? false })),
+    sommetsTries.map((s) => ({ id: s.id, name: s.name })),
+    requesterUserId,
+  );
 }
 
 export async function createRecruitmentRequest(
@@ -73,7 +118,7 @@ export async function createRecruitmentRequest(
 ): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "RECRUITMENT", "CREATE")) {
-    return { ok: false, error: "Seul un responsable de département peut demander un recrutement." };
+    return { ok: false, error: "Le module Recrutement vous est fermé (Administration › Accès) : vous ne pouvez pas demander de recrutement." };
   }
 
   const contractType = fdStr(formData, "contractType") ?? "";
@@ -95,8 +140,8 @@ export async function createRecruitmentRequest(
   if (chain.length === 0) {
     return {
       ok: false,
-      error: "Aucun responsable hiérarchique n'est renseigné au-dessus de vous : la demande ne "
-        + "pourrait être validée par personne. Faites compléter l'organigramme par les RH.",
+      error: "Aucun validateur n'a pu être trouvé — ni responsable hiérarchique au-dessus de vous, ni direction "
+        + "générale active : la demande ne pourrait être validée par personne. Faites compléter l'organigramme par les RH.",
     };
   }
 
@@ -190,9 +235,26 @@ export async function decideRecruitmentStep(formData: FormData): Promise<ActionR
 
   // Le PDG tranche depuis SA marche s'il en a une, sinon depuis la dernière : c'est ce qui
   // marque les marches d'en dessous comme non consultées plutôt qu'approuvées en son nom.
-  const own = steps.find((s) => s.approverId === user.id && s.status === "PENDING");
-  const target = own ?? (viewer.isTop ? steps[steps.length - 1] : currentStep(steps));
+  // (Triées par rang : la base ne rend pas toujours les marches dans l'ordre.)
+  const decideur = { userId: user.id, isTop: viewer.isTop };
+  const target = cibleDeLaDecision(steps, decideur);
   if (!target) return { ok: false, error: "Plus aucune marche en attente." };
+
+  // LE DG QUI CONCLUT LA CHAÎNE DÉSIGNE LE N+1 DE LA FUTURE RECRUE ET LE SUIVI (Direction, 07/10) — exigé ici,
+  // pas seulement à l'écran : une validation conclusive sans eux laisserait le recrutement sans responsable.
+  const designe = decision === "APPROVED" && decisionDuSommetExigeSuivi(req.stage, steps, decideur);
+  const futureManagerId = fdStr(formData, "futureManagerId");
+  const followerIds = nettoyerIds(fdList(formData, "followerIds"));
+  let nomsDesignes = new Map<string, string>();
+  if (designe) {
+    const actifs = await prisma.user.findMany({
+      where: { id: { in: nettoyerIds([futureManagerId, ...followerIds]) }, isActive: true },
+      select: { id: true, name: true },
+    });
+    const refus = refusDesignationDuSommet({ futureManagerId, followerIds }, new Set(actifs.map((a) => a.id)));
+    if (refus) return { ok: false, error: refus };
+    nomsDesignes = new Map(actifs.map((a) => [a.id, a.name]));
+  }
 
   const { steps: nextSteps, outcome } = applyChainDecision(steps, target.order, decision);
   // Les marches à écrire se trouvent par leur RANG (`marchesChangees`) : comparées par leur position dans
@@ -210,9 +272,19 @@ export async function decideRecruitmentStep(formData: FormData): Promise<ActionR
       }
       const etape = await tx.recruitmentRequest.updateMany({
         where: { id, stage: "CHAIN" },
-        data: { stage: outcome.stage, ...(outcome.stage === "REJECTED" ? { closingNote: reason, closedAt: maintenant } : {}) },
+        data: {
+          stage: outcome.stage,
+          ...(outcome.stage === "REJECTED" ? { closingNote: reason, closedAt: maintenant } : {}),
+          ...(designe ? { futureManagerId } : {}),
+        },
       });
       if (etape.count === 0) throw new EtatChange();
+      if (designe) {
+        await tx.recruitmentFollower.createMany({
+          data: followerIds.map((userId) => ({ requestId: id, userId, addedById: user.id })),
+          skipDuplicates: true,
+        });
+      }
     });
   } catch (e) {
     if (e instanceof EtatChange) return { ok: false, error: DEJA_CHANGE };
@@ -220,6 +292,29 @@ export async function decideRecruitmentStep(formData: FormData): Promise<ActionR
   }
   if (decision === "REJECTED") {
     await ecrireAuFil({ entityType: "RECRUITMENT_REQUEST", entityId: id, authorId: user.id, body: `Refusée à la marche ${target.order} — ${reason}` }).catch(() => undefined);
+  }
+  const phraseSuivi = designe
+    ? `N+1 de la future recrue : ${nomsDesignes.get(futureManagerId ?? "") ?? "—"} · Suivi : ${followerIds.map((f) => nomsDesignes.get(f) ?? "—").join(", ")}`
+    : null;
+  if (designe && futureManagerId) {
+    await ecrireAuFil({ entityType: "RECRUITMENT_REQUEST", entityId: id, authorId: user.id, body: `Validée par ${user.name} — ${phraseSuivi}` }).catch(() => undefined);
+    if (futureManagerId !== user.id) {
+      await notifyUser({
+        userId: futureManagerId, type: "GENERIC",
+        title: "Vous serez le N+1 d'une future recrue",
+        body: `${req.reference} — ${req.position} : la direction générale vous a désigné N+1 du poste.`,
+        link: `/recrutement/${id}`,
+      }).catch(() => undefined);
+    }
+    for (const f of followerIds) {
+      if (f === user.id || f === futureManagerId) continue;
+      await notifyUser({
+        userId: f, type: "GENERIC",
+        title: "Recrutement à suivre",
+        body: `${req.reference} — ${req.position} : la direction générale vous a confié le suivi de ce recrutement.`,
+        link: `/recrutement/${id}`,
+      }).catch(() => undefined);
+    }
   }
   // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
   // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
@@ -258,7 +353,7 @@ export async function decideRecruitmentStep(formData: FormData): Promise<ActionR
     entityType: "RECRUITMENT_REQUEST", entityId: id,
     field: `Validation — marche ${target.order}`,
     oldValue: "PENDING", newValue: decision,
-    summary: `${req.reference} — ${decision === "APPROVED" ? "validée" : "refusée"} par ${user.name}${reason ? ` · ${reason}` : ""}`,
+    summary: `${req.reference} — ${decision === "APPROVED" ? "validée" : "refusée"} par ${user.name}${reason ? ` · ${reason}` : ""}${phraseSuivi ? ` · ${phraseSuivi}` : ""}`,
   });
   revalidatePath("/recrutement");
   revalidatePath(`/recrutement/${id}`);
@@ -311,6 +406,7 @@ export async function cancelRecruitmentRequest(formData: FormData): Promise<Acti
   if (prevenus.rh) {
     await notifyRoles(rolesWithModule("RH", "UPDATE"), { type: "GENERIC", title: "Demande de recrutement retirée", body: corps, link: `/recrutement/${id}` }).catch(() => undefined);
   }
+  await prevenirLeSuivi(id, { title: "Demande de recrutement retirée", body: corps }, [user.id, ...prevenus.approbateurs]);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Recrutement",
     entityType: "RECRUITMENT_REQUEST", entityId: id,
@@ -358,6 +454,7 @@ export async function askRecruitmentInfo(formData: FormData): Promise<ActionResu
     body: `${req.reference} — ${question}`,
     link: `/recrutement/${id}`,
   });
+  await prevenirLeSuivi(id, { title: "Précisions demandées au demandeur", body: `${req.reference} — ${question}` }, [user.id, req.requesterId]);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Recrutement",
     entityType: "RECRUITMENT_REQUEST", entityId: id,
@@ -447,6 +544,7 @@ export async function openRecruitmentSourcing(formData: FormData): Promise<Actio
     body: `${req.reference} — ${req.position} : les RH ont ouvert le poste. Vous présélectionnerez les CV reçus.`,
     link: `/recrutement/${id}`,
   });
+  await prevenirLeSuivi(id, { title: "Recrutement ouvert", body: `${req.reference} — ${req.position} : les RH ont ouvert le poste.` }, [user.id, req.requesterId]);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Recrutement",
     entityType: "RECRUITMENT_REQUEST", entityId: id,
@@ -498,6 +596,7 @@ export async function closeRecruitmentRequest(formData: FormData): Promise<Actio
     body: `${req.reference} — ${note}`,
     link: `/recrutement/${id}`,
   });
+  await prevenirLeSuivi(id, { title: reject ? "Demande de recrutement refusée par les RH" : "Recrutement clôturé", body: `${req.reference} — ${note}` }, [user.id, req.requesterId]);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Recrutement",
     entityType: "RECRUITMENT_REQUEST", entityId: id,
@@ -545,6 +644,7 @@ export async function addRecruitmentCandidate(
     body: `${req.reference} — ${fullName}`,
     link: `/recrutement/${id}`,
   });
+  await prevenirLeSuivi(id, { title: "CV reçu", body: `${req.reference} — ${fullName}` }, [user.id, req.requesterId]);
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Recrutement",
     entityType: "RECRUITMENT_CANDIDATE", entityId: candidate.id,
@@ -650,6 +750,7 @@ export async function moveRecruitmentCandidate(formData: FormData): Promise<Acti
       body: `${req.reference} — ${candidate.fullName}`,
       link: `/recrutement/${candidate.requestId}`,
     });
+    await prevenirLeSuivi(candidate.requestId, { title: "Candidat recruté", body: `${req.reference} — ${candidate.fullName}` }, [user.id]);
   }
   if (move === "SELECT") {
     await notifyUser({
@@ -658,6 +759,7 @@ export async function moveRecruitmentCandidate(formData: FormData): Promise<Acti
       body: `${req.reference} — ${candidate.fullName}`,
       link: `/recrutement/${candidate.requestId}`,
     });
+    await prevenirLeSuivi(candidate.requestId, { title: "Candidat retenu par la direction", body: `${req.reference} — ${candidate.fullName}` }, [user.id, req.requesterId]);
   }
 
   await recordAudit({
@@ -694,7 +796,7 @@ export async function onboardRecruitment(formData: FormData): Promise<ActionResu
     where: { id },
     select: {
       reference: true, stage: true, position: true, contractType: true, companyId: true,
-      departmentId: true, startDate: true, endDate: true, salaryMin: true,
+      departmentId: true, startDate: true, endDate: true, salaryMin: true, futureManagerId: true,
       department: { select: { name: true } },
       candidates: { where: { status: "HIRED" }, select: { id: true, fullName: true, email: true, phone: true, employeeId: true } },
     },
@@ -733,6 +835,12 @@ export async function onboardRecruitment(formData: FormData): Promise<ActionResu
     return { ok: true, message: "Consultant externe enregistré — aucune fiche employé créée." };
   }
 
+  // LE N+1 DÉSIGNÉ PAR LE DG (Direction, 07/10) devient le manager de la fiche — par SA fiche employé
+  // (`Employee.managerId` relie deux fiches) ; sans fiche, le N+1 se déduira de l'organigramme, comme avant.
+  const managerFiche = req.futureManagerId
+    ? await prisma.employee.findUnique({ where: { userId: req.futureManagerId }, select: { id: true } })
+    : null;
+
   // LA FICHE, LE LIEN ET LA CLÔTURE EN UNE TRANSACTION, depuis l'intégration LUE : une embauche annulée
   // pendant la création ne laisse pas une fiche employé pour quelqu'un qu'on ne recrute plus.
   let employee: { id: string };
@@ -752,6 +860,7 @@ export async function onboardRecruitment(formData: FormData): Promise<ActionResu
       // La borne BASSE de la fourchette, pas la haute : c'est l'hypothèse prudente, et le
       // salaire réel se fixe au contrat — que les RH saisiront sur la fiche.
       baseSalary: req.salaryMin ?? 0,
+      managerId: managerFiche?.id ?? null,
       isActive: true,
       notes: `Recruté via la demande ${req.reference}.`,
     },
@@ -779,8 +888,9 @@ export async function onboardRecruitment(formData: FormData): Promise<ActionResu
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Recrutement",
     entityType: "EMPLOYEE", entityId: employee.id,
-    summary: `${req.reference} — fiche employé créée pour ${hired.fullName} (${CONTRACT_LABEL[contract]}, ${req.position})`,
+    summary: `${req.reference} — fiche employé créée pour ${hired.fullName} (${CONTRACT_LABEL[contract]}, ${req.position})${managerFiche ? " — N+1 désigné par la direction générale" : ""}`,
   });
+  await prevenirLeSuivi(id, { title: "Recrue intégrée", body: `${req.reference} — ${hired.fullName} : fiche employé créée.` }, [user.id]);
   revalidatePath("/recrutement");
   revalidatePath(`/recrutement/${id}`);
   revalidatePath("/rh");
@@ -841,6 +951,7 @@ export async function renvoyerDemandeRecrutement(formData: FormData): Promise<Ac
     body: `${req.reference} — ${req.position} · ${motif}`,
     link: `/recrutement/${id}`,
   });
+  await prevenirLeSuivi(id, { title: "Demande de recrutement renvoyée pour correction", body: `${req.reference} — ${req.position} · ${motif}` }, [user.id, req.requesterId]);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Recrutement",
     entityType: "RECRUITMENT_REQUEST", entityId: id,
@@ -1038,6 +1149,7 @@ export async function rouvrirDemandeRecrutement(formData: FormData): Promise<Act
   if (req.requesterId !== user.id) {
     await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Votre demande de recrutement est rouverte", body: corps, link: lien });
   }
+  await prevenirLeSuivi(id, { title: "Demande de recrutement rouverte", body: corps }, [user.id, req.requesterId]);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Recrutement",
     entityType: "RECRUITMENT_REQUEST", entityId: id,
@@ -1111,6 +1223,7 @@ export async function annulerEmbaucheRecrutement(formData: FormData): Promise<Ac
   if (req.requesterId !== user.id) {
     await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Embauche annulée — le poste est rouvert", body: corps, link: lien });
   }
+  await prevenirLeSuivi(id, { title: "Embauche annulée — le poste est rouvert", body: corps }, [user.id, req.requesterId]);
   if (!viewer.isHr) {
     await notifyRoles(rolesWithModule("RH", "UPDATE"), { type: "GENERIC", title: "Embauche annulée — plus d'intégration à préparer", body: corps, link: lien });
   }
@@ -1123,4 +1236,30 @@ export async function annulerEmbaucheRecrutement(formData: FormData): Promise<Ac
   revalidatePath("/recrutement");
   revalidatePath(`/recrutement/${id}`);
   return { ok: true, message: `Embauche annulée — ${recrute.fullName} redevient retenu, et le poste est rouvert.` };
+}
+
+// ───────────────────────────── Le fil de la demande (Direction, 07/10) ─────────────────────────────
+
+/**
+ * ÉCRIRE AU FIL — qui est partie à la demande (demandeur, validateurs, RH, sommet, et le SUIVI désigné par le DG),
+ * tant qu'elle vit (`abilities().comment`). Le demandeur et le suivi sont prévenus, jamais l'auteur.
+ */
+export async function commenterDemandeRecrutement(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const texte = fdStr(formData, "texte");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const viewer = await recruitmentViewer(user, id);
+  const req = viewer && await prisma.recruitmentRequest.findUnique({ where: { id }, select: { reference: true, stage: true, requesterId: true } });
+  if (!viewer || !req) return { ok: false, error: "Cette demande n'est pas dans votre périmètre." };
+  if (!abilities(req.stage as RecruitmentStage, viewer).comment) return { ok: false, error: "Cette demande est close : son fil ne s'écrit plus." };
+  if (!texte) return { ok: false, error: "Écrivez votre message." };
+  await ecrireAuFil({ entityType: "RECRUITMENT_REQUEST", entityId: id, authorId: user.id, body: texte });
+  const corps = `${req.reference} — ${user.name} : ${texte.length > 140 ? `${texte.slice(0, 139)}…` : texte}`;
+  if (req.requesterId !== user.id) {
+    await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Nouveau message sur votre demande de recrutement", body: corps, link: `/recrutement/${id}` }).catch(() => undefined);
+  }
+  await prevenirLeSuivi(id, { title: "Nouveau message sur un recrutement que vous suivez", body: corps }, [user.id, req.requesterId]);
+  revalidatePath(`/recrutement/${id}`);
+  return { ok: true, message: "Message ajouté au fil." };
 }

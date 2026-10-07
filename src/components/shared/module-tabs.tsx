@@ -12,6 +12,13 @@ export interface ModuleTab {
   href: string;
   /** Onglet masqué si l'utilisateur n'a pas le droit (false). Par défaut visible. */
   show?: boolean;
+  /**
+   * L'adresse qui ALLUME l'onglet quand le lien porte des paramètres (Force de vente : `?bu=…&y=…` suivent d'une vue à
+   * l'autre). Absent = le lien lui-même.
+   */
+  chemin?: string;
+  /** Un compteur discret à côté du libellé (« Tâches 7 ») — absent ou 0 : rien. */
+  compte?: number;
 }
 
 /**
@@ -27,8 +34,8 @@ export interface ModuleTab {
  */
 export function ModuleTabs({ tabs, arrows = false }: { tabs: ModuleTab[]; arrows?: boolean }) {
   const pathname = usePathname();
-  const visible = tabs.filter((t) => t.show !== false);
-  if (visible.length <= 1) return null;
+  // `href` = l'adresse qui allume l'onglet ; `lien` = celle où il mène (les deux se confondent sans `chemin`).
+  const visible = tabs.filter((t) => t.show !== false).map((t) => ({ ...t, href: t.chemin ?? t.href, lien: t.href }));
 
   // Le plus PRÉCIS des onglets qui correspondent, et lui seul (§118.164) : sans cela, un
   // sous-module rangé sous l'adresse d'un autre allumait les deux.
@@ -50,11 +57,14 @@ export function ModuleTabs({ tabs, arrows = false }: { tabs: ModuleTab[]; arrows
     if (bar && el && bar.scrollWidth > bar.clientWidth) bar.scrollLeft = el.offsetLeft - (bar.clientWidth - el.offsetWidth) / 2;
   }, [actif]);
 
+  // UN SEUL ONGLET, AUCUNE BARRE — le retour vient APRÈS les crochets : React les veut dans le même ordre à chaque rendu.
+  if (visible.length <= 1) return null;
+
   return (
     <div ref={barre} className="no-scrollbar relative -mx-3 flex snap-x items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border px-3 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
       {arrows && (
         prev ? (
-          <Link href={prev.href} aria-label={`Sous-module précédent : ${prev.label}`} title={prev.label} className={cn(arrowCls, "hover:bg-secondary hover:text-foreground")}>
+          <Link href={prev.lien} aria-label={`Sous-module précédent : ${prev.label}`} title={prev.label} className={cn(arrowCls, "hover:bg-secondary hover:text-foreground")}>
             <ChevronLeft className="h-4 w-4" />
           </Link>
         ) : (
@@ -64,7 +74,7 @@ export function ModuleTabs({ tabs, arrows = false }: { tabs: ModuleTab[]; arrows
       {visible.map((t) => (
         <Link
           key={t.href}
-          href={t.href}
+          href={t.lien}
           // L'onglet actif se DIT aussi aux lecteurs d'écran : la couleur seule ne se lit pas.
           aria-current={isActive(t.href) ? "page" : undefined}
           className={cn(
@@ -75,11 +85,14 @@ export function ModuleTabs({ tabs, arrows = false }: { tabs: ModuleTab[]; arrows
           )}
         >
           {t.label}
+          {t.compte ? (
+            <span className="ml-1.5 inline-block rounded-full bg-muted px-1.5 text-[0.6875rem] font-medium tabular-nums text-muted-foreground">{t.compte}</span>
+          ) : null}
         </Link>
       ))}
       {arrows && (
         next ? (
-          <Link href={next.href} aria-label={`Sous-module suivant : ${next.label}`} title={next.label} className={cn(arrowCls, "hover:bg-secondary hover:text-foreground")}>
+          <Link href={next.lien} aria-label={`Sous-module suivant : ${next.label}`} title={next.label} className={cn(arrowCls, "hover:bg-secondary hover:text-foreground")}>
             <ChevronRight className="h-4 w-4" />
           </Link>
         ) : (

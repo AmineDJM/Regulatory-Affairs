@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight, Clock, FileDown, Lock, Plus } from "lucide-react";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight, Clock, FileDown, Lock, Plus, ShieldAlert } from "lucide-react";
 import {
   ETAT_CELLULE_LABELS, etatCellule, gesteCellule, lireCellule, praticiensParJour, semaineInitiale, semainesDuPlan,
   tonEtatCellule, type EtatCellule,
 } from "@/lib/sfe/grille-tournee";
 import { SEGMENT_LEVEL } from "@/lib/labels";
+import type { Lettre } from "@/lib/segmentation/regles";
 import type { LigneVue } from "../ma-journee/emploi-du-temps";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
@@ -19,9 +21,21 @@ export interface InfoPraticien {
   specialty: string | null;
   institution: string | null;
   wilaya: string | null;
-  /** Le niveau de potentiel de la fiche (`SegmentLevel`), quand il est connu. */
+  /** Le niveau de potentiel de la fiche (`SegmentLevel`) — le repère des seuls praticiens hors segmentation. */
   potential: string | null;
+  /** LA LETTRE DE SEGMENTATION (H, A–D, NA, non ciblé) — la référence du liseré (Direction, 07/10) ; null = hors segmentation. */
+  lettre?: Lettre | null;
   secteur: string | null;
+}
+
+/** Le liseré d'une lettre — les couleurs de la pastille de la Segmentation (H violet, A vert, B bleu, C orange, D rouge). */
+const TON_LETTRE: Record<Lettre, string> = { H: "purple", A: "success", B: "info", C: "warning", D: "danger", NA: "neutral", NC: "neutral" };
+
+/** Le repère d'une cellule : la lettre quand le praticien est segmenté, sinon l'ancien palier de potentiel. */
+function repereDe(info: InfoPraticien): { tone: string; libelle: string } | null {
+  if (info.lettre) return { tone: TON_LETTRE[info.lettre], libelle: info.lettre === "NC" ? "non ciblé" : `lettre ${info.lettre}` };
+  const s = info.potential ? SEGMENT_LEVEL[info.potential] : undefined;
+  return s ? { tone: s.tone, libelle: `potentiel ${s.label.toLowerCase()}` } : null;
 }
 
 /** Une visite enregistrée du plan, avec la clé de sa cellule (`AAAA-MM-JJ|doctorId`). */
@@ -44,7 +58,7 @@ const TEXTE_ETAT: Record<string, string> = { success: "text-success", warning: "
  * LE PLAN DE TOURNÉE EN TABLEAU (Direction, 07/10 — maquette validée) : les JOURS en colonnes, une LIGNE par visite.
  *
  * Une semaine (dimanche → jeudi) à la fois, qu'on feuillette. Le même tableau au téléphone : il défile dans son cadre (deux
- * jours à l'écran), la colonne des rangs reste fixe. Le potentiel se lit au liseré de la cellule, l'état de la visite dans la
+ * jours à l'écran), la colonne des rangs reste fixe. La lettre de segmentation se lit au liseré de la cellule, l'état de la visite dans la
  * cellule. UN geste par cellule : la toucher ouvre ce qu'on peut en faire (rédiger le rapport, dire qu'elle n'a pas eu lieu,
  * la déplacer, la retirer) ; une case vide d'un plan en brouillon porte un « + ».
  *
@@ -53,8 +67,13 @@ const TEXTE_ETAT: Record<string, string> = { success: "text-success", warning: "
  */
 export function GrilleTournee({
   joursOuvres, paires, aujourdhui, infoDe, lignesParCle, verrouillees, planValide, jeSuisLeKam, modifiable, occupe,
-  onAjouter, onDeplacer, onRetirer, onRapporter, onNonTenue, exportHref,
+  onAjouter, onDeplacer, onRetirer, onRapporter, onNonTenue, exportHref, lienPv = null,
 }: {
+  /**
+   * Le signalement de pharmacovigilance prérempli avec CE praticien (`lienSignalerPv`) — passé seulement au KAM qui
+   * peut signaler : la feuille d'une visite l'offre en geste secondaire (Direction, 07/10).
+   */
+  lienPv?: ((doctorId: string) => string) | null;
   joursOuvres: string[];
   paires: ReadonlySet<string>;
   /** `AAAA-MM-JJ` du jour, calculé par le serveur — un `new Date()` au rendu diverge entre serveur et navigateur. */
@@ -83,6 +102,8 @@ export function GrilleTournee({
   const [versJour, setVersJour] = React.useState("");
   const [refus, setRefus] = React.useState<string | null>(null);
   const [survol, setSurvol] = React.useState<string | null>(null);
+  /** Le rapport déjà fait, déplié en lecture dans la feuille de la visite (« Voir le rapport »). */
+  const [voirRapport, setVoirRapport] = React.useState(false);
 
   const parJour = React.useMemo(() => praticiensParJour(paires, joursOuvres, infoDe), [paires, joursOuvres, infoDe]);
   const compte = (j: string) => parJour.get(j)?.length ?? 0;
@@ -90,7 +111,7 @@ export function GrilleTournee({
   // Autant de lignes que le jour le plus chargé ; une de plus en brouillon, pour le « + » de chaque jour.
   const nbLignes = Math.max(1, Math.max(0, ...jours.map(compte)) + (modifiable ? 1 : 0));
 
-  const ouvrir = (cle: string) => { setRefus(null); setVersJour(""); setActif(cle); };
+  const ouvrir = (cle: string) => { setRefus(null); setVersJour(""); setVoirRapport(false); setActif(cle); };
   const actifCellule = actif ? lireCellule(actif) : null;
   const actifInfo = actifCellule ? infoDe(actifCellule.doctorId) : null;
   const actifLigne = actif ? lignesParCle.get(actif) ?? null : null;
@@ -99,6 +120,10 @@ export function GrilleTournee({
     : null;
   const actifGeste = actifLigne && actifEtat ? gesteCellule({ etat: actifEtat, heuresRestantes: actifLigne.heuresRestantes, planValide, jeSuisLeKam }) : "AUCUN";
   const actifDeplacable = Boolean(actif) && modifiable && !verrouillees.has(actif ?? "");
+  const actifRapportFait = actifEtat === "FAITE" && actifLigne !== null;
+  const actifLienPv = lienPv && actifCellule && actifEtat !== "PREVUE" && actifEtat !== "A_VENIR" && actifEtat !== "NON_ENREGISTREE"
+    ? lienPv(actifCellule.doctorId)
+    : null;
 
   if (joursOuvres.length === 0) {
     return <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Aucun jour ouvré dans la période de ce plan.</p>;
@@ -184,7 +209,7 @@ export function GrilleTournee({
                         <Cellule
                           cle={cle} jour={j} info={infoDe(id)} ligne={lignesParCle.get(cle) ?? null} verrou={verrouillees.has(cle)}
                           aujourdhui={aujourdhui} planValide={planValide} jeSuisLeKam={jeSuisLeKam} modifiable={modifiable} occupe={occupe}
-                          onOuvrir={() => ouvrir(cle)}
+                          onOuvrir={() => ouvrir(cle)} avecPv={Boolean(lienPv)}
                         />
                       ) : modifiable && r === ids.length ? (
                         <button
@@ -204,10 +229,10 @@ export function GrilleTournee({
         </table>
       </div>
 
-      {/* La légende du liseré — une ligne, pas un mode d'emploi. */}
+      {/* La légende du liseré — les lettres de la segmentation, une ligne. */}
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {["HIGH", "MEDIUM", "LOW"].map((k) => SEGMENT_LEVEL[k] && (
-          <span key={k} className="inline-flex items-center gap-1.5"><i className={cn("inline-block h-2 w-2 rounded-full", PASTILLE[SEGMENT_LEVEL[k].tone] ?? PASTILLE.neutral)} aria-hidden />Potentiel {SEGMENT_LEVEL[k].label.toLowerCase()}</span>
+        {(["H", "A", "B", "C", "D"] as const).map((k) => (
+          <span key={k} className="inline-flex items-center gap-1.5"><i className={cn("inline-block h-2 w-2 rounded-full", PASTILLE[TON_LETTRE[k]] ?? PASTILLE.neutral)} aria-hidden />{k}</span>
         ))}
       </p>
 
@@ -227,15 +252,35 @@ export function GrilleTournee({
                 {actifEtat === "A_FAIRE" && actifLigne && <span className="ml-2 inline-flex items-center gap-1 font-normal text-muted-foreground"><Clock className="h-3.5 w-3.5" />{actifLigne.heuresRestantes} h</span>}
               </p>
             )}
-            {actifGeste !== "AUCUN" && actifLigne && (
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="button" className="h-11 sm:h-10" disabled={occupe} onClick={() => { setActif(null); onRapporter(actifLigne); }}>
-                  {actifGeste === "RAPPORTER" ? "Rédiger le rapport" : "Corriger le rapport"}
-                </Button>
+            {/* LE RAPPORT FAIT, EN LECTURE — pour le KAM comme pour qui relit son plan (Direction, 07/10). */}
+            {actifRapportFait && actifLigne && voirRapport && <RapportLu ligne={actifLigne} />}
+            {/* UN GESTE PRINCIPAL : « Faire le rapport » (à faire) ou « Voir le rapport » (fait) ; le reste en secondaire. */}
+            {actifLigne && (actifGeste !== "AUCUN" || actifRapportFait || actifLienPv) && (
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                {actifGeste === "RAPPORTER" && (
+                  <Button type="button" className="h-11 sm:h-10" disabled={occupe} onClick={() => { setActif(null); onRapporter(actifLigne); }}>
+                    Faire le rapport
+                  </Button>
+                )}
+                {actifRapportFait && !voirRapport && (
+                  <Button type="button" className="h-11 sm:h-10" disabled={occupe} onClick={() => setVoirRapport(true)}>
+                    Voir le rapport
+                  </Button>
+                )}
+                {actifGeste === "CORRIGER" && (
+                  <Button type="button" variant="outline" className="h-11 sm:h-10" disabled={occupe} onClick={() => { setActif(null); onRapporter(actifLigne); }}>
+                    Corriger le rapport
+                  </Button>
+                )}
                 {actifGeste === "RAPPORTER" && (
                   <Button type="button" variant="outline" className="h-11 sm:h-10" disabled={occupe} onClick={() => { setActif(null); onNonTenue(actifLigne); }}>
                     N&apos;a pas eu lieu
                   </Button>
+                )}
+                {actifLienPv && (
+                  <Link href={actifLienPv} className="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-warning hover:bg-warning/10 sm:h-10">
+                    <ShieldAlert className="h-4 w-4" /> Pharmacovigilance
+                  </Link>
                 )}
               </div>
             )}
@@ -280,8 +325,10 @@ export function GrilleTournee({
 
 /** UNE CELLULE — un professionnel de santé un jour donné. La toucher ouvre ce qu'on peut en faire. */
 function Cellule({
-  cle, jour, aujourdhui, info, ligne, verrou, planValide, jeSuisLeKam, modifiable, occupe, onOuvrir,
+  cle, jour, aujourdhui, info, ligne, verrou, planValide, jeSuisLeKam, modifiable, occupe, onOuvrir, avecPv,
 }: {
+  /** La feuille offre le signalement de pharmacovigilance (KAM qui peut signaler). */
+  avecPv: boolean;
   cle: string;
   jour: string;
   aujourdhui: string;
@@ -297,10 +344,13 @@ function Cellule({
   const etat: EtatCellule = etatCellule({ etatEnregistre: ligne?.etat ?? null, planValide, jour, aujourdhui });
   const geste = ligne ? gesteCellule({ etat, heuresRestantes: ligne.heuresRestantes, planValide, jeSuisLeKam }) : "AUCUN";
   const deplacable = modifiable && !verrou;
-  const ouvrable = geste !== "AUCUN" || deplacable || (modifiable && verrou);
-  const segment = info.potential ? SEGMENT_LEVEL[info.potential] : undefined;
   // L'ÉTAT N'EST ÉCRIT QUE QUAND IL DIT QUELQUE CHOSE : « prévue » ou « à venir » dans chaque case serait du bruit.
   const montrerEtat = etat !== "PREVUE" && etat !== "A_VENIR";
+  // UN RAPPORT FAIT S'OUVRE TOUJOURS (« Voir le rapport »), même hors de la fenêtre de correction ; une visite passée
+  // s'ouvre aussi pour la pharmacovigilance du KAM.
+  const ouvrable = geste !== "AUCUN" || deplacable || (modifiable && verrou)
+    || (ligne !== null && (etat === "FAITE" || (avecPv && montrerEtat && etat !== "NON_ENREGISTREE")));
+  const segment = repereDe(info);
   const nonTenue = etat === "ANNULEE" || etat === "REPORTEE";
   const ton = tonEtatCellule(etat);
 
@@ -325,12 +375,30 @@ function Cellule({
       type="button" onClick={onOuvrir} disabled={occupe}
       draggable={deplacable}
       onDragStart={deplacable ? (e) => { e.dataTransfer.setData("text/plain", cle); e.dataTransfer.effectAllowed = "move"; } : undefined}
-      aria-label={`${info.name}, ${jourLisible(jour, { weekday: "long", day: "numeric", month: "long" })}${segment ? ` — potentiel ${segment.label.toLowerCase()}` : ""}`}
+      aria-label={`${info.name}, ${jourLisible(jour, { weekday: "long", day: "numeric", month: "long" })}${segment ? ` — ${segment.libelle}` : ""}`}
       className={cn(classe, "hover:bg-secondary/60 focus-ring", deplacable && "cursor-grab active:cursor-grabbing")}
     >
       {contenu}
     </button>
   ) : (
     <div className={classe}>{contenu}</div>
+  );
+}
+
+/** LE RAPPORT D'UNE VISITE, EN LECTURE — ce que la ligne enregistrée porte déjà (`loadVisitesDuPlan`), rien de relu. */
+function RapportLu({ ligne }: { ligne: LigneDuPlan }) {
+  const bloc = (titre: string, contenu: string) => (
+    <div className="space-y-0.5">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titre}</p>
+      <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{contenu}</p>
+    </div>
+  );
+  return (
+    <div className="space-y-3 rounded-lg border border-success/30 bg-success/5 p-3">
+      {bloc("Produits", ligne.produits.join(" · ") || "—")}
+      {bloc("Messages", ligne.messages.join(" · ") || "—")}
+      {bloc("Compte rendu", ligne.rapport || "—")}
+      {ligne.suite && bloc("Ce qu'il reste à faire", ligne.suite)}
+    </div>
   );
 }

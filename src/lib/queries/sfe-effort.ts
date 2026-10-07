@@ -28,7 +28,8 @@ export async function chargerEffortVentes(
   debut: Date,
   fin: Date,
 ): Promise<{ lisible: boolean; lignes: EffortSalesRow[] }> {
-  if (scope.mode === "self") return { lisible: false, lignes: [] };
+  // Le LECTEUR de pilotage (portée `all` en lecture seule) ne gagne pas le chiffre d'affaires : il ne le lisait pas.
+  if (scope.mode === "self" || scope.lectureSeule) return { lisible: false, lignes: [] };
   if (repIds.length === 0) return { lisible: true, lignes: [] };
   const produitsDeLaPortee = scope.mode === "team"
     ? (await prisma.promoProduct.findMany({ where: { businessUnitId: { in: scope.buIds }, productId: { not: null } }, select: { productId: true } }))

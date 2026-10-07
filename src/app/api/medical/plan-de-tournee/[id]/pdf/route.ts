@@ -11,6 +11,8 @@ import { moneyEntityOf } from "@/lib/company";
 import { nomDuPdf, type VisitePdf } from "@/lib/sfe/plan-pdf";
 import { rendrePlanTourneePdf } from "@/lib/plan-tournee-pdf";
 import { contentDisposition } from "@/lib/http/content-disposition";
+import { lettresDesPraticiens } from "@/lib/segmentation/lettres-service";
+import { choisirEntree } from "@/lib/segmentation/lettre-requise";
 
 export const dynamic = "force-dynamic";
 
@@ -45,9 +47,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     prisma.tourPlan.findUnique({ where: { id: plan.id }, select: { decidedAt: true, decidedBy: { select: { name: true } } } }),
     prisma.medicalVisit.findMany({
       where: { tourPlanId: plan.id, doctorId: { not: null } },
-      select: { date: true, status: true, doctor: { select: { name: true, specialty: true, institution: true, potential: true } } },
+      select: { date: true, status: true, doctor: { select: { id: true, name: true, specialty: true, institution: true, potential: true } } },
     }),
     moneyEntityOf(plan.repId),
+  ]);
+  // LA LETTRE DE SEGMENTATION de chaque praticien (Direction, 07/10) — stratégie de la BU du KAM d'abord ; sans lettre, le
+  // potentiel reste le repère du liseré.
+  const [lettres, profil] = await Promise.all([
+    lettresDesPraticiens([...new Set(visites.flatMap((v) => (v.doctor ? [v.doctor.id] : [])))]),
+    prisma.salesRepProfile.findUnique({ where: { repId: plan.repId }, select: { businessUnitId: true } }),
   ]);
   const societe = societeId ? await prisma.company.findUnique({ where: { id: societeId }, select: { name: true } }) : null;
 
@@ -60,6 +68,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     nom: v.doctor!.name,
     detail: [v.doctor!.specialty, v.doctor!.institution].filter(Boolean).join(" · "),
     potentiel: v.doctor!.potential ? String(v.doctor!.potential) : null,
+    lettre: choisirEntree(lettres.get(v.doctor!.id), profil?.businessUnitId ?? null)?.lettre ?? null,
     etat: v.status === "CANCELLED" || v.status === "POSTPONED" ? "NON_TENUE" : v.status === "COMPLETED" ? "FAITE" : "PREVUE",
   }));
   const memeMois = plan.periodStart.getMonth() === plan.periodEnd.getMonth() && plan.periodStart.getFullYear() === plan.periodEnd.getFullYear();

@@ -136,7 +136,8 @@ async function resoudreDynamique(route: string): Promise<string | null> {
     "/ad-pro/autres/[id]": () => first(prisma.adProOtherRequest.findMany({ select: { id: true }, take: 1 })),
     "/promo-material/[id]": () => first(prisma.promoMaterial.findMany({ select: { id: true }, take: 1 })),
     "/information-medicale/[id]": () => first(prisma.medicalInfoDeclaration.findMany({ select: { id: true }, take: 1 })),
-    "/field-reports/[id]": () => first(prisma.fieldReport.findMany({ select: { id: true }, take: 1 })),
+    "/medical/rapports/[id]": () => first(prisma.fieldReport.findMany({ select: { id: true }, take: 1 })),
+    "/field-reports/[id]": () => first(prisma.fieldReport.findMany({ select: { id: true }, take: 1 })), // escale → /medical/rapports/[id]
     "/logistics/[id]": () => first(prisma.logisticsOrder.findMany({ select: { id: true }, take: 1 })),
     "/recrutement/[id]": () => first(prisma.recruitmentRequest.findMany({ select: { id: true }, take: 1 })),
     "/business-development/[id]": () => first(prisma.businessDevelopmentOpportunity.findMany({ select: { id: true }, take: 1 })),

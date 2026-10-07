@@ -31,6 +31,7 @@ export default async function SalesPage() {
     date: s.date.toISOString(),
     saleType: s.saleType,
     product: s.product,
+    productId: userCan(user, "PRODUCTS", "VIEW") ? s.productId : null,
     dci: s.dci ?? "",
     client: s.client,
     institution: s.institution ?? "",

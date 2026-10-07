@@ -6,7 +6,7 @@ import { pagesDuPlan, resumeDuPlan, type VisitePdf } from "@/lib/sfe/plan-pdf";
  * LE PLAN DE TOURNÉE VALIDÉ, EN PDF (Direction, 07/10 : « exportable une fois confirmé, en PDF très clean »).
  *
  * A4 paysage, une semaine par page : en-tête de la société et de la validation, le tableau (jours en colonnes, une ligne
- * par visite, le potentiel en liseré de couleur, l'état écrit dans la cellule), le résumé, les signatures, la pagination.
+ * par visite, la lettre de segmentation en liseré de couleur (le potentiel pour un praticien sans lettre), l'état écrit dans la cellule), le résumé, les signatures, la pagination.
  * La mise en pages vient de `sfe/plan-pdf.ts` (pur, testé) ; ce fichier ne fait que dessiner — Helvetica, qui couvre le
  * français sans police à embarquer.
  *
@@ -27,6 +27,17 @@ const POTENTIEL: Record<string, { libelle: string; couleur: string }> = {
   MEDIUM: { libelle: "Moyen", couleur: "#1F6FEB" },
   LOW: { libelle: "Bas", couleur: "#C77A0E" },
   VERY_LOW: { libelle: "Très bas", couleur: "#8A94A3" },
+};
+
+/** LES LETTRES DE SEGMENTATION (Direction, 07/10) — le liseré de référence ; le potentiel ne sert qu'aux praticiens sans lettre. */
+const LETTRE: Record<string, { libelle: string; couleur: string }> = {
+  H: { libelle: "H", couleur: "#6D4BD8" },
+  A: { libelle: "A", couleur: "#1E8A5A" },
+  B: { libelle: "B", couleur: "#1F6FEB" },
+  C: { libelle: "C", couleur: "#C77A0E" },
+  D: { libelle: "D", couleur: "#C8323C" },
+  NA: { libelle: "NA", couleur: "#8A94A3" },
+  NC: { libelle: "non ciblé", couleur: "#8A94A3" },
 };
 
 const JOUR = (j: string, o: Intl.DateTimeFormatOptions) => new Date(`${j}T09:00:00`).toLocaleDateString("fr-FR", o);
@@ -103,7 +114,7 @@ export async function rendrePlanTourneePdf(d: DonneesPlanPdf): Promise<Buffer> {
       ligne.forEach((v, i) => {
         if (!v) return;
         const x = xDe(i);
-        const p = v.potentiel ? POTENTIEL[v.potentiel] : undefined;
+        const p = v.lettre ? LETTRE[v.lettre] : v.potentiel ? POTENTIEL[v.potentiel] : undefined;
         if (p) doc.rect(x + 0.5, y + 4, 2.2, hLigne - 8).fill(p.couleur);
         const non = v.etat === "NON_TENUE";
         doc.fillColor(non ? GRIS : ENCRE).font("Helvetica-Bold").fontSize(8.6)
@@ -126,11 +137,13 @@ export async function rendrePlanTourneePdf(d: DonneesPlanPdf): Promise<Buffer> {
 
     // ── RÉSUMÉ, SIGNATURES, PAGINATION ────────────────────────────────────────────────────
     const nbSemaine = page.lignes.flat().filter(Boolean).length;
+    const lettres = Object.keys(LETTRE).filter((k) => resume.parLettre.get(k))
+      .map((k) => `${resume.parLettre.get(k)} ${LETTRE[k].libelle}`).join(" · ");
     const potentiels = Object.keys(POTENTIEL).filter((k) => resume.parPotentiel.get(k))
       .map((k) => `${resume.parPotentiel.get(k)} ${POTENTIEL[k].libelle.toLowerCase()}`).join(" · ");
     const yResume = Math.min(yFin + 14, H - M - 70);
     doc.fillColor(GRIS).font("Helvetica").fontSize(8.5).text(
-      `${nbSemaine} visite${nbSemaine > 1 ? "s" : ""} sur cette page   ·   ${resume.total} sur la période${potentiels ? `   ·   Potentiel : ${potentiels}` : ""}`,
+      `${nbSemaine} visite${nbSemaine > 1 ? "s" : ""} sur cette page   ·   ${resume.total} sur la période${lettres ? `   ·   Lettres : ${lettres}` : ""}${potentiels ? `   ·   ${lettres ? "Hors segmentation — potentiel" : "Potentiel"} : ${potentiels}` : ""}`,
       M, yResume, { width: L - 2 * M },
     );
 

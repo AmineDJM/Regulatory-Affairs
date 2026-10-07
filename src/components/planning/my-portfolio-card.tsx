@@ -42,8 +42,8 @@ export function MyPortfolioCard({ portfolio }: { portfolio: Portfolio }) {
       <CardContent className="space-y-3">
         {products.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Aucun produit ne vous est attribué pour l&apos;instant. Les affectations se font dans
-            <Link href="/planning/affectations" className="ml-1 font-medium text-primary hover:underline">Prévisions &amp; Force de vente</Link>.
+            Aucun produit ne vous est attribué pour l&apos;instant. Les produits par délégué se règlent dans
+            <Link href="/planning/produits" className="ml-1 font-medium text-primary hover:underline">Force de vente › Produits</Link>.
           </p>
         ) : (
           <>

@@ -41,6 +41,9 @@ export default async function ProductCatalogPage() {
   // Déclarer qu'un dossier ou un produit en est un autre est une décision réglementaire.
   const canLink = userCan(user, "REGULATORY", "UPDATE");
   const estSuperAdmin = user.role === "SUPER_ADMIN";
+  // UN SEUL CATALOGUE (Direction, 07/10) : la fiche d'un produit est sa fiche Produits 360 ; cet écran garde le
+  // RATTACHEMENT (dossiers à rattacher, à compléter, rapprochement des catalogues), qui est un travail réglementaire.
+  const voitProduits360 = userCan(user, "PRODUCTS", "VIEW");
 
   const [canon, data] = await Promise.all([chargerCatalogueCanonique(user), getCatalogReconciliation(user)]);
   const confident = data.orphans.filter((o) => o.proposals[0]?.confident).length;
@@ -52,9 +55,13 @@ export default async function ProductCatalogPage() {
       </BackLink>
 
       <PageHeader
-        title="Catalogue produits"
-        description="Un produit canonique par médicament, référencé par les dossiers Regulatory, les produits des Business Units et ceux du Business Development — et ce qui reste à rattacher."
-      />
+        title="Rattachement au catalogue"
+        description="Les dossiers Regulatory, les produits des Business Units et ceux du Business Development rattachés à leur produit — et ce qui reste à rattacher."
+      >
+        {voitProduits360 && (
+          <Link href="/produits" className="inline-flex h-10 items-center rounded-[var(--radius)] border border-border bg-card px-4 text-sm font-medium hover:bg-secondary">Produits 360</Link>
+        )}
+      </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Produits canoniques" value={canon.total} icon="Package" />
@@ -80,7 +87,7 @@ export default async function ProductCatalogPage() {
                 <span className="min-w-0 space-y-0.5">
                   <span className="flex flex-wrap items-center gap-1.5">
                     <span className="font-mono text-xs text-muted-foreground">{p.code}</span>
-                    <Link href={`/regulatory/catalogue/${p.id}`} className="font-medium hover:underline">{p.canonicalName}</Link>
+                    <Link href={voitProduits360 ? `/produits/${p.id}` : `/regulatory/catalogue/${p.id}`} className="font-medium hover:underline">{p.canonicalName}</Link>
                     <StatusBadge map={PRODUCT_LIFECYCLE} value={p.lifecycle} dot={false} />
                   </span>
                   <span className="block text-xs text-muted-foreground">

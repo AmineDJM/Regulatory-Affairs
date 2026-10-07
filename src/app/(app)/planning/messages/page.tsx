@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** « Messages » a quitté Force de vente pour le Marketing cockpit (06/10) : l'ancienne adresse y renvoie. */
+/** « Messages » est une vue du Marketing cockpit (07/10) : l'ancienne adresse de la Force de vente y renvoie. */
 export default function PlanningMessagesPage() {
-  redirect("/marketing-cockpit/messages");
+  redirect("/marketing-cockpit?vue=messages");
 }

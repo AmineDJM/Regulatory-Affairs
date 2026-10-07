@@ -45,11 +45,14 @@ describe("pastillesDesEntrees — chaque module compté une fois", () => {
   });
 
   it("un sous-menu d'un AUTRE module garde sa propre pastille — la règle n'efface rien", () => {
-    // Mon Équipe : le premier sous-menu répète le parent, le Recrutement est un module à part.
-    const equipe = entree("Mon Équipe");
-    expect(equipe.children?.map((c) => c.module)).toEqual(["MY_TEAM", "RECRUITMENT"]);
-    const badges = { MY_TEAM: 2, RECRUITMENT: 4 };
-    expect(pastillesDesEntrees(equipe.children ?? [], badges, modulesDeLEntree(equipe))).toEqual([0, 4]);
+    // Ressources humaines : la Paie répète le module du parent (RH), le Recrutement est un module à part (Direction, 07/10).
+    const rh = entree("Ressources humaines");
+    const modules = rh.children?.map((c) => c.module) ?? [];
+    expect(modules).toEqual(expect.arrayContaining(["RH", "RECRUITMENT"]));
+    const badges = { RH: 2, RECRUITMENT: 4 };
+    const pastilles = pastillesDesEntrees(rh.children ?? [], badges, modulesDeLEntree(rh));
+    expect(pastilles[modules.indexOf("RECRUITMENT")]).toBe(4);
+    expect(pastilles[modules.indexOf("RH")]).toBe(0);
   });
 
   it("entre sœurs : la première entrée du module compte, les suivantes non ; le pôle replié ne multiplie plus", () => {

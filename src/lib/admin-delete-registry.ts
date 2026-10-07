@@ -1,4 +1,5 @@
 import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
+import { CHEMIN_RAPPORTS_TERRAIN } from "@/lib/chemins/rapports-terrain";
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { refusSuppressionRapport } from "@/lib/promo/remises-visite";
@@ -331,7 +332,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
   FIELD_REPORT: {
     label: "rapport terrain",
     module: "Promotion médicale",
-    redirect: "/field-reports",
+    redirect: CHEMIN_RAPPORTS_TERRAIN,
     model: "fieldReport",
     searchFields: ["doctorName", "institution"],
     async describe(id) {

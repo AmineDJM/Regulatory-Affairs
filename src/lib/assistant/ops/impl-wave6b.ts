@@ -13,6 +13,7 @@ import {
 } from "@/lib/actions/office-supply-actions";
 import { normalizeArticle, needsRewrite, describeRewrite } from "@/lib/general-means/catalog-normalize";
 import { ROLE_LABELS, SUPPLY_CATEGORY, SUPPLY_UNIT } from "@/lib/labels";
+import { CHEMIN_RAPPORTS_TERRAIN } from "@/lib/chemins/rapports-terrain";
 import type { CurrentUser } from "@/lib/session";
 import { apercuSuppression, peutSupprimerUnRapportTerrain } from "@/platform/in-process/capacites";
 import type { OpImpl, OpProposalDraft } from "./types";
@@ -482,13 +483,13 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
         fields: [{ label: "Rapport", value: "Nouveau brouillon — il vous appartient (à dicter / compléter puis envoyer)" }],
         args: {},
         successMessage: "Brouillon de rapport terrain ouvert.",
-        revalidate: ["/field-reports"],
+        revalidate: [CHEMIN_RAPPORTS_TERRAIN],
       };
     },
     async execute() {
       const r = await createFieldReport();
       if (!r.ok) return { ok: false, error: r.error ?? "L'ouverture du rapport a été refusée." };
-      return { ok: true, revalidate: ["/field-reports"] };
+      return { ok: true, revalidate: [CHEMIN_RAPPORTS_TERRAIN] };
     },
   },
 
@@ -528,10 +529,10 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
           specialty: opStr(input, "specialty") || cur.specialty || null,
         },
         successMessage: "Rapport terrain mis à jour.",
-        revalidate: ["/field-reports"],
+        revalidate: [CHEMIN_RAPPORTS_TERRAIN],
       };
     },
-    execute: (args) => runFd(updateFieldReport, args, "La mise à jour du rapport a été refusée.", { revalidate: ["/field-reports"] }),
+    execute: (args) => runFd(updateFieldReport, args, "La mise à jour du rapport a été refusée.", { revalidate: [CHEMIN_RAPPORTS_TERRAIN] }),
   },
 
   analyze_field_report: {
@@ -544,7 +545,7 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["L'IA STRUCTURE la transcription (médecin, produits, objection, opportunité…) et PERSISTE les champs — elle ne valide jamais le rapport."],
         args: { id: hit.id },
         successMessage: "Rapport analysé — champs structurés enregistrés.",
-        revalidate: ["/field-reports"],
+        revalidate: [CHEMIN_RAPPORTS_TERRAIN],
       };
     },
     async execute(args) {
@@ -552,7 +553,7 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
       fd.set("id", args.id ?? "");
       const r = await analyzeFieldReportAction(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "L'analyse du rapport a été refusée." };
-      return { ok: true, revalidate: ["/field-reports"] };
+      return { ok: true, revalidate: [CHEMIN_RAPPORTS_TERRAIN] };
     },
   },
 
@@ -581,10 +582,10 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
           institution: cur.institution ?? null, specialty: cur.specialty ?? null,
         },
         successMessage: "Compte rendu envoyé (validé).",
-        revalidate: ["/field-reports"],
+        revalidate: [CHEMIN_RAPPORTS_TERRAIN],
       };
     },
-    execute: (args) => runFd(submitFieldReport, args, "L'envoi du compte rendu a été refusé.", { revalidate: ["/field-reports"] }),
+    execute: (args) => runFd(submitFieldReport, args, "L'envoi du compte rendu a été refusé.", { revalidate: [CHEMIN_RAPPORTS_TERRAIN] }),
   },
 
   validate_field_report: {
@@ -597,10 +598,10 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Geste du délégué auteur ou d'un manager des rapports (revérifié par l'action)."],
         args: { id: hit.id },
         successMessage: "Rapport validé.",
-        revalidate: ["/field-reports"],
+        revalidate: [CHEMIN_RAPPORTS_TERRAIN],
       };
     },
-    execute: (args) => runFd(validateFieldReport, args, "La validation a été refusée.", { revalidate: ["/field-reports"] }),
+    execute: (args) => runFd(validateFieldReport, args, "La validation a été refusée.", { revalidate: [CHEMIN_RAPPORTS_TERRAIN] }),
   },
 
   reopen_field_report: {
@@ -613,10 +614,10 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Le rapport repasse BROUILLON (l'horodatage de validation est effacé) — pour corriger puis renvoyer."],
         args: { id: hit.id },
         successMessage: "Rapport rouvert (brouillon).",
-        revalidate: ["/field-reports"],
+        revalidate: [CHEMIN_RAPPORTS_TERRAIN],
       };
     },
-    execute: (args) => runFd(reopenFieldReport, args, "La réouverture a été refusée.", { revalidate: ["/field-reports"] }),
+    execute: (args) => runFd(reopenFieldReport, args, "La réouverture a été refusée.", { revalidate: [CHEMIN_RAPPORTS_TERRAIN] }),
   },
 
   delete_field_report: {
@@ -638,10 +639,10 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Le rapport et ses pièces jointes disparaissent de tous les écrans. Réversible : le Super Admin peut tout restaurer depuis la corbeille."],
         args: { id: hit.id },
         successMessage: "Rapport terrain supprimé (restaurable depuis la corbeille).",
-        revalidate: ["/field-reports"],
+        revalidate: [CHEMIN_RAPPORTS_TERRAIN],
       };
     },
-    execute: (args) => runFd(deleteFieldReport, args, "La suppression du rapport a été refusée.", { revalidate: ["/field-reports"] }),
+    execute: (args) => runFd(deleteFieldReport, args, "La suppression du rapport a été refusée.", { revalidate: [CHEMIN_RAPPORTS_TERRAIN] }),
   },
 
   delete_field_report_attachment: {
@@ -662,10 +663,10 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Suppression définitive de la pièce (stockage libéré)."],
         args: { id: hits[0].id },
         successMessage: `Pièce « ${hits[0].name} » supprimée.`,
-        revalidate: ["/field-reports"],
+        revalidate: [CHEMIN_RAPPORTS_TERRAIN],
       };
     },
-    execute: (args) => runFd(deleteFieldReportAttachment, args, "La suppression de la pièce a été refusée.", { revalidate: ["/field-reports"] }),
+    execute: (args) => runFd(deleteFieldReportAttachment, args, "La suppression de la pièce a été refusée.", { revalidate: [CHEMIN_RAPPORTS_TERRAIN] }),
   },
 };
 

@@ -1,6 +1,8 @@
 import { CalendarCheck, CalendarRange, Users } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { signaleDesCasPv } from "@/lib/pharmacovigilance/acces";
+import { lienSignalerPv } from "@/lib/chemins/rapports-terrain";
 import { loadMyFieldDay } from "@/lib/queries/my-field-day";
 import { loadEmploiDuTemps } from "@/lib/queries/tour-schedule";
 import { stockPourVisite, type StockPourVisite } from "@/lib/queries/promo-remises";
@@ -124,6 +126,7 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
               sansBu={edt.sansBu}
               panel={day.panel.map((d) => ({ id: d.id, name: d.name }))}
               stock={stock}
+              lienPv={signaleDesCasPv(user) ? lienSignalerPv() : null}
             />
           </section>
 

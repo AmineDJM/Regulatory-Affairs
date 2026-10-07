@@ -2,9 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { anyRoleFilter } from "@/lib/rbac";
 import { panelsDesKams } from "@/lib/queries/panel-kam";
 import {
-  getSfeConfig, repCapacity, assignmentEffort, fteFromEffort, panelRequiredVisits,
+  getSfeConfig, repCapacity, assignmentEffort, fteFromEffort,
   type SfeConfig,
 } from "@/lib/sfe";
+import { lettresDesPraticiens } from "@/lib/segmentation/lettres-service";
+import { requisDuPanel, requisDuPraticien, panelParLettre, type LettrePanel } from "@/lib/segmentation/lettre-requise";
 
 /**
  * LE COCKPIT DE LA FORCE DE VENTE — planifié, réalisé, panel, couverture. UNE SEULE FOIS.
@@ -30,13 +32,19 @@ export interface CockpitRow {
   buSort: number;
   /** Capacité terrain nette (visites/mois), surcharge individuelle comprise. */
   capacity: number;
-  /** Effectif du panel par palier de potentiel. */
+  /** Effectif du panel par palier de potentiel (l'ancien découpage — le repli des praticiens hors segmentation). */
   panelByTier: Record<string, number>;
+  /** Effectif du panel par LETTRE de segmentation (H, A–D) — la référence (Direction, 07/10). */
+  panelByLettre: Record<LettrePanel, number>;
   panelSize: number;
   /** Visites planifiées par les affectations du cycle. */
   plannedVisits: number;
   plannedFte: number;
-  /** Visites cibles du panel selon la fréquence par palier. */
+  /**
+   * LE REQUIS du cycle — UN seul nombre partout : Σ des visites que la segmentation demande pour chaque praticien du
+   * panel (lettre × In/Out × fréquence du secteur, stratégie de la BU du KAM d'abord) ; le palier de potentiel pour un
+   * praticien rangé dans aucune stratégie (`requisDuPraticien`).
+   */
   requiredVisits: number;
   /** Visites RÉELLEMENT réalisées sur le mois (statut terminé). */
   realVisits: number;
@@ -128,6 +136,8 @@ export async function loadCockpit(input: {
     for (const d of praticiens) rec[d.potential] = (rec[d.potential] ?? 0) + 1;
     panelByRep.set(repId, rec);
   }
+  // LA LETTRE DE CHAQUE PRATICIEN DES PANELS — les mêmes stratégies que l'écran Segmentation, une seule lecture.
+  const lettres = await lettresDesPraticiens([...new Set([...panel.values()].flat().map((d) => d.id))]);
 
   const realByRep = new Map<string, number>();
   const coveredByRep = new Map<string, Set<string>>();
@@ -159,6 +169,8 @@ export async function loadCockpit(input: {
       const panelRec = panelByRep.get(u.id) ?? {};
       const planned = plannedByRep.get(u.id) ?? { visits: 0, fte: 0 };
       const real = realByRep.get(u.id) ?? 0;
+      const praticiens = panel.get(u.id) ?? [];
+      const buId = p?.businessUnitId ?? null;
       return {
         repId: u.id,
         name: u.name,
@@ -167,10 +179,12 @@ export async function loadCockpit(input: {
         buSort: bu?.sortOrder ?? 9999,
         capacity,
         panelByTier: panelRec,
+        panelByLettre: panelParLettre(praticiens.map((d) => requisDuPraticien(lettres.get(d.id), buId, d.potential, config.frequencyByTier).lettre)),
         panelSize: Object.values(panelRec).reduce((s, n) => s + n, 0),
         plannedVisits: planned.visits,
         plannedFte: planned.fte,
-        requiredVisits: panelRequiredVisits(panelRec, config.frequencyByTier),
+        // Arrondi à l'entier : l'instantané mensuel le stocke en `Int`, et une fréquence de 0,5 se compte ainsi sur le panel.
+        requiredVisits: Math.round(requisDuPanel(praticiens, lettres, buId, config.frequencyByTier)),
         realVisits: real,
         realFte: fteFromEffort(real, capacity),
         coveredDoctors: coveredByRep.get(u.id)?.size ?? 0,

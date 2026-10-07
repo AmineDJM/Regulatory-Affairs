@@ -793,7 +793,7 @@ export async function logVisit(
   });
   revalidatePath("/medical/ma-journee");
   revalidatePath("/medical");
-  revalidatePath("/planning/pilotage");
+  revalidatePath("/planning");
   if (toucheLeStock(lu.materiel, deja)) revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true, id: created.id };
 }

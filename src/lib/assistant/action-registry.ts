@@ -916,7 +916,8 @@ G("médical & annuaires (médecins, visites, spécialités, annuaires praticiens
   "medical-info-actions:requestDocument", "medical-info-actions:cancelDocRequest",
   "medical-info-actions:fulfillDocRequest", "medical-info-actions:recordAuthorityDeclaration",
   "medical-info-actions:validateDeclaration", "medical-info-actions:validateDeclarationByDirection",
-  "medical-info-actions:addMedicalInfoComment", "field-report-actions:createFieldReport",
+  "medical-info-actions:addMedicalInfoComment",
+  "field-report-actions:createFieldReport",
   "field-report-actions:updateFieldReport", "field-report-actions:analyzeFieldReportAction",
   "field-report-actions:submitFieldReport", "field-report-actions:validateFieldReport",
   "field-report-actions:reopenFieldReport", "field-report-actions:deleteFieldReport",
@@ -1082,6 +1083,19 @@ X("SEGMENTATION STUDIO (Direction, 06/10) : stratégie, classement des produits,
   "segmentation-actions:retirerDuPanel", "segmentation-actions:poserDerogation", "segmentation-actions:leverDerogation",
   "segmentation-actions:ciblerSpecialitesProduit", "segmentation-actions:ouvrirCycleSegmentation",
   "segmentation-actions:cloreCycleSegmentation",
+  // La lettre forcée (droit accordé par le Super Admin), le secteur d'une fiche, la recherche pour ajouter au panel.
+  "segmentation-actions:forcerLettre", "segmentation-actions:rendreLettreCalculee", "segmentation-actions:changerSecteur",
+  "segmentation-actions:chercherPraticiensHorsPanel",
+]);
+X("FORCE DE VENTE › TERRITOIRES (Direction, 07/10) : rattacher en un clic une cible H ou A hors panel au délégué de son "
+  + "secteur. Le geste se décide en REGARDANT la liste du secteur (lettre, statut, établissement) que l'écran "
+  + "`/planning/territoires` montre ; il ne réaffecte jamais un praticien déjà suivi.", [
+  "force-de-vente-actions:affecterAuDelegue",
+]);
+X("INFORMATION MÉDICALE › RELANCER UNE PIÈCE (Direction, 07/10) : une notification à la personne sollicitée, limitée à une "
+  + "toutes les quatre heures. Le geste se décide en REGARDANT la fiche du dossier (depuis quand la pièce est attendue, "
+  + "dernière relance) ; Adam est en pause de développement (Super Admin seul).", [
+  "medical-info-actions:relancerPieceInfoMed",
 ]);
 X("CONSUMPTION INTELLIGENCE : importer un fichier de consommation, trancher ce qui n'est pas sûr (une correspondance "
   + "confirmée s'apprend), écarter une ligne, VALIDER pour que les lignes comptent, annuler, régler l'affinité d'un "
@@ -1110,6 +1124,12 @@ X("RÉPARTITION DES COÛTS PARTAGÉS D'UNE BU (cahier des charges §15, §85) : 
   + "des dépenses de la BU revient à chaque produit pour l'année. Il se décide en regardant la vue 360° du produit "
   + "(direct, alloué, non alloué). Adam est en pause de développement (Super Admin seul).", [
   "repartition-couts-actions:enregistrerRepartitionBu",
+]);
+X("LES PRIX D'UN PRODUIT, À LA MAIN (Produits 360, Direction 07/10) : une saisie l'emporte sur le prix observé dans "
+  + "l'Explorateur produits, à partir de sa date d'effet, et l'historique garde chaque ligne. Le geste se décide devant la "
+  + "fiche du produit, à côté de la valeur de l'Explorateur. Adam est en pause de développement (Super Admin seul).", [
+  "prix-produit-actions:enregistrerPrixProduit",
+  "prix-produit-actions:revenirAuPrixExplorateur",
 ]);
 X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
   + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "
@@ -1249,6 +1269,17 @@ X("RENVOYER, CORRIGER, ROUVRIR UN RECRUTEMENT, ANNULER UNE EMBAUCHE (audit 360°
   "recruitment-actions:renvoyerDemandeRecrutement", "recruitment-actions:resoumettreDemandeRecrutement",
   "recruitment-actions:rouvrirDemandeRecrutement", "recruitment-actions:annulerEmbaucheRecrutement",
 ]);
+X("LA DIFFUSION D'UNE OFFRE ET LE FIL D'UN RECRUTEMENT (Direction, 07/10) — préparer le post LinkedIn (Luna, selon "
+  + "l'entité), en modifier le texte, le marquer publié ou retiré, publier ou retirer l'offre du site depuis la fiche, "
+  + "l'envoyer à Emploitic (quand l'API sera configurée), écrire au fil de la demande. Publier une offre engage "
+  + "l'entreprise auprès de candidats : c'est un clic des RH, devant la carte « Diffusion » ; un message au fil est "
+  + "écrit par une personne. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur "
+  + "/recrutement/<id>.", [
+  "recrutement-diffusion-actions:preparerPostLinkedIn", "recrutement-diffusion-actions:enregistrerTexteCanal",
+  "recrutement-diffusion-actions:marquerCanalPublie", "recrutement-diffusion-actions:retirerCanal",
+  "recrutement-diffusion-actions:publierOffreSiteDuRecrutement", "recrutement-diffusion-actions:envoyerOffreEmploitic",
+  "recruitment-actions:commenterDemandeRecrutement",
+]);
 X("RÉTABLIR UN DOCUMENT LEGAL ANNULÉ (§118.184, audit L04) : le retour d'une annulation, ajouté parce que "
   + "l'annulation n'en avait aucun. C'est un geste de correction qu'une personne fait devant la ligne qu'elle "
   + "vient d'annuler par erreur ; Adam est en pause de développement (Super Admin seul) et l'annulation qu'il "
@@ -1382,6 +1413,8 @@ X("SIGNALER UNE URGENCE DE PAIEMENT est une ATTESTATION, et relancer est un gest
 ]);
 X("RELANCER QUELQU'UN SUR UNE DEMANDE DE TÂCHE presse une personne au nom du demandeur — même famille que la relance de paiement ci-dessus. La notification INTERROMPT (pop-up), et elle dit « untel attend toujours » : c'est un reproche, léger mais réel, et il doit venir de celui qui attend. La rendre appelable par Adam l'exposerait à l'injection — un mail lu par une étape peut contenir « relance Raihana » — et ferait tomber des relances que personne n'a voulues, ce qui apprend surtout à fermer les pop-up sans les lire. Adam RELANCE dans ses MISSIONS, par ses propres attentes (`missions/` : délai dépassé → relance → escalade), sous approbation ; il ne presse pas ce bouton à la place d'un collègue. Un clic du demandeur sur /mon-espace.", [
   "task-actions:relanceTaskRequest",
+  // RÉATTRIBUER une demande refusée (07/10) presse une AUTRE personne au nom du demandeur — même famille, pop-up comprise.
+  "task-actions:reattribuerDemandeTache",
 ]);
 X("COMPOSER UNE DEMANDE DE MATÉRIEL PROMOTIONNEL est un geste d'écran : elle naît avec ses LIGNES piochées dans le catalogue — l'article, sa quantité, ce qu'on attend du fournisseur (§118.171) —, et l'outil d'Adam qui la créait ne savait porter qu'un titre. Le garder couvrant cette action ferait proposer une carte que l'action refuse après le clic. Adam est en pause de développement ; la demande se saisit sur Ad & Pro › Nouvelle demande › Matériel promotionnel, comme la composition des articles sur la fiche (§118.165).", [
   "promo-material-actions:createPromoMaterial",
@@ -1552,8 +1585,12 @@ X("IDENTITÉ D'ENTREPRISE : l'annuaire décide À QUELLE ADRESSE part un message
   "directory-actions:addDirectoryEndpoint", "directory-actions:deactivateDirectoryEndpoint",
 ]);
 X("lectures / analyses IA du cockpit et de l'admin — RIEN n'est écrit : le Chief EST déjà cette capacité (il répond, analyse, brief, fiche 360 par ses outils de lecture) ; runAutopilot n'exécute que des propositions du panneau Brain, dont les gestes (tâche, relance) sont natifs via task_operation et les rappels", [
-  "adventum-actions:runAutopilot", "adventum-actions:askBrain", "adventum-actions:generateBriefing",
-  "adventum-actions:searchRelations", "platform-audit-actions:generatePlatformIdeas",
+  "adventum-actions:runAutopilot", "adventum-actions:askBrain", "adventum-actions:regenererBriefing",
+  // Les gestes du cockpit Brain sur ses propres risques (prendre en charge, relancer, ignorer, résoudre) et le délai
+  // cible d'une étape de Process Intelligence : réglages et suivis d'écran du Super Admin ; la tâche et la relance
+  // qu'ils produisent sont déjà natives (task_operation, rappels).
+  "adventum-actions:agirSurRisque", "process-intelligence-actions:reglerDelaiEtape",
+  "platform-audit-actions:generatePlatformIdeas",
   "smart-mail-actions:smartMailStatus",
 ]);
 X("CORRECTIONS DE SAISIE sur la frise du dossier (renommer, supprimer une étape). Ajouter une étape est natif (regulatory_operation:add_dossier_step) : c'est le geste qu'on demande. Corriger, lui, suppose d'AVOIR la frise sous les yeux — on renomme la ligne qu'on relit, on supprime celle qu'on vient de créer par erreur ; formulé de mémoire dans une conversation, « supprime la deuxième étape » désigne rarement ce que la personne croit. La suppression refuse d'ailleurs toute étape portant des pièces, et l'origine ne s'efface pas.", [

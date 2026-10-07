@@ -1,5 +1,6 @@
 import { userCan, peutAnnuaire, peutGererSpecialites, type SessionUser } from "@/lib/rbac";
 import { featureEnabled } from "@/lib/features";
+import { peutVoirArgentCockpit, peutVoirMarcheCockpit } from "@/lib/marketing-cockpit/acces";
 import type { NavTab } from "@/lib/labels";
 import type { ModuleTab } from "@/components/shared/module-tabs";
 
@@ -20,8 +21,10 @@ export async function visibleTabs(user: SessionUser, tabs: NavTab[]): Promise<Mo
       // référentiel OU l'annuaire coché dans la console. Lire le seul `module` cacherait
       // l'onglet à la personne à qui on vient précisément de l'ouvrir.
       show: (t.regle === "specialites" ? peutGererSpecialites(user, "VIEW")
-        // Marketing cockpit › Spécialités : la page exige le module Force de vente PUIS la règle.
-        : t.regle === "specialites-fdv" ? userCan(user, t.module, "VIEW") && peutGererSpecialites(user, "VIEW")
+        // Marketing cockpit › Marché et › Investissements : le module du cockpit PUIS la règle du marché ou de l'argent
+        // (`marketing-cockpit/acces.ts`) — l'onglet ne s'affiche pas à qui la page le refuserait.
+        : t.regle === "marche-cockpit" ? userCan(user, t.module, "VIEW") && peutVoirMarcheCockpit(user)
+        : t.regle === "argent-cockpit" ? userCan(user, t.module, "VIEW") && peutVoirArgentCockpit(user)
         : t.annuaire ? peutAnnuaire(user, t.annuaire, "VIEW") : userCan(user, t.module, "VIEW"))
         && (t.feature ? await featureEnabled(t.feature, user.id) : true),
     })),

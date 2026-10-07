@@ -95,17 +95,24 @@ export const MODULES = [
   // Composer un bon de commande reste un geste de Legal ou des Finances : il écrit au registre et
   // engage une société, ce module ne l'ouvre pas.
   "PURCHASE_ORDERS",
-  // MARKETING_COCKPIT : le cockpit de la Direction Marketing (Sales & Marketing) — les MESSAGES que le KAM porte au
-  // médecin et le référentiel des SPÉCIALITÉS. Un module À PART de la Force de vente (Direction, 06/10 : « fais-en un
+  // MARKETING_COCKPIT : le cockpit de la Direction Marketing (Sales & Marketing) — vue d'ensemble par produit, leaders
+  // d'opinion, MESSAGES que le KAM porte au médecin, marché, investissements (07/10 ; les SPÉCIALITÉS sont parties dans
+  // les Annuaires). Un module À PART de la Force de vente (Direction, 06/10 : « fais-en un
   // module à part, avec ses accès gérables depuis la console d'admin ») : le Super Admin l'ouvre ou le ferme, et en
   // règle les gestes, personne par personne dans Administration › Accès.
   "MARKETING_COCKPIT",
   // SEGMENTATION : le SEGMENTATION STUDIO (Direction, 06/10 : « intègre en natif la segmentation… que tout soit relié »)
   // — stratégie par BU, produits classés, règles versionnées, potentiel terrain, dérogations, import d'un classeur.
   // Voir = lire le panel et le pourquoi de chaque segment ; Modifier = renseigner le potentiel et le statut (le terrain) ;
-  // Créer = poser une dérogation motivée ; Valider = publier une version de règles, importer, gérer la stratégie.
+  // Créer = ajouter / retirer un praticien du panel ; Valider = publier une version de règles, importer, gérer la stratégie.
   // La PORTÉE « ses lignes » borne le KAM à son panel (secteur ∪ rattachement, `clausePanelDuKam`).
   "SEGMENTATION",
+  // SEGMENTATION_POTENTIEL : FORCER LE POTENTIEL à la main (Direction, 07/10 : « le potentiel doit être manuellement
+  // modifiable par ceux à qui je donne en tant que super admin l'autorisation. Évidemment, ils peuvent tout modifier,
+  // supprimer, ajouter »). AUCUN rôle ne l'a par défaut : le Super Admin l'accorde personne par personne (case
+  // « Modifier »), et qui l'a peut TOUT dans la segmentation — forcer ou rendre une lettre, réponses, statut, panel,
+  // secteur, règles, fréquences, publication, import — sur toutes les lignes.
+  "SEGMENTATION_POTENTIEL",
   // CONSUMPTION : « Consumption Intelligence » — les fichiers de consommation hospitalière, hétérogènes, rendus
   // fiables (colonnes reconnues, établissements et produits résolus, doublons écartés, revue), et l'affinité par
   // établissement qu'on en tire. Voir = lire ; Téléverser/Modifier = importer et revoir ; Valider = faire compter un
@@ -389,6 +396,11 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // une liste de rôles que le Super Admin pose (Administration › Réglages), et rien de la force de
     // vente ne se modifie d'ici.
     SALES_PLANNING: READ,
+    // LE MARKETING COCKPIT EST SON TABLEAU (Direction, 07/10 : « la Direction Marketing écrit ses messages par
+    // défaut ») : elle y crée, modifie et archive ses messages — sans rien gagner sur la Force de vente. Un DÉFAUT :
+    // la console le règle personne par personne, et la liste des auteurs (Administration › Réglages) reste la
+    // seconde clé (`peutEcrireMessagesCockpit`). Posé ici, il n'est pas recopié de la Force de vente (lecture).
+    MARKETING_COCKPIT: ["VIEW", "CREATE", "UPDATE", "DELETE", "EXPORT"],
   },
   BUSINESS_DEVELOPMENT_MANAGER: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
@@ -789,19 +801,26 @@ export function can(role: UserRole, module: Module, action: Action): boolean {
  *
  * Les RH obtiennent le module ENTIER : ce sont eux qui instruisent, publient et intègrent.
  *
+ * Et TOUT LE MONDE peut demander (Direction, 07/10 — « n'importe qui peut demander un nouveau
+ * recrutement ») : VIEW + CREATE + UPLOAD, portée ASSIGNED — on voit ce dont on est partie, rien
+ * d'autre. Le chef de département garde son jeu plus large, les RH le module entier.
+ *
  * Fonction PURE — les faits (dirige-t-il un département ? tient-il les RH ?) sont établis par
  * l'appelant ; la règle, elle, est ici et se teste.
  */
 export function recruitmentAccessFor(caps: {
   headsDepartment: boolean;
   rhCanUpdate: boolean;
-}): { actions: Action[]; scope: AccessScope } | null {
+}): { actions: Action[]; scope: AccessScope } {
   if (caps.rhCanUpdate) return { actions: [...MANAGE], scope: "ALL" };
   // Le demandeur voit SES demandes — pas celles des autres départements. Ce qu'un directeur
   // recrute ailleurs ne le regarde pas, et une fourchette de rémunération est une information
   // sensible qui n'a aucune raison de circuler entre pairs.
   if (caps.headsDepartment) return { actions: ["VIEW", "CREATE", "UPDATE", "UPLOAD", "EXPORT"], scope: "ASSIGNED" };
-  return null;
+  // N'IMPORTE QUI PEUT DEMANDER UN RECRUTEMENT (Direction, 07/10) — la demande part à son N+1 et remonte
+  // jusqu'au DG. Demander, joindre sa fiche de poste, et voir CE dont on est partie (`recruitmentScope` :
+  // ses demandes, celles qu'on valide ou qu'on suit) : rien de plus. Un blocage dans la console prime.
+  return { actions: ["VIEW", "CREATE", "UPLOAD"], scope: "ASSIGNED" };
 }
 
 export function seesWholeSecretariat(caps: { rhCanUpdate: boolean; financeCanUpdate: boolean }): boolean {
@@ -1263,15 +1282,16 @@ export const getAccess = perRequest(
       grantImplicit("ADMIN_REQUESTS", ["VIEW", "EXPORT"], "ALL");
     }
 
-    // ── LE RECRUTEMENT SUIT L'ORGANIGRAMME ──
-    // Qui dirige un département peut demander un poste ; qui tient les RH instruit tout. La
-    // règle est dans `recruitmentAccessFor` — ici on ne fait que la poser, en ÉLARGISSANT :
-    // un rôle qui accorde déjà davantage (Direction, DG) ne doit pas s'en trouver rétréci.
+    // ── LE RECRUTEMENT : TOUT LE MONDE DEMANDE, LES RH INSTRUISENT ──
+    // N'importe qui peut demander un poste (Direction, 07/10) ; qui dirige un département le suit de
+    // plus près ; qui tient les RH instruit tout. La règle est dans `recruitmentAccessFor` — ici on ne
+    // fait que la poser, en ÉLARGISSANT, comme « Mon Équipe » ci-dessous : un rôle qui accorde déjà
+    // davantage (Direction, DG) ne s'en trouve pas rétréci, et un BLOCAGE de la console prime.
     const recruitment = recruitmentAccessFor({
       headsDepartment: departmentsLed > 0,
       rhCanUpdate: modules.get("RH")?.actions.has("UPDATE") ?? false,
     });
-    if (recruitment) grantImplicit("RECRUITMENT", recruitment.actions, recruitment.scope);
+    grantImplicit("RECRUITMENT", recruitment.actions, recruitment.scope);
 
     // ── « MON ÉQUIPE » SUIT L'ORGANIGRAMME, PAS LE RÔLE ──
     //

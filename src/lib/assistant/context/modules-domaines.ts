@@ -148,6 +148,8 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   PURCHASE_ORDERS: { domaines: ["LEGAL"], mots: ["bc a signer", "bons de commande a signer", "signature des bons de commande"] },
   MARKETING_COCKPIT: { domaines: ["DIRECTORY"], mots: ["marketing cockpit", "messages marketing", "message promotionnel", "specialites medicales"], outils: ["planning_operation"] },
   SEGMENTATION: { domaines: ["DIRECTORY"], mots: ["segmentation", "segment a b c d", "potentiel patients", "affinite produit", "decideur h", "priorite p1"] },
+  // Le DROIT de forcer une lettre (Direction, 07/10) : les mêmes lectures que la segmentation, aucun geste d'Adam.
+  SEGMENTATION_POTENTIEL: { domaines: ["DIRECTORY"], mots: ["potentiel force", "forcer le potentiel"] },
   CONSUMPTION: { domaines: ["DIRECTORY"], mots: ["consommation hospitaliere", "consumption intelligence", "affinite etablissement", "fichier de consommation"] },
   PRODUCTS: { domaines: ["DIRECTORY"], mots: ["produit canonique", "referentiel produits", "vue 360 produit", "fiche produit"] },
   // Les demandes internes. `create_admin_request`, `support_operation`, `directive_operation`.

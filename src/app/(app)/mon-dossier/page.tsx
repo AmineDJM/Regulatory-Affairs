@@ -8,8 +8,8 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileText, Download } from "lucide-react";
-import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE, WORKSPACE_TABS } from "@/lib/labels";
-import { visibleTabs } from "@/lib/nav-tabs";
+import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE } from "@/lib/labels";
+import { ongletsEspace } from "@/lib/queries/mes-taches";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatDate, formatDateTime, formatMonth, formatCurrency } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
@@ -53,7 +53,7 @@ export default async function MonDossierPage() {
   // MÊMES onglets que tout l'espace personnel : le dossier RH en est un, plus un module à
   // part. Deux barres d'onglets différentes selon l'écran donnaient l'impression de changer
   // d'endroit alors qu'on reste chez soi.
-  const dossierTabs = await visibleTabs(user, WORKSPACE_TABS);
+  const dossierTabs = await ongletsEspace(user);
 
   if (!dossier) {
     return (

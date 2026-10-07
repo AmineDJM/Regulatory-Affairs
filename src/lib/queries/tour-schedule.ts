@@ -10,6 +10,10 @@ import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 import { planDejaValide } from "@/lib/sfe/grille-tournee";
 import { diagnosticPanelVide, type CausePanelVide } from "@/lib/sfe/panel-diagnostic";
 import { remisesDesVisites, type RemisesDeVisite } from "@/lib/queries/promo-remises";
+import { getSfeConfig } from "@/lib/sfe";
+import { lettresDesPraticiens } from "@/lib/segmentation/lettres-service";
+import { requisDuPraticien } from "@/lib/segmentation/lettre-requise";
+import type { Lettre } from "@/lib/segmentation/regles";
 
 /**
  * L'EMPLOI DU TEMPS D'UN KAM — ce que l'écran affiche, et ce que la Direction compte.
@@ -249,6 +253,13 @@ export interface PraticienPlanifiable {
   institution: string | null;
   wilaya: string | null;
   potential: string | null;
+  /**
+   * LA LETTRE DE SEGMENTATION (Direction, 07/10 — « la lettre partout ») : H, A–D, NA, non ciblé — stratégie de la BU
+   * du KAM d'abord ; null = rangé dans aucune stratégie (l'ancien palier `potential` reste alors le repère).
+   */
+  lettre: Lettre | null;
+  /** Les visites que ce praticien demande par cycle — le requis unique (`requisDuPraticien`). */
+  requis: number;
   /** Le secteur commercial qui couvre son établissement, quand il y en a un. */
   secteur: string | null;
 }
@@ -335,7 +346,16 @@ export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlan
       institutionRef: { select: { wilaya: true } },
     },
   });
+  // LA LETTRE ET LE REQUIS de chaque praticien — la segmentation de la BU du KAM d'abord, le palier en repli.
+  const [lettres, profil, config] = await Promise.all([
+    lettresDesPraticiens(praticiens.map((d) => d.id)),
+    prisma.salesRepProfile.findUnique({ where: { repId }, select: { businessUnitId: true } }),
+    getSfeConfig(),
+  ]);
+  const requisDe = (d: (typeof praticiens)[number]) =>
+    requisDuPraticien(lettres.get(d.id), profil?.businessUnitId ?? null, d.potential ? String(d.potential) : null, config.frequencyByTier);
   return praticiens.map((d) => ({
+    ...(() => { const r = requisDe(d); return { lettre: r.lettre, requis: r.visites }; })(),
     id: d.id, name: d.name, specialty: d.specialty, institution: d.institution,
     // LA WILAYA DE LA FICHE, sinon celle de son ÉTABLISSEMENT (04/10/2026) : le panel d'un KAM vient de
     // ses établissements, et une fiche sans wilaya saisie restait hors du menu « Wilaya où je serai »

@@ -11,8 +11,11 @@ import { lireClasseur, proposerRegles, type Feuilles, type LectureClasseur, type
 import { rapprocher, typeDEtablissement, type Rapprochement } from "./rapprochement";
 import { lireRegles, STATUTS, type InOut, type Regles, type Statut } from "./regles";
 import { inOutDe, wilayaPivot } from "./in-out";
+import { secteurDuPraticien, type SecteurBu } from "./secteurs";
+
+export { secteurDuPraticien, type SecteurBu };
 import { clausePanelDuKam } from "@/lib/rbac";
-import { segmenterPraticien, type ContexteSegmentation, type FaitsPraticien, type ResultatPraticien } from "./moteur";
+import { segmenterPraticien, derniere, type ContexteSegmentation, type FaitsPraticien, type ResultatPraticien } from "./moteur";
 import { affinitesEtablissements } from "@/lib/consommation/affinite-service";
 
 /**
@@ -29,7 +32,7 @@ export interface StrategieChargee {
   statut: string;
   businessUnit: { id: string; name: string };
   produits: ProduitClasse[];
-  regle: { id: string; version: number; contenu: unknown; regles: Regles | null; erreurs: string[]; publieeLe: Date; note: string | null } | null;
+  regle: { id: string; version: number; contenu: unknown; regles: Regles | null; erreurs: string[]; publieeLe: Date; note: string | null; publieeParId: string | null } | null;
   /** Ce que le moteur lit autour des règles : spécialités visées par produit, affinité par établissement. */
   contexte: ContexteSegmentation;
 }
@@ -40,7 +43,7 @@ export async function chargerStrategie(id: string): Promise<StrategieChargee | n
     select: {
       id: true, nom: true, statut: true, businessUnit: { select: { id: true, name: true } },
       produits: { where: { jusqua: null }, orderBy: { rang: "asc" }, select: { productId: true, rang: true, product: { select: { canonicalName: true, dci: true } } } },
-      regles: { orderBy: { version: "desc" }, take: 1, select: { id: true, version: true, contenu: true, publieeLe: true, note: true } },
+      regles: { orderBy: { version: "desc" }, take: 1, select: { id: true, version: true, contenu: true, publieeLe: true, note: true, publieeParId: true } },
     },
   });
   if (!s) return null;
@@ -86,7 +89,17 @@ export interface LignePanel {
   ficheId: string;
   doctorId: string;
   nom: string;
+  /** Nom et prénom séparés (annuaire) — le nom d'affichage quand ils manquent. */
+  nomFamille: string;
+  prenom: string | null;
   grade: string;
+  /** Son secteur dans la BU ; `secteurPose` = rangé à la main (sinon déduit de l'établissement). */
+  secteurId: string | null;
+  secteurNom: string | null;
+  secteurPose: boolean;
+  /** Les deux réponses en vigueur pour le produit #1 (les plus récentes), null = non renseignée. */
+  q1: number | null;
+  q2: number | null;
   etablissement: string | null;
   specialite: string | null;
   specialiteId: string | null;
@@ -103,14 +116,20 @@ export interface LignePanel {
  * de l'annuaire qui borne ce que la personne voit — le KAM, son panel).
  */
 export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDoctorWhereInput = {}): Promise<{ faits: FaitsPraticien[]; lignes: Omit<LignePanel, "resultat">[] }> {
+  const strat = await prisma.segmentationStrategie.findUnique({
+    where: { id: strategieId },
+    select: { businessUnitId: true, produits: { where: { jusqua: null }, orderBy: { rang: "asc" }, take: 1, select: { productId: true } } },
+  });
+  const p1 = strat?.produits[0]?.productId ?? null;
+  const secteurs = strat ? await chargerSecteurs(strat.businessUnitId) : [];
   const fiches = await prisma.segmentationFiche.findMany({
     where: { strategieId, retireeLe: null, doctor: { archivedAt: null, ...portee } },
     select: {
-      id: true, statut: true, zone: true,
+      id: true, statut: true, zone: true, secteurId: true,
       doctor: {
         select: {
-          id: true, name: true, title: true, specialtyId: true, institutionId: true, wilaya: true,
-          institutionRef: { select: { name: true } }, institution: true,
+          id: true, name: true, lastName: true, firstName: true, title: true, specialtyId: true, institutionId: true, serviceId: true, delegateId: true, wilaya: true,
+          institutionRef: { select: { name: true, wilaya: true } }, institution: true,
           specialtyRef: { select: { name: true } }, specialty: true,
           segmentationObservations: {
             where: { OR: [{ strategieId }, { strategieId: null }] },
@@ -126,27 +145,75 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
     },
     orderBy: { doctor: { name: "asc" } },
   });
-  const inOut = await inOutDesPraticiens(strategieId, fiches.map((f) => ({ id: f.doctor.id, wilaya: f.doctor.wilaya })));
+  // LE SECTEUR : posé à la main sur la fiche, sinon celui qui couvre son établissement / son service (ou son KAM).
+  const secteurDe = new Map<string, SecteurBu | null>();
+  for (const f of fiches) {
+    const pose = f.secteurId ? secteurs.find((s) => s.id === f.secteurId) ?? null : null;
+    secteurDe.set(f.doctor.id, pose ?? secteurDuPraticien(f.doctor, secteurs));
+  }
+  // IN / OUT : la wilaya du praticien (sinon celle de son établissement) face à la wilaya de la ville pivot de SON
+  // secteur ; sans ville pivot de secteur, l'ancienne lecture par les KAM qui le couvrent.
+  const wilayaDe = (d: (typeof fiches)[number]["doctor"]) => d.wilaya ?? d.institutionRef?.wilaya ?? null;
+  const sansPivot = fiches.filter((f) => !secteurDe.get(f.doctor.id)?.pivot);
+  const parKam = await inOutDesPraticiens(strategieId, sansPivot.map((f) => ({ id: f.doctor.id, wilaya: wilayaDe(f.doctor) })));
+  const inOutDuPraticien = (d: (typeof fiches)[number]["doctor"]): InOut | null => {
+    const pivot = secteurDe.get(d.id)?.pivot ?? null;
+    return pivot ? inOutDe(wilayaDe(d), [pivot]) : parKam.get(d.id) ?? null;
+  };
   const faits: FaitsPraticien[] = [];
   const lignes: Omit<LignePanel, "resultat">[] = [];
   for (const f of fiches) {
     const d = f.doctor;
+    const secteur = secteurDe.get(d.id) ?? null;
+    const io = inOutDuPraticien(d);
+    const observations = d.segmentationObservations.map((o) => ({ productId: o.productId, potentiel: num(o.potentiel), prescriptionsSur10: num(o.prescriptionsSur10), observeLe: o.observeLe }));
     faits.push({
       doctorId: d.id, statut: estStatut(f.statut) ? f.statut : null, zone: f.zone,
-      specialiteId: d.specialtyId, institutionId: d.institutionId, inOut: inOut.get(d.id) ?? null,
-      observations: d.segmentationObservations.map((o) => ({ productId: o.productId, potentiel: num(o.potentiel), prescriptionsSur10: num(o.prescriptionsSur10), observeLe: o.observeLe })),
+      specialiteId: d.specialtyId, institutionId: d.institutionId, inOut: io,
+      secteurId: secteur?.id ?? null, secteurNom: secteur?.nom ?? null,
+      observations,
       derogations: d.segmentationDerogations.filter((x) => x.nature === "CIBLAGE" || x.nature === "SEGMENT").map((x) => ({ nature: x.nature as "CIBLAGE" | "SEGMENT", productId: x.productId, valeur: x.valeur, motif: x.motif, expireLe: x.expireLe })),
     });
     lignes.push({
-      ficheId: f.id, doctorId: d.id, nom: d.name, grade: d.title,
+      ficheId: f.id, doctorId: d.id, nom: d.name,
+      nomFamille: d.lastName?.trim() || d.name,
+      prenom: d.lastName?.trim() ? d.firstName?.trim() || null : null,
+      grade: d.title,
       etablissement: d.institutionRef?.name ?? d.institution ?? null,
       specialite: d.specialtyRef?.name ?? d.specialty ?? null,
       specialiteId: d.specialtyId,
-      statut: estStatut(f.statut) ? f.statut : null, zone: f.zone, inOut: inOut.get(d.id) ?? null,
+      statut: estStatut(f.statut) ? f.statut : null, zone: f.zone, inOut: io,
+      secteurId: secteur?.id ?? null, secteurNom: secteur?.nom ?? null, secteurPose: !!f.secteurId && !!secteur,
+      q1: p1 ? derniere(observations, "potentiel", p1)?.valeur ?? null : null,
+      q2: p1 ? derniere(observations, "prescriptionsSur10", p1)?.valeur ?? null : null,
       derniereObservation: d.segmentationObservations[0]?.observeLe ?? null,
     });
   }
   return { faits, lignes };
+}
+
+/** Les secteurs d'une BU — actifs d'abord, par nom ; un secteur inactif ne sert qu'aux fiches qui y sont rangées. */
+export async function chargerSecteurs(businessUnitId: string): Promise<SecteurBu[]> {
+  const s = await prisma.salesSector.findMany({
+    where: { businessUnitId },
+    orderBy: [{ isActive: "desc" }, { name: "asc" }],
+    select: {
+      id: true, name: true, city: true, isActive: true,
+      rep: { select: { id: true, name: true } },
+      reps: { select: { rep: { select: { id: true, name: true } } } },
+      institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } },
+    },
+  });
+  return s.map((x) => {
+    const kams = new Map<string, string>();
+    if (x.rep) kams.set(x.rep.id, x.rep.name);
+    for (const r of x.reps) kams.set(r.rep.id, r.rep.name);
+    return {
+      id: x.id, nom: x.name, actif: x.isActive, ville: x.city, pivot: wilayaPivot(x.city),
+      kams: [...kams].map(([id, nom]) => ({ id, nom })),
+      etablissements: x.institutions.map((i) => ({ institutionId: i.institutionId, tous: i.tousLesServices, services: i.services.map((v) => v.serviceId) })),
+    };
+  });
 }
 
 /**
@@ -212,6 +279,9 @@ export interface ApercuImport {
   /** La proposition de règles (si la stratégie n'a pas encore de version publiée). */
   regles: PropositionRegles | null;
   anomalies: string[];
+  /** « Région » du fichier : celles qui portent le nom d'un secteur de la BU y rangent la fiche ; les autres restent une zone libre. */
+  regionsSecteurs: string[];
+  regionsSansSecteur: string[];
 }
 
 interface Prepare {
@@ -220,6 +290,7 @@ interface Prepare {
   rappro: Map<number, Rapprochement>;
   etabDe: (nom: string | null) => { id: string | null; creer: string | null };
   specDe: (nom: string | null) => { id: string | null; creer: string | null };
+  secteurDeRegion: (region: string | null) => string | null;
   connus: Map<string, { institutionId: string | null; specialtyId: string | null; title: string; lastName: string | null; firstName: string | null; region: string | null }>;
 }
 
@@ -293,8 +364,14 @@ async function preparer(strategie: StrategieChargee, buffer: Buffer): Promise<Pr
   const produitConcorde = !mention || !p1 || cleDEtablissement(p1.dci).includes(mention.split(" ")[0]) || cleDEtablissement(p1.nom).includes(mention.split(" ")[0]);
   const regles = !strategie.regle && p1 ? proposerRegles(lecture, feuilles, p1.productId) : null;
 
+  // « RÉGION » → SECTEUR DE LA BU quand le nom concorde (casse et accents ignorés) ; sinon zone libre, signalée.
+  const secteurs = (await chargerSecteurs(strategie.businessUnit.id)).filter((s) => s.actif);
+  const parNomSecteur = new Map(secteurs.map((s) => [cleDEtablissement(s.nom), s.id]));
+  const secteurDeRegion = (region: string | null) => (region ? parNomSecteur.get(cleDEtablissement(region)) ?? null : null);
+  const regions = [...new Set(lecture.lignes.map((l) => l.zone).filter((z): z is string => !!z))];
+
   return {
-    lecture, rappro, etabDe, specDe, connus,
+    lecture, rappro, etabDe, specDe, connus, secteurDeRegion,
     apercu: {
       ok: true, empreinte, dejaImporte: !!deja, feuille: lecture.feuille,
       colonnes: lecture.entete.filter((c) => c.texte).map((c) => ({ texte: c.texte, champ: c.champ })),
@@ -302,6 +379,7 @@ async function preparer(strategie: StrategieChargee, buffer: Buffer): Promise<Pr
       etablissementsACreer: [...etablissementsACreer], etablissementsAmbigus: [...etablissementsAmbigus],
       specialitesACreer: [...specialitesACreer.values()], observations, nonCiblesDuFichier: nonCibles,
       produitMentionne: mention, produitConcorde, regles, anomalies: lecture.anomalies,
+      regionsSecteurs: regions.filter((r) => secteurDeRegion(r)), regionsSansSecteur: regions.filter((r) => !secteurDeRegion(r)),
     },
   };
 }
@@ -394,10 +472,12 @@ export async function appliquerImport(
         doctorId = d.id;
         crees++;
       }
+      // La « Région » qui nomme un secteur de la BU y range la fiche ; une région inconnue garde le secteur déjà posé.
+      const secteurId = prep.secteurDeRegion(l.zone);
       await tx.segmentationFiche.upsert({
         where: { strategieId_doctorId: { strategieId, doctorId } },
-        update: { statut: l.statut, zone: l.zone, source: "IMPORT", importId: imp.id, ligneSource: l.ligne, retireeLe: null, updatedById: auteurId },
-        create: { strategieId, doctorId, statut: l.statut, zone: l.zone, source: "IMPORT", importId: imp.id, ligneSource: l.ligne, createdById: auteurId },
+        update: { statut: l.statut, zone: l.zone, ...(secteurId ? { secteurId } : {}), source: "IMPORT", importId: imp.id, ligneSource: l.ligne, retireeLe: null, updatedById: auteurId },
+        create: { strategieId, doctorId, statut: l.statut, zone: l.zone, secteurId, source: "IMPORT", importId: imp.id, ligneSource: l.ligne, createdById: auteurId },
       });
       if (l.potentiel !== null || l.sur10 !== null) {
         await tx.hcpObservation.create({
@@ -409,12 +489,8 @@ export async function appliquerImport(
         });
         observations++;
       }
-      // « NA » du fichier = non applicable : une DÉCISION de ciblage, tracée comme telle (et levable).
-      if (l.segmentFichier === "NA") {
-        await tx.segmentationDerogation.create({
-          data: { strategieId, doctorId, nature: "CIBLAGE", valeur: "NON_CIBLE", motif: "Classé NA (non applicable) dans le fichier importé.", source: "IMPORT", importId: imp.id, auteurId },
-        });
-      }
+      // « NA » du fichier n'est plus une décision de ciblage (Direction, 07/10) : NA veut dire « une réponse manque »,
+      // et la lettre se RECALCULE depuis Q1 et Q2 (0 patient = non ciblé). Rien n'est forcé par l'import.
     }
     let reglePubliee: number | null = null;
     if (reglesV1) {

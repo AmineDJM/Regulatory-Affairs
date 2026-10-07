@@ -30,7 +30,9 @@ const CHEMIN = "/regulatory/catalogue";
 
 function revalider(produitId?: string | null) {
   revalidatePath(CHEMIN);
-  if (produitId) revalidatePath(`${CHEMIN}/${produitId}`);
+  revalidatePath("/produits");
+  // La fiche du produit est désormais celle de Produits 360 (onglet Réglementaire & qualité).
+  if (produitId) { revalidatePath(`${CHEMIN}/${produitId}`); revalidatePath(`/produits/${produitId}`); }
 }
 
 /** Le produit, s'il existe ET que la personne le voit. La même phrase pour les deux absences. */

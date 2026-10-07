@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Clock, Loader2, Mic, Package, Pencil, Plus, Square } from "lucide-react";
+import { Check, Clock, Loader2, Mic, Package, Pencil, Plus, ShieldAlert, Square } from "lucide-react";
 import { rapporterVisite, ajouterVisiteImprevue, direVisiteNonTenue } from "@/lib/actions/tour-visit-actions";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { ETAT_VISITE_LABELS, VUES, VUE_LABELS, type EtatVisite, type VueTournee } from "@/lib/sfe/tournee";
@@ -92,8 +93,10 @@ const BARRE_ACTIONS =
  * DIT et le clavier reste. Annoncer une dictée qui ne marche pas est pire que ne pas l'offrir.
  */
 export function EmploiDuTemps({
-  vue, lignes, avancement, produits, produitsIncomplets, messages, sansBu, panel, stock,
+  vue, lignes, avancement, produits, produitsIncomplets, messages, sansBu, panel, stock, lienPv = null,
 }: {
+  /** Le formulaire de signalement de pharmacovigilance — passé seulement à qui peut signaler. */
+  lienPv?: string | null;
   vue: VueTournee;
   lignes: LigneVue[];
   avancement: AvancementTournee;
@@ -267,15 +270,23 @@ export function EmploiDuTemps({
         </table>
       </div>
 
-      {/* La visite imprévue : un lien discret sous le tableau, pas un second gros bouton (Direction, 07/10). */}
-      <button
-        type="button"
-        onClick={() => { setErr(null); setImprevue(true); }}
-        disabled={occupe}
-        className="inline-flex min-h-10 items-center gap-1.5 text-sm text-primary hover:underline disabled:opacity-50"
-      >
-        <Plus className="h-4 w-4" /> Visite imprévue
-      </button>
+      {/* La visite imprévue : un lien discret sous le tableau, pas un second gros bouton (Direction, 07/10). La
+          pharmacovigilance à côté, du même poids. */}
+      <div className="flex flex-wrap items-center gap-x-4">
+        <button
+          type="button"
+          onClick={() => { setErr(null); setImprevue(true); }}
+          disabled={occupe}
+          className="inline-flex min-h-10 items-center gap-1.5 text-sm text-primary hover:underline disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" /> Visite imprévue
+        </button>
+        {lienPv && (
+          <Link href={lienPv} className="inline-flex min-h-10 items-center gap-1.5 text-sm text-warning hover:underline">
+            <ShieldAlert className="h-4 w-4" /> Pharmacovigilance
+          </Link>
+        )}
+      </div>
 
       {/* ── LE RAPPORT TERRAIN ──────────────────────────────────────────────── */}
       <FeuilleRapportVisite ouverte={ouverte} onClose={() => setOuverte(null)} gamme={gamme} stock={stock} executer={run} occupe={occupe} err={err}
@@ -442,7 +453,7 @@ export function FeuilleNonTenue({
 
 /**
  * LA VISITE IMPRÉVUE — la rencontre que le plan ne prévoyait pas. La même feuille pour « Ma journée » et pour le
- * bouton « Nouveau rapport terrain » de la grille du plan : elle crée la `MedicalVisit` hors plan (`ajouterVisiteImprevue`),
+ * bouton « Faire un rapport » de la grille du plan : elle crée la `MedicalVisit` hors plan (`ajouterVisiteImprevue`),
  * comptée au nombre de visites, jamais au dénominateur du plan.
  */
 export function FeuilleVisiteImprevue({

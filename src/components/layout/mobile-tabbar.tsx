@@ -34,7 +34,7 @@ import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS, 
  * interne est ouverte à tous), et le faire suivre le menu le retirerait à tout le monde.
  */
 const PRIMARY: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; match: string[]; suitLeMenu?: true }[] = [
-  { href: "/mon-espace", label: "Espace", icon: LayoutGrid, match: ["/mon-espace", "/mon-travail", "/mon-dossier", "/missions", "/directives"] },
+  { href: "/mon-espace", label: "Espace", icon: LayoutGrid, match: ["/mon-espace", "/mon-travail", "/mon-dossier", "/missions"] },
   { href: "/messages", label: "Messages", icon: MessageSquare, match: ["/messages"] },
   { href: "/assistant", label: "Assistant", icon: Sparkles, match: ["/assistant"], suitLeMenu: true },
 ];

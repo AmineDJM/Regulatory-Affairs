@@ -4566,9 +4566,9 @@ export const OPS_CATALOG: OpMeta[] = [
   {
     tool: "planning_operation", op: "delete_promo_message", module: "Force de vente",
     uiLabel: "Retirer un message Direction Marketing",
-    aliases: ["supprime le message marketing"],
+    aliases: ["supprime le message marketing", "archive le message marketing"],
     risk: "SENSITIVE",
-    summary: "Retire un message du référentiel : il disparaît du menu déroulant des KAM. Les rapports terrain qui l'ont porté RESTENT intacts — on retire une consigne du catalogue, pas l'historique de ce qui a été dit sur le terrain. La carte dit combien de rapports le portent.",
+    summary: "Retire un message du référentiel : il disparaît du menu déroulant des KAM. Déjà porté, il est ARCHIVÉ (son historique de portage reste, le Marketing cockpit le montre) ; jamais porté, il est supprimé. La carte dit combien de rapports le portent.",
     gate: () => true,
     gateNote: "réservé au Super Admin et aux rôles désignés — revérifié par l'action",
     covers: ["promo-message-actions:deletePromoMessage"],

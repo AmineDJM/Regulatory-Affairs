@@ -91,7 +91,7 @@ export default async function RegulatoryPage() {
               atteint depuis Regulatory plutôt que par une entrée de menu de plus. */}
           <Link href="/regulatory/catalogue">
             <Button variant="outline" size="sm">
-              <Link2 className="h-4 w-4" /> Catalogue produits
+              <Link2 className="h-4 w-4" /> Rattachement au catalogue
             </Button>
           </Link>
           {reminderBoard && (

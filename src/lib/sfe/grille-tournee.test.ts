@@ -169,7 +169,10 @@ describe("l'écran — une seule porte vers le rapport d'une visite planifiée",
     expect(planif).toMatch(/retirerCellule\(/);
     expect(grille).toMatch(/etatCellule\(/);
     expect(grille).toMatch(/gesteCellule\(/);
-    expect(planif).toContain("Nouveau rapport terrain");
+    // « Faire un rapport » au-dessus de la grille (Direction, 07/10), et la pharmacovigilance à côté — un lien, pas une action.
+    expect(planif).toContain("Faire un rapport");
+    expect(planif).toMatch(/lienSignalerPv\(\)/);
+    expect(grille).toContain("Voir le rapport");
   });
 
   // 07/10 (maquette validée) : UN tableau à toutes les tailles — il défile dans son cadre au téléphone, la colonne des rangs
