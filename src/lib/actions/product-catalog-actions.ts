@@ -19,7 +19,7 @@ export async function linkProductToDossier(input: {
 }): Promise<ActionResult> {
   const user = await requireUser();
   const r = await linkProductToDossierFor(user, input);
-  if (r.ok) revalidatePath("/regulatory/catalogue");
+  if (r.ok) { revalidatePath("/produits/rapprocher"); revalidatePath("/produits"); }
   return r;
 }
 
@@ -27,6 +27,6 @@ export async function linkProductToDossier(input: {
 export async function unlinkProductFromDossier(input: { kind: CatalogKind; id: string }): Promise<ActionResult> {
   const user = await requireUser();
   const r = await unlinkProductFromDossierFor(user, input);
-  if (r.ok) revalidatePath("/regulatory/catalogue");
+  if (r.ok) { revalidatePath("/produits/rapprocher"); revalidatePath("/produits"); }
   return r;
 }

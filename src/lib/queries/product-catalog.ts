@@ -56,6 +56,18 @@ function proposalsFor(
   }));
 }
 
+/**
+ * COMBIEN DE PRODUITS BD / BU N'ONT AUCUN DOSSIER — le compte qui décide si l'entrée « Rapprocher un produit BD / BU »
+ * de Produits 360 s'affiche (rien à rapprocher = pas d'entrée). Deux `count`, sans les propositions.
+ */
+export async function compterProduitsARapprocher(): Promise<number> {
+  const [promo, bd] = await Promise.all([
+    prisma.promoProduct.count({ where: { isActive: true, regulatoryProductId: null } }),
+    prisma.bdProduct.count({ where: { regulatoryProductId: null } }),
+  ]);
+  return promo + bd;
+}
+
 export async function getCatalogReconciliation(user: SessionUser): Promise<CatalogReconciliation> {
   const [products, bd, promo] = await Promise.all([
     // LA CLAUSE DE L'ÉCRAN REGULATORY, et pas une recomposition (§118.177, §118.178). Celle-ci

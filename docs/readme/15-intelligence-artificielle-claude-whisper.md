@@ -35,7 +35,7 @@ affiche proprement « IA non configurée » — **aucune fonctionnalité ne cass
   **Dictée vocale** — un bouton micro dans la zone de saisie : on parle, l'audio est transcrit (**Whisper**,
   `POST /api/assistant/transcribe`, audio non conservé) et le texte arrive **dans le champ, ÉDITABLE** — on relit /
   corrige avant d'envoyer. Affiché seulement si `OPENAI_API_KEY` est configurée, et soumis à l'interrupteur « voix ».
-- **Rapports terrain vocaux** (`/field-reports`) — *Parler → Whisper → Claude (champs structurés) → relecture →
+- **Rapports terrain vocaux** (Promotion médicale › Rapports, `/medical/rapports` — `/field-reports` redirige depuis le 07/10) — *Parler → Whisper → Claude (champs structurés) → relecture →
   validation*. **L'IA ne valide jamais seule.** 100 % utilisable en saisie manuelle sans clé.
 - **Comptes-rendus de réunion** — transcription + synthèse IA des appels.
 - **Process Intelligence** & **Adventum Brain** — synthèses et explications à la demande (Super Admin).

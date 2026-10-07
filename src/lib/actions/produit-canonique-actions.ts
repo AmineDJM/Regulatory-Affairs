@@ -7,32 +7,29 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { canAccessEntity } from "@/lib/entity-access";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
-import { aliasKey, phraseManques } from "@/lib/products/identity";
+import { aliasKey } from "@/lib/products/identity";
 import { addProductAlias } from "@/lib/products/resolve";
-import { phraseRattachement, rattacherDossier, rattacherTout, type BilanRattachement } from "@/lib/products/canonique";
+import { assurerProduitsDesDossiers, ensureProduitDuDossier, ligneDeBilan, type BilanProduitsDesDossiers } from "@/lib/products/canonique";
+import { phraseProduitDuDossier } from "@/lib/products/produit-du-dossier";
 import { clauseProduitsVisibles } from "@/lib/queries/produits-canoniques";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LES GESTES DU CATALOGUE CANONIQUE (§118.178).
+ * LES GESTES DU CATALOGUE PRODUITS — UN catalogue (Direction, 08/10 : produit = dossier).
  *
- * Rattacher un dossier, nommer un produit, lui donner un alias : chacun déclare QUEL produit est
- * quoi, et relève donc du réglementaire, qui tient le catalogue de référence (le même droit que
- * le rapprochement des catalogues, `products/link.ts`). Le rattachement de TOUT l'existant est
- * réservé au Super Admin : il touche tous les dossiers, y compris ceux qu'aucun autre rôle ne voit.
+ * Nommer un produit, lui donner un alias : chacun déclare QUEL produit est quoi, et relève donc du
+ * réglementaire, qui tient le catalogue de référence (le même droit que le rapprochement des
+ * produits BD / BU, `products/link.ts`). Vérifier TOUT le catalogue (chaque dossier a son produit)
+ * est réservé au Super Admin : il touche tous les dossiers, y compris ceux qu'aucun autre rôle ne voit.
  *
  * Chaque geste relit le produit par la clause du catalogue (`clauseProduitsVisibles`) : on ne
  * renomme pas, par son identifiant, un produit dont on ne voit aucun dossier.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-const CHEMIN = "/regulatory/catalogue";
-
 function revalider(produitId?: string | null) {
-  revalidatePath(CHEMIN);
   revalidatePath("/produits");
-  // La fiche du produit est désormais celle de Produits 360 (onglet Réglementaire & qualité).
-  if (produitId) { revalidatePath(`${CHEMIN}/${produitId}`); revalidatePath(`/produits/${produitId}`); }
+  if (produitId) revalidatePath(`/produits/${produitId}`);
 }
 
 /** Le produit, s'il existe ET que la personne le voit. La même phrase pour les deux absences. */
@@ -43,7 +40,10 @@ async function produitVisible(user: Awaited<ReturnType<typeof requireUser>>, id:
   });
 }
 
-/** Rattache UN dossier — celui qu'on voit et qu'on peut modifier. */
+/**
+ * DONNE SON PRODUIT À UN DOSSIER — celui qu'on voit et qu'on peut modifier. Filet pour un dossier
+ * d'avant ce lot dont le produit n'aurait pas encore été créé (le démarrage le fait aussi).
+ */
 export async function rattacherDossierCanonique(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
@@ -51,38 +51,35 @@ export async function rattacherDossierCanonique(formData: FormData): Promise<Act
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", id, "UPDATE"))) {
     return { ok: false, error: "Modification non autorisée sur ce dossier." };
   }
-  const r = await rattacherDossier(id, { acteurId: user.id });
+  const r = await ensureProduitDuDossier(id, { acteurId: user.id });
   if (r.etat === "INTROUVABLE") return { ok: false, error: "Dossier introuvable." };
-  if (r.etat === "INCOMPLET" && !r.produitId) {
-    return { ok: false, error: `Ce dossier ne s'identifie pas encore : il manque ${phraseManques(r.manques)}. Complétez-le depuis sa fiche.` };
-  }
+  if (r.etat === "VERROUILLE") return { ok: false, error: "Ce dossier est au pipeline (verrouillé) : il entrera au catalogue à l'ouverture du cadenas." };
   revalider(r.produitId);
-  return { ok: true, message: phraseRattachement(r, phraseManques) ?? "Déjà rattaché." };
+  revalidatePath(`/regulatory/${id}`);
+  return { ok: true, message: phraseProduitDuDossier(r) ?? `Produit ${r.code}.` };
 }
 
 /**
- * QUI RATTACHE TOUT L'EXISTANT — le Super Admin, par son rôle PRINCIPAL : le geste touche tous les
- * dossiers, y compris ceux qu'aucun autre rôle ne voit, et son aperçu les nomme. Nommé en
- * prédicat pour que la carte d'une action le DISE (§118.140 : une garde que la dérivation ne sait
- * pas nommer se lit « gardée par rien »).
+ * QUI VÉRIFIE TOUT LE CATALOGUE — le Super Admin, par son rôle PRINCIPAL : le geste touche tous les
+ * dossiers, y compris ceux qu'aucun autre rôle ne voit, et son bilan les nomme. Nommé en prédicat
+ * pour que la carte d'une action le DISE (§118.140 : une garde que la dérivation ne sait pas
+ * nommer se lit « gardée par rien »).
  */
-function peutRattacherToutLeCatalogue(user: { role: string }): boolean {
+function peutVerifierToutLeCatalogue(user: { role: string }): boolean {
   return user.role === "SUPER_ADMIN";
 }
 const REFUS_GLOBAL = "Réservé au Super Admin : ce geste touche tous les dossiers, y compris ceux que vous ne voyez pas.";
 
-/** Ce que ferait le rattachement de l'existant — n'écrit RIEN. */
-export async function simulerRattachementCanonique(): Promise<{ ok: true; bilan: BilanRattachement } | { ok: false; error: string }> {
+/**
+ * CHAQUE DOSSIER A SON PRODUIT — le même passage qu'au démarrage du serveur, à la demande.
+ * Idempotent : rejoué, il ne fait que ce qui reste à faire, et rend le bilan (dont les produits
+ * encore partagés par plusieurs dossiers, que rien ne scinde d'office).
+ */
+export async function verifierProduitsDesDossiers(): Promise<{ ok: true; bilan: BilanProduitsDesDossiers } | { ok: false; error: string }> {
   const user = await requireUser();
-  if (!peutRattacherToutLeCatalogue(user)) return { ok: false, error: REFUS_GLOBAL };
-  return { ok: true, bilan: await rattacherTout({ appliquer: false }) };
-}
-
-/** Rattache tout l'existant. Idempotent : rejoué, il ne fait que ce qui reste à faire. */
-export async function appliquerRattachementCanonique(): Promise<{ ok: true; bilan: BilanRattachement } | { ok: false; error: string }> {
-  const user = await requireUser();
-  if (!peutRattacherToutLeCatalogue(user)) return { ok: false, error: REFUS_GLOBAL };
-  const bilan = await rattacherTout({ appliquer: true, acteurId: user.id });
+  if (!peutVerifierToutLeCatalogue(user)) return { ok: false, error: REFUS_GLOBAL };
+  const bilan = await assurerProduitsDesDossiers({ acteurId: user.id });
+  console.info(ligneDeBilan(bilan));
   revalider();
   return { ok: true, bilan };
 }

@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import * as XLSX from "xlsx";
+import { lireFeuilles } from "./feuilles";
 import type { DoctorTitle, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { indexerEtablissements, cleDEtablissement } from "@/lib/annuaires/rattachement";
@@ -250,12 +250,8 @@ export async function chargerPanel(strategie: StrategieChargee, portee: Prisma.M
 
 // ─────────────────────────────── IMPORT D'UN CLASSEUR ───────────────────────────────
 
-export function lireFeuilles(buffer: Buffer): Feuilles {
-  const wb = XLSX.read(buffer, { type: "buffer" });
-  const out: Feuilles = {};
-  for (const n of wb.SheetNames) out[n] = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[n], { header: 1, defval: null, blankrows: true, raw: true });
-  return out;
-}
+/** Les feuilles d'un classeur — plage recalculée sur les cellules remplies (`feuilles.ts`). */
+export { lireFeuilles };
 
 export interface ApercuImport {
   ok: true;

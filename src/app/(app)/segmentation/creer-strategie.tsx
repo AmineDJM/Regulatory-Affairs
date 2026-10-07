@@ -24,7 +24,7 @@ export function CreerStrategie({ bu, produits }: { bu: { id: string; nom: string
     setEnvoi(true); setErreur(null);
     const r = await creerStrategie({ businessUnitId: bu.id, nom: bu.nom, productIds: ids });
     setEnvoi(false);
-    if (!r.ok) setErreur(r.error); else router.push(`/segmentation?s=${r.id}&vue=import`);
+    if (!r.ok) setErreur(r.error); else router.push(`/segmentation/import?bu=${bu.id}`);
   }
 
   if (produits.length === 0) {

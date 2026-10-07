@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { cn } from "@/lib/utils";
@@ -11,7 +12,6 @@ import { grilleDuSecteur, type Lettre, type RegleProduit, type Regles } from "@/
 import { PROPOSITION, contactsDe, matriceDe } from "@/lib/segmentation/charge";
 import { CreerStrategie } from "./creer-strategie";
 import { EditeurRegles } from "./regles-editeur";
-import { ImportClasseur } from "./import-classeur";
 import { ClassementProduits } from "./classement-produits";
 import { SpecialitesProduits } from "./specialites-produits";
 import { CyclesVue } from "./cycles-vue";
@@ -29,7 +29,8 @@ const ONGLETS = [
   { cle: "praticiens", label: "Praticiens" },
   { cle: "regles", label: "Règles" },
 ] as const;
-const VUES = ["synthese", "praticiens", "regles", "cycles", "historique", "import", "avance"] as const;
+const VUES = ["synthese", "praticiens", "regles", "cycles", "historique", "avance"] as const;
+const IMPORT = "/segmentation/import";
 type Vue = (typeof VUES)[number];
 
 const norme = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
@@ -69,7 +70,13 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
   const parStrategie = searchParams?.s ? bus.find((b) => strategieDe(b) === searchParams.s) : undefined;
   const buChoisie = parStrategie ?? bus.find((b) => b.id === searchParams?.bu) ?? bus.find((b) => strategieDe(b)) ?? bus[0] ?? null;
   const vueDemandee = searchParams?.vue === "panel" ? "praticiens" : searchParams?.vue;
+  // L'import a son espace (`/segmentation/import`) : l'ancienne vue y mène.
+  if (vueDemandee === "import") redirect(IMPORT);
   const vue: Vue = (VUES as readonly string[]).includes(vueDemandee ?? "") ? (vueDemandee as Vue) : "synthese";
+  // « IMPORTER LE FICHIER » : en tête de page dans TOUS les états (BU sans stratégie comprise) — le Super Admin l'a toujours.
+  const boutonImport = droits.valider
+    ? <Link href={IMPORT} className="inline-flex h-9 items-center rounded-[var(--radius)] border border-border bg-card px-3 text-[13px] font-medium hover:bg-secondary sm:h-8">Importer le fichier</Link>
+    : null;
 
   const puce = "whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] font-medium";
   const barreBu = (
@@ -92,7 +99,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
   if (!buChoisie) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Segmentation" />
+        <PageHeader title="Segmentation">{boutonImport}</PageHeader>
         <p className="surface rounded-xl p-5 text-sm text-muted-foreground">Aucune Business Unit active : elles se créent dans <Link href="/planning/business-units" className="text-primary underline">Force de vente › Business Units</Link>.</p>
       </div>
     );
@@ -101,7 +108,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
   if (!choisieId) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Segmentation" description={`BU ${buChoisie.name} · segmentation à activer`} />
+        <PageHeader title="Segmentation" description={`BU ${buChoisie.name} · segmentation à activer`}>{boutonImport}</PageHeader>
         {barreBu}
         {droits.valider ? (
           <CreerStrategie bu={{ id: buChoisie.id, nom: buChoisie.name }} produits={catalogue(buChoisie.id)} />
@@ -140,7 +147,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
   return (
     <div className="space-y-4">
       <PageHeader title="Segmentation" description={sousTitre}>
-        {droits.valider && <Link href={href("import")} className="inline-flex h-9 items-center rounded-[var(--radius)] border border-border bg-card px-3 text-[13px] font-medium hover:bg-secondary sm:h-8">Importer le fichier</Link>}
+        {boutonImport}
         <a href={`/api/segmentation/export?s=${strategie.id}`} className="inline-flex h-9 items-center rounded-[var(--radius)] border border-border bg-card px-3 text-[13px] font-medium hover:bg-secondary sm:h-8">Exporter</a>
         <MenuDossier>
           <MenuLien href={href("cycles")}>Cycles de visite</MenuLien>
@@ -165,7 +172,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
           ))}
           {!(ONGLETS as readonly { cle: string }[]).some((o) => o.cle === vue) && (
             <span className="whitespace-nowrap border-b-2 border-primary px-3.5 py-2.5 text-sm font-medium">
-              {{ cycles: "Cycles", historique: "Historique", import: "Import", avance: "Règles détaillées" }[vue as "cycles" | "historique" | "import" | "avance"]}
+              {{ cycles: "Cycles", historique: "Historique", avance: "Règles détaillées" }[vue as "cycles" | "historique" | "avance"]}
             </span>
           )}
         </nav>
@@ -181,7 +188,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
 
       {vue === "synthese" && (regles ? <Synthese panel={panel} secteurs={secteursBu} toutesLignes={droits.toutesLignes} regles={regles} regleP1={regleP1} /> : (
         <p className="surface rounded-xl p-5 text-sm text-muted-foreground">
-          Aucune règle publiée : la synthèse se calcule dès la première version (<Link href={href("regles")} className="text-primary underline">onglet Règles</Link>{droits.valider ? <>, ou <Link href={href("import")} className="text-primary underline">importez le fichier</Link></> : null}).
+          Aucune règle publiée : la synthèse se calcule dès la première version (<Link href={href("regles")} className="text-primary underline">onglet Règles</Link>{droits.valider ? <>, ou <Link href={IMPORT} className="text-primary underline">importez le fichier</Link></> : null}).
         </p>
       ))}
 
@@ -190,6 +197,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
           strategieId={strategie.id}
           produitNom={p1?.nom ?? null}
           metrique={regleP1?.metrique ?? null}
+          methode={regleP1?.methodeAffinite ?? "SUR_10"}
           lignes={panel.map(versLigne)}
           secteurs={secteursChoix}
           droits={{ saisir: droits.saisir, panel: droits.panel, valider: droits.valider, forcer: droits.forcer }}
@@ -210,8 +218,6 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
       )}
 
       {vue === "cycles" && <CyclesSection strategieId={strategie.id} cycleDemande={searchParams?.cycle} peutGerer={droits.valider} moi={droits.toutesLignes ? null : user.id} />}
-
-      {vue === "import" && droits.valider && <ImportClasseur strategieId={strategie.id} aDesRegles={!!strategie.regle} />}
 
       {vue === "avance" && (
         <div className="space-y-5">
@@ -254,14 +260,15 @@ function versLigne(l: LignePanel): LignePraticien {
   };
 }
 
-/** De quoi recalculer une lettre à l'écran — seulement pour la méthode simple (sur 10, déclarée). */
+/** De quoi recalculer une lettre à l'écran — affinité DÉCLARÉE (Q2 ÷ 10, ou Q2 ÷ Q1 selon la méthode). */
 function regleEcran(regles: Regles | null, p: RegleProduit | undefined, secteurs: { id: string; nom: string }[]): RegleEcran | null {
-  if (!regles || !p || p.methodeAffinite !== "SUR_10" || (p.sourceAffinite ?? "DECLAREE") !== "DECLAREE") return null;
+  if (!regles || !p || (p.sourceAffinite ?? "DECLAREE") !== "DECLAREE") return null;
   const seuilParSecteur: Record<string, number> = {};
   for (const s of secteurs) { const e = exceptionDuSecteur(p, s); if (e?.seuilAffinite !== undefined) seuilParSecteur[s.id] = e.seuilAffinite; }
   return {
     hStatuts: regles.h.statuts, seuilPotentiel: p.seuilPotentiel, seuilAffinite: p.seuilAffinite, comparaison: p.comparaisonAffinite,
-    potentielNulNonCible: regles.ciblage.potentielNulNonCible, seuilParSecteur,
+    potentielNulNonCible: regles.ciblage.potentielNulNonCible, potentielNulNA: !!regles.ciblage.potentielNulNA,
+    methode: p.methodeAffinite, seuilParSecteur,
   };
 }
 

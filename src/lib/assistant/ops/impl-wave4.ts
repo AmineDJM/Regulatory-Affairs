@@ -177,13 +177,13 @@ export const REG4_OPS_IMPL: Record<string, OpImpl> = {
         warnings: item.linked ? ["Ce produit est DÉJÀ rattaché à un dossier — le rattachement sera remplacé."] : [],
         args: { kind, id: item.id, regulatoryProductId: dossier.id },
         successMessage: `« ${item.label} » rattaché à ${dossier.reference}.`,
-        revalidate: ["/regulatory/catalogue"],
+        revalidate: ["/produits/rapprocher", "/produits"],
       };
     },
     async execute(args) {
       const r = await linkProductToDossier({ kind: (args.kind ?? "BD") as "BD" | "PROMO", id: args.id ?? "", regulatoryProductId: args.regulatoryProductId ?? "" });
       if (!r.ok) return { ok: false, error: r.error ?? "Le rattachement a été refusé." };
-      return { ok: true, revalidate: ["/regulatory/catalogue"] };
+      return { ok: true, revalidate: ["/produits/rapprocher", "/produits"] };
     },
   },
 
@@ -209,13 +209,13 @@ export const REG4_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Le produit n'est plus rattaché à aucun dossier réglementaire (le dossier, lui, reste)."],
         args: { kind, id: bd.length === 1 ? bd[0].id : promo[0].id },
         successMessage: `Rattachement de « ${label} » défait.`,
-        revalidate: ["/regulatory/catalogue"],
+        revalidate: ["/produits/rapprocher", "/produits"],
       };
     },
     async execute(args) {
       const r = await unlinkProductFromDossier({ kind: (args.kind ?? "BD") as "BD" | "PROMO", id: args.id ?? "" });
       if (!r.ok) return { ok: false, error: r.error ?? "Le détachement a été refusé." };
-      return { ok: true, revalidate: ["/regulatory/catalogue"] };
+      return { ok: true, revalidate: ["/produits/rapprocher", "/produits"] };
     },
   },
 };

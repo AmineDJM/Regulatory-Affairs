@@ -132,8 +132,10 @@ export async function retrouverParIdentite(key: string, dci: string): Promise<{ 
  * même produit — on rend le sien, on n'en crée pas un second.
  *
  * Rend `null` quand le tuple ne produit AUCUNE clé (DCI vide) — on n'indexe pas le vide.
- * N'exige pas une identité COMPLÈTE : c'est à l'appelant d'en décider (`manquesIdentite`). Le
- * rattachement automatique d'un dossier l'exige ; une personne qui crée un produit à l'étude, non.
+ * N'exige pas une identité COMPLÈTE : c'est à l'appelant d'en décider (`manquesIdentite`).
+ *
+ * ⚠️ Pas pour un DOSSIER : un dossier reçoit SON produit (`ensureProduitDuDossier`, un pour un) —
+ * ceci rejoint le produit d'une identité existante, ce qui fusionnerait deux dossiers.
  */
 export async function ensureProduct(input: {
   dci: string;
@@ -193,7 +195,7 @@ export async function ensureProduct(input: {
  * ALPHABÉTIQUE : passé 999, « PRD-2026-999 » restait le plus grand, chaque création recalculait
  * « PRD-2026-1000 » déjà pris, et plus aucun produit ne se créait de l'année.
  */
-async function nextProductCode(): Promise<string> {
+export async function nextProductCode(): Promise<string> {
   const annee = new Date().getFullYear();
   const codes = await prisma.product.findMany({
     where: { code: { startsWith: `PRD-${annee}-` } },

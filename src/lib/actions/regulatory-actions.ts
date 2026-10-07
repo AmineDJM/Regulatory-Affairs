@@ -24,8 +24,8 @@ import { prisma } from "@/lib/prisma";
 import { projetsBdVisibles } from "@/lib/queries/bd";
 import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
-import { rattacherDossier, phraseRattachement, synchroniserCycleDeVie } from "@/lib/products/canonique";
-import { phraseManques } from "@/lib/products/identity";
+import { ensureProduitDuDossier, synchroniserCycleDeVie } from "@/lib/products/canonique";
+import { phraseProduitDuDossier } from "@/lib/products/produit-du-dossier";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
@@ -396,17 +396,17 @@ export async function createRegulatoryProduct(
       .catch((e) => console.error("[drive regulatory] dossier Drive non créé (non bloquant)", e));
   }
 
-  // LE PRODUIT CANONIQUE (§118.178) : un dossier à l'identité complète rejoint son produit dès sa
-  // naissance — sinon on dit ce qui manque. Le dossier est créé quoi qu'il arrive : un incident de
-  // rattachement se DIT dans le message, il ne défait pas une création réussie, et le rattachement
-  // global du catalogue le rattrapera.
-  const lien = await rattacherDossier(product.id, { acteurId: user.id }).catch((e) => {
-    console.error("[produit canonique] rattachement à la création", e);
+  // PRODUIT = DOSSIER (Direction, 08/10) : le dossier EST un produit dès sa naissance, identité
+  // complète ou non (ce qui manque devient une indication sur la fiche). Un dossier verrouillé le
+  // reçoit à l'ouverture du cadenas. Le dossier est créé quoi qu'il arrive : un incident se DIT dans
+  // le message, il ne défait pas une création réussie, et le bilan du démarrage le rattrapera.
+  const lien = await ensureProduitDuDossier(product.id, { acteurId: user.id }).catch((e) => {
+    console.error("[produits] produit du dossier à la création", e);
     return null;
   });
   const messageProduit = lien
-    ? phraseRattachement(lien, phraseManques)
-    : "Le produit canonique n'a pas pu être rattaché maintenant : le catalogue produits le rattachera.";
+    ? phraseProduitDuDossier(lien)
+    : "La fiche produit n'a pas pu être créée maintenant : elle le sera au prochain démarrage.";
 
   // UN DOSSIER VERROUILLÉ NE PRÉVIENT PERSONNE. Il n'existe que pour le Super Admin
   // (`lockGate`) : annoncer sa création à l'équipe reviendrait à lui envoyer un lien qui
@@ -616,13 +616,12 @@ export async function updateRegulatoryProduct(
       : `Dossier ${before.reference} modifié — ${dci}`,
   });
 
-  // LE LIEN SUIT LA DONNÉE (§118.178) : une identité corrigée rejoint son produit, une identité
-  // devenue incomplète ne défait rien. Appelé à CHAQUE enregistrement — idempotent, il n'écrit
-  // que si quelque chose a changé. Son état se LIT sur la fiche du dossier, en permanence : le
-  // message de cette action est réservé aux réserves, qui gardent la fenêtre ouverte, et un
-  // « rattaché » à chaque enregistrement la garderait ouverte pour rien.
-  await rattacherDossier(id, { acteurId: user.id }).catch((e) => {
-    console.error("[produit canonique] rattachement à la modification", e);
+  // LE PRODUIT SUIT SON DOSSIER : une identité complétée ou corrigée met à jour LE MÊME produit ; un
+  // champ vidé ne le vide pas. Appelé à CHAQUE enregistrement — idempotent, il n'écrit que si
+  // quelque chose a changé. Son état se LIT sur la fiche : le message de cette action est réservé
+  // aux réserves, qui gardent la fenêtre ouverte.
+  await ensureProduitDuDossier(id, { acteurId: user.id }).catch((e) => {
+    console.error("[produits] produit du dossier à la modification", e);
   });
 
   // Le chargé du dossier apprend le changement — celui d'AVANT si la personne a changé : c'est
@@ -712,6 +711,9 @@ export async function setRegulatoryLock(formData: FormData): Promise<ActionResul
   if (!locked) {
     void synchroniserDossierDrive(id, user.id)
       .catch((e) => console.error("[drive regulatory] dossier Drive non synchronisé (non bloquant)", e));
+    // …et entre au catalogue : un dossier visible EST un produit (Direction, 08/10).
+    await ensureProduitDuDossier(id, { acteurId: user.id })
+      .catch((e) => console.error("[produits] produit du dossier au déverrouillage", e));
   }
   revalidatePath("/regulatory");
   revalidatePath(`/regulatory/${id}`);
@@ -749,6 +751,11 @@ export async function unlockAllRegulatory(): Promise<ActionResult> {
         .catch((e) => console.error("[drive regulatory] dossier Drive non synchronisé (non bloquant)", { id: p.id }, e));
     }
   })();
+  // Entrés au catalogue : chaque dossier ouvert EST un produit (Direction, 08/10).
+  for (const p of ouverts) {
+    await ensureProduitDuDossier(p.id, { acteurId: user.id })
+      .catch((e) => console.error("[produits] produit du dossier au déverrouillage", { id: p.id }, e));
+  }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT",
     entityId: "*", field: "isLocked", newValue: "false",

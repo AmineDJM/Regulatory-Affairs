@@ -15,6 +15,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { cn } from "@/lib/utils";
 import { EtapeIdentite, EtapeProduits, EtapeKams, EtapeSecteurs, inputCls, btnCls, type Run } from "./bu-etapes";
+import { ETAPES, type Etape } from "./etapes";
 
 /**
  * LE MONTAGE D'UNE BU, PAR ÉTAPES (Direction, 07/10 : « découpées en étapes au lieu d'un écran de 14 blocs »).
@@ -54,8 +55,6 @@ type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 /** Une personne désignée référente Direction Marketing d'une gamme. */
 export interface ReferentRow { id: string; userId: string; name: string; porteLeRole: boolean; businessUnitId: string }
 
-export const ETAPES = ["identite", "produits", "kams", "secteurs"] as const;
-export type Etape = (typeof ETAPES)[number];
 const ETAPE_LABELS: Record<Etape, string> = { identite: "BU & superviseur", produits: "Spécialités & produits", kams: "KAM", secteurs: "Secteurs" };
 /** Les étapes du montage (`sfe-setup`) que chaque écran règle — un point s'y allume quand l'une manque. */
 const CLES_ETAPE: Record<Etape, BuStepKey[]> = {

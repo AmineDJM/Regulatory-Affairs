@@ -1086,6 +1086,8 @@ X("SEGMENTATION STUDIO (Direction, 06/10) : stratégie, classement des produits,
   // La lettre forcée (droit accordé par le Super Admin), le secteur d'une fiche, la recherche pour ajouter au panel.
   "segmentation-actions:forcerLettre", "segmentation-actions:rendreLettreCalculee", "segmentation-actions:changerSecteur",
   "segmentation-actions:chercherPraticiensHorsPanel",
+  // Le classeur de la Direction importé « en une fois » : un fichier, une BU, un aperçu lu à l'écran avant d'importer.
+  "segmentation-actions:apercuImportClasseurDirection", "segmentation-actions:importerClasseurDirection",
 ]);
 X("FORCE DE VENTE › TERRITOIRES (Direction, 07/10) : rattacher en un clic une cible H ou A hors panel au délégué de son "
   + "secteur. Le geste se décide en REGARDANT la liste du secteur (lettre, statut, établissement) que l'écran "
@@ -1464,10 +1466,9 @@ X("LES SERVICES D'UN ÉTABLISSEMENT ET LE RATTACHEMENT EN LOT DES PRATICIENS son
   "etablissement-services-actions:supprimerServiceEtablissement",
   "medical-directory-actions:rattacherEtablissementsParNom",
 ]);
-X("LE CATALOGUE DES PRODUITS CANONIQUES (§118.178) — rattacher un dossier à son produit, nommer un produit, lui donner ou lui retirer un alias, et rattacher tout l'existant — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Le rattachement de l'existant, de plus, ne vaut que DEVANT son aperçu : il touche tous les dossiers, y compris ceux qu'aucun autre rôle ne voit, et le Super Admin le simule avant de l'appliquer. Tout se fait sur Regulatory › Catalogue produits (le rattachement d'un dossier aussi depuis sa fiche) ; un dossier à l'identité complète se rattache d'ailleurs seul à son enregistrement.", [
+X("LE CATALOGUE PRODUITS (produit = dossier, Direction 08/10) — donner son produit à un dossier, nommer un produit, lui donner ou lui retirer un alias, et vérifier tout le catalogue — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La vérification du catalogue, de plus, touche tous les dossiers, y compris ceux qu'aucun autre rôle ne voit : réservée au Super Admin, devant son bilan. Tout se fait sur Produits 360 (fiche du produit, menu ⋯ de la liste) ; chaque dossier reçoit d'ailleurs son produit seul, à son enregistrement et au démarrage du serveur.", [
   "produit-canonique-actions:rattacherDossierCanonique",
-  "produit-canonique-actions:simulerRattachementCanonique",
-  "produit-canonique-actions:appliquerRattachementCanonique",
+  "produit-canonique-actions:verifierProduitsDesDossiers",
   "produit-canonique-actions:renommerProduitCanonique",
   "produit-canonique-actions:ajouterAliasProduitCanonique",
   "produit-canonique-actions:retirerAliasProduitCanonique",

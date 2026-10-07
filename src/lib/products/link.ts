@@ -2,7 +2,7 @@ import { userCan, scopeRegulatory, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import type { ActionResult } from "@/lib/actions/types";
-import { rattacherDossier } from "./canonique";
+import { ensureProduitDuDossier } from "./canonique";
 
 /**
  * RATTACHER UN PRODUIT À SON DOSSIER RÉGLEMENTAIRE — le cœur, appelé par les DEUX portes.
@@ -47,13 +47,13 @@ export async function linkProductToDossierFor(user: SessionUser, input: {
   });
   if (!dossier) return { ok: false, error: "Dossier réglementaire introuvable dans votre périmètre." };
 
-  // LE PRODUIT CANONIQUE DU DOSSIER (§118.178) : rattaché à son dossier, le profil en hérite — c'est
-  // lui qu'une visite rapporte et que la 360° lit. Un dossier pas encore rattaché l'est ici, sur sa
-  // seule identité complète ; incomplet, il ne donne rien, et le catalogue dit ce qui manque.
+  // LE PRODUIT DU DOSSIER (produit = dossier, Direction 08/10) : rattaché à son dossier, le profil en
+  // hérite — c'est lui qu'une visite rapporte et que la 360° lit. Un dossier sans produit (d'avant ce
+  // lot) reçoit le sien ici, identité complète ou non.
   let produitDuDossier = dossier.productId;
   if (!produitDuDossier) {
-    const lien = await rattacherDossier(dossier.id, { acteurId: user.id }).catch(() => null);
-    if (lien && lien.etat !== "INCOMPLET" && lien.etat !== "INTROUVABLE") produitDuDossier = lien.produitId;
+    const lien = await ensureProduitDuDossier(dossier.id, { acteurId: user.id }).catch(() => null);
+    if (lien && "produitId" in lien) produitDuDossier = lien.produitId;
   }
 
   const dossierName = [dossier.dci, dossier.dosage, dossier.reference && `(${dossier.reference})`].filter(Boolean).join(" ");
@@ -63,7 +63,7 @@ export async function linkProductToDossierFor(user: SessionUser, input: {
     if (!p) return { ok: false, error: "Produit introuvable." };
     await prisma.bdProduct.update({
       where: { id: input.id },
-      // Un produit canonique déjà choisi par une personne n'est pas remplacé par effet de bord.
+      // Un produit déjà choisi par une personne n'est pas remplacé par effet de bord.
       data: { regulatoryProductId: dossier.id, ...(p.productId ? {} : { productId: produitDuDossier }) },
     });
     await recordAudit({

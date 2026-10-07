@@ -34,10 +34,11 @@ export function VueEquipe({ lignes, onOuvrir }: { lignes: LigneEquipe[]; onOuvri
           <option value="ALERTES">Avec une alerte</option>
         </select>
       </div>
-      <Table className="min-w-[52rem]">
+      <Table className="min-w-[44rem]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="sticky left-0 z-10 bg-card">Personne</TableHead>
+            {/* Colonne « Personne » bornée (Direction, 08/10 : « réduis de moitié ») — le poste se tronque, la fiche le donne en entier. */}
+            <TableHead className="sticky left-0 z-10 w-[11rem] max-w-[11rem] bg-card sm:w-[15rem] sm:max-w-[15rem]">Personne</TableHead>
             <TableHead>Aujourd&apos;hui</TableHead>
             <TableHead>Activité (30 j)</TableHead>
             <TableHead>Tâches</TableHead>
@@ -53,7 +54,7 @@ export function VueEquipe({ lignes, onOuvrir }: { lignes: LigneEquipe[]; onOuvri
             const statut = statutDuJour(l);
             return (
               <TableRow key={l.employeeId} className="group cursor-pointer" onClick={() => onOuvrir(l.employeeId)}>
-                <TableCell className="sticky left-0 z-10 max-w-[13rem] bg-card group-hover:bg-secondary sm:max-w-none">
+                <TableCell className="sticky left-0 z-10 w-[11rem] max-w-[11rem] bg-card group-hover:bg-secondary sm:w-[15rem] sm:max-w-[15rem]">
                   <div className="flex items-center gap-2.5" style={{ paddingLeft: `${Math.min(l.depth - 1, 4) * 14}px` }}>
                     <Avatar nom={l.nom} absent={l.aujourdhui.genre !== "PRESENT"} />
                     <div className="min-w-0">

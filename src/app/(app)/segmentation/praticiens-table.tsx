@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
-import { STATUTS, STATUT_LABELS, LETTRES_FORCABLES, type Comparaison, type Lettre, type Statut } from "@/lib/segmentation/regles";
+import { STATUTS, STATUT_LABELS, LETTRES_FORCABLES, affiniteAffichee, type Comparaison, type Lettre, type MethodeAffinite, type Statut } from "@/lib/segmentation/regles";
 import { lettreProvisoire, enteteQ1, enteteQ2 } from "@/lib/segmentation/charge";
 import {
   enregistrerPotentiel, changerStatut, forcerLettre, rendreLettreCalculee, changerSecteur, retirerDuPanel,
@@ -48,6 +48,8 @@ export interface RegleEcran {
   seuilAffinite: number;
   comparaison: Comparaison;
   potentielNulNonCible: boolean;
+  potentielNulNA: boolean;
+  methode: MethodeAffinite;
   /** Seuil d'affinité propre à un secteur. */
   seuilParSecteur: Record<string, number>;
 }
@@ -61,8 +63,8 @@ const FILTRES_LETTRE: { v: string; l: string }[] = [
 
 const champ = "rounded-lg border border-border bg-background px-2.5 py-2 text-sm sm:py-1.5";
 
-export function PraticiensTable({ strategieId, produitNom, metrique, lignes, secteurs, droits, regle }: {
-  strategieId: string; produitNom: string | null; metrique: string | null; lignes: LignePraticien[];
+export function PraticiensTable({ strategieId, produitNom, metrique, methode, lignes, secteurs, droits, regle }: {
+  strategieId: string; produitNom: string | null; metrique: string | null; methode: MethodeAffinite; lignes: LignePraticien[];
   secteurs: { id: string; nom: string }[]; droits: Droits; regle: RegleEcran | null;
 }) {
   const { enCours, rafraichir } = useRafraichir();
@@ -88,6 +90,7 @@ export function PraticiensTable({ strategieId, produitNom, metrique, lignes, sec
       lettre = lettreProvisoire({
         statut: st, q1, q2, hStatuts: regle.hStatuts, seuilPotentiel: regle.seuilPotentiel, comparaison: regle.comparaison,
         seuilAffinite: (l.secteurId ? regle.seuilParSecteur[l.secteurId] : undefined) ?? regle.seuilAffinite, potentielNulNonCible: regle.potentielNulNonCible,
+        methode: regle.methode, potentielNulNA: regle.potentielNulNA,
       });
     }
     return { statut: st, q1, q2, lettre };
@@ -165,7 +168,9 @@ export function PraticiensTable({ strategieId, produitNom, metrique, lignes, sec
                 <Th>Prénom</Th><Th>Grade</Th><Th>Statut</Th>
                 <Th className="min-w-[110px] whitespace-normal text-center leading-tight">{enteteQ1(metrique)}</Th>
                 <Th className="min-w-[110px] whitespace-normal text-center leading-tight">{enteteQ2(produitNom)}</Th>
-                <Th className="text-right">%</Th>
+                <Th className="text-right">
+                  <span className="inline-flex items-center gap-1">%<InfoBulle label="Affinité">{methode === "RATIO_FICHIER" ? "Q2 ÷ Q1, comme la formule du classeur." : "Q2 ÷ 10."}</InfoBulle></span>
+                </Th>
                 <Th className="text-center">Potentiel</Th>
               </tr>
             </thead>
@@ -205,7 +210,7 @@ export function PraticiensTable({ strategieId, produitNom, metrique, lignes, sec
                       <Td className="text-center">
                         {droits.saisir ? <EntreeQ key={`q2-${l.q2}`} valeur={v.q2} label="Q2" onValider={(s) => saisirQ(l, "q2", s)} /> : v.q2 ?? "—"}
                       </Td>
-                      <Td className="text-right tabular-nums">{v.q2 === null ? <span className="text-muted-foreground">—</span> : `${String(Math.round(v.q2 * 100) / 10).replace(".", ",")} %`}</Td>
+                      <Td className="text-right tabular-nums">{pourcent(affiniteAffichee(v.q1, v.q2, methode))}</Td>
                       <Td className="text-center">
                         {v.lettre ? (
                           <button type="button" onClick={() => setOuverte(ouvert ? null : l.doctorId)} className="inline-flex items-center" aria-label={`Potentiel ${v.lettre}`}>
@@ -239,6 +244,12 @@ export function PraticiensTable({ strategieId, produitNom, metrique, lignes, sec
       </section>
     </div>
   );
+}
+
+/** « 8,9 % » — une décimale ; « — » quand l'affinité ne se calcule pas. */
+function pourcent(a: number | null): React.ReactNode {
+  if (a === null) return <span className="text-muted-foreground">—</span>;
+  return `${String(Math.round(a * 1000) / 10).replace(".", ",")} %`;
 }
 
 function Th({ className, children }: { className?: string; children: React.ReactNode }) {

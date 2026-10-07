@@ -47,8 +47,18 @@ export type Comparaison = ">" | ">=";
 export type MethodeAffinite = "SUR_10" | "RATIO_FICHIER";
 export const METHODE_LABELS: Record<MethodeAffinite, string> = {
   SUR_10: "Part du produit (sur 10 patients ÷ 10)",
-  RATIO_FICHIER: "Méthode du classeur (sur 10 ÷ patients par semaine)",
+  RATIO_FICHIER: "Méthode du classeur (Q2 ÷ Q1 : sur 10 ÷ patients par semaine)",
 };
+
+/**
+ * L'AFFINITÉ AFFICHÉE (colonne « % ») selon la méthode : Q2 ÷ 10, ou Q2 ÷ Q1 (la formule du classeur, « =I40/H40 »).
+ * `null` quand elle ne se calcule pas (une réponse manque, ou Q1 = 0 pour le ratio). Fraction 0..1+.
+ */
+export function affiniteAffichee(q1: number | null, q2: number | null, methode: MethodeAffinite): number | null {
+  if (q2 === null) return null;
+  if (methode === "SUR_10") return q2 / 10;
+  return q1 !== null && q1 > 0 ? q2 / q1 : null;
+}
 
 /**
  * D'OÙ VIENT L'AFFINITÉ (cahier des charges §34-35) : la déclaration du praticien (terrain), ou l'affinité de son
@@ -124,6 +134,11 @@ export interface Regles {
     statutsNonCibles: Statut[];
     /** Un potentiel DÉCLARÉ à zéro (« ne consulte pas ») rend le praticien non ciblé pour ce produit. */
     potentielNulNonCible: boolean;
+    /**
+     * Un potentiel déclaré à zéro donne NA — « non applicable » (glossaire du classeur de la Direction : résidents,
+     * pharmaciens… qui ne consultent pas mais restent au panel). L'emporte sur `potentielNulNonCible`. Absent = non.
+     */
+    potentielNulNA?: boolean;
   };
   /** H = décideur stratégique : SÉPARÉ de A/B/C/D, avec sa propre fréquence. */
   h: { statuts: Statut[]; frequence: number };
@@ -200,6 +215,7 @@ export function lireRegles(brut: unknown): LectureRegles {
   const ciblage = {
     statutsNonCibles: (Array.isArray(c.statutsNonCibles) ? c.statutsNonCibles : []).filter(estStatut),
     potentielNulNonCible: c.potentielNulNonCible !== false,
+    ...(c.potentielNulNA === true ? { potentielNulNA: true } : {}),
   };
   const h0 = (o.h ?? {}) as Record<string, unknown>;
   const hFreq = num(h0.frequence);

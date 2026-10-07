@@ -496,6 +496,18 @@ dernier matériel pour déposer le premier. Un refus du centre rouvre CE bon, et
 publicitaire (`OPENABLE_DECLARATION_KINDS`) — sans attendre qu'un événement les lui envoie ; la nature choisie décide
 du circuit. Le bon de versement ne s'ouvre pas : c'est une étape du circuit du matériel.
 
+**L'écran (07/10) — où en est le dossier, chez qui, depuis quand.** Une seule lecture, `lib/medical-info/parcours.ts`
+(PUR, testé), sert la liste ET la fiche : étapes **Événement** = Reçu → À déclarer ? → Pièces → Dépôt ministère →
+Pharmacien → Direction ; **Matériel** = Reçu → Pièces → Bons de versement → Dépôt ministère → Pharmacien → Direction.
+L'étape courante est la première ni faite ni « sans objet » (les pièces sont facultatives : sans demande, l'étape est
+sans objet). La **liste** (`information-medicale/dossiers-table.tsx`) : quatre tuiles (chaque dossier ouvert compté une
+fois, dans le groupe où il attend), une ligne « état — chez qui », le délai, et le **produit** déduit de la source
+(`lib/medical-info/produits.ts` : premier produit nommé + nombre d'autres, lien Produits 360 s'il se résout sans
+ambiguïté) ; le plus ancien en attente d'abord, les validés en bas. La **fiche** : la **frise** (`[id]/frise.tsx`,
+défilement latéral au téléphone) puis **la seule action** à faire maintenant. **Relancer une pièce attendue**
+(`relancerPieceInfoMed`) : notification à la personne sollicitée, tracée, au plus une toutes les 4 h (la règle des
+tâches).
+
 ### Ordres de dépense — le centre autorise, le comptable règle
 
 Le centre de paiement **autorise** → **ordre de dépense** → le **comptable règle**. La « révision demandée
@@ -543,6 +555,17 @@ par produit, on affecte KAM × produit × rang de détail, le cockpit compare pl
 Mais l'écran de **saisie du terrain avait été retiré**, et un cockpit sans réalisé pilote à
 l'aveugle : le « réalisé » venait de visites que plus rien ne permettait d'enregistrer simplement.
 La saisie ne se décrète pas — elle s'obtient en rendant l'écran **utile avant d'être obligatoire**.
+
+> **Refonte du 07/10 (maquette validée) — UN SEUL « REQUIS », LA LETTRE PARTOUT.** Le requis d'un praticien est la
+> **lettre de segmentation × In/Out × fréquence du secteur** (stratégie de la BU du KAM d'abord ; le palier de potentiel
+> × `frequencyByTier` seulement pour un praticien hors de toute stratégie publiée — `lib/segmentation/lettre-requise.ts`,
+> `lettres-service.ts`). Ma journée (tournée proposée : le plus en retard, puis la plus forte lettre, puis le plus
+> anciennement vu — `sfe-day.ts`), la cible du mois (Σ du requis du panel — les visites prévues des affectations ne
+> priment plus), le plan de tournée (liseré de la lettre dans la grille et le PDF), le cockpit et l'instantané mensuel
+> lisent ce requis. Le pilotage vit à **`/planning`** (onglets Pilotage · Territoires · Produits ; calculs purs
+> `lib/force-de-vente/calculs.ts` — jour du cycle en jours ouvrés, réalisé **plafonné au requis** de chaque praticien,
+> couverture à fréquence des cibles H·A·B, tri par retard ; lectures `lib/queries/force-de-vente.ts`). Détails :
+> [Force de vente — pilotage, territoires, produits](#force-de-vente--pilotage-territoires-produits-refonte-du-0710).
 
 - **« Ma journée » (`/medical/ma-journee`)** — l'écran unique du KAM, pensé pour un téléphone.
   La **tournée proposée** vient de `lib/sfe-day.ts` (PUR, testé) : priorité au **retard sur la

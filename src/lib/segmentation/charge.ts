@@ -1,4 +1,4 @@
-import type { Capacite, Comparaison, GrilleFrequence, InOut, Lettre, Statut } from "./regles";
+import type { Capacite, Comparaison, GrilleFrequence, InOut, Lettre, MethodeAffinite, Statut } from "./regles";
 
 /**
  * LA SYNTHÈSE PAR SECTEUR — calculs PURS, partagés par le serveur et l'écran (Direction, 07/10).
@@ -101,12 +101,17 @@ export const deuxDecimales = (n: number): string => n.toFixed(2).replace(".", ",
 export function lettreProvisoire(p: {
   statut: Statut | null; q1: number | null; q2: number | null; hStatuts: readonly Statut[];
   seuilPotentiel: number; seuilAffinite: number; comparaison: Comparaison; potentielNulNonCible: boolean;
+  /** Q2 ÷ 10 (défaut) ou Q2 ÷ Q1 (méthode du classeur). */
+  methode?: MethodeAffinite;
+  /** 0 patient = NA (non applicable) plutôt que non ciblé. */
+  potentielNulNA?: boolean;
 }): Lettre {
   if (p.statut && p.hStatuts.includes(p.statut)) return "H";
   if (p.q1 === null || p.q2 === null) return "NA";
+  if (p.q1 === 0 && p.potentielNulNA) return "NA";
   if (p.q1 === 0 && p.potentielNulNonCible) return "NC";
   const haut = p.q1 >= p.seuilPotentiel;
-  const a = p.q2 / 10, eps = 1e-9;
+  const a = (p.methode === "RATIO_FICHIER" ? (p.q1 > 0 ? p.q2 / p.q1 : 0) : p.q2 / 10), eps = 1e-9;
   const affin = p.comparaison === ">" ? a > p.seuilAffinite + eps : a >= p.seuilAffinite - eps;
   return haut ? (affin ? "A" : "B") : affin ? "C" : "D";
 }

@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Link2, Lock } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle, Lock } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeRegulatory, isRegulatorySupervisor, anyRoleFilter, seesLockedRegulatory } from "@/lib/rbac";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
@@ -86,14 +85,9 @@ export default async function RegulatoryPage() {
         description="Suivi des molécules/DCI et de leur avancement réglementaire jusqu'à l'enregistrement."
       >
         <div className="flex flex-wrap items-center gap-2">
-          {/* Le catalogue réglementaire fait RÉFÉRENCE pour les autres modules : c'est donc d'ici
-              qu'on rapproche leurs produits, pas depuis chacun d'eux. Écran de maintenance —
-              atteint depuis Regulatory plutôt que par une entrée de menu de plus. */}
-          <Link href="/regulatory/catalogue">
-            <Button variant="outline" size="sm">
-              <Link2 className="h-4 w-4" /> Rattachement au catalogue
-            </Button>
-          </Link>
+          {/* UN SEUL CATALOGUE (Direction, 08/10) : chaque dossier EST un produit (Produits 360) ; plus
+              d'écran de rattachement ici. Le rapprochement d'un produit BD / BU sans dossier vit dans
+              Produits 360 (⋯). */}
           {reminderBoard && (
             <UpdateReminderButton
               people={reminderBoard.targets.map((t) => ({

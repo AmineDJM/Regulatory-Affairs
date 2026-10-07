@@ -21,7 +21,7 @@ import { BackLink } from "@/components/shared/back-link";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { ProductDriveExplorer, dossierDriveAffiche } from "@/components/documents/product-drive-explorer";
 import { Onglets, Pastille, Point, FriseCycle, Carte, Vide, type Ton } from "@/components/produits/ui-360";
-import { AliasProduit, RenommerProduit } from "@/app/(app)/regulatory/catalogue/[id]/fiche-gestes";
+import { AliasProduit, RenommerProduit } from "./fiche-gestes";
 import { RepartitionBu } from "./repartition-bu";
 import { PrixProduit } from "./prix-produit";
 

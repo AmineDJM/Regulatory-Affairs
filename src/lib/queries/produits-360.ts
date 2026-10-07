@@ -11,6 +11,8 @@ import { platformScope } from "@/lib/company";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { marcheDuProduit, type MarcheDuProduit } from "@/lib/market/produit-marche";
 import { PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { manquesIdentite } from "@/lib/products/identity";
+import { titreACompleter } from "@/lib/products/produit-du-dossier";
 import { toNumber } from "@/lib/utils";
 import {
   etapeCycle, stockActuel, moisDeCouverture, ecoulementMensuel, serieMensuelle, moisGlissants, cleMois, variationPct,
@@ -25,7 +27,8 @@ import {
  *
  * ── UN CATALOGUE, DES TABLES INTERNES ────────────────────────────────────────────────────
  *
- * L'écran ne montre QU'UN objet : le produit canonique (`Product`). Ses dossiers
+ * L'écran ne montre QU'UN objet : le produit (`Product`), né de son dossier — un pour un, chaque dossier
+ * non verrouillé en a un d'office (`products/canonique.ts`, `ensureProduitDuDossier`). Ses dossiers
  * (`RegulatoryProduct.productId`) en sont l'enregistrement — et portent le STOCK, dont les relevés
  * sont indexés sur le dossier : le stock d'un produit est donc la somme des stocks de ses dossiers.
  * Les profils BU (`PromoProduct`) et BD (`BdProduct`) restent des tables internes, rattachées au
@@ -70,7 +73,13 @@ export function clauseProduitAuCatalogue(user: SessionUser): Prisma.ProductWhere
 function clauseRecherche(q: string): Prisma.ProductWhereInput {
   if (!q) return {};
   const c = { contains: q, mode: "insensitive" as const };
-  return { OR: [{ canonicalName: c }, { dci: c }, { code: c }, { aliases: { some: { label: c } } }, { regulatoryProfiles: { some: { brandName: c } } }] };
+  // Le dossier EST le produit (Direction, 08/10) : sa référence (REG-AAAA-NNN) et sa DCI le retrouvent aussi.
+  return {
+    OR: [
+      { canonicalName: c }, { dci: c }, { code: c }, { aliases: { some: { label: c } } },
+      { regulatoryProfiles: { some: { OR: [{ brandName: c }, { reference: c }, { dci: c }] } } },
+    ],
+  };
 }
 
 /** « 400 mg » — le dosage écrit comme on le dit. */
@@ -365,6 +374,7 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
           select: {
             id: true, reference: true, brandName: true, status: true, deHolder: true, partnerLab: true, therapeuticClass: true,
             manufacturer: true, manufacturingStatus: true, workflow: true, targetDate: true,
+            dci: true, dosage: true, dosageUnit: true, pharmaceuticalForm: true, packaging: true,
             variations: { select: { id: true, toStatus: true, status: true, depotDate: true, decisionDate: true }, orderBy: { createdAt: "desc" } },
             regRequests: { select: { id: true, reference: true, subject: true, status: true }, orderBy: { createdAt: "desc" }, take: 10 },
           },
@@ -466,6 +476,12 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
   }
   if (blocStock?.couvertureMois !== null && blocStock?.couvertureMois !== undefined && blocStock.couvertureMois < SEUIL_STOCK_BAS_MOIS) {
     aSurveiller.push({ ton: "warning", titre: "Stock bas", detail: `${String(blocStock.couvertureMois).replace(".", ",")} mois · ${blocStock.unites.toLocaleString("fr-FR")} boîtes`, href: "?onglet=stock" });
+  }
+  // PRODUIT = DOSSIER : une identité incomplète est une INDICATION de qualité (« Conditionnement à compléter »),
+  // avec le lien vers le dossier où elle se complète — jamais un blocage.
+  for (const d of visibles) {
+    const titre = titreACompleter(manquesIdentite({ dci: d.dci, dosage: d.dosage, dosageUnit: d.dosageUnit, form: d.pharmaceuticalForm, packaging: d.packaging }));
+    if (titre) aSurveiller.push({ ton: "info", titre, detail: `Dossier ${d.reference}`, href: `/regulatory/${d.id}` });
   }
   for (const d of dossiers) {
     if (d.echeance && d.echeance.joursAvantDepot <= 365) {
