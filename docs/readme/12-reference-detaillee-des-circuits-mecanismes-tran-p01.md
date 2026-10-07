@@ -932,12 +932,21 @@ l'élargir en ferait un outil de surveillance. L'existence de l'enregistrement s
 
 ### Recrutement — de la demande d'un directeur jusqu'à l'intégration
 
+*(Titre historique : depuis le 07/10, n'importe qui peut demander — voir « Qui peut demander ».)*
+
 **Modèles** : `RecruitmentRequest` (référence `REC-AAAA-NNN`, entité, département, demandeur, poste, effectif,
 `contractType`, `salaryMin`/`salaryMax`, dates, missions, compétences, justification, `stage`, note et date de
 clôture) · `RecruitmentApproval` (`order`, `approverId`, `status`, `reason`, `decidedAt` — unique par
 `(requestId, order)`) · `RecruitmentInfoRequest` (question / réponse / auteurs / dates) · `RecruitmentCandidate`
 (identité, source, notes, `status`, traces de présélection / sélection / entretien, `employeeId` unique).
 Enums `RecruitmentStage` · `RecruitmentApprovalState` · `RecruitmentCandidateStatus` ; `ContractType.CONSULTING`.
+Depuis le 07/10 (migration `20270115100000_recrutement_suivi_canaux`) : `RecruitmentRequest.futureManagerId` (le N+1
+de la future recrue), `RecruitmentFollower` (`requestId`, `userId`, `addedById` — unique par couple) et
+`RecruitmentChannelPost` (`channel`, `status` PREPARE…, `content`, `url`, `error`, `publishedAt`/`publishedById` —
+unique par `(requestId, channel)`).
+
+**Place dans le menu (07/10)** : **module RH à part entière** (Pôles › Administration, `NAVIGATION` dans
+`lib/labels.ts`) — il n'est plus un sous-menu de Mon Équipe ; ses accès se règlent dans la console comme les autres.
 
 **Étapes** : `CHAIN` → `HR_REVIEW` ⇄ `INFO_REQUESTED` → `SOURCING` → `ONBOARDING` → `CLOSED`
 (`REJECTED` / `CANCELLED` en sortie ; `RETURNED` — « À corriger » — quand la chaîne ou les RH la renvoient à son
@@ -946,13 +955,25 @@ demandeur). Le **pipeline des candidats** est porté par les CANDIDATS
 plusieurs personnes avancent en parallèle à des vitesses différentes, et une demande qui porterait un seul état
 « en entretien » ne saurait pas dire de qui elle parle.
 
-**Qui peut demander** : `recruitmentAccessFor` (`lib/rbac.ts`) — la condition est **factuelle** (diriger ou
-seconder un département, compté dans `getAccess`), pas nominale. Un rôle « Responsable » qui ne dirige rien n'a
-pas à demander de poste ; quelqu'un dont le rôle ne dit rien mais qui tient un service en a besoin. Les RH
-obtiennent le module entier (portée `ALL`).
+**Qui peut demander** : **tout le monde** depuis le 07/10 (Direction : « n'importe qui peut demander un nouveau
+recrutement »). `recruitmentAccessFor` (`lib/rbac.ts`, PURE) rend toujours un accès, posé par `getAccess` en
+**élargissant** (`grantImplicit` — un rôle qui accorde davantage n'est pas rétréci, un **blocage de la console prime**) :
+les RH (UPDATE sur `RH`) → module entier, portée `ALL` ; qui dirige un département → VIEW/CREATE/UPDATE/UPLOAD/EXPORT,
+portée `ASSIGNED` ; **tout autre compte → VIEW + CREATE + UPLOAD, portée `ASSIGNED`** (demander, joindre sa fiche de
+poste, voir ce dont on est partie — rien d'autre).
 
 **La chaîne** : bâtie par `getManagementChain` à la soumission, puis **figée** — une réorganisation en cours de
 route changerait sinon les validateurs d'une demande déjà partie. Le demandeur est écarté de sa propre chaîne.
+**Elle monte jusqu'au DG** (07/10) : si aucun maillon n'est le sommet (`isTopManagement`), le premier sommet actif —
+**DG, puis Direction, puis Super Admin** (`ORDRE_DU_SOMMET`) — est ajouté en dernière marche
+(`completerJusquAuSommet`, `lib/recruitment/request-flow.ts`) ; un demandeur sans fiche employé part donc directement au
+sommet. **Le DG qui conclut la chaîne** (sa validation fait passer la demande aux RH) **désigne le N+1 de la future
+recrue et au moins une personne en charge du suivi**, tous comptes actifs — exigé côté serveur dans
+`decideRecruitmentStep`, pas seulement à l'écran ; le N+1 intermédiaire n'a rien à désigner. À l'intégration, le N+1
+désigné devient le manager de la fiche (`Employee.managerId`, par SA fiche employé ; sans fiche, l'organigramme).
+Le suivi et le futur N+1 voient la demande (`recruitmentScope`), **écrivent au fil** (`commenterDemandeRecrutement`,
+tant qu'elle vit) et reçoivent les **notifications d'étape** comme le demandeur (jamais l'auteur du geste ; un échec
+de notification ne défait pas le geste).
 La direction générale (`isTopManagement`) peut trancher à n'importe quelle marche ; les marches d'en dessous
 passent alors en **`SKIPPED`**, jamais en `APPROVED` — et la fiche écrit « n'a pas été consulté ». Un refus
 clôt la chaîne, à n'importe quelle marche — et se rouvre, motif à l'appui (voir plus bas).
@@ -979,13 +1000,28 @@ les RH ou le sommet la **rouvrent** (`reouverture` : la marche qui a refusé, le
 **annulent une embauche** avant sa fiche. Chaque écriture d'étape est conditionnelle sur l'étape lue ; l'histoire
 va au fil de la demande (« Historique de la demande »).
 
+**La diffusion de l'offre (07/10)** — carte « Diffusion » de la fiche (`recrutement/[id]/diffusion.tsx`) : « les
+canaux s'affichent et les RH décident le ou lesquels ». Porte de chaque geste : `abilities().diffuse` (RH ou sommet,
+demande validée — chez les RH ou poste ouvert) **ET** `peutPublierOffres`. **Site** : l'offre `JobPosting` (seule
+source de vérité de ce canal, `publierOffreSiteDuRecrutement` → `enregistrerOffre`) ; **LinkedIn** : un post
+**préparé** en un clic (`preparerPostLinkedIn` — Luna rédige selon l'entité, schéma strict, ~20 s, sinon post de
+secours écrit sans modèle ; il ne dit que ce que portent la demande validée et l'offre PUBLIÉE — rémunération et
+avantages seulement s'ils sont dans l'offre), la personne le publie elle-même par le lien de partage puis le **marque
+publié** (`marquerCanalPublie`) — aucune API, on ne prétend jamais avoir publié ; **Emploitic** :
+`envoyerOffreEmploitic` répond « non configuré » tant que `EMPLOITIC_API_KEY` manque (point d'extension, aucun appel
+inventé) ; « Autre ». Pastilles : Préparé · Publié le … · Retiré · Échec. Brain signale un **recrutement validé non
+diffusé** au-delà de 3 j (`RiskSetting.recruitmentUnpublishedDays`).
+
 **Accès** : `recruitmentViewer` / `recruitmentScope` (`lib/recruitment/access.ts`) — la même règle pour la liste
 et pour la fiche. Un CV et une fourchette de rémunération sont des **données personnelles** : avoir le module ne
-suffit pas, il faut être partie à la demande (auteur, validateur, RH, direction). Types d'entité
-`RECRUITMENT_REQUEST` (fiche de poste) et `RECRUITMENT_CANDIDATE` (CV) dans `lib/entity-access.ts`.
+suffit pas, il faut être partie à la demande (auteur, validateur, RH, direction, **suivi désigné par le DG, futur
+N+1**). Types d'entité `RECRUITMENT_REQUEST` (fiche de poste) et `RECRUITMENT_CANDIDATE` (CV) dans
+`lib/entity-access.ts`.
 
-**Fichiers** : `lib/recruitment/request-flow.ts` (+ 32 tests) · `lib/recruitment/access.ts` ·
-`lib/actions/recruitment-actions.ts` · `app/(app)/recrutement/`.
+**Fichiers** : `lib/recruitment/request-flow.ts` · `lib/recruitment/access.ts` · `lib/recruitment/diffusion.ts`
+(PUR : canaux, états, post LinkedIn) · `lib/recrutement-diffusion.ts` (hors domaines : appelle le fournisseur) ·
+`lib/actions/recruitment-actions.ts` · `lib/actions/recrutement-diffusion-actions.ts` · `app/(app)/recrutement/`
+(tests `recruitment/suivi-diffusion.test.ts`).
 
 ### Site web Adventum — l'ERP publie les offres d'emploi et les articles
 
@@ -1023,7 +1059,7 @@ visiteurs, et **recharge** ses contenus depuis l'ERP à chaque démarrage. Le co
   (balise à copier dans Administration › Site web (connexion), encart « Mesure d'audience »). Le script envoie pages
   vues, clics (Postuler, `tel:`, `mailto:`, WhatsApp, externes, téléchargements, `data-adventum-track`) et temps passé
   à `POST /api/site-web/v1/audience` — seule route PUBLIQUE de `v1/` qui écrive : porte = l'**origine** du site
-  (`porteAudience`), 120 événements/min par IP, validation stricte, écriture dans `SiteAnalyticsEvent` seule (cliquet
+  (`porteAudience`), 120 événements/min par IP, validation stricte, écriture dans `SiteAnalyticsEvent` seule (migration `20270115110000_site_audience` ; cliquet
   `liaison-portes.test.ts`). Sans cookie : `visitor` = sha256(sel du jour + IP + agent), ni IP ni agent gardés. Tableau
   de bord `/site-web/audience` (onglet « Audience », droit de VUE du module) ; purge à 13 mois par le battement.
   Code : `lib/site-web/audience-calc.ts` (PUR), `audience-collecte.ts`, `audience.ts` (requêtes groupées),

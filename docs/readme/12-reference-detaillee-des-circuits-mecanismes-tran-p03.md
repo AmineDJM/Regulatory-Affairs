@@ -372,6 +372,169 @@ réalité réglementaire.
   pas reculer une industrialisation actée ; sans date de décision, on retombe sur la création.
 - Tests : `manufacturing-stage.test.ts` (11 tests), dont le cas « la fiche a divergé ».
 
+### Force de vente — pilotage, territoires, produits (refonte du 07/10)
+
+**LA DÉCISION** (maquette validée) : l'outil du superviseur et de la Direction, **trois onglets**
+(`SALES_PLANNING_TABS`, `lib/labels.ts`) et UN seul « requis ». En-tête commun (`planning/entete.tsx`) : le cycle (mois
+`PromoCycle`) et son jour ouvré, les BU de la portée, Exporter, « ⋯ » → **Réglages** (Business units — montage par
+étapes —, Secteurs, Paramètres ; réservés à qui configure, vérifié côté serveur, `planning/reglages.tsx`). La BU et le
+mois choisis suivent d'un onglet à l'autre.
+
+| Vue | Route | Ce qu'elle montre |
+|---|---|---|
+| **Pilotage** | `/planning` (`?kam=` ouvre la fiche d'un délégué) | Quatre tuiles — **cibles H·A·B vues à fréquence** (vs cycle précédent), **contacts réalisés / requis** (attendu à J<n>), **plans de tournée** validés / à valider, **rapports en retard** (fenêtre de 48 h close) ; les délégués **triés par retard sur le requis** ; « À traiter » (plans à valider, cibles H/A non vues, secteurs actifs sans délégué, coachings en retard). La **fiche du délégué** ajoute Ad & Pro, messages, coaching (`chargerFicheDelegue`). Effort × ventes reste, replié. Export : `/api/planning/export` (délégué, BU, secteur, couverture, réalisé, requis, attendu, plan, rapports en retard — portée de la personne). |
+| **Territoires** | `/planning/territoires` | Par BU, chaque **secteur** : délégué (ou vacant), établissements, panel **par lettre**, **charge face à la capacité** (les chiffres de la Segmentation), **cibles H ou A hors panel** (classées dans un secteur mais dans aucun panel) → **« Affecter »** au délégué du secteur (`affecterAuDelegue`, `lib/actions/force-de-vente-actions.ts` : pose `MedicalDoctor.delegateId` — la branche « rattachement » de `clausePanelDuKam` —, seulement sur un praticien **non rattaché** et non archivé, 500 au plus ; qui configure la force de vente, `hasGlobalView`, ou le **superviseur de la BU** du délégué ; audité). |
+| **Produits** | `/planning/produits` | Matrice délégué × produit (**P1 / P2 / P3**), « Reprendre le mois précédent » ; **sans objectifs de ventes** pour l'instant ; les **prévisions de la Direction** (ETP, couverture, budget par produit) repliées pour qui configure. Modifier : qui configure, ou le superviseur de la BU (jamais le lecteur ni le KAM). |
+
+**LE REQUIS** = Σ, sur le panel, des visites que la **lettre de segmentation** demande (lettre × In/Out × fréquence du
+secteur, stratégie de la BU du délégué d'abord — `requisDuPraticien`, `lib/segmentation/lettre-requise.ts`) ; le palier
+de potentiel seulement pour un praticien rangé dans aucune stratégie publiée, et l'écran le dit. Plus de « planifié »,
+de « capacité » ni de « fréquence cible » concurrents. Calculs **purs** `lib/force-de-vente/calculs.ts` (+ tests) : jour
+du cycle en **jours ouvrés** (vendredi et samedi chômés) et attendu au prorata ; **réalisé plafonné au requis de chaque
+praticien** (une 5ᵉ visite au même médecin ne comble pas un autre trou ; requis 0 → rien ne compte) ; couverture à
+fréquence des cibles H·A·B (une cible à fréquence 0 hors dénominateur) ; tri par retard (puis le plus gros requis,
+puis l'alphabet). Lectures : `lib/queries/force-de-vente.ts` (`chargerPilotage`, `chargerTerritoires`,
+`chargerFicheDelegue`, `chargerFdvDuPraticien` — le bloc Force de vente de `/praticiens/[id]`). Le même requis nourrit
+`sfe-cockpit.ts`, `my-field-day.ts`, `sfe-day.ts`, le plan de tournée (liseré de la **lettre** dans la grille,
+`plan-de-tournee/grille.tsx`) et son PDF (`lib/sfe/plan-pdf.ts`, `lib/plan-tournee-pdf.ts`).
+
+**LA PORTÉE** (`resolveRepScope`, `lib/sfe.ts`) : un **lecteur de pilotage** — le module en lecture, **sans** rôle
+terrain (`MEDICAL_DELEGATE`, `NATIONAL_SALES`, principal ou secondaire) ni profil de KAM : Direction Marketing,
+directeur des opérations… — reçoit `mode: "all"` **`lectureSeule`** (tous les KAM, rien à toucher ; ni périmètre de
+coaching ni de chiffre d'affaires) — `estLecteurDePilotage`. Avant, il tombait en `self` et voyait un pilotage vide.
+
+**Anciennes adresses** : `/planning/pilotage` → `/planning` (cycle compris, liens des alertes déjà envoyées),
+`/planning/affectations` → `/planning/produits`, `/planning/specialites` → `/annuaires/specialites`,
+`/planning/messages` → `/marketing-cockpit?vue=messages`.
+
+### Marketing cockpit — le tableau de la Direction Marketing (refonte du 07/10)
+
+Module `MARKETING_COCKPIT` (à part de la Force de vente, réglé personne par personne dans la console). **Une page**,
+`/marketing-cockpit`, et ses vues par `?vue=` — `ensemble` · `leaders` · `messages` · `marche` · `investissements` —
+le produit choisi (`?produit=`, un `PromoProduct` ; sinon `?bu=` ; à défaut la première BU segmentée sur son produit
+n° 1) suivant d'une vue à l'autre ; la page rend elle-même sa barre (`MARKETING_COCKPIT_TABS`, l'entrée de menu n'a pas
+de `tabs`). **Rien ne s'y saisit, sauf les messages** : tout se lit dans l'annuaire, la segmentation (moteur du Studio,
+jamais recalculé à part), les visites terminées, les liens message ↔ visite, Ad & Pro, le matériel promotionnel, les
+budgets et les données marché (`lib/marketing-cockpit/donnees.ts` ; calculs purs `calculs.ts`).
+
+- **Vue d'ensemble** : tuiles, l'**entonnoir** de l'annuaire à la prescription (ciblés → segmentés Q1+Q2 → vus à
+  fréquence…, chaque marche sous-ensemble de la précédente), « Ce qui bouge » (signaux, chacun avec sa page), « Où va
+  l'argent ». Le cycle = le cycle de segmentation ouvert, sinon le mois civil ; le cycle précédent est lu **figé**.
+- **Leaders d'opinion** : le panel aux statuts Décideur, Influenceur, Référent — lettre, dernière visite, visites 6
+  mois, demandes Ad & Pro et montant attribuable au praticien.
+- **Messages** (`messages-manager.tsx`, actions `promo-message-actions.ts`) : les messages que le KAM porte au médecin
+  (exigés sur chaque rapport terrain), avec leur efficacité. **Écrire = deux clés** (`peutEcrireMessagesCockpit`,
+  `lib/marketing-cockpit/acces.ts`) : la liste de rôles `promoMessageAuthorRoles` (Administration › Réglages — **par
+  défaut `PRODUCT_MANAGER`**, la Direction Marketing : défaut de code ET migration `20270115140000_cockpit_marketing_auteurs`,
+  qui ne remplit qu'une liste encore vide) ET le geste sur le module (créer / modifier / retirer) ; le Super Admin écrit
+  toujours. La matrice donne au `PRODUCT_MANAGER` `MARKETING_COCKPIT` VIEW/CREATE/UPDATE/DELETE/EXPORT. **Retirer un
+  message porté l'ARCHIVE** (il quitte le menu des KAM, son historique et ses liens visite restent) ; un message jamais
+  porté se supprime.
+- **Marché** (`lib/marketing-cockpit/marche.ts`, **serveur seul** — `market/data` lit `fs`) : part de la classe IQVIA
+  (ville) et son évolution sur un an, parts mensuelles des réceptions PCH de la molécule, AMM concurrentes de moins
+  d'un an. Onglet et tuile visibles **seulement** pour qui a déjà le marché (`peutVoirMarcheCockpit` = porte Business
+  Development) — décision de ne pas élargir l'accès au marché, pas d'aguiche.
+- **Investissements** : Ad & Pro engagé (direct, part allouée par `CoutRepartitionBu`, matériel au devis retenu), par
+  lettre des praticiens nommés, et l'enveloppe — seulement pour qui lit Budgets ou Ad & Pro (`peutVoirArgentCockpit`).
+
+Onglets gardés par `nav-tabs.ts` (règles `marche-cockpit` / `argent-cockpit` : le module PUIS la règle). Anciennes
+adresses : `/marketing-cockpit/messages` → `?vue=messages` (produit compris), `/marketing-cockpit/specialites` →
+`/annuaires/specialites` (les **Spécialités** sont revenues dans les Annuaires, porte unique, `peutGererSpecialites`).
+
+### Mon Équipe — vue d'ensemble, équipe, calendrier, fiche personne (07/10)
+
+Même porte qu'avant (la hiérarchie revérifiée côté serveur, `getMyTeam`) ; nouvel écran en **trois vues + un panneau**
+(`app/(app)/mon-equipe/` : `vue-ensemble.tsx`, `vue-equipe.tsx`, `vue-calendrier.tsx`, `fiche-personne.tsx`). Lecture
+unique `lib/queries/my-team-overview.ts`, pour les seules personnes de l'équipe : congés (accordés, et en attente en
+clair), missions (assignations aux congrès et événements), formations ; activité 30 j (terrain : visites et couverture
+du panel `clausePanelDuKam`, mêmes définitions que le cockpit SFE ; autres : tâches terminées) ; alertes (fin de
+contrat, fin de période d'essai, solde de congés, visites sans compte rendu, anniversaire). **N'en sortent jamais** :
+salaire, type de congé (§118.184), année de naissance. La file « À décider » garde ses cinq natures et leurs circuits
+(congés, achats, formations, marches de recrutement, plans de tournée). Le **Recrutement** n'est plus son sous-menu.
+
+### Rapports terrain — l'onglet « Rapports » de la Promotion médicale (07/10)
+
+**Plus une entrée de menu** : le KAM fait son rapport **depuis son planning** (Plan de tournée : il touche le
+praticien, la feuille de la visite s'ouvre ; « Faire un rapport » au-dessus de la grille ; « Pharmacovigilance » à
+côté) ; l'onglet **« Rapports »** (`/medical/rapports`, `MEDICAL_TABS`) n'est que la **liste**. Garde : le module
+**`FIELD_REPORTS`** (la console règle toujours qui voit l'onglet). Adresses écrites une fois dans
+`lib/chemins/rapports-terrain.ts` (PUR) : liste, fiche d'un compte rendu (`/medical/rapports/[id]`), analyse
+(`/medical/rapports/overview`, rôles cochés `fieldReportsOverviewRoles`), signalements (`/medical/rapports/pharmacovigilance`).
+Les anciennes (`/field-reports`, `/[id]`, `/overview`, `/pharmacovigilance…`) **redirigent** — des notifications en
+base les portent (tests `chemins/rapports-terrain.test.ts`, e2e `rapports-terrain-corbeille.spec.ts`).
+
+**Trois sources, une liste** (`lib/queries/rapports-terrain-liste.ts`, `chargerListeRapports`) : une **visite
+rapportée** (`MedicalVisit` COMPLETED — « Visite », ou « Sans visite » si imprévue), un **compte rendu vocal** sans
+visite (`FieldReport` à `visitId` nul ; celui qui documente une visite se rattache à sa ligne), un **signalement de
+pharmacovigilance** (`PharmacovigilanceCase`). **Qui voit quoi = les règles d'hier** : visites et comptes rendus selon
+`viewsAllReports` (Direction, managers, superviseur national : tout ; les autres : les leurs) + `platformScope` ;
+signalements selon `clauseCasPvVisibles`, et seulement pour qui signale ou reçoit des cas. L'écran
+(`medical/rapports/liste-rapports.tsx`) est un **tableau, au téléphone aussi** (date collée à gauche) ; une ligne ouvre
+le rapport dans une feuille latérale, d'où s'ouvre la fiche du compte rendu ou du cas.
+
+### Mon espace › Tâches — un seul endroit pour toutes les tâches (07/10)
+
+Cinq listes dispersées dans Mon espace (demandées, mes tâches, où je participe, en lecture, que j'ai demandées,
+déléguées) deviennent un **onglet** `/mon-espace/taches` (`WORKSPACE_TABS`), en vues (`?vue=`, toute valeur inconnue →
+« À faire ») rangées par la règle pure `rangerTache` (`lib/tasks/onglet-taches.ts`, + tests) :
+
+| Vue | Contenu |
+|---|---|
+| **À accepter** | ce qu'on me demande : accepter ou refuser, en haut, avant tout |
+| **À faire** | demandes acceptées, mes to-do, tâches créées par la plateforme |
+| **Demandées** | ce que j'attends des autres, avec « chez qui » et le seul geste utile ; une demande **rendue** y reste « à vérifier » une semaine, un **refus** un mois |
+| **Partagées** | je participe ou je lis |
+| **Terminées** | faites ou annulées depuis 30 jours (lue à part, paginée) |
+
+Lecture `lib/queries/mes-taches.ts` (cercle `clauseTachesVisibles`, le même que la fiche et la recherche) : chaque ligne
+porte ses **droits calculés avec les règles de `request-flow.ts`** que les actions rejouent (un bouton ne propose pas ce
+que l'action refuserait), fil et pièces préchargés (le panneau s'ouvre sans attendre). **Compteur de l'onglet** = à
+accepter + à faire (`ongletsEspace`). **Réattribuer** (`reattribuerDemandeTache`, `lib/actions/task-actions.ts`) : une
+demande **refusée ou restée sans réponse** (`STATUTS_REATTRIBUABLES` = REQUESTED, DECLINED) part chez quelqu'un
+d'autre — **seul le demandeur** (`refusReattribution`) ; la nouvelle personne reçoit une DEMANDE (elle accepte ou
+refuse, jamais une tâche déposée d'office) et sort des participants/lecteurs ; l'ancienne, si elle n'avait pas répondu,
+est prévenue ; écriture conditionnelle (une acceptation pendant le clic l'emporte), trace au fil. La fiche
+`/mon-espace/taches/[id]` reste servie.
+
+**Ce qui a quitté Mon espace (07/10)** : l'onglet **Directives** (elles restent dans « Aujourd'hui », le centre
+d'actions, la recherche et les notifications ; `/directives` reste servie, `match` de Mon espace ne la couvre plus) et
+le bloc **« Mes demandes d'achat »** (les achats passent par le **Bureau du secrétariat**). Les tâches du centre
+d'actions ne sont plus reprises dans le bloc des décisions : elles ont leur onglet.
+
+### Produits 360 — un seul catalogue, le produit = son dossier (07/10)
+
+**LA DÉCISION** : « Produit = dossier réglementaire ; je ne veux pas que les produits et les dossiers réglementaires
+soient deux catalogues différents. » L'écran ne montre **qu'un** objet, le **produit canonique** (`Product`) ; ses
+dossiers (`RegulatoryProduct.productId`) en sont l'enregistrement et portent le **stock** (relevés indexés sur le
+dossier : stock du produit = somme des derniers relevés de chaque lieu de ses dossiers) ; `PromoProduct` et `BdProduct`
+restent des tables internes rattachées au même `productId` (`lib/queries/produits-360.ts`).
+
+- **Liste** `/produits` (menu « Produits 360 ») : onglets **Commercialisés** (dossier terminé — ventes, tendance, part
+  de marché, mois de stock, **UN signal** : PV ouvert > stock bas (< 2 mois de couverture) > générique fraîchement
+  enregistré > échéance de la DE à 6 mois — `signalPrincipal`) et **En enregistrement** ; les dossiers pas encore au
+  catalogue sont signalés à qui peut les rattacher.
+- **Fiche** `/produits/[id]` = **LA page du produit** : identité, frise du cycle de vie (étude → enregistrement →
+  commercialisé → fin de vie), cinq chiffres, « À surveiller » (dont AO attribués), onglets **Vue d'ensemble · Ventes &
+  marchés · Terrain & marketing · Réglementaire & qualité · Stock · Coûts · Documents**. Échéance DE : validité 5 ans,
+  dépôt du renouvellement 180 j avant. Calculs purs `lib/products/fiche-360.ts` (+ tests) ; marché du produit
+  `lib/market/produit-marche.ts` (serveur seul : mêmes sources et normalisations que l'Explorateur, marché = molécule +
+  dosage + forme, élargi et DIT quand vide ; « à nous » = nos marques ou nos laboratoires, sinon part `null`).
+- **Qui voit quoi** : un produit se voit par un dossier **non verrouillé** (`regulatoryLockWhere`) ; chaque colonne et
+  onglet suit SON module (`SECTIONS_360`, `lib/vues-360-acces.ts` — ajout du 07/10 : `stock` STOCKS,
+  `pharmacovigilance` PHARMACOVIGILANCE, `materiel` PROMO_STOCK, `marketing` MARKETING_COCKPIT) ; le marché suit
+  `voitLeMarche` (Market Intelligence OU Explorateur produits).
+- **Prix manuels historisés** (`ProductPrice` : `productId`, `kind` ∈ PPA · SHP · TARIF_REFERENCE · PRIX_HOPITAL,
+  `amountDzd`, `validFrom`, `note`, `setById` — migration `20270115183000_prix_produit`) : chaque saisie **ajoute** une
+  ligne ; la saisie l'emporte sur l'Explorateur à partir de sa date d'effet (`resoudrePrix`) ; une ligne **sans
+  montant** rend la main à l'Explorateur. Actions `lib/actions/prix-produit-actions.ts`, garde `peutModifierLesPrix`
+  (Produits 360 « Modifier » OU Regulatory « Modifier » — le prix est fixé avec la décision d'enregistrement).
+- **Regulatory** : `/regulatory/catalogue` devient **« Rattachement au catalogue »** (produit canonique, rapprochement,
+  « Rattacher tout l'existant » du Super Admin) ; `/regulatory/catalogue/[id]` **redirige** vers `/produits/[id]?onglet=reglementaire`
+  pour qui a `PRODUCTS` VIEW (l'onglet porte identité, nom, alias et historique ; la page ne reste que pour qui n'a pas
+  Produits 360). En ligne de commande : `npx tsx scripts/produits-rattachement-bilan.ts`
+  (simulation et bilan ; `--appliquer` écrit — `rattacherTout`, idempotent ; un dossier à l'identité incomplète n'est
+  jamais rattaché au jugé).
+
 ### Force de vente — gamme et produits attribués
 
 `PromoProduct.channel` (RETAIL · HOSPITAL · BOTH) et `PromotionAssignment` (KAM × produit ×
@@ -391,8 +554,9 @@ du business et change au fil des cycles ; ce n'est pas une donnée de contrat.
 
 Fichiers : `lib/sales-portfolio.ts` (pur + `sales-portfolio.test.ts`, 15 tests),
 `lib/queries/portfolio.ts`, `components/planning/my-portfolio-card.tsx` (serveur, dans
-`/mon-espace`). Paramétrage : `/planning` → onglets **Catalogue** (gamme par produit) et
-**Affectations** (matrice par cycle).
+`/mon-espace`). Paramétrage : depuis le 07/10, Force de vente › **Produits** (`/planning/produits` : matrice délégué
+× produit P1/P2/P3 par cycle, « Reprendre le mois précédent » ; `/planning/affectations` y redirige) ; la gamme par
+produit se règle au montage de la BU (« ⋯ › Réglages › Business units »).
 
 ### Force de vente — les référents Direction Marketing d'une gamme
 
@@ -400,7 +564,8 @@ Fichiers : `lib/sales-portfolio.ts` (pur + `sales-portfolio.test.ts`, 15 tests),
 configuration des BU, mais le directeur du département marketing recevra **également** l'accès et
 la notif et pourra modifier, valider. » Le menu « Référent Direction Marketing (facultatif) » des
 nouvelles demandes a disparu au lot précédent ; la désignation vit désormais **là où se configure
-la gamme** (`/planning/business-units`, section 5), et plus dans chaque formulaire.
+la gamme** (`/planning/business-units` — « ⋯ › Réglages », montage de la BU **par étapes** depuis le 07/10 :
+BU et superviseur → spécialités & produits → KAM → secteurs, `bu-etapes.tsx`), et plus dans chaque formulaire.
 
 **CE QUE LA DÉSIGNATION FAIT — ET CE QU'ELLE NE FAIT PAS.** Elle **CIBLE** la notification : une
 demande Ad & Pro de la gamme Oncologie prévient **nommément** ses référents au lieu d'arroser tout

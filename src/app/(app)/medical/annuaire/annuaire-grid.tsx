@@ -3,8 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Upload, Loader2, FileSpreadsheet, Plus, Rows3, LayoutList, Check, X, Trash2, RotateCcw, Columns3, Building2, Stethoscope,
+  Search, Upload, Loader2, FileSpreadsheet, Plus, Rows3, LayoutList, Check, X, Trash2, RotateCcw, Columns3, Building2, Stethoscope, ArrowUpRight,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -304,7 +305,7 @@ function GridTable({
       <table className="w-full min-w-[72rem] border-collapse text-sm select-none">
         <thead>
           <tr className="bg-secondary/60 text-xs uppercase tracking-wide text-muted-foreground">
-            <th className="w-10 border border-border px-2 py-2">
+            <th className="w-16 border border-border px-2 py-2">
               <input
                 type="checkbox" checked={allChecked}
                 onChange={(e) => onToggleAll(rows.map((r) => r.id), e.target.checked)}
@@ -328,13 +329,24 @@ function GridTable({
             const r = offset + i;
             return (
               <tr key={row.id} className={cn("hover:bg-secondary/20", selected.has(row.id) && "bg-primary/5")}>
-                <td className="border border-border px-2 text-center">
-                  <input
-                    type="checkbox" checked={selected.has(row.id)}
-                    onChange={(e) => onToggle(row.id, e.target.checked)}
-                    aria-label={`Sélectionner ${row.lastName ?? row.firstName ?? "cette ligne"}`}
-                    className="h-4 w-4 rounded border-input"
-                  />
+                <td className="border border-border px-2">
+                  <span className="flex items-center justify-center gap-1.5">
+                    <input
+                      type="checkbox" checked={selected.has(row.id)}
+                      onChange={(e) => onToggle(row.id, e.target.checked)}
+                      aria-label={`Sélectionner ${row.lastName ?? row.firstName ?? "cette ligne"}`}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    {/* La fiche du praticien (lettre, délégué, dernière visite, Ad & Pro) — hors de la grille éditable. */}
+                    <Link
+                      href={`/praticiens/${row.id}`}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                      aria-label={`Ouvrir la fiche de ${row.lastName ?? row.firstName ?? "ce praticien"}`}
+                      title="Ouvrir la fiche"
+                    >
+                      <ArrowUpRight className="h-4 w-4" />
+                    </Link>
+                  </span>
                 </td>
                 {colonnes.map((col, c) => {
                   const enEdition = edition !== null && edition.r === r && edition.c === c;
@@ -386,7 +398,7 @@ function GridTable({
                               référentiel ne le voit. */}
                           {col.field === "specialty" && specialiteEstARattacher(row) && !overrides.has(cleCellule(row.id, col.cle)) && (
                             <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[0.6875rem] font-medium uppercase tracking-wide text-warning"
-                              title="Spécialité écrite sans lien vers le référentiel : retapez-la telle que le référentiel la nomme, ou rattachez-la dans Annuaires › Spécialités (ou Marketing cockpit › Spécialités).">
+                              title="Spécialité écrite sans lien vers le référentiel : retapez-la telle que le référentiel la nomme, ou rattachez-la dans Annuaires › Spécialités.">
                               à rattacher
                             </span>
                           )}

@@ -2,6 +2,37 @@
 
 La segmentation de la force de vente, native et reliée (Direction, 06/10/2026). Elle remplace le classeur « Segmentation Finale ».
 
+### Refonte du 07/10 — la segmentation par BU, par secteur, et la lettre partout
+
+- **Écran** (`src/app/(app)/segmentation/page.tsx`, une BU choisie, filtre par spécialité ; `?vue=`) : **Synthèse**
+  (`synthese-vue.tsx`, calculs purs `lib/segmentation/charge.ts`) — par **secteur de la BU** : matrice **H · A · B · C · D ·
+  NA × In / Out** (inconnu compté Out, NC exclu), contacts nécessaires par cycle (nombre × fréquence), **charge face à la
+  capacité** des KAM du secteur (contacts/jour × jours du cycle × nombre de KAM) ; **Praticiens** (`praticiens-table.tsx`)
+  — les colonnes du fichier de la Direction, **Q1 (potentiel) / Q2 (affinité) / statut saisis en ligne**, lettre
+  provisoire recalculée à l'écran le temps que le serveur rende la sienne ; **Règles** (`regles-vue.tsx`) — versionnées
+  et publiées. Vues secondaires : cycles, import, avancé, historique. Export : `/api/segmentation/export`.
+- **La lettre** (`lib/segmentation/regles.ts`) : **H** (décideur), **A–D**, **NA** (une réponse manque — jamais D,
+  même un « 0 patient » sans la seconde réponse), **NC** (non ciblé). Valeurs proposées tant qu'une BU n'a rien publié
+  (`PROPOSITION`, `charge.ts`) : seuil de potentiel **22 patients/semaine**, affinité **> 10 %** (repère « moyenne
+  nationale 2026 : 7,21 % », qui ne classe personne), grille H 2/2, A & B 2/2, C & D 1/1 (In/Out), capacité 7 contacts/jour
+  × 20 jours — elles ne s'appliquent qu'une fois **publiées** par une personne.
+- **Grille de fréquences par lettre** (`grille`, `cleFrequence`) : **H réglable à part**, A & B, C & D × In/Out ; NA et NC
+  : aucune visite requise. **Exceptions par secteur** (seuils et fréquences, `secteurId` ; les règles d'avant gardent
+  leur zone libre comparée au nom).
+- **Secteur d'un praticien** (`lib/segmentation/secteurs.ts`, pur) : l'établissement entier ou le service choisi d'un
+  secteur actif de la BU, à défaut le secteur de son KAM de rattachement ; jamais deviné. Il peut être **posé à la
+  main** : `SegmentationFiche.secteurId` (FK `SalesSector`, `ON DELETE SET NULL`, migration
+  `20270115120000_segmentation_secteurs`) — action `changerSecteur`.
+- **Forcer une lettre** (`forcerLettre`, motif obligatoire ; `rendreLettreCalculee` pour revenir au calcul) : réservé au
+  droit **`SEGMENTATION_POTENTIEL`** (module `rbac.ts`, libellé « Segmentation — potentiel forcé à la main »), qu'**aucun
+  rôle n'a par défaut** : le Super Admin l'accorde personne par personne (case « Modifier ») ; qui l'a peut **tout** dans
+  la segmentation, sur toutes les lignes (`lib/segmentation/droits.ts`, `peutForcerPotentiel`).
+- **La lettre partout** (`lib/segmentation/lettre-requise.ts`, pur ; côté base `lettres-service.ts`) : pour chaque
+  praticien, sa lettre et ses visites requises, stratégie de la BU qui regarde d'abord. C'est le **SEUL « requis »** :
+  Force de vente (pilotage, territoires), Marketing cockpit, Ma journée, plan de tournée et son PDF le lisent ici. Repli :
+  un praticien rangé dans aucune stratégie publiée garde l'ancien palier de potentiel (`MedicalDoctor.potential` ×
+  `SfeSettings.frequencyByTier`), et l'écran dit d'où vient le chiffre.
+
 ### Objets (migration `20270114090000_segmentation_studio`, additive)
 
 | Table | Rôle |
@@ -50,10 +81,15 @@ La segmentation de la force de vente, native et reliée (Direction, 06/10/2026).
 
 ### Droits (défauts, réglables dans Administration › Accès)
 
+Gestes (07/10, `lib/segmentation/droits.ts`, une lecture pour l'écran et les actions) : **Voir** = panel, synthèse,
+règles ; **Modifier** = Q1, Q2, statut (le terrain) ; **Créer** = ajouter / retirer un praticien du panel ; **Valider** =
+règles, fréquences, publication, import, stratégie, secteur d'une fiche ; **forcer une lettre** = `SEGMENTATION_POTENTIEL`
+(Super Admin, personne par personne).
+
 | Rôle | Gestes |
 |---|---|
 | Direction, DG, directeur des opérations | Tout, dont la publication des règles et l'import. |
-| Direction de la promotion | Lecture, renseignement du terrain, dérogations motivées. |
+| Direction de la promotion | Lecture, renseignement du terrain, panel (les lettres forcées exigent `SEGMENTATION_POTENTIEL`). |
 | Head of Sales, chef de produit | Lecture. |
 | KAM (`MEDICAL_DELEGATE`) | Lecture et mise à jour du potentiel et du statut, **sur son seul panel** (`clausePanelDuKam`). |
 
@@ -108,9 +144,9 @@ La segmentation de la force de vente, native et reliée (Direction, 06/10/2026).
 
 ### Vues 360° et cockpit
 
-- **Produits** (`/produits`, `/produits/[id]`) : réutilise la lecture `queries/product-360.ts`, plus la segmentation, la consommation, l'affinité et les coûts.
+- **Produits 360** (`/produits`, `/produits/[id]`) : depuis le 07/10, LE catalogue unique (`queries/produits-360.ts`, calculs purs `products/fiche-360.ts`) — la segmentation y vit dans l'onglet « Terrain & marketing ».
 - **BU** (`/business-units/[id]`) : cockpit filtrable par spécialité.
-- **Praticien** (`/praticiens/[id]`) : la carte simple du KAM (priorité, segments, visites requises et faites, objectif principal), le pourquoi, le potentiel historisé et les visites.
+- **Praticien** (`/praticiens/[id]`) : la carte simple du KAM (priorité, segments, visites requises et faites, objectif principal), le pourquoi, le potentiel historisé et les visites ; depuis le 07/10, le bloc **Force de vente** (lettre et statut par stratégie, délégué, dernière visite, messages reçus, Ad & Pro 12 mois — `chargerFdvDuPraticien`, `queries/force-de-vente.ts`). Chaque ligne de l'annuaire médical (`/medical/annuaire`, `annuaire-grid.tsx`) y mène.
 - **Droits** : chaque section n'apparaît qu'à qui voit son module (`vues-360-acces.ts`).
 
 ### Saisie terrain et recherche

@@ -1,5 +1,41 @@
 ## 🧾 Journal des évolutions récentes
 
+### REFONTES VALIDÉES PAR LA DIRECTION — SEGMENTATION PAR BU, FORCE DE VENTE, MARKETING COCKPIT, MON ÉQUIPE, RECRUTEMENT, AUDIENCE, RAPPORTS TERRAIN, TÂCHES, INFORMATION MÉDICALE, PRODUITS 360, BRAIN & PROCESS INTELLIGENCE (2026-10-07/08)
+
+Commit `28b1988e` (maquettes validées). Migrations additives et idempotentes : `20270115100000_recrutement_suivi_canaux`,
+`20270115110000_site_audience`, `20270115120000_segmentation_secteurs`, `20270115140000_cockpit_marketing_auteurs`,
+`20270115180000_brain_process`, `20270115183000_prix_produit`.
+
+- **Segmentation par BU** : Synthèse par secteur (H→NA × In/Out, charge vs capacité), Praticiens aux colonnes du fichier
+  (Q1/Q2/statut en ligne), Règles versionnées (22 patients/sem, affinité > 10 %, exceptions par secteur, fréquences H à
+  part) ; `SegmentationFiche.secteurId` ; **forcer une lettre** = droit `SEGMENTATION_POTENTIEL`, accordé par le Super
+  Admin personne par personne. → [Segmentation Studio](#segmentation-studio-module-segmentation-segmentation)
+- **La lettre partout, un seul « requis »** (`lib/segmentation/lettre-requise.ts`) : Force de vente, Marketing cockpit,
+  Ma journée, plan de tournée et son PDF.
+- **Force de vente** : onglets Pilotage · Territoires · Produits (`SALES_PLANNING_TABS`), fiche délégué, cibles H/A hors
+  panel affectées en un clic, réglages sous « ⋯ » ; lecteur de pilotage en lecture seule (`resolveRepScope`).
+- **Marketing cockpit** : Vue d'ensemble · Leaders d'opinion · Messages · Marché · Investissements ; message porté
+  **archivé** ; Direction Marketing (`PRODUCT_MANAGER`) autrice par défaut ; **Spécialités → Annuaires** (porte unique).
+- **Mon Équipe** : vue d'ensemble, équipe, calendrier, panneau personne (`queries/my-team-overview.ts`).
+- **Recrutement** : module RH à part ; **tout le monde demande** ; chaîne jusqu'au DG ; le DG désigne le N+1 et le suivi ;
+  diffusion site / LinkedIn (post Luna, publié à la main) / Emploitic (à brancher).
+- **Audience du site** : `audience.js` → `POST /api/site-web/v1/audience`, sans cookie, tableau `/site-web/audience`.
+- **Rapports terrain** : onglet « Rapports » de la Promotion médicale (`/medical/rapports`), rapport fait depuis le
+  planning ; `/field-reports…` redirige.
+- **Mon espace** : onglet **Tâches** (à accepter / à faire / demandées / partagées / terminées, réattribution) ; onglet
+  Directives et « Mes demandes d'achat » **retirés** (achats via le Bureau du secrétariat).
+- **Information médicale** : liste « état — chez qui » + produit, frise + une action, relance des pièces (4 h).
+- **Produits 360** : catalogue unique (produit = dossier), fiche à onglets, prix manuels historisés (`ProductPrice`) ;
+  `/regulatory/catalogue` = « Rattachement au catalogue », sa fiche redirige.
+- **Adventum Brain** : Ce matin (briefing 7 h gardé et sourcé) · Risques à cycle de vie (`BrainRisk`) · Demander
+  (`BrainQuestion`) · Historique ; 8 détecteurs ajoutés. **Process Intelligence** : temps réel par étape (journaux),
+  délais cibles (`ProcessStepSla`), vues Circuits · Personnes · Plateforme. Anciens War Room / Feed / Relations retirés.
+- **Annuaire médical** (08/10) : chaque ligne mène à la fiche `/praticiens/[id]`.
+
+Références : panorama, [Force de vente — pilotage, territoires, produits](#force-de-vente--pilotage-territoires-produits-refonte-du-0710),
+[Marketing cockpit](#marketing-cockpit--le-tableau-de-la-direction-marketing-refonte-du-0710),
+[Produits 360](#produits-360--un-seul-catalogue-le-produit--son-dossier-0710), [Adventum Brain](#-adventum-brain-cockpit-super-admin).
+
 ### INTÉGRATION DU 05/10 — MOYENS GÉNÉRAUX RESTAURÉS, STOCKAGE DES GROS FICHIERS, COUCHE DE CONNAISSANCE, DOUBLE CONFIRMATION (2026-10-05)
 
 - **Moyens généraux** : la page redevient exactement ce qu'elle était (caisse, dépenses, rallonges, service) ; seul le **catalogue d'articles** reste dans l'en-tête, il n'y a plus de vue par département.
