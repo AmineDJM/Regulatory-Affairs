@@ -69,6 +69,8 @@ export interface PieceDePoste {
   emis: { docx: boolean; pdf: boolean };
   /** Une FACTURE déposée sur le poste : son contrôle contre le(s) BC qu'elle couvre (Direction, 06/10). `null` ailleurs. */
   controle: ControleFacture | null;
+  /** TOUS les fichiers de la pièce, cliquables (Direction, 07/10 : « on doit retrouver les pièces jointes cliquables »). */
+  fichiersListe: { id: string; nom: string }[];
 }
 
 /**
@@ -138,7 +140,7 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
   const docIds = [...new Set(liens.map((l) => l.legalDocument.id))];
   const [fichiers, autres, etats] = await Promise.all([
     prisma.document.findMany({
-      where: { entityType: "LEGAL_DOCUMENT", entityId: { in: docIds } }, orderBy: { createdAt: "asc" }, select: { id: true, entityId: true, stepKey: true },
+      where: { entityType: "LEGAL_DOCUMENT", entityId: { in: docIds } }, orderBy: { createdAt: "asc" }, select: { id: true, entityId: true, stepKey: true, name: true },
     }),
     // Les autres postes couverts par un même devis — pour dire « commun à : Imprimerie, Hôtellerie ».
     prisma.adProItemPiece.findMany({
@@ -151,7 +153,9 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
   const premierFichier = new Map<string, string>();
   // La copie signée la plus récente d'un BC (un BC re-signé après révision en a une nouvelle).
   const copieSignee = new Map<string, string>();
+  const listeFichiers = new Map<string, { id: string; nom: string }[]>();
   for (const f of fichiers) {
+    listeFichiers.set(f.entityId, [...(listeFichiers.get(f.entityId) ?? []), { id: f.id, nom: f.name }]);
     nbFichiers.set(f.entityId, (nbFichiers.get(f.entityId) ?? 0) + 1);
     if (!premierFichier.has(f.entityId)) premierFichier.set(f.entityId, f.id);
     if (f.stepKey === ETAPE_COPIE_SIGNEE) copieSignee.set(f.entityId, f.id);
@@ -173,6 +177,7 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
       aussiPour: (couverts.get(d.id) ?? []).filter((c) => c.itemId !== l.itemId).map((c) => c.label),
       emis: (() => { const f = fichiersEmis(d.custom); return { docx: f.docx !== null, pdf: f.pdf !== null }; })(),
       controle: l.nature === "FACTURE" ? controleFactureDe((d.custom as { facturePoste?: { controle?: unknown } } | null)?.facturePoste?.controle) : null,
+      fichiersListe: listeFichiers.get(d.id) ?? [],
     };
     if (l.nature === "DEVIS") p.devis.push(piece);
     else if (l.nature === "FACTURE") p.factures.push(piece);

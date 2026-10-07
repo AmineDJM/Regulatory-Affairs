@@ -86,7 +86,7 @@ const avisAuDemandeur = (userId: string, id: string) =>
  * écrit en DERNIER, et lit, par le client global, ce qu'un tiers voit pendant l'attente : rien).
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-suite("Matériel promotionnel — la retranscription sous course, et le total imprimé exigé", () => {
+suite("Matériel promotionnel — la retranscription sous course, et le total imprimé contrôlé quand il est saisi", () => {
   const u: Record<string, string> = {};
   let companyId = "", fourA = "", fourB = "", catCarnet = "", catPlv = "";
   let debutBanc = new Date();
@@ -295,16 +295,17 @@ suite("Matériel promotionnel — la retranscription sous course, et le total im
     expect((await etat(id)).circuitState).toBe("QUOTE_REQUESTED");
   });
 
-  it("LE TOTAL IMPRIMÉ EST EXIGÉ POUR TERMINER : enregistrer sans lui passe, terminer le refuse en nommant le devis ; corrigé, la fin passe", async () => {
+  it("LE TOTAL IMPRIMÉ EST FACULTATIF (Direction, 07/10) — mais saisi, il contrôle : un total faux refuse la fin en nommant le devis ; corrigé, la fin passe", async () => {
     const id = await auxDevisDemandes("Total imprimé");
     await comme("asst");
-    // ENREGISTRER reste permissif : on pose les lignes avant d'avoir le papier sous les yeux.
+    // ENREGISTRER SANS TOTAL passe : le champ n'est plus obligatoire.
     const sans = reussi(await enregistrerDevisPromo(await formulaireDevis(id, { fournisseur: fourA, prix: "100", total: null, scan: `${TAG}-atlas.pdf` })), "enregistrer sans total");
     const scanAtlas = (await prisma.promoQuote.findUniqueOrThrow({ where: { id: sans.id! } })).documentId;
     expect(scanAtlas).not.toBeNull();
-    // TERMINER, non : le contrôle à un dinar près ne se saute plus en laissant le champ vide.
+    // UN TOTAL SAISI SE CONTRÔLE à un dinar près : faux, la fin est refusée.
+    reussi(await enregistrerDevisPromo(await formulaireDevis(id, { fournisseur: fourA, prix: "100", total: "1", quoteId: sans.id! })), "corriger avec un total faux");
     const refus = await terminerRetranscriptionPromo(form({ promoMaterialId: id }));
-    expect(err(refus)).toMatch(new RegExp(`^Retranscription incomplète : « ${TAG} Imprimerie Atlas » : saisissez le total HT imprimé sur le devis`));
+    expect(err(refus)).toMatch(new RegExp(`^Retranscription incomplète : « ${TAG} Imprimerie Atlas » : les lignes font`));
     expect((await etat(id)).circuitState).toBe("QUOTE_REQUESTED");
     expect(await avisAuDemandeur(u.cp!, id)).toBe(0);
 

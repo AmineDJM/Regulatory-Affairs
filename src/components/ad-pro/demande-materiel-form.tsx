@@ -14,7 +14,7 @@ import { ACTIONS, ACTION_AIDE, ACTION_LABEL } from "@/lib/promo-material/actions
 import { FAMILLES, FAMILLE_LABEL, familleQuantifiee } from "@/lib/promo/catalogue";
 import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
 import type { LigneDemandeSaisie } from "@/lib/promo-material/lignes-demande";
-import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
+import { lettreDeSecours, texteDeLaLettre } from "@/lib/ad-pro/demande-devis-lettre";
 import type { OptionCatalogue } from "@/lib/queries/promo-achats";
 
 /**
@@ -75,23 +75,23 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
     if (!apercuOuvert || !formRef.current) return;
     const saisie = new FormData(formRef.current);
     const texte = (k: string) => String(saisie.get(k) ?? "").trim();
-    setApercu(texteDemandeDeDevis({
-      reference: null, titre: texte("title") || "(sans titre)", brief: texte("description") || null,
-      precisions: null, relance: false,
+    // LA LETTRE QUE L'AGENCE RECEVRA (Direction, 07/10) — sa version sans modèle ; Luna rédige la finale à l'envoi.
+    setApercu(texteDeLaLettre(lettreDeSecours({
+      titre: texte("title") || "(sans titre)", brief: texte("description") || null,
       articles: lignes.flatMap((l) => {
         const c = parId.get(l.catalogueId);
         if (!c) return [];
         const q = Number(texte(`${l.uid}:quantite`).replace(/\s/g, "").replace(",", "."));
         const autre = texte(`${l.uid}:autre`);
         return [{
-          reference: c.reference, nom: c.nom, unite: c.unite,
+          designation: c.nom, unite: c.unite,
           quantite: texte(`${l.uid}:quantite`) && Number.isFinite(q) ? q : null,
-          actions: saisie.getAll(`${l.uid}:actions`).map((a) => ACTION_LABEL[String(a) as keyof typeof ACTION_LABEL] ?? String(a)),
-          promus: [...saisie.getAll(`${l.uid}:produitIds`).map((v) => libellePromu.get(String(v)) ?? String(v)), ...(autre ? [`Autre : ${autre}`] : [])],
-          commentaire: texte(`${l.uid}:commentaire`) || null,
+          prestations: saisie.getAll(`${l.uid}:actions`).map((a) => ACTION_LABEL[String(a) as keyof typeof ACTION_LABEL] ?? String(a)),
+          produits: [...saisie.getAll(`${l.uid}:produitIds`).map((v) => libellePromu.get(String(v)) ?? String(v)), ...(autre ? [autre] : [])],
+          precision: texte(`${l.uid}:commentaire`) || null,
         }];
       }),
-    }));
+    })));
   }, [apercuOuvert, tick, lignes, parId, libellePromu]);
 
   const maj = (uid: string, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l) => (l.uid === uid ? { ...l, ...patch } : l)));
@@ -258,7 +258,8 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
               <Eye className="h-3.5 w-3.5" /> {apercuOuvert ? "Masquer la demande de devis" : "Voir la demande de devis"}
             </button>
             <InfoBulle label="Où part la demande de devis" align="left">
-              La demande de devis part d&apos;elle-même au secrétariat : à l&apos;enregistrement, ou dès que votre demande est validée.
+              La demande de devis part d&apos;elle-même au secrétariat (à l&apos;enregistrement, ou dès que votre demande est validée),
+              en PDF et Word sur papier en-tête. Luna en rédige la version finale ; ceci en est l&apos;aperçu.
             </InfoBulle>
           </div>
           {apercuOuvert && (

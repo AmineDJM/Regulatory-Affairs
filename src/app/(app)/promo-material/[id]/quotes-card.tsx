@@ -8,8 +8,7 @@ import {
   redemanderDevisPromo, lireScanDevisPromo, rangerDevisPromo,
 } from "@/lib/actions/promo-devis-actions";
 import type { LectureDevisPromo, LignePreremplie } from "@/lib/pieces-lues/prerempli-devis-promo";
-import { LigneLue } from "@/components/pieces/ligne-lue";
-import { NoteDeLecture } from "@/components/pieces/note-de-lecture";
+import { proposerLigne } from "@/lib/promo-material/proposition-ligne-devis";
 import { totauxDeLaSelection, totauxDuDevis, totalLigneHT, ecartDeRetranscription, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
 import { ACTIONS, ACTION_LABEL, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
 import { libelleArticleDemande, libellesPromusDeLArticle, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
@@ -36,10 +35,11 @@ import { InfoBulle } from "@/components/ui/info-bulle";
  * l'écran et l'action ne peuvent pas annoncer deux montants retenus différents pour le même choix.
  *
  * LE SCAN SE LIT (lot D2-E). Choisi dans l'éditeur, il est lu sur-le-champ — localement, et ses lignes
- * par l'IA si la Direction l'a permis — et la lecture PRÉREMPLIT l'éditeur : chaque ligne venue du scan
- * porte son badge et une case « vérifiée », le total la sienne, et l'enregistrement attend qu'elles
- * soient toutes cochées. Le serveur refait la même exigence : la case n'est pas une politesse d'écran.
- * Des lignes déjà saisies ne sont jamais remplacées sans un clic.
+ * par l'IA si la Direction l'a permis — et la lecture PRÉREMPLIT l'éditeur, action et article demandé
+ * proposés. L'écran le dit en UNE ligne (« Devis lu — N lignes préremplies »), les points à vérifier
+ * derrière un ⓘ (Direction, 07/10 : « enlève-moi ça », « trop de CTA »). UNE case, « J'ai comparé les
+ * lignes au devis », atteste toutes les lignes lues — le serveur refait l'exigence : une ligne lue n'est
+ * enregistrée qu'attestée par une personne. Des lignes déjà saisies ne sont jamais remplacées sans un clic.
  */
 
 export interface DevisAffiche extends DevisLu {
@@ -96,23 +96,38 @@ interface LigneSaisie {
   reference: string; unit: string; quantity: string; unitPrice: string; action: string; article: string;
   /** Le rang de la ligne lue sur le scan dont elle vient ; `null` : saisie à la main. */
   lue: number | null;
-  /** « Vérifiée sur le papier » — exigée par le serveur pour toute ligne venue du scan. */
-  verifiee: boolean;
 }
 /** L'intitulé d'un champ de ligne, visible seulement au téléphone (ligne en carte) : au bureau, l'en-tête du tableau le porte. */
 const intituleMobile = "hidden";
 /** Un bouton au libellé long passe à la ligne au lieu de sortir de l'écran (le bouton est `nowrap` par défaut). */
 const aLaLigne = "h-auto min-h-9 whitespace-normal py-1.5 sm:h-auto sm:min-h-8";
-const LIGNE_VIDE: LigneSaisie ={ reference: "", unit: "", quantity: "", unitPrice: "", action: "", article: "", lue: null, verifiee: false };
+const LIGNE_VIDE: LigneSaisie = { reference: "", unit: "", quantity: "", unitPrice: "", action: "", article: "", lue: null };
 const nombre = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
-/** Une rangée inutilisée : le serveur l'ignore, et elle ne demande aucune case. */
+/** Une rangée inutilisée : le serveur l'ignore, et elle ne demande aucune attestation. */
 const ligneVide = (l: LigneSaisie) => !l.reference.trim() && !l.quantity.trim() && !l.unitPrice.trim();
-/** Une ligne lue, telle que l'éditeur la reçoit : sa case n'est PAS cochée — c'est le geste de la personne. */
-const depuisLecture = (l: LignePreremplie): LigneSaisie => ({
-  ...LIGNE_VIDE, reference: l.reference, unit: l.unit ?? "",
-  quantity: l.quantity != null ? String(l.quantity) : "", unitPrice: l.unitPrice != null ? String(l.unitPrice) : "",
-  lue: l.rang, verifiee: false,
-});
+/** Une ligne lue, telle que l'éditeur la reçoit — action et article demandé PROPOSÉS, modifiables. */
+const depuisLecture = (l: LignePreremplie, articles: ArticleDemandeLu[]): LigneSaisie => {
+  const p = proposerLigne({ designation: l.reference, quantite: l.quantity, unite: l.unit }, articles);
+  return {
+    ...LIGNE_VIDE, reference: l.reference, unit: l.unit ?? "",
+    quantity: l.quantity != null ? String(l.quantity) : "", unitPrice: l.unitPrice != null ? String(l.unitPrice) : "",
+    action: p.action ?? "", article: p.articleId ?? "", lue: l.rang,
+  };
+};
+const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`;
+
+/** Ce que la lecture laisse à vérifier — derrière le ⓘ, jamais en paragraphes à l'écran. */
+function pointsAVerifier(l: LectureDevisPromo): string[] {
+  const points: string[] = [];
+  if (l.fournisseur.statut !== "CERTAIN" && l.fournisseur.statut !== "AUCUN") points.push(l.fournisseur.phrase);
+  if (l.sansLignes) points.push(l.sansLignes);
+  if (l.coupe) points.push(l.coupe);
+  points.push(...l.prerempli.reserves);
+  if (l.controle) points.push(...l.controle.ecarts, ...l.controle.manques, ...l.controle.desaccords);
+  l.prerempli.lignes.forEach((x, i) => { for (const n of x.notes) points.push(`Ligne ${i + 1} : ${n}`); });
+  for (const s of l.suspectes) points.push(`Ligne ${s.rang} : consigne suspecte dans la désignation, ignorée.`);
+  return [...new Set(points)];
+}
 
 interface EnteteSaisie { reference: string; quoteDate: string; tvaRate: string; announcedTotal: string; extraTaxLabel: string; extraTaxRate: string }
 
@@ -141,26 +156,26 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
   const [appliquee, setAppliquee] = React.useState(false);
   const [enLecture, setEnLecture] = React.useState(false);
   const [erreurLecture, setErreurLecture] = React.useState<string | null>(null);
-  const [totalVerifie, setTotalVerifie] = React.useState(false);
+  /** « J'ai comparé les lignes au devis » — UNE attestation pour toutes les lignes lues (et le total). */
+  const [compare, setCompare] = React.useState(false);
   const [scanChoisi, setScanChoisi] = React.useState(false);
   const scanRef = React.useRef<HTMLInputElement>(null);
 
   const maj = (i: number, k: "reference" | "unit" | "quantity" | "unitPrice" | "action" | "article", v: string) =>
     setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
-  const coche = (i: number, v: boolean) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, verifiee: v } : l)));
   const totalHT = lignes.reduce((s, l) => {
     const q = nombre(l.quantity); const p = nombre(l.unitPrice);
     return Number.isFinite(q) && Number.isFinite(p) ? s + totalLigneHT({ quantity: q, unitPrice: p }) : s;
   }, 0);
-  const lueParRang = new Map((lecture?.prerempli.lignes ?? []).map((l) => [l.rang, l]));
-  const resteACocher = appliquee ? lignes.filter((l) => l.lue !== null && !l.verifiee && !ligneVide(l)).length : 0;
-  const confirmable = !appliquee || (resteACocher === 0 && totalVerifie);
+  const lignesLues = appliquee ? lignes.filter((l) => l.lue !== null && !ligneVide(l)).length : 0;
+  const confirmable = lignesLues === 0 || compare;
+  const points = lecture ? pointsAVerifier(lecture) : [];
 
   /** Reporter la lecture dans l'éditeur : ses lignes (s'il y en a), son en-tête, son fournisseur reconnu. */
   const appliquer = (l: LectureDevisPromo) => {
     const p = l.prerempli;
-    if (p.lignes.length > 0) setLignes(p.lignes.map(depuisLecture));
-    else setLignes((ls) => ls.map((x) => ({ ...x, lue: null, verifiee: false })));
+    if (p.lignes.length > 0) setLignes(p.lignes.map((x) => depuisLecture(x, articles)));
+    else setLignes((ls) => ls.map((x) => ({ ...x, lue: null })));
     setEntete((e) => ({
       reference: p.reference ?? e.reference,
       quoteDate: p.quoteDate ?? e.quoteDate,
@@ -173,7 +188,7 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
     if (p.fournisseurId && (parties ?? []).some((o) => o.id === p.fournisseurId)) {
       setFournisseur((f) => ({ ids: [p.fournisseurId as string], cle: f.cle + 1 }));
     }
-    setTotalVerifie(false);
+    setCompare(false);
     setAppliquee(true);
   };
 
@@ -188,15 +203,17 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
     if (!r.ok || !r.lecture) { setLecture(null); setAppliquee(false); setErreurLecture(r.error ?? "Lecture impossible."); return; }
     const nouvelle = r.lecture;
     setLecture(nouvelle);
-    if (lignes.every(ligneVide) || appliquee) {
-      // Rien de saisi, ou des lignes venues d'une lecture précédente : la nouvelle lecture les remplace.
+    if (lignes.every(ligneVide) || appliquee || nouvelle.prerempli.lignes.length === 0) {
+      // Rien de saisi, des lignes venues d'une lecture précédente, ou une lecture sans lignes (l'en-tête
+      // seul se reporte) : la nouvelle lecture s'applique.
       appliquer(nouvelle);
     } else {
       // Des lignes saisies à la main : elles restent, et ne sont rattachées à aucune lecture.
       setAppliquee(false);
-      setLignes((ls) => ls.map((x) => ({ ...x, lue: null, verifiee: false })));
+      setLignes((ls) => ls.map((x) => ({ ...x, lue: null })));
     }
   };
+  const nLues = lecture?.prerempli.lignes.length ?? 0;
 
   return (
     <form
@@ -221,20 +238,31 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
               {enLecture ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanText className="h-4 w-4" />} Lire le scan
             </Button>
             <InfoBulle label="Comment le scan est lu">
-              Le scan est lu sur ce serveur : la lecture propose les lignes, vous comparez au papier et cochez chaque ligne.
+              Le scan est lu sur ce serveur : la lecture propose les lignes, l&apos;action et l&apos;article demandé — tout reste modifiable. Comparez au papier avant d&apos;enregistrer.
             </InfoBulle>
           </div>
         </div>
-        {erreurLecture && <div className="sm:col-span-2"><Erreur msg={erreurLecture} /></div>}
+        {erreurLecture && (
+          <p className="flex items-center gap-1.5 text-sm text-destructive sm:col-span-2">
+            <AlertCircle className="h-4 w-4 shrink-0" /> <span className="[overflow-wrap:anywhere]">{erreurLecture}</span>
+          </p>
+        )}
         {lecture && (
-          <div className="space-y-2 sm:col-span-2">
-            <NoteDeLecture
-              nomFichier={lecture.nomFichier} noteMethode={lecture.noteMethode} sansLignes={lecture.sansLignes} coupe={lecture.coupe}
-              controle={lecture.controle} fournisseur={lecture.fournisseur.phrase} reserves={lecture.prerempli.reserves} suspectes={lecture.suspectes}
-            />
-            {!appliquee && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:col-span-2">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              {!appliquee ? "Devis lu — vos lignes saisies sont conservées" : nLues > 0 ? `Devis lu — ${pluriel(nLues, "ligne")} préremplie${nLues > 1 ? "s" : ""}` : "Devis lu — en-tête prérempli"}
+            </p>
+            {points.length > 0 && (
+              <InfoBulle label="Points à vérifier" align="left">
+                <span className="mb-1 block font-medium">À vérifier sur le papier</span>
+                {points.map((p) => <span key={p} className="block [overflow-wrap:anywhere]">• {p}</span>)}
+              </InfoBulle>
+            )}
+            {lecture.fournisseur.statut === "AUCUN" && <span className="text-xs text-amber-700 dark:text-amber-400">Fournisseur absent de l&apos;annuaire.</span>}
+            {!appliquee && nLues > 0 && (
               <Button type="button" size="sm" variant="outline" className={aLaLigne} onClick={() => appliquer(lecture)}>
-                <ScanText className="h-4 w-4" /> Reprendre la lecture (remplace les lignes saisies)
+                <ScanText className="h-4 w-4" /> Remplacer par les lignes lues
               </Button>
             )}
           </div>
@@ -247,19 +275,10 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
         <div><Label htmlFor={`dv-ref-${devis?.id ?? "n"}`}>N° du devis</Label><Input id={`dv-ref-${devis?.id ?? "n"}`} name="reference" value={entete.reference} onChange={(e) => majEntete("reference", e.target.value)} placeholder="26/0576" /></div>
         <div><Label htmlFor={`dv-date-${devis?.id ?? "n"}`}>Date du devis</Label><Input id={`dv-date-${devis?.id ?? "n"}`} name="quoteDate" type="date" value={entete.quoteDate} onChange={(e) => majEntete("quoteDate", e.target.value)} /></div>
         <div><Label htmlFor={`dv-tva-${devis?.id ?? "n"}`}>TVA (%)</Label><Input id={`dv-tva-${devis?.id ?? "n"}`} name="tvaRate" inputMode="decimal" placeholder="Telle qu'imprimée (vide = pas de TVA)" value={entete.tvaRate} onChange={(e) => majEntete("tvaRate", e.target.value)} /></div>
-        {/* EXIGÉ POUR TERMINER, pas pour enregistrer — comme le scan : on peut poser les lignes avant
-            d'avoir le papier sous les yeux, mais « Retranscription terminée » refuse un devis sans son
-            total imprimé, contre lequel les lignes se contrôlent à un dinar près. */}
+        {/* FACULTATIF (Direction, 07/10). Saisi, il contrôle la retranscription à un dinar près ; vide, pas de contrôle de total. */}
         <div>
-          <Label htmlFor={`dv-annonce-${devis?.id ?? "n"}`}>Total HT imprimé sur le devis *</Label>
-          <Input id={`dv-annonce-${devis?.id ?? "n"}`} name="announcedTotal" inputMode="decimal" value={entete.announcedTotal} onChange={(e) => majEntete("announcedTotal", e.target.value)} placeholder="contrôle la retranscription" />
-          {appliquee && (
-            <label className="mt-1 flex min-h-9 items-center gap-2 text-xs sm:min-h-0 sm:gap-1.5">
-              <input type="hidden" name="totalVerifie" value="0" />
-              <input type="checkbox" className="h-4 w-4 sm:h-auto sm:w-auto" name="totalVerifie" value="1" checked={totalVerifie} onChange={(e) => setTotalVerifie(e.target.checked)} />
-              total vérifié sur le papier
-            </label>
-          )}
+          <Label htmlFor={`dv-annonce-${devis?.id ?? "n"}`}>Total HT imprimé sur le devis</Label>
+          <Input id={`dv-annonce-${devis?.id ?? "n"}`} name="announcedTotal" inputMode="decimal" value={entete.announcedTotal} onChange={(e) => majEntete("announcedTotal", e.target.value)} placeholder="facultatif" />
         </div>
         <div><Label htmlFor={`dv-taxel-${devis?.id ?? "n"}`}>Taxe additionnelle (libellé)</Label><Input id={`dv-taxel-${devis?.id ?? "n"}`} name="extraTaxLabel" value={entete.extraTaxLabel} onChange={(e) => majEntete("extraTaxLabel", e.target.value)} placeholder="Taxe Pub" /></div>
         <div><Label htmlFor={`dv-taxer-${devis?.id ?? "n"}`}>Taxe additionnelle (%)</Label><Input id={`dv-taxer-${devis?.id ?? "n"}`} name="extraTaxRate" inputMode="decimal" value={entete.extraTaxRate} onChange={(e) => majEntete("extraTaxRate", e.target.value)} placeholder="vide = aucune" /></div>
@@ -285,7 +304,6 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
             {lignes.map((l, i) => {
               const q = nombre(l.quantity); const p = nombre(l.unitPrice);
               const t = Number.isFinite(q) && Number.isFinite(p) && l.quantity && l.unitPrice ? totalLigneHT({ quantity: q, unitPrice: p }) : null;
-              const lue = l.lue !== null ? lueParRang.get(l.lue) : undefined;
               return (
                 <React.Fragment key={i}>
                   <tr className="align-top">
@@ -294,9 +312,8 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
                         <span aria-hidden className={intituleMobile}>Ligne {i + 1} · Référence / désignation</span>
                         <Input name="ligneReference" value={l.reference} onChange={(e) => maj(i, "reference", e.target.value)} aria-label={`Référence ligne ${i + 1}`} />
                       </div>
-                      {/* Deux champs cachés par rangée, ALIGNÉS sur les autres : la ligne lue dont elle vient, et sa case. */}
+                      {/* Un champ caché par rangée, ALIGNÉ sur les autres : la ligne lue dont elle vient (vide : saisie à la main). */}
                       <input type="hidden" name="ligneLue" value={l.lue ?? ""} />
-                      <input type="hidden" name="ligneVerifiee" value={l.verifiee ? "1" : "0"} />
                     </td>
                     <td className="py-1 pr-2">
                       <div className="w-full">
@@ -341,18 +358,6 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
                       <Button type="button" size="sm" variant="ghost" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} aria-label={`Retirer la ligne ${i + 1}`}><Trash2 className="h-4 w-4" /><span className="sm:hidden">Retirer la ligne</span></Button>
                     </td>
                   </tr>
-                  {appliquee && lecture && l.lue !== null && (
-                    <tr>
-                      <td colSpan={8} className="pb-2 pr-2">
-                        <div className="w-full">
-                          <LigneLue
-                            id={`dv-lue-${devis?.id ?? "n"}-${i}`} methode={lecture.methode} confiance={lecture.confiance}
-                            verifiee={l.verifiee} onVerifiee={(v) => coche(i, v)} notes={lue?.notes ?? []} suspecte={lue?.suspecte ?? []}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  )}
                 </React.Fragment>
               );
             })}
@@ -371,10 +376,13 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
       </div>
       <div><Label htmlFor={`dv-note-${devis?.id ?? "n"}`}>Note</Label><Textarea id={`dv-note-${devis?.id ?? "n"}`} name="note" defaultValue={devis?.note ?? ""} className="min-h-[50px]" /></div>
       <Erreur msg={err} />
-      {appliquee && !confirmable && (
-        <p className="text-xs text-amber-700 dark:text-amber-400">
-          Avant d&apos;enregistrer : comparez au papier et cochez {resteACocher > 0 ? `${resteACocher} ligne${resteACocher > 1 ? "s" : ""} lue${resteACocher > 1 ? "s" : ""}` : ""}{resteACocher > 0 && !totalVerifie ? " et " : ""}{!totalVerifie ? "le total" : ""}.
-        </p>
+      {/* UNE attestation pour toutes les lignes lues (§118.7, §118.15) : le serveur l'exige dès qu'une ligne vient du scan. */}
+      {lignesLues > 0 && (
+        <label className="flex min-h-9 items-center gap-2 text-sm sm:min-h-0">
+          <input type="hidden" name="lignesComparees" value="0" />
+          <input type="checkbox" className="h-4 w-4" name="lignesComparees" value="1" checked={compare} onChange={(e) => setCompare(e.target.checked)} />
+          J&apos;ai comparé les lignes au devis
+        </label>
       )}
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <Button type="submit" size="sm" disabled={saving || enLecture || !confirmable}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer le devis</Button>
@@ -468,9 +476,6 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                 <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {q.reference ? `Devis n° ${q.reference}` : "Devis sans numéro"}{q.quoteDate ? ` · ${new Date(q.quoteDate).toLocaleDateString("fr-FR")}` : ""} · TVA {q.tvaRate} %{q.extraTaxRate ? ` · ${q.extraTaxLabel ?? "Taxe"} ${q.extraTaxRate} %` : ""}
                   {q.documentName ? <> · <FileText className="inline h-3 w-3" /> {q.documentName}</> : <> · <span className="text-amber-600">scan manquant</span></>}
-                  {/* Dit à celle qui peut le saisir, à l'étape où il compte : sur un dossier déjà passé au
-                      choix, un « total manquant » d'avant la règle serait un bruit qu'on cesse de lire. */}
-                  {canTranscribe && q.announcedTotal == null && <> · <span className="text-amber-600">total imprimé manquant</span></>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">

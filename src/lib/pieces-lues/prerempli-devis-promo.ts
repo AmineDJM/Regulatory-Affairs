@@ -168,7 +168,7 @@ export function preremplirDevisPromo(
     if (entetes.totalHt?.valeur != null) announcedTotal = entetes.totalHt.valeur;
     else if (entetes.conflits.some((k) => k.quoi === "HT")) reserves.push("Plusieurs « Total HT » différents sont imprimés : aucun n'est prérempli — saisissez celui du papier.");
     else if (entetes.totalHt) reserves.push(`Total HT repéré mais illisible${entetes.totalHt.raison ? ` (${entetes.totalHt.raison.replace(/[.\s]+$/, "")})` : ""} : saisissez-le depuis le papier — c'est contre lui que la retranscription se contrôle.`);
-    else reserves.push("Total HT non repéré sur le papier : saisissez-le — c'est contre lui que la retranscription se contrôle, à un dinar près.");
+    else reserves.push("Total HT non repéré sur le papier : facultatif — saisi, il contrôle la retranscription à un dinar près.");
   }
 
   // LA TVA : un taux, et un seul.

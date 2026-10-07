@@ -32,7 +32,7 @@ import { MODES_PAIEMENT, TAUX_TVA_ADMIS, type ModePaiement } from "@/lib/artifac
 import { scanForInjection } from "@/lib/comms/untrusted";
 import { dateLue } from "@/lib/pieces-lues/entetes";
 import { normaliserNif } from "@/lib/pieces-lues/fournisseur";
-import { analyserNombre, analyserPourcentage, type NombreLu } from "@/lib/pieces-lues/montants";
+import { analyserNombre, analyserPourcentage, analyserQuantite, type NombreLu } from "@/lib/pieces-lues/montants";
 
 /** Une pièce d'un millier de lignes n'est plus une pièce commerciale : on lit les 200 premières, et on compte le reste. */
 export const MAX_LIGNES_LUES = 200;
@@ -248,7 +248,7 @@ function lireLigne(l: Record<string, unknown>, rang: number): LigneLue {
   const illisibles: Illisible[] = [];
   const brute = (l.designation as string).trim();
   const designation = brute.slice(0, MAX_DESIGNATION);
-  const quantite = nombre("quantite", l.quantite, illisibles);
+  const quantite = nombre("quantite", l.quantite, illisibles, analyserQuantite);
   const prixUnitaire = nombre("prixUnitaire", l.prixUnitaire, illisibles);
   const montantHt = nombre("montantHt", l.montantHt, illisibles);
   const remise = nombre("remise", l.remise, illisibles, analyserPourcentage);

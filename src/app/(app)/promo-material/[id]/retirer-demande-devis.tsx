@@ -6,6 +6,7 @@ import { retirerDemandeDevisPromo } from "@/lib/actions/promo-devis-actions";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 /**
  * RETIRER LA DEMANDE DE DEVIS DEPUIS LE DOSSIER (audit du 04/10, constat 35). Offert seulement quand le
@@ -21,10 +22,17 @@ export function RetirerDemandeDevis({ promoMaterialId, references, refus }: { pr
   const [err, setErr] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<string | null>(null);
 
-  if (refus) return <p className="text-xs text-muted-foreground">{refus}</p>;
+  // Le geste n'est pas offert : la raison derrière un ⓘ, pas en paragraphe.
+  if (refus) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+        Retrait impossible <InfoBulle align="left" label="Pourquoi le retrait n'est pas offert">{refus}</InfoBulle>
+      </span>
+    );
+  }
   const occupe = envoi || enCours;
   return (
-    <div className="space-y-2 rounded-lg border border-border p-2.5 text-xs">
+    <div className={ouvert ? "w-full space-y-2 rounded-lg border border-border p-2.5 text-xs" : "space-y-2 text-xs"}>
       {msg && <p className="text-emerald-700 dark:text-emerald-400">{msg}</p>}
       {err && <p role="alert" className="text-destructive">{err}</p>}
       {!ouvert ? (

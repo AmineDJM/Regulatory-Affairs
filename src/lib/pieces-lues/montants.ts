@@ -11,6 +11,11 @@
  *   « 1.200 », « 1,200 »                                  → ILLISIBLE : 1 200 ou 1,2 ? On ne choisit pas.
  *   « -5 », « (5) », « +5 », « 1e3 »                      → ILLISIBLE
  *   « 961 345,00 DA », « 15 890 DZD »                     → le suffixe de devise est accepté
+ *   « DZD 300,000.00 », « 300.000,00 DA HT », « 300'000 » → devise (avant ou après), HT/TTC, « /u » retirés
+ *   « 1,500 DZD », « DZD 300,000 »                        → EN DINARS, trois chiffres après le séparateur
+ *                                                           sont des milliers (le dinar n'a que deux décimales)
+ *
+ * Les quantités passent par `analyserQuantite` : « 100 ex. », « 2 u », « x 3 » — l'unité imprimée retirée.
  *
  * POURQUOI PAS `parseAmount` (moyens généraux). Il lit une SAISIE : une personne qui tape
  * « 1.200 » dans un champ de montant veut dire 1,2, et c'est elle qui l'a écrit. Ici le
@@ -35,9 +40,17 @@ export interface NombreLu {
 /** Les espaces qu'une pièce imprime entre les milliers : ordinaire, insécable, fine insécable, tabulation… */
 const ESPACES = /[\u00a0\u202f\u2009\u2007\u2002\u2003\t ]+/g;
 /** Le suffixe de devise accepté — le dinar, et lui seul : un « 1 200 EUR » n'est pas un montant en dinars. */
-const DEVISE = /\s*(?:dzd|d\.\s?a\.?|da|dinars?(?:\s+alg[eé]riens?)?)\s*$/i;
-/** …et en PRÉFIXE : « DZD 300,000.00 » (devis imprimés à l'anglo-saxonne) se lit comme « 300,000.00 DZD ». */
-const DEVISE_PREFIXE = /^\s*(?:dzd|d\.\s?a\.?|da)\s*/i;
+const DEVISE = /\s*(?:dzd\.?|d\.\s?a\.?|da|dinars?(?:\s+alg[eé]riens?)?|د\.?\s?ج\.?)\s*$/i;
+/** …et en PRÉFIXE : « DZD 300,000.00 », « DA : 1 200,50 » (devis imprimés à l'anglo-saxonne) se lit comme « 300,000.00 DZD ». */
+const DEVISE_PREFIXE = /^\s*(?:dzd|d\.\s?a\.?|da|د\.?\s?ج\.?)\s*[:.]?\s*/i;
+/**
+ * Ce qu'un devis imprime APRÈS un montant sans en changer la valeur : « HT », « H.T. », « TTC », « net »,
+ * « /u », « / pièce ». Retiré (avec la devise qui le précède) avant de lire le nombre — « 300 000,00 DA HT »
+ * est 300 000. Une lettre quelconque, elle, reste inattendue : « 12 ab » n'est pas un montant.
+ */
+const QUALIFICATIF = /\s*(?:h\.?\s?t\.?|t\.?\s?t\.?\s?c\.?|net|\/\s?(?:u|unit[eé]|pi[eè]ce|pce|ex|m2|m²|ml|m))\s*$/i;
+/** Une apostrophe ENTRE des milliers (« 300'000.00 ») : une espace de milliers, à la suisse. */
+const APOSTROPHE_MILLIERS = /(\d)['’](?=\d{3}(?:\D|$))/g;
 /** Au-delà, ce n'est plus un montant de pièce commerciale : 999 999 999 999,99 DZD. */
 const MAX_CHIFFRES_ENTIERS = 12;
 /** Un prix unitaire peut porter trois ou quatre décimales ; au-delà, c'est une lecture abîmée. */
@@ -61,9 +74,20 @@ export function analyserNombre(texte: unknown, opts: { devise?: boolean } = {}):
   if (typeof texte !== "string") {
     return illisible("le nombre doit être recopié en texte, tel qu'imprimé — une valeur déjà convertie ne se vérifie pas");
   }
-  const cite = texte.replace(ESPACES, " ").trim();
-  let s = cite;
-  if (opts.devise !== false) s = s.replace(DEVISE, "").replace(DEVISE_PREFIXE, "").trim();
+  const cite = texte.replace(/[\r\n]+/g, " ").replace(ESPACES, " ").trim();
+  let s = cite.replace(APOSTROPHE_MILLIERS, "$1 ");
+  /** Le papier dit-il « dinars » ? Alors trois chiffres après un séparateur unique sont des milliers (voir plus bas). */
+  let enDinars = false;
+  if (opts.devise !== false) {
+    // « 300 000,00 DA HT », « 300 000 DA/u » : qualificatif et devise se retirent dans n'importe quel ordre.
+    for (let avant = ""; avant !== s; ) {
+      avant = s;
+      s = s.replace(QUALIFICATIF, "").trim();
+      const sansDevise = s.replace(DEVISE, "").replace(DEVISE_PREFIXE, "").trim();
+      if (sansDevise !== s) enDinars = true;
+      s = sansDevise;
+    }
+  }
   if (s === "") return ABSENT;
   if (/[^0-9 .,]/.test(s)) {
     return /^[-\u2212–+(]/.test(s) || /\)$/.test(s)
@@ -82,12 +106,18 @@ export function analyserNombre(texte: unknown, opts: { devise?: boolean } = {}):
     // entière d'un à trois chiffres non nulle. « 1.200 » est 1 200 (milliers) ou 1,2 (décimale) selon la
     // convention de celui qui l'a imprimé. « 0,125 » ne l'est pas (on n'écrit pas « 0 » milliers), ni
     // « 1234,567 » (des milliers se groupent par trois).
-    if (d.length === 3 && e.length <= 3 && /[1-9]/.test(e)) {
+    // SAUF EN DINARS IMPRIMÉS : « 1,500 DZD », « DZD 300,000 » — le dinar se divise en centimes (deux
+    // décimales) ; un montant suivi de sa devise n'en imprime pas trois. Le séparateur y est donc de milliers.
+    const groupeDeMilliers = d.length === 3 && e.length <= 3 && /[1-9]/.test(e);
+    if (groupeDeMilliers && enDinars) {
+      entier = `${e}${d}`;
+    } else if (groupeDeMilliers) {
       const enDecimale = d.replace(/0+$/, "") ? `${e},${d.replace(/0+$/, "")}` : e;
       return illisible(`« ${cite} » : ${e} ${d} ou ${enDecimale} ? Le séparateur « ${sep} » est ambigu — saisissez le nombre depuis le papier`);
+    } else {
+      entier = e;
+      decimales = d;
     }
-    entier = e;
-    decimales = d;
   } else {
     const m = MILLIERS_ESPACES.exec(s) ?? MILLIERS_POINTS.exec(s) ?? MILLIERS_VIRGULES.exec(s);
     if (!m) return illisible(`« ${cite} » : la forme de ce nombre n'est pas reconnue (séparateurs de milliers irréguliers)`);
@@ -103,6 +133,21 @@ export function analyserNombre(texte: unknown, opts: { devise?: boolean } = {}):
 /** Le montant lu, ou `null` (absent ou illisible — `analyserNombre` dit lequel). */
 export function montantLu(texte: unknown): number | null {
   return analyserNombre(texte).valeur;
+}
+
+/** Les unités qu'un devis imprime À CÔTÉ d'une quantité — « 100 ex. », « 2 u », « 1 forfait ». Fermé : une autre lettre reste inattendue. */
+const UNITE_QUANTITE =
+  /\s*(?:u\.?|unit[eé]s?|pcs?\.?|pces?\.?|pi[eè]ces?|ex\.?|expl\.?|exemplaires?|ens\.?|ensembles?|lots?|forfaits?|ff\.?|jours?|j\.?|mois|m2|m²|ml|m|kg|bo[iî]tes?|cartons?|rames?|paquets?|rouleaux?|feuilles?)\s*$/i;
+
+/**
+ * LIRE UNE QUANTITÉ IMPRIMÉE — le même lecteur, l'unité en moins : « 100 ex. » → 100, « x 3 » → 3,
+ * « 2 000 exemplaires » → 2 000. Pas de devise : « 12 DA » n'est pas une quantité.
+ */
+export function analyserQuantite(texte: unknown): NombreLu {
+  if (typeof texte !== "string") return analyserNombre(texte, { devise: false });
+  const s = texte.replace(ESPACES, " ").trim().replace(/^[x×]\s*/i, "").replace(UNITE_QUANTITE, "").trim();
+  const n = analyserNombre(s, { devise: false });
+  return n.raison ? illisible(n.raison.replace(`« ${s} »`, `« ${texte.trim()} »`)) : n;
 }
 
 /**

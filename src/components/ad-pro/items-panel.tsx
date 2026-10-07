@@ -25,8 +25,9 @@ import {
   submitAdProItem, decideAdProItem, setAdProItemBudget,
   demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder,
   retirerDemandeBC, modifierDemandeBC, annulerOrdrePoste, demanderRevisionPoste,
-  ajouterDevisPoste, retirerDevisDuPoste, demanderPaiementPoste, genererBonDeCommandePoste,
+  ajouterDevisPoste, retirerDevisDuPoste, demanderPaiementPoste, genererBonDeCommandePoste, genererDemandeDevisPoste,
 } from "@/lib/actions/ad-pro-item-actions";
+import { deleteDocument } from "@/lib/actions/document-actions";
 import { decideDocumentRequest } from "@/lib/actions/document-request-actions";
 import type { DroitsValidation } from "@/lib/ad-pro/validation-poste";
 import { LIBELLE_ETAPE_BC } from "@/lib/bons-de-commande/regle";
@@ -108,6 +109,8 @@ export interface ItemRow {
   refusAnnulationBc: string | null;
   /** Combien de pièces jointes le poste porte — le détail se déplie à la demande. */
   documentCount: number;
+  /** Les lettres de demande de devis du poste (PDF et Word), la plus récente d'abord (Direction, 07/10). */
+  demandesDevis: { id: string; nom: string; pdf: boolean; le: string }[];
   /** Émission du bon de commande : demande → visa du centre (au-dessus du seuil) → Finances. */
   orderStage: AdProItemOrderStage;
   /** Vrai quand le BC est passé aux Finances SOUS le seuil, sans visa d'aucun centre (§118.149). */
@@ -446,7 +449,7 @@ const RAFRAICHISSEMENT = "rafraichissement";
 
 type Panneau =
   | CleGeste | "MODIFIER" | "HISTORIQUE" | "MODIFIER_BC" | "RETIRER_BC" | "ANNULER_ORDRE" | "REVOIR_DECISION" | "REVISION_DEMANDEE"
-  | "DEVIS" | "FICHIERS_DU_POSTE" | "SECRETARIAT" | "DEMANDES_SECRETARIAT" | "DEMANDER_A_QUELQU_UN" | "FACTURE_BC" | `LIGNES:${string}`;
+  | "DEVIS" | "FICHIERS_DU_POSTE" | "SECRETARIAT" | "DEMANDES_SECRETARIAT" | "DEMANDER_A_QUELQU_UN" | "FACTURE_BC" | "LETTRE_DEVIS" | `LIGNES:${string}`;
 
 /** Ce qu'un geste OUVRE (un petit formulaire) — seul « Soumettre » part au clic. */
 const GESTES_A_FORMULAIRE: readonly CleGeste[] = [
@@ -881,6 +884,26 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
           }}
         />
       )}
+      {panneau === "LETTRE_DEVIS" && peutDeposerDevis && (
+        <form
+          className="space-y-2 rounded-lg border border-border bg-background p-2.5 text-sm"
+          action={(fd: FormData) => {
+            fd.set("id", item.id);
+            void run(`lettre:${item.id}`, () => genererDemandeDevisPoste(fd), "Demande de devis générée.").then(fermer);
+          }}
+        >
+          <label className="block space-y-1">
+            <span className="font-medium">Précisions pour l&apos;agence <span className="font-normal text-muted-foreground">(facultatif)</span></span>
+            <textarea name="note" rows={2} placeholder="Quantité, format, date de l'événement, lieu…" className="w-full rounded-lg border border-border bg-card px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm" />
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button type="submit" size="sm" disabled={busy === `lettre:${item.id}`}>
+              {busy === `lettre:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Générer la demande de devis
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={fermer}>Annuler</Button>
+          </div>
+        </form>
+      )}
       {panneau === "DEVIS" && peutDeposerDevis && (
         <FormulairePiece
           titre={direct ? `Joindre la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")}` : "Joindre un devis ou une facture pro forma"}
@@ -1069,6 +1092,15 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
               </CasePiece>
             ),
           },
+          ...(direct ? [] : [{
+            cle: "demande", libelle: "Demande de devis", court: "Demande",
+            etat: (item.demandesDevis.length > 0 || item.pieces.devis.some((d) => !d.annulee) ? "FAIT" : "A_VENIR") as EtatEtape,
+            contenu: (
+              <CasePiece titre="Demande de devis" ajouter={peutDeposerDevis && !enCours ? () => basculer("LETTRE_DEVIS") : undefined} libelleAjouter={item.demandesDevis.length ? "Régénérer" : "Générer"}>
+                <LettresDevis lettres={item.demandesDevis} supprimer={editer ? (id) => void run(`rlettre:${item.id}`, () => deleteDocument(id), "Fichier supprimé.") : undefined} />
+              </CasePiece>
+            ),
+          }]),
           {
             cle: "devis", libelle: direct ? "Justificatif" : "Devis",
             etat: direct ? etatDe("FACTURE") : item.pieces.devis.some((d) => !d.annulee) ? "FAIT" : "A_VENIR",
@@ -1118,6 +1150,11 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
                   onJoindre={() => basculer("DEMANDER_BC")}
                   repli={<EtatBC item={item} />}
                 />
+                {bcAnnulable && toucheBC && (
+                  <button type="button" onClick={() => setPanneau("RETIRER_BC")} className="inline-flex min-h-9 items-center gap-1 text-xs text-destructive hover:underline sm:min-h-0">
+                    <Undo2 className="h-3.5 w-3.5" /> Annuler la demande de BC
+                  </button>
+                )}
               </CasePiece>
             ),
           });
@@ -1170,7 +1207,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
 }
 
 /** Une case de la chaîne d'achat — son titre, son contenu, et un « Ajouter » discret quand il y a lieu. */
-function CasePiece({ titre, ajouter, children }: { titre: string; ajouter?: () => void; children: React.ReactNode }) {
+function CasePiece({ titre, ajouter, libelleAjouter = "Ajouter", children }: { titre: string; ajouter?: () => void; libelleAjouter?: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0 space-y-1.5 rounded-lg bg-secondary/30 px-3 py-2.5 text-sm">
       <div className="flex items-center gap-2">
@@ -1181,11 +1218,40 @@ function CasePiece({ titre, ajouter, children }: { titre: string; ajouter?: () =
             type="button" onClick={ajouter}
             className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-primary/40 bg-card px-3 text-sm font-medium text-primary hover:underline sm:h-auto sm:gap-0.5 sm:border-0 sm:bg-transparent sm:px-0 sm:text-xs sm:font-normal"
           >
-            <Plus className="h-4 w-4 sm:h-3 sm:w-3" /> Ajouter
+            <Plus className="h-4 w-4 sm:h-3 sm:w-3" /> {libelleAjouter}
           </button>
         )}
       </div>
       {children}
+    </div>
+  );
+}
+
+/**
+ * LA DEMANDE DE DEVIS DU POSTE (Direction, 07/10) — la lettre la plus récente, en PDF et Word, cliquable ; chaque fichier se
+ * supprime. Les générations précédentes ne s'affichent pas : la dernière fait foi.
+ */
+function LettresDevis({ lettres, supprimer }: { lettres: { id: string; nom: string; pdf: boolean; le: string }[]; supprimer?: (id: string) => void }) {
+  if (lettres.length === 0) return <p className="text-muted-foreground">Pas encore générée.</p>;
+  const derniere = lettres[0].le.slice(0, 16);
+  const recentes = lettres.filter((l) => l.le.slice(0, 16) === derniere);
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">Générée le {formatDate(lettres[0].le)}</p>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1">
+        {recentes.map((l) => (
+          <li key={l.id} className="inline-flex items-center gap-1">
+            <a href={`/api/documents/${l.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1 font-medium text-primary hover:underline sm:min-h-0">
+              <FileText className="h-3.5 w-3.5" /> {l.pdf ? "PDF" : "Word"}
+            </a>
+            {supprimer && (
+              <BoutonDecisif brut type="button" onClick={() => supprimer(l.id)} aria-label={`Supprimer ${l.nom}`} className="rounded p-1.5 text-muted-foreground hover:text-destructive sm:p-0.5">
+                <X className="h-3.5 w-3.5" />
+              </BoutonDecisif>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1212,6 +1278,18 @@ function LignePiece({ piece, retirer }: { piece: PieceDePoste; retirer?: () => v
           {piece.annulee && " · annulée"}
         </p>
         {piece.aussiPour.length > 0 && <p className="truncate text-muted-foreground" title={piece.aussiPour.join(", ")}>Couvre aussi : {piece.aussiPour.join(", ")}</p>}
+        {/* TOUS LES FICHIERS DE LA PIÈCE (Direction, 07/10) — le titre ouvre le premier ; les autres se listent ici. */}
+        {piece.fichiersListe.length > 1 && (
+          <ul className="mt-0.5 space-y-0.5">
+            {piece.fichiersListe.map((f) => (
+              <li key={f.id} className="min-w-0">
+                <a href={`/api/documents/${f.id}`} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-xs text-primary hover:underline" title={f.nom}>
+                  <Paperclip className="h-3 w-3 shrink-0" /> <span className="truncate">{f.nom}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       {retirer && (
         <BoutonDecisif brut type="button" onClick={retirer} aria-label={`Retirer ${piece.titre} du poste`} className="-m-1.5 rounded p-2 text-muted-foreground hover:text-destructive sm:m-0 sm:p-0.5">

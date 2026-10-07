@@ -5,8 +5,9 @@ import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { AlertCircle, CheckCircle2, Loader2, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { InfoBulle } from "@/components/ui/info-bulle";
 import { RecordForm, type FieldDef } from "@/components/shared/create-record-button";
+import { quantiteEnLettre } from "@/lib/ad-pro/demande-devis-lettre";
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "@/lib/actions/promo-demande-actions";
 import { demanderDevisPromo } from "@/lib/actions/promo-devis-actions";
 import { ACTIONS, ACTION_AIDE, ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
@@ -25,7 +26,8 @@ import type { ActionResult } from "@/lib/actions/types";
  * tant que les devis ne sont pas demandés — la règle de l'action), et l'action la relit.
  */
 
-const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+/** La précision du demandeur, sans les guillemets dont on l'entoure parfois. */
+const sansGuillemets = (s: string) => s.trim().replace(/^["«»“”\s]+|["«»“”\s]+$/g, "");
 
 /** La demande de devis AVANT son départ (§118.204) — son aperçu, et le geste qui l'envoie quand il le faut. */
 export interface EnvoiDevis {
@@ -126,67 +128,71 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
   return (
     <div className="space-y-3">
       {articles.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {canEdit
-            ? "Aucun article pour l'instant. Piochez dans le catalogue ce que vous voulez faire faire : l'assistante saura exactement quels devis chercher."
-            : "Aucun article demandé sur ce dossier."}
-        </p>
+        <p className="text-sm text-muted-foreground">Aucun article demandé.</p>
       ) : (
         <ul className="divide-y divide-border rounded-lg border border-border">
-          {articles.map((a) => (
-            <li key={a.id} className="flex flex-wrap items-start justify-between gap-2 px-3 py-2">
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className="font-medium [overflow-wrap:anywhere]">
-                  <span className="text-muted-foreground">{a.reference}</span> {a.nom}
-                  {libellesPromusDeLArticle(a).length > 0 && <span> — {libellesPromusDeLArticle(a).join(", ")}</span>}
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                  <Badge tone="neutral">{FAMILLE_LABEL[a.famille]}</Badge>
-                  {a.actions.map((x) => <Badge key={x} tone="info">{ACTION_LABEL[x]}</Badge>)}
-                  {a.quantite != null && <span className="tabular-nums text-muted-foreground">{nombre(a.quantite)} {a.unite}</span>}
+          {articles.map((a) => {
+            // UNE LIGNE PAR ARTICLE : réf + nom, quantité accordée, prestations en pastilles ; la précision en dessous.
+            const qte = quantiteEnLettre({ quantite: a.quantite, unite: a.unite });
+            const promus = libellesPromusDeLArticle(a);
+            const precision = a.commentaire ? sansGuillemets(a.commentaire) : "";
+            const secondaire = [promus.join(", "), precision].filter(Boolean).join(" · ");
+            return (
+              <li key={a.id} className="flex items-start gap-2 px-3 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+                    <span className="font-medium [overflow-wrap:anywhere]"><span className="text-muted-foreground">{a.reference}</span> {a.nom}</span>
+                    {qte && <span className="tabular-nums text-muted-foreground">{qte}</span>}
+                    {a.actions.map((x) => (
+                      <span key={x} className="rounded-full bg-secondary px-1.5 py-px text-[0.6875rem] text-muted-foreground">{ACTION_LABEL[x]}</span>
+                    ))}
+                  </p>
+                  {secondaire && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{secondaire}</p>}
                 </div>
-                {a.commentaire && <p className="whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">{a.commentaire}</p>}
-              </div>
-              {canEdit && (
-                <div className="flex shrink-0 gap-1">
-                  <Button size="sm" variant="ghost" disabled={saving || enCours} onClick={() => setEdition(a)} aria-label={`Corriger ${a.nom}`}><Pencil className="h-4 w-4" /></Button>
-                  <Button size="sm" variant="ghost" disabled={saving || enCours} onClick={() => retirer(a)} aria-label={`Retirer ${a.nom}`}><Trash2 className="h-4 w-4" /></Button>
-                </div>
-              )}
-            </li>
-          ))}
+                {canEdit && (
+                  <div className="flex shrink-0 gap-0.5">
+                    <Button size="sm" variant="ghost" className="px-2" disabled={saving || enCours} onClick={() => setEdition(a)} aria-label={`Corriger ${a.nom}`}><Pencil className="h-4 w-4" /></Button>
+                    <Button size="sm" variant="ghost" className="px-2" disabled={saving || enCours} onClick={() => retirer(a)} aria-label={`Retirer ${a.nom}`}><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {/* LA DEMANDE DE DEVIS, AVANT SON DÉPART (§118.204) — dans la MÊME rubrique que les articles : ce que
-          l'assistante recevra, mot pour mot. Elle part d'elle-même ; le bouton n'apparaît que si elle est restée. */}
+      {/* LA DEMANDE AU SECRÉTARIAT, AVANT SON DÉPART (§118.204) — l'état en une ligne, l'aperçu replié ; le bouton
+          n'apparaît que si elle est restée. */}
       {envoiDevis && (
-        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <p className="text-sm font-medium">Aperçu de la demande de devis</p>
-          <p className="text-xs text-muted-foreground">
-            {envoiDevis.attendValidation
-              ? "Elle partira d'elle-même au secrétariat dès que la demande sera validée."
-              : envoiDevis.peutEnvoyer
-                ? "Elle n'est pas encore partie : relisez-la, puis envoyez-la."
-                : "Elle n'est pas encore partie : le demandeur l'envoie d'ici."}
-          </p>
-          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs [overflow-wrap:anywhere]">{envoiDevis.apercu}</pre>
-          {envoiDevis.peutEnvoyer && (
-            <form action={envoyer} className="space-y-2">
-              <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={saving || enCours}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande de devis
-              </Button>
-            </form>
-          )}
+        <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="min-w-0 flex-1 text-sm">
+              <span className="font-medium">Demande au secrétariat</span>
+              <span className="text-muted-foreground"> — {envoiDevis.attendValidation ? "partira à la validation" : "pas encore partie"}</span>
+            </p>
+            {envoiDevis.peutEnvoyer && (
+              <form action={envoyer} className="w-full sm:w-auto">
+                <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={saving || enCours}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande de devis
+                </Button>
+              </form>
+            )}
+          </div>
+          <details className="text-xs">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Aperçu</summary>
+            <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs [overflow-wrap:anywhere]">{envoiDevis.apercu}</pre>
+          </details>
         </div>
       )}
 
       {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{err}</span></div>}
       {msg && <div className="flex items-start gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{msg}</span></div>}
 
-      {canEdit && avertissement && <p className="text-xs text-muted-foreground">{avertissement}</p>}
       {canEdit && (
-        <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled={saving || enCours} onClick={() => setEdition("nouveau")}><Plus className="h-4 w-4" /> Ajouter un article du catalogue</Button>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="outline" className="flex-1 sm:flex-none" disabled={saving || enCours} onClick={() => setEdition("nouveau")}><Plus className="h-4 w-4" /> Ajouter un article du catalogue</Button>
+          {avertissement && <InfoBulle align="left" label="Ce qu'entraîne un changement">{avertissement}</InfoBulle>}
+        </div>
       )}
 
       {canEdit && edition && (

@@ -74,6 +74,19 @@ describe("Ce que la confirmation exige", () => {
     expect(r).toContain("« total vérifié »");
   });
 
+  it("UNE CASE GLOBALE (devis promo, Direction 07/10) : le refus la nomme, une fois — sans parler de cases par ligne ni du total", () => {
+    const caseGlobale = "J'ai comparé les lignes au devis";
+    const r = refusDeConfirmation(PROPOSEES, [S(1, "Fiche posologique A4", 2000, 45, false), S(3, "Kakémono 80x200", 4, 12500, false)], false, { caseGlobale });
+    expect(r).toBe("Lecture non confirmée : cochez « J'ai comparé les lignes au devis » après avoir comparé les lignes lues au papier. Rien n'a été enregistré.");
+    // Cochée : toutes les lignes lues sont attestées d'un coup.
+    expect(refusDeConfirmation(PROPOSEES, [S(1, "Fiche posologique A4", 2000, 45), S(3, "Kakémono 80x200", 4, 12500)], true, { caseGlobale })).toBeNull();
+    // L'état d'abord : un rang forgé reste refusé avant la case.
+    expect(refusDeConfirmation(PROPOSEES, [S(2, "Ligne forgée", 1, 1, false)], false, { caseGlobale })).toContain("une ligne lue qui n'existe pas (rang 2)");
+    // L'audit ne prétend pas « une à une ».
+    const v = verdictsDeConfirmation(PROPOSEES, [S(1, "Fiche posologique A4", 2000, 45)]);
+    expect(phraseAuditConfirmation({ methode: "texte", confiance: null }, v, true)).toMatch(/^lignes lues dans le texte du fichier, comparées au papier \(attestation globale\)/);
+  });
+
   it("une ligne ÉCARTÉE (retirée du formulaire) et une ligne AJOUTÉE n'exigent aucune case", () => {
     expect(refusDeConfirmation(PROPOSEES, [S(null, "Saisie à la main", 1, 10, false)], true)).toBeNull();
   });
