@@ -25,10 +25,11 @@ const FILTRES: FiltreDemandes[] = ["a-traiter", "en-cours", "pretes"];
  * filtres (À traiter, En cours, Prêtes) ; une LIGNE par demande, un geste (« Traiter »), le traitement dans un panneau
  * sous la ligne ; puis la TABLE des congés à trancher, chacun avec sa discussion.
  */
-export default async function DemandesRhPage({ searchParams }: { searchParams?: { filtre?: string } }) {
+export default async function DemandesRhPage({ searchParams }: { searchParams?: { filtre?: string; demande?: string } }) {
   const user = await requireModule("HR_REQUESTS");
   const peutTrancherConges = userCan(user, "HR_REQUESTS", "VALIDATE");
   const filtre: FiltreDemandes = FILTRES.includes(searchParams?.filtre as FiltreDemandes) ? (searchParams!.filtre as FiltreDemandes) : "a-traiter";
+  const demandeAOuvrir = searchParams?.demande ?? null;
   // LA MÊME CLAUSE DE VISIBILITÉ pour la file ouverte et pour les demandes prêtes : le filtre « Prêtes » n'ouvre rien de
   // plus que ce que l'écran voyait déjà (les salariés visibles), borné à 30 jours et 50 lignes.
   const perimetre = await clauseSalariesVisibles(user.id);
@@ -78,7 +79,7 @@ export default async function DemandesRhPage({ searchParams }: { searchParams?: 
       <ModuleTabs tabs={tabs} />
       <FileDemandesRh
         demandes={liste} filtre={filtre} referenceOrdreMission={reference} currentUserId={user.id}
-        lienFiche={userCan(user, "EMPLOYEES", "VIEW")} maintenant={maintenant}
+        lienFiche={userCan(user, "EMPLOYEES", "VIEW")} maintenant={maintenant} demandeAOuvrir={demandeAOuvrir}
       />
       {peutTrancherConges && (
         <CongesATrancher

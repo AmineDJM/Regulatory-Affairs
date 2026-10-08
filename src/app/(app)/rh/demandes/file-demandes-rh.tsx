@@ -40,7 +40,7 @@ const VIDE: Record<FiltreDemandes, string> = {
   pretes: "Aucune demande prête ces 30 derniers jours.",
 };
 
-export function FileDemandesRh({ demandes, filtre, referenceOrdreMission, currentUserId, lienFiche, maintenant }: {
+export function FileDemandesRh({ demandes, filtre, referenceOrdreMission, currentUserId, lienFiche, maintenant, demandeAOuvrir }: {
   demandes: HrQueueItem[];
   filtre: FiltreDemandes;
   referenceOrdreMission: string;
@@ -49,8 +49,10 @@ export function FileDemandesRh({ demandes, filtre, referenceOrdreMission, curren
   lienFiche: boolean;
   /** L'instant du serveur (ISO) : le rendu et l'hydratation disent la même ancienneté. */
   maintenant: string;
+  /** ID de la demande à ouvrir automatiquement via query param (?demande=...) */
+  demandeAOuvrir?: string | null;
 }) {
-  const [ouverte, setOuverte] = React.useState<string | null>(null);
+  const [ouverte, setOuverte] = React.useState<string | null>(demandeAOuvrir ?? null);
   return (
     <section className="surface overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">

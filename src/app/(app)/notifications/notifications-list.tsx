@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCheck } from "lucide-react";
 import { markNotificationRead, markAllNotificationsRead } from "@/lib/actions/notification-actions";
+import { reécriteLienNotification } from "@/lib/notifications/lien-actuel";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -64,11 +65,12 @@ export function NotificationsList({ items }: { items: NotificationItem[] }) {
                 </div>
               </div>
             );
+            const lienActuel = reécriteLienNotification(n.link);
             return (
               <li key={n.id} className={cn(!read && "bg-accent/30")}>
-                {n.link ? (
+                {lienActuel ? (
                   // Clic → navigation ET marquage lu.
-                  <Link href={n.link} onClick={() => markRead(n.id, read, false)}>{content}</Link>
+                  <Link href={lienActuel} onClick={() => markRead(n.id, read, false)}>{content}</Link>
                 ) : (
                   // Sans lien : le clic marque simplement comme lu.
                   <button type="button" onClick={() => markRead(n.id, read, true)} className="block w-full text-left">{content}</button>
