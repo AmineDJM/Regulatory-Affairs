@@ -592,6 +592,33 @@ const REFUS_TERRITOIRE_PAR_SECTEUR =
   "Ce secteur est le territoire propre d'un KAM : il se règle sur sa ligne, dans « KAM de la BU » (bouton « Territoire »).";
 
 /**
+ * UN NOM QUE SEUL UN SECTEUR RETIRÉ OCCUPE EST LIBRE (Direction, 08/10 : « ça me dit qu'un territoire Centre existe déjà,
+ * alors que ce n'est pas vrai »). Les secteurs PARTAGÉS d'avant (« Centre », « Est »…) ont été repris dans les territoires
+ * des KAM puis DÉSACTIVÉS, jamais supprimés (migration `20270106093000_territoire_kam`) : invisibles partout, ils gardaient
+ * leur nom et la contrainte d'unicité `(businessUnitId, name)` refusait ce nom au territoire qui le voulait. On renomme
+ * l'ancien en « Centre (ancien) » — son historique reste entier — et le nom revient à qui le choisit. Un secteur ACTIF du
+ * même nom, lui, reste un vrai homonyme : le refus qui suit le nomme.
+ */
+async function libererNomRetire(businessUnitId: string, nom: string, saufId: string | null): Promise<void> {
+  const retires = await prisma.salesSector.findMany({
+    where: { businessUnitId, isActive: false, name: { equals: nom, mode: "insensitive" }, ...(saufId ? { id: { not: saufId } } : {}) },
+    select: { id: true, name: true },
+  });
+  for (const r of retires) {
+    for (let n = 1; n < 50; n++) {
+      const candidat = `${r.name} (ancien${n > 1 ? ` ${n}` : ""})`.slice(0, NOM_SECTEUR_MAX);
+      const pris = await prisma.salesSector.findFirst({
+        where: { businessUnitId, name: { equals: candidat, mode: "insensitive" } },
+        select: { id: true },
+      });
+      if (pris) continue;
+      await prisma.salesSector.update({ where: { id: r.id }, data: { name: candidat } });
+      break;
+    }
+  }
+}
+
+/**
  * LE CORPS COMMUN. Non exporté : un fichier `"use server"` n'exporte que des fonctions
  * asynchrones appelables à distance, et ceci n'en est pas une — c'est la part que les deux gestes
  * partagent, et l'écrire deux fois la ferait diverger au premier réglage (§118.5).
@@ -612,6 +639,7 @@ async function ecrireSecteur(
   const institutionIds = [...new Set(formData.getAll("institutionIds").map(String).filter(Boolean))];
   const repIds = territoireDe ? [territoireDe] : [...new Set(formData.getAll("repIds").map(String).filter(Boolean))];
 
+  await libererNomRetire(businessUnitId, name, sectorId);
   const [institutions, reps, homonyme, dejaCouverts] = await Promise.all([
     institutionIds.length
       ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true, name: true, isActive: true } })
@@ -901,6 +929,7 @@ export async function renommerSecteur(formData: FormData): Promise<ActionResult>
   const secteur = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, name: true, businessUnitId: true, repId: true } });
   if (!secteur) return { ok: false, error: "Territoire introuvable — rechargez l'écran." };
   if (secteur.name === nom) return { ok: true, id: secteur.id };
+  await libererNomRetire(secteur.businessUnitId, nom, secteur.id);
   const homonyme = await prisma.salesSector.findFirst({
     where: { businessUnitId: secteur.businessUnitId, name: { equals: nom, mode: "insensitive" }, id: { not: secteur.id } },
     select: { id: true },
