@@ -3,15 +3,15 @@ import * as XLSX from "xlsx";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
-  detecterEntete, lireVentes, lireReceptions, periodeDuFichier, libellePeriode, moisDe, quantiteNonServie,
-  type Entete, type LigneVenteLue, type LigneReceptionLue, type NatureFichier,
+  detecterEntete, lireVentes, lireReceptions, periodeDuFichier, libellePeriode, libelleMois, moisDe, quantiteNonServie,
+  type Entete, type LigneVenteLue, type LigneReceptionLue, type NatureFichier, type PeriodeFichier,
 } from "./lecture";
 import { cleClient, cleFournisseur, clePresentation } from "./normalisation";
 import {
   indexEtablissementsPch, indexProduitsPch, decisionPoste, proposerFournisseurs,
   type ProduitRef, type PosteExistant, type DecisionPoste, type RattachementProduit,
 } from "./correspondance";
-import { planRemplacement, dateDuMois, cleTranche, SOURCE_RECEPTIONS, type Tranche, type ImportExistant } from "./calculs";
+import { planRemplacement, dateDuMois, cleTranche, moisSelonChoix, SOURCE_RECEPTIONS, type Tranche, type ImportExistant, type ChoixPeriode } from "./calculs";
 
 /**
  * VENTES PCH — LE CÔTÉ BASE DE L'IMPORT (serveur uniquement : `xlsx`, `crypto`, Prisma).
@@ -78,6 +78,9 @@ export interface Apercu {
   deja: { le: string; nomFichier: string } | null;
   sources: string[];
   periode: { debut: string; fin: string; annuel: boolean; libelle: string; mois: string[] };
+  /** La période lue sur les dates du fichier, et si la personne en a choisi une autre (mois / année / annuel). */
+  detectee: { debut: string; fin: string; annuel: boolean };
+  choisie: boolean;
   lignes: number;
   ignorees: number;
   /** Ventes : établissements distincts, rattachés, à rattacher ; lignes non servies, retours, lignes sans date. */
@@ -128,7 +131,18 @@ function deciderPostes(ctx: Contexte, items: { poste: number | null; designation
 
 const dec = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
 
-function preparerVentes(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "empreinte">, lues: LigneVenteLue[], ignorees: number): Preparation | { erreur: string } {
+/** La période de l'aperçu : celle des dates du fichier, ou celle que la personne a choisie (la détectée reste dite). */
+function periodeApercu(detectee: PeriodeFichier, mois: string[], choix: ChoixPeriode | null): Pick<Apercu, "periode" | "detectee" | "choisie"> {
+  const annuel = choix ? choix.mois === null : detectee.annuel;
+  const libelle = !choix ? libellePeriode(detectee) : choix.mois !== null ? libelleMois(mois[0]) : `année ${choix.annee}`;
+  return {
+    periode: { debut: mois[0], fin: mois[mois.length - 1], annuel, libelle, mois },
+    detectee: { debut: detectee.debut, fin: detectee.fin, annuel: detectee.annuel },
+    choisie: !!choix,
+  };
+}
+
+function preparerVentes(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "empreinte">, lues: LigneVenteLue[], ignorees: number, choix: ChoixPeriode | null): Preparation | { erreur: string } {
   const periode = periodeDuFichier(lues.map((l) => l.dateFacture));
   if (!periode) return { erreur: "Aucune date de facture lisible : la période du fichier ne se devine pas." };
   const sources = [...new Set(lues.map((l) => l.dr).filter(Boolean))].sort();
@@ -143,7 +157,7 @@ function preparerVentes(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "emprei
     const cle = cleClient(l.client);
     const r = parClient.get(cle) ?? parClient.set(cle, ctx.etab(l.client)).get(cle)!;
     const d = l.poste !== null ? decisions.get(l.poste) : undefined;
-    const mois = l.dateFacture ? moisDe(l.dateFacture) : periode.moisSansDate;
+    const mois = moisSelonChoix(l.dateFacture ? moisDe(l.dateFacture) : periode.moisSansDate, choix);
     if (!l.dateFacture) sansDate++;
     moisPresents.add(mois);
     const ns = quantiteNonServie(l.statut, l.qteCommandee);
@@ -173,7 +187,7 @@ function preparerVentes(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "emprei
   return {
     apercu: {
       ...base, nature: "VENTES_DR", deja: null, sources,
-      periode: { debut: mois[0], fin: mois[mois.length - 1], annuel: periode.annuel, libelle: libellePeriode(periode), mois },
+      ...periodeApercu(periode, mois, choix),
       lignes: ventes.length, ignorees,
       etablissements: parClient.size, etablissementsRattaches: rattaches, etablissementsARattacher: parClient.size - rattaches,
       nonServies, quantiteNonServie: qteNonServie, retours, sansDate,
@@ -187,7 +201,7 @@ function preparerVentes(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "emprei
   };
 }
 
-function preparerReceptions(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "empreinte">, lues: LigneReceptionLue[], ignorees: number): Preparation | { erreur: string } {
+function preparerReceptions(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "empreinte">, lues: LigneReceptionLue[], ignorees: number, choix: ChoixPeriode | null): Preparation | { erreur: string } {
   const periode = periodeDuFichier(lues.map((l) => l.dateStockage));
   if (!periode) return { erreur: "Aucune date de stockage lisible : la période du fichier ne se devine pas." };
   const decisions = deciderPostes(ctx, lues.map((l) => ({ poste: l.codePro, designation: l.designation, uc: l.conditionnement })));
@@ -197,7 +211,7 @@ function preparerReceptions(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "em
   const moisPresents = new Set<string>();
   const receptions: Preparation["receptions"] = lues.map((l) => {
     const d = l.codePro !== null ? decisions.get(l.codePro) : undefined;
-    const mois = l.dateStockage ? moisDe(l.dateStockage) : periode.moisSansDate;
+    const mois = moisSelonChoix(l.dateStockage ? moisDe(l.dateStockage) : periode.moisSansDate, choix);
     moisPresents.add(mois);
     parType[l.type] = (parType[l.type] ?? 0) + 1;
     fournisseurs.add(cleFournisseur(l.fournisseur));
@@ -218,7 +232,7 @@ function preparerReceptions(ctx: Contexte, base: Pick<Apercu, "nomFichier" | "em
   return {
     apercu: {
       ...base, nature: "RECEPTIONS", deja: null, sources: [SOURCE_RECEPTIONS],
-      periode: { debut: mois[0], fin: mois[mois.length - 1], annuel: periode.annuel, libelle: libellePeriode(periode), mois },
+      ...periodeApercu(periode, mois, choix),
       lignes: receptions.length, ignorees,
       etablissements: 0, etablissementsRattaches: 0, etablissementsARattacher: 0, nonServies: 0, quantiteNonServie: 0, retours: parType.RC ?? 0, sansDate: 0,
       fournisseurs: fournisseurs.size, parType,
@@ -240,14 +254,14 @@ async function importsExistants(nature: NatureFichier): Promise<(ImportExistant 
   return rows.map((r) => ({ id: r.id, empreinte: r.empreinte, nomFichier: r.nomFichier, createdAt: r.createdAt, tranches: r.sources.flatMap((s) => r.mois.map((m) => ({ source: s, mois: m }))) }));
 }
 
-async function preparer(buffer: Buffer, nomFichier: string, ctx: Contexte): Promise<Preparation | { erreur: string }> {
+async function preparer(buffer: Buffer, nomFichier: string, ctx: Contexte, choix: ChoixPeriode | null): Promise<Preparation | { erreur: string }> {
   const empreinte = createHash("sha256").update(buffer).digest("hex");
   const lu = lireClasseurPch(buffer);
   if (!lu) return { erreur: `« ${nomFichier} » n'a ni l'en-tête des ventes d'une DR (CLIENT, POSTE, DCI, QTÉ_LIVRÉE…) ni celui des réceptions (NOM_FOUR, CODE_PRO, TYPE_RECEP…).` };
   const base = { nomFichier, empreinte };
   const p = lu.entete.nature === "VENTES_DR"
-    ? (() => { const r = lireVentes(lu.lignes, lu.entete); return preparerVentes(ctx, base, r.lignes, r.ignorees); })()
-    : (() => { const r = lireReceptions(lu.lignes, lu.entete); return preparerReceptions(ctx, base, r.lignes, r.ignorees); })();
+    ? (() => { const r = lireVentes(lu.lignes, lu.entete); return preparerVentes(ctx, base, r.lignes, r.ignorees, choix); })()
+    : (() => { const r = lireReceptions(lu.lignes, lu.entete); return preparerReceptions(ctx, base, r.lignes, r.ignorees, choix); })();
   if ("erreur" in p) return p;
   if (p.apercu.lignes === 0) return { erreur: `« ${nomFichier} » ne porte aucune ligne.` };
   const existants = await importsExistants(p.apercu.nature);
@@ -264,11 +278,11 @@ async function preparer(buffer: Buffer, nomFichier: string, ctx: Contexte): Prom
 // ─────────────────────────── Aperçu & application ───────────────────────────
 
 /** APERÇU d'un fichier : tout est lu et rattaché, RIEN n'est écrit. */
-export async function apercuFichierPch(buffer: Buffer, nomFichier: string): Promise<{ ok: true; apercu: Apercu } | { ok: false; error: string }> {
+export async function apercuFichierPch(buffer: Buffer, nomFichier: string, choix: ChoixPeriode | null = null): Promise<{ ok: true; apercu: Apercu } | { ok: false; error: string }> {
   // Le même fichier déjà importé (même remplacé depuis) se dit : l'appliquer ne ferait rien.
   const empreinte = createHash("sha256").update(buffer).digest("hex");
   const meme = await prisma.pchVenteImport.findUnique({ where: { empreinte }, select: { createdAt: true, nomFichier: true } });
-  const p = await preparer(buffer, nomFichier, await chargerContexte());
+  const p = await preparer(buffer, nomFichier, await chargerContexte(), choix);
   if ("erreur" in p) return { ok: false, error: p.erreur };
   if (meme && !p.apercu.deja) p.apercu.deja = { le: meme.createdAt.toISOString(), nomFichier: meme.nomFichier };
   return { ok: true, apercu: p.apercu };
@@ -287,11 +301,11 @@ export type ResultatApplication =
  *   • les lignes s'écrivent par lots de 1 000 ; les postes vus se mémorisent (rattachement automatique, jamais par-dessus
  *     un rattachement fait à la main) ; les fournisseurs « à nous » se proposent ; les DR inconnues se créent.
  */
-export async function appliquerFichierPch(buffer: Buffer, nomFichier: string, auteurId: string): Promise<ResultatApplication> {
+export async function appliquerFichierPch(buffer: Buffer, nomFichier: string, auteurId: string, choix: ChoixPeriode | null = null): Promise<ResultatApplication> {
   const empreinte = createHash("sha256").update(buffer).digest("hex");
   if (await prisma.pchVenteImport.findUnique({ where: { empreinte }, select: { id: true } })) return { ok: true, deja: true, nomFichier };
   const ctx = await chargerContexte();
-  const p = await preparer(buffer, nomFichier, ctx);
+  const p = await preparer(buffer, nomFichier, ctx, choix);
   if ("erreur" in p) return { ok: false, error: p.erreur };
   if (p.apercu.deja) return { ok: true, deja: true, nomFichier };
   const nature = p.apercu.nature;
@@ -323,6 +337,10 @@ export async function appliquerFichierPch(buffer: Buffer, nomFichier: string, au
       data: {
         nature, nomFichier, empreinte, taille: buffer.length, fichier: buffer,
         sources: p.apercu.sources, mois: p.apercu.periode.mois, annuel: p.apercu.periode.annuel,
+        // LA PÉRIODE RETENUE (choisie, ou lue sur les dates) : l'année, et le mois — nul quand le fichier est annuel.
+        periodeAnnee: Number(p.apercu.periode.debut.slice(0, 4)),
+        periodeMois: p.apercu.periode.annuel || p.apercu.periode.debut !== p.apercu.periode.fin ? null : Number(p.apercu.periode.debut.slice(5, 7)),
+        periodeChoisie: p.apercu.choisie,
         lignes: p.apercu.lignes, auteurId,
         rapport: { ...p.apercu, produits: p.apercu.produits.slice(0, 50), remplacees, tranchesRemplacees: plan.tranchesRemplacees.map(cleTranche) } as unknown as Prisma.InputJsonValue,
       },

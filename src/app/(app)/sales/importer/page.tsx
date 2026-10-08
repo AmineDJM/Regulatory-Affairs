@@ -89,7 +89,10 @@ export default async function ImporterVentesPchPage() {
                       {i.remplaceParId && <Badge tone="neutral" className="ml-1.5">remplacé</Badge>}
                     </TableCell>
                     <TableCell>{i.nature === "RECEPTIONS" ? "Réceptions" : i.sources.join(", ")}</TableCell>
-                    <TableCell>{i.annuel ? `année ${i.mois[0]?.slice(0, 4) ?? ""}` : i.mois.map(moisCourt).join(", ")}</TableCell>
+                    <TableCell>
+                      {i.annuel ? `année ${i.periodeAnnee ?? i.mois[0]?.slice(0, 4) ?? ""}` : i.mois.map(moisCourt).join(", ")}
+                      {i.periodeChoisie && <Badge tone="info" className="ml-1.5">choisie</Badge>}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(i.lignes)}</TableCell>
                     <TableCell className="text-muted-foreground">{i.createdAt.toLocaleDateString("fr-FR")}</TableCell>
                   </TableRow>

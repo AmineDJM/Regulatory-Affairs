@@ -574,3 +574,68 @@ export async function demanderRevisionPlanTournee(formData: FormData): Promise<A
   revalidatePath(PATH_TOURNEE);
   return { ok: true, id: plan.id };
 }
+
+/**
+ * SUPPRIMER UN PLAN EN BROUILLON (Direction, 10/2026) — un brouillon que le KAM ne veut plus ne doit pas rester
+ * dans sa liste pour toujours.
+ *
+ * Qui : le KAM propriétaire, le Super Admin, et quiconque peut écrire son plan (`peutEcrirePourLeKam`). Quand :
+ * `DRAFT` uniquement — un plan soumis, validé, rejeté ou en révision a une histoire de décision qui ne s'efface pas.
+ * Ce qui part : le plan et ses visites encore `PLANNED` sans rapport. Une visite déjà rapportée (statut hors
+ * `PLANNED`, ou rapport terrain rattaché) n'est JAMAIS supprimée : le refus le dit, et le plan reste.
+ */
+export async function supprimerPlanTourneeBrouillon(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
+  const planId = fdStr(formData, "planId");
+  if (!planId) return { ok: false, error: "Plan introuvable." };
+  const plan = await prisma.tourPlan.findUnique({
+    where: { id: planId },
+    select: { id: true, repId: true, status: true, periodStart: true, periodEnd: true, updatedAt: true, rep: { select: { name: true } } },
+  });
+  if (!plan) return { ok: false, error: "Plan introuvable." };
+  if (user.role !== "SUPER_ADMIN" && !(await peutEcrirePourLeKam(user, plan.repId))) {
+    return { ok: false, error: "Ce plan n'est pas dans votre périmètre." };
+  }
+  if (plan.status !== "DRAFT") {
+    return { ok: false, error: "Seul un plan en brouillon se supprime : un plan soumis, validé ou rejeté garde sa trace de décision." };
+  }
+  const visites = await prisma.medicalVisit.findMany({
+    where: { tourPlanId: plan.id },
+    select: { id: true, status: true, _count: { select: { fieldReports: true } } },
+  });
+  const rapportees = visites.filter((v) => v.status !== "PLANNED" || v._count.fieldReports > 0);
+  if (rapportees.length > 0) {
+    return {
+      ok: false,
+      error: `${rapportees.length} visite(s) de ce plan ont déjà été rapportées : elles ne se suppriment pas, donc le plan non plus.`,
+    };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // LE PLAN QU'ON A LU, ET LUI SEUL : soumis entre-temps, il n'est plus un brouillon.
+      const encore = await tx.tourPlan.updateMany({
+        where: { id: plan.id, status: "DRAFT", updatedAt: plan.updatedAt },
+        data: { updatedAt: new Date() },
+      });
+      if (encore.count === 0) throw new EtatChange();
+      // Seules les visites encore planifiées partent ; si l'une a été rapportée entre-temps, tout s'annule.
+      const retirees = await tx.medicalVisit.deleteMany({ where: { tourPlanId: plan.id, status: "PLANNED", fieldReports: { none: {} } } });
+      if (retirees.count !== visites.length) throw new EtatChange();
+      await tx.tourPlan.delete({ where: { id: plan.id } });
+    });
+  } catch (e) {
+    if (e instanceof EtatChange) return { ok: false, error: DEJA_CHANGE };
+    throw e;
+  }
+
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Promotion médicale",
+    entityType: "TOUR_PLAN", entityId: plan.id,
+    summary: `Plan de tournée en brouillon supprimé — ${plan.rep.name}, ${periodeLisible(plan.periodStart, plan.periodEnd)} (${visites.length} visite(s) planifiée(s) retirée(s))`,
+  });
+  revalidatePath(PATH_TOURNEE);
+  revalidatePath(PATH_JOURNEE);
+  return { ok: true, id: plan.id };
+}

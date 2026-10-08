@@ -5,7 +5,7 @@ import { voitLesSalaires } from "@/lib/hr/confidentialite";
 import type { SessionUser } from "@/lib/rbac";
 import type { BudgetOverview } from "@/lib/queries/budget";
 import {
-  agregerMasseSalariale, imputerPaie, moisDeLaPeriode, rattacherForceDeVente,
+  agregerMasseSalariale, estDirectionDesOperations, imputerPaie, moisDeLaPeriode, rattacherForceDeVente,
   CLE_MASSE_SALARIALE, type CategorieMs, type LignePaie, type VueMasseSalariale,
 } from "@/lib/budget-operations/force-de-vente";
 
@@ -25,20 +25,25 @@ interface ForceDeVente {
 
 /** Le rattachement de chaque salarié de la force de vente (id salarié → BU ou « hors BU »). */
 export async function chargerForceDeVente(): Promise<ForceDeVente> {
-  const [employes, profils, bus, departements] = await Promise.all([
+  const [employes, profils, bus, departements, directeurs] = await Promise.all([
     prisma.employee.findMany({ select: { id: true, userId: true, departmentId: true, companyId: true } }),
     prisma.salesRepProfile.findMany({ select: { repId: true, businessUnitId: true, isActive: true } }),
     prisma.businessUnit.findMany({ select: { id: true, name: true, supervisorId: true, departmentId: true } }),
     prisma.department.findMany({ select: { id: true, parentId: true, name: true, code: true, _count: { select: { businessUnits: true } } } }),
+    // Le Directeur des opérations : de la Direction des opérations, où que soit son département.
+    prisma.user.findMany({ where: { role: "OPERATIONS_DIRECTOR" }, select: { id: true } }),
   ]);
+  const idsDirecteurs = new Set(directeurs.map((u) => u.id));
   // La Direction commerciale : le département que `openBusinessUnitBudget` prend pour parent des BU.
   const commercial = (d: { name: string; code: string; _count: { businessUnits: number } }) =>
     d._count.businessUnits === 0 && (/commercial/i.test(d.name) || /COMMERCIAL/i.test(d.code));
   const rattachement = rattacherForceDeVente({
-    employes,
+    employes: employes.map((e) => ({ ...e, directeurOperations: !!e.userId && idsDirecteurs.has(e.userId) })),
     profils,
     bus,
-    departements: departements.map((d) => ({ id: d.id, parentId: d.parentId, commercial: commercial(d) })),
+    // LA DIRECTION DES OPÉRATIONS ET SES SOUS-DÉPARTEMENTS (Direction, 10/2026) : une BU ou la Direction commerciale
+    // rencontrée plus près du salarié l'emporte (`parDepartement` remonte l'arbre du plus proche au plus lointain).
+    departements: departements.map((d) => ({ id: d.id, parentId: d.parentId, commercial: commercial(d), operations: estDirectionDesOperations(d) })),
   });
   const userIds = new Set(employes.filter((e) => e.userId && rattachement.has(e.id)).map((e) => e.userId as string));
   return {

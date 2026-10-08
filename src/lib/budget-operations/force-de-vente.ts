@@ -10,6 +10,8 @@
  *   2. il SUPERVISE une BU (`BusinessUnit.supervisorId`) → cette BU ;
  *   3. son DÉPARTEMENT est (ou descend de) le sous-département d'une BU → cette BU ;
  *   4. son département est (ou descend de) la Direction commerciale → « hors BU ».
+ *   5. son département est (ou descend de) la Direction des opérations, ou son compte est Directeur des opérations →
+ *      « Direction des opérations » (Direction, 10/2026 : la masse salariale d'Operations & Sales l'inclut, avec les BU).
  * Personne d'autre : un salarié des Finances n'entre pas dans la masse salariale commerciale.
  *
  * ── CE QUI SORT D'ICI ────────────────────────────────────────────────────────────────────────
@@ -42,10 +44,26 @@ export const LIBELLE_HORS_BU = "Direction commerciale (hors BU)";
 export const EFFECTIF_MINIMUM = 2;
 export const LIBELLE_PETITES_EQUIPES = "Autres équipes (effectifs réduits)";
 
-export interface EmployeFdv { id: string; userId: string | null; departmentId: string | null }
+/** Le « groupe » des salariés de la Direction des opérations (son département et ses sous-départements, son directeur). */
+export const DIRECTION_OPERATIONS = "__DIRECTION_OPERATIONS__";
+export const LIBELLE_DIRECTION_OPERATIONS = "Direction des opérations";
+
+/**
+ * Ce département est-il la Direction des opérations ? Lu sur le nom (sans casse ni accents : « Direction des Opérations »,
+ * « Opérations », « Direction Operations ») ou sur le code (OPERATIONS, DIR_OPS…). Pur : l'appelant fournit nom et code.
+ */
+export function estDirectionDesOperations(d: { name: string; code: string }): boolean {
+  const nom = d.name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const code = d.code.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z]/g, "");
+  return /^(direction\s+(des?|d')\s*)?operations?$/.test(nom) || /^direction\s+(des?|d')\s*operations?\b/.test(nom)
+    || /^(DIR(ECTION)?)?(OPS|OPERATIONS?)$/.test(code);
+}
+
+/** `directeurOperations` : le compte du salarié a le rôle de Directeur des opérations — il en fait partie, où que soit son département. */
+export interface EmployeFdv { id: string; userId: string | null; departmentId: string | null; directeurOperations?: boolean }
 export interface ProfilKam { repId: string; businessUnitId: string | null; isActive: boolean }
 export interface BuFdv { id: string; supervisorId: string | null; departmentId: string | null }
-export interface DepartementFdv { id: string; parentId: string | null; commercial: boolean }
+export interface DepartementFdv { id: string; parentId: string | null; commercial: boolean; operations?: boolean }
 
 /** LE RATTACHEMENT de chaque salarié de la force de vente : id salarié → id de BU (ou `HORS_BU`). Les autres n'y sont pas. */
 export function rattacherForceDeVente(input: {
@@ -69,6 +87,7 @@ export function rattacherForceDeVente(input: {
       const d = dep.get(cur);
       if (!d) return null;
       if (d.commercial) return HORS_BU;
+      if (d.operations) return DIRECTION_OPERATIONS;
       cur = d.parentId;
     }
     return null;
@@ -79,7 +98,7 @@ export function rattacherForceDeVente(input: {
     const profil = e.userId ? profilDe.get(e.userId) : undefined;
     const supervise = e.userId ? superviseDe.get(e.userId) : undefined;
     const viaDepartement = parDepartement(e.departmentId);
-    const bu = profil?.businessUnitId ?? supervise ?? viaDepartement ?? (profil ? HORS_BU : null);
+    const bu = profil?.businessUnitId ?? supervise ?? viaDepartement ?? (profil ? HORS_BU : null) ?? (e.directeurOperations ? DIRECTION_OPERATIONS : null);
     if (bu) out.set(e.id, bu);
   }
   return out;
@@ -213,7 +232,7 @@ export function agregerMasseSalariale(input: {
   // Les BU budgétées sans paie apparaissent aussi (réalisé à zéro) : un budget sans réalisé se lit.
   for (const bu of input.budgetParBu.keys()) if (!brut.has(bu)) brut.set(bu, { parMois: new Array<number>(n).fill(0), personnes: new Set<string>() });
 
-  const libelle = (bu: string) => (bu === HORS_BU ? LIBELLE_HORS_BU : input.nomsBu.get(bu) ?? "BU retirée");
+  const libelle = (bu: string) => (bu === HORS_BU ? LIBELLE_HORS_BU : bu === DIRECTION_OPERATIONS ? LIBELLE_DIRECTION_OPERATIONS : input.nomsBu.get(bu) ?? "BU retirée");
   const somme = (v: number[]) => v.reduce((a, x) => a + x, 0);
   let groupes: GroupeMs[] = [...brut.entries()].map(([bu, g]) => ({
     cle: bu, libelle: libelle(bu), budget: input.budgetParBu.get(bu) ?? null,
@@ -241,7 +260,9 @@ export function agregerMasseSalariale(input: {
       }
     }
   }
-  groupes.sort((a, b) => (a.cle === HORS_BU ? 1 : 0) - (b.cle === HORS_BU ? 1 : 0) || b.total - a.total || a.libelle.localeCompare(b.libelle, "fr"));
+  // La Direction des opérations d'abord, puis les BU par masse décroissante, la Direction commerciale hors BU en dernier.
+  const rang = (cle: string) => (cle === DIRECTION_OPERATIONS ? -1 : cle === HORS_BU ? 1 : 0);
+  groupes.sort((a, b) => rang(a.cle) - rang(b.cle) || b.total - a.total || a.libelle.localeCompare(b.libelle, "fr"));
 
   const sommeBudgetsBu = [...input.budgetParBu.values()].reduce((a, b) => a + b, 0);
   const vue: VueMasseSalariale = {

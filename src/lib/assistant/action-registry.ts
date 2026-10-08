@@ -1702,6 +1702,12 @@ X("RÉVISER UN PLAN VALIDÉ, DIRE QU'UNE VISITE N'A PAS EU LIEU (audit 360°, lo
   "tour-visit-actions:direVisiteNonTenue",
 ]);
 
+X("SUPPRIMER UN PLAN DE TOURNÉE EN BROUILLON (Direction, 10/2026) — retire le plan et ses visites planifiées sans rapport ; "
+  + "refusé dès qu'une visite a été rapportée. Un geste destructif, en deux clics sur « Mes plans de tournée » (confirmation "
+  + "explicite) : pas un geste de conversation.", [
+  "tour-plan-actions:supprimerPlanTourneeBrouillon",
+]);
+
 X("L'APERÇU AVANT IMPRESSION du composeur (Direction, 10/2026, §118.203) — le PDF de la pièce à blanc, avant de l'émettre : un "
   + "rendu d'écran, qui n'écrit rien et ne consomme aucun numéro. La conversation a son propre aperçu (`document_build`, "
   + "sans émettre) ; l'image d'une page n'est pas un geste qu'un modèle ait à demander. Un bouton du composeur.", [

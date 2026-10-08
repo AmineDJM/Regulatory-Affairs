@@ -489,7 +489,7 @@ export async function fraicheurPch(): Promise<{ sources: FraicheurSource[]; dern
 export async function importsPch(limit = 40) {
   return prisma.pchVenteImport.findMany({
     orderBy: { createdAt: "desc" }, take: limit,
-    select: { id: true, nature: true, nomFichier: true, sources: true, mois: true, annuel: true, lignes: true, remplaceParId: true, createdAt: true, taille: true },
+    select: { id: true, nature: true, nomFichier: true, sources: true, mois: true, annuel: true, periodeAnnee: true, periodeMois: true, periodeChoisie: true, lignes: true, remplaceParId: true, createdAt: true, taille: true },
   });
 }
 

@@ -25,6 +25,7 @@ import { isManagerOfUser } from "@/lib/departments";
 import { canEditRep } from "@/lib/sfe";
 import { OuvrirPlan } from "./ouvrir-plan";
 import { Planificateur } from "./planificateur";
+import { SupprimerPlan } from "./supprimer-plan";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Plan de tournée — AMD Internal OS" };
@@ -265,9 +266,13 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
                         </span>
                       );
                     })()}
-                    <Link href={`/medical/plan-de-tournee?plan=${p.id}`} className="ml-auto inline-flex min-h-10 items-center gap-1 text-primary hover:underline sm:min-h-0">
-                      Ouvrir <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
+                    <span className="ml-auto inline-flex flex-wrap items-center gap-3">
+                      {/* SEUL UN BROUILLON SE SUPPRIME — le KAM propriétaire ou le Super Admin (l'action revérifie). */}
+                      {p.status === "DRAFT" && canPlan && <SupprimerPlan planId={p.id} />}
+                      <Link href={`/medical/plan-de-tournee?plan=${p.id}`} className="inline-flex min-h-10 items-center gap-1 text-primary hover:underline sm:min-h-0">
+                        Ouvrir <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </span>
                   </li>
                 ))}
               </ul>

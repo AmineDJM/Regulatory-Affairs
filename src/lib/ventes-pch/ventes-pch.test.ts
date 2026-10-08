@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { detecterEntete, lireDate, classerLigne, quantiteNonServie, periodeDuFichier, lireVentes, lireReceptions, codeDr, libellePeriode } from "./lecture";
+import { moisSelonChoix, lireChoixPeriode } from "./calculs";
 import { cleClient, presentationPch, presentationProduit, clePresentation, moleculeDe, fournisseurCorrespond, memeMarche } from "./normalisation";
 import { indexEtablissementsPch, indexProduitsPch, decisionPoste, proposerFournisseurs, type ProduitRef } from "./correspondance";
 import {
@@ -249,5 +250,19 @@ describe("calculs — remplacement, part de marché, contrat, périodes", () => 
 
   it("fraîcheur : un mois manquant se voit", () => {
     expect(moisManquants(["2026-02", "2026-05"], "2026-02", "2026-05")).toEqual(["2026-03", "2026-04"]);
+  });
+});
+
+describe("période choisie par fichier (10/2026)", () => {
+  it("un mois choisi regroupe toutes les lignes ; « annuel » garde le mois de chaque ligne sous l'année choisie", () => {
+    expect(moisSelonChoix("2026-03", { annee: 2026, mois: 5 })).toBe("2026-05");
+    expect(moisSelonChoix("2025-03", { annee: 2026, mois: null })).toBe("2026-03");
+    expect(moisSelonChoix("2026-03", null)).toBe("2026-03");
+  });
+  it("lit un choix de formulaire, ou le refuse", () => {
+    expect(lireChoixPeriode("2026", "5")).toEqual({ annee: 2026, mois: 5 });
+    expect(lireChoixPeriode(2026, "annuel")).toEqual({ annee: 2026, mois: null });
+    expect(lireChoixPeriode("abc", "5")).toBeNull();
+    expect(lireChoixPeriode("2026", "13")).toBeNull();
   });
 });
