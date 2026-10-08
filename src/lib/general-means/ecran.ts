@@ -1,0 +1,148 @@
+/**
+ * MOYENS GÉNÉRAUX — L'ÉCRAN ALLÉGÉ (Direction, 09/10) : les règles PURES des dépenses rangées par mois, des chiffres du
+ * mois, de la répartition par nature et des filtres. Aucun import : lu par la requête (la « nature » d'une dépense), par
+ * les composants clients (regroupement, filtres) et testé.
+ *
+ * Les mois sont lus en UTC, comme les séries des budgets : une même dépense tombe dans le même mois partout.
+ */
+
+/** Ce qu'on affiche quand une dépense n'est rangée dans aucune catégorie du budget. */
+export const SANS_NATURE = "Non classé";
+
+const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"] as const;
+
+/** « AAAA-MM » (UTC) d'une date ISO ou d'un `Date`. */
+export function moisCle(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "0000-00";
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** « 2026-10 » → « Octobre 2026 ». */
+export function titreMois(ym: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(ym);
+  const nom = m ? MOIS[Number(m[2]) - 1] : undefined;
+  return m && nom ? `${nom} ${m[1]}` : "Date inconnue";
+}
+
+/** Le mois d'avant, « AAAA-MM » (gère le passage d'année). */
+export function moisPrecedent(ym: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(ym);
+  if (!m) return ym;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 2, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+export interface DepenseDatee { date: string; amount: number }
+
+export interface GroupeMois<T> {
+  mois: string;
+  count: number;
+  total: number;
+  /** Les dépenses du mois, la plus récente d'abord. */
+  lignes: T[];
+  /** Ouvert d'office : le mois en cours seulement (à défaut de dépense ce mois-ci, le plus récent). */
+  ouvert: boolean;
+}
+
+/** LES DÉPENSES PAR MOIS, le plus récent d'abord. Seul le mois en cours s'ouvre d'office. */
+export function grouperParMois<T extends DepenseDatee>(rows: readonly T[], maintenant: Date | string): GroupeMois<T>[] {
+  const courant = moisCle(maintenant);
+  const par = new Map<string, T[]>();
+  for (const r of rows) {
+    const k = moisCle(r.date);
+    par.set(k, [...(par.get(k) ?? []), r]);
+  }
+  const groupes: GroupeMois<T>[] = [...par.entries()]
+    .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
+    .map(([mois, lignes]) => ({
+      mois,
+      count: lignes.length,
+      total: lignes.reduce((a, r) => a + r.amount, 0),
+      lignes: [...lignes].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)),
+      ouvert: mois === courant,
+    }));
+  if (groupes.length > 0 && !groupes.some((g) => g.ouvert)) groupes[0].ouvert = true;
+  return groupes;
+}
+
+/** Le dépensé du mois en cours face à celui du mois d'avant. */
+export function totauxDuMois(rows: readonly DepenseDatee[], maintenant: Date | string): { mois: string; courant: number; precedentMois: string; precedent: number } {
+  const mois = moisCle(maintenant);
+  const precedentMois = moisPrecedent(mois);
+  let courant = 0;
+  let precedent = 0;
+  for (const r of rows) {
+    const k = moisCle(r.date);
+    if (k === mois) courant += r.amount;
+    else if (k === precedentMois) precedent += r.amount;
+  }
+  return { mois, courant, precedentMois, precedent };
+}
+
+/**
+ * LA NATURE D'UNE DÉPENSE : la catégorie où le ticket est classé ; à défaut, celle de l'article classé le plus cher ;
+ * sinon `null` (« Non classé »). `nom` donne le nom d'une catégorie par son identifiant.
+ */
+export function natureDeLaDepense(
+  e: { budgetCategoryId: string | null; lines: readonly { amount: number; budgetCategoryId: string | null }[] },
+  nom: ReadonlyMap<string, string>,
+): string | null {
+  if (e.budgetCategoryId) return nom.get(e.budgetCategoryId) ?? null;
+  const classes = e.lines.filter((l) => l.budgetCategoryId && nom.has(l.budgetCategoryId));
+  if (classes.length === 0) return null;
+  const parCat = new Map<string, number>();
+  for (const l of classes) parCat.set(l.budgetCategoryId as string, (parCat.get(l.budgetCategoryId as string) ?? 0) + l.amount);
+  const [meilleure] = [...parCat.entries()].sort((a, b) => b[1] - a[1]);
+  return nom.get(meilleure[0]) ?? null;
+}
+
+export interface PartNature { label: string; total: number; count: number }
+
+/** « PAR NATURE » : le total par nature, la plus lourde d'abord ; au-delà de `max`, la queue est repliée dans « Autres ». */
+export function repartitionParNature(rows: readonly { amount: number; nature: string | null }[], max = 6): PartNature[] {
+  const par = new Map<string, PartNature>();
+  for (const r of rows) {
+    const label = r.nature ?? SANS_NATURE;
+    const p = par.get(label) ?? { label, total: 0, count: 0 };
+    p.total += r.amount;
+    p.count += 1;
+    par.set(label, p);
+  }
+  const triees = [...par.values()].filter((p) => p.total > 0).sort((a, b) => b.total - a.total);
+  if (triees.length <= max) return triees;
+  const tete = triees.slice(0, max - 1);
+  const queue = triees.slice(max - 1);
+  return [...tete, { label: `Autres (${queue.length})`, total: queue.reduce((a, p) => a + p.total, 0), count: queue.reduce((a, p) => a + p.count, 0) }];
+}
+
+export type FiltrePaiement = "TOUS" | "CAISSE" | "HORS";
+export interface FiltresDepenses { recherche: string; paiement: FiltrePaiement; /** "" = toutes les natures. */ nature: string }
+export const AUCUN_FILTRE: FiltresDepenses = { recherche: "", paiement: "TOUS", nature: "" };
+
+const sansAccent = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+/** Y a-t-il un filtre posé ? (alors tous les mois concernés s'ouvrent : on cherche, on ne feuillette pas) */
+export function filtreActif(f: FiltresDepenses): boolean {
+  return f.recherche.trim() !== "" || f.paiement !== "TOUS" || f.nature !== "";
+}
+
+export function filtrerDepenses<T extends { label: string; notes: string | null; nature: string | null; fromPettyCash: boolean; lines: readonly { label: string }[] }>(
+  rows: readonly T[], f: FiltresDepenses,
+): T[] {
+  const mots = sansAccent(f.recherche).split(/\s+/).filter(Boolean);
+  return rows.filter((r) => {
+    if (f.paiement === "CAISSE" && !r.fromPettyCash) return false;
+    if (f.paiement === "HORS" && r.fromPettyCash) return false;
+    if (f.nature !== "" && (r.nature ?? SANS_NATURE) !== f.nature) return false;
+    if (mots.length === 0) return true;
+    const texte = sansAccent([r.label, r.notes ?? "", r.nature ?? "", ...r.lines.map((l) => l.label)].join(" "));
+    return mots.every((m) => texte.includes(m));
+  });
+}
+
+/** La part dépensée d'un fond, de 0 à 100 (la barre ne dépasse jamais sa piste). */
+export function partDepensee(depense: number, remis: number): number {
+  if (remis <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((depense / remis) * 100)));
+}

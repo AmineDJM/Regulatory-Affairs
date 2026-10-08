@@ -25,6 +25,7 @@ import { BudgetExpenses } from "./budget-expenses";
 import { BudgetSettings } from "./budget-settings";
 import { CreateEnvelopeButton } from "./budget-forms";
 import { NouvelleEnveloppePole } from "./enveloppe-marketing-forms";
+import { VueEnsembleRegulatory } from "./vue-regulatory";
 
 /**
  * LES ÉCRANS DES BUDGETS, POUR QUATRE PORTÉES (Budget Marketing, puis Budget Regulatory et Budget Operations & Sales,
@@ -98,6 +99,16 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
               : "Aucune enveloppe ne vous est ouverte pour le moment."}
         />
       </div>
+    );
+  }
+
+  // BUDGET REGULATORY a sa vue d'ensemble allégée (Direction, 09/10) ; les autres portées gardent celle-ci, inchangée.
+  if (pole === "REGULATORY") {
+    return (
+      <VueEnsembleRegulatory
+        user={user} base={config.base} titre={config.titre} overview={overview} envelopes={envelopes} tabs={tabs}
+        exportHref={`/api/budgets/export?env=${overview.envelope.id}&from=${overview.period.from.slice(0, 10)}&to=${overview.period.to.slice(0, 10)}&portee=regulatory`}
+      />
     );
   }
 

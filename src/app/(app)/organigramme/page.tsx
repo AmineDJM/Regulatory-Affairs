@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import type { OrgNode } from "../admin/organigramme/org-chart-editor";
 import { OrgWorkspace } from "../admin/organigramme/org-workspace";
 import { PageHeader } from "@/components/shared/page-header";
+import { chargerCoherence } from "@/lib/org/coherence-donnees";
+import { CoherencePanel } from "./coherence-panel";
 
 export const metadata = { title: "Organigramme — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -83,6 +85,22 @@ export default async function OrganigrammePage() {
           <OrgWorkspace nodes={nodes} canEdit={canEdit} scopeLabel={scopeLabel} />
         </CardContent>
       </Card>
+
+      {/* L'ORGANIGRAMME, SEULE SOURCE — ce qui le contredit, corrigé d'un clic (Super Admin). */}
+      {user.role === "SUPER_ADMIN" && <Coherence />}
     </div>
+  );
+}
+
+async function Coherence() {
+  const { coherence, donnees } = await chargerCoherence();
+  const nomsComptes = Object.fromEntries(donnees.comptes.map((c) => [c.id, c.name]));
+  return (
+    <CoherencePanel
+      coherence={coherence}
+      departements={donnees.departements.map((d) => ({ id: d.id, name: d.name }))}
+      employes={donnees.employes.filter((e) => e.isActive).map((e) => ({ id: e.id, name: e.fullName, departmentId: e.departmentId }))}
+      nomsComptes={nomsComptes}
+    />
   );
 }

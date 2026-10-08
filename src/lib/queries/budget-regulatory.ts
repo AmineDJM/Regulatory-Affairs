@@ -24,6 +24,8 @@ export interface VueBv {
   categories: { bv25: { id: string; allocated: number; consumed: number } | null; bv75: { id: string; allocated: number; consumed: number } | null };
   /** Les BV saisis à la main sans dossier (comptés dans la catégorie, pas dans le tableau). */
   saisiesSansDossier: number;
+  /** La date de dépôt PRÉVUE de chaque dossier lu (ISO, `null` si non fixée) : d'où l'on date le BV 75 % attendu. */
+  depotPrevu: Record<string, string | null>;
   /** Les dossiers proposés pour une saisie à la main. */
   dossiers: { id: string; libelle: string }[];
   /** La personne ouvre-t-elle les dossiers (lien vers la fiche) ? */
@@ -66,7 +68,7 @@ export async function vueBvParDossier(user: SessionUser, overview: BudgetOvervie
   const idsCites = [...new Set([...ordres.map((o) => o.sourceId), ...saisies.map((s) => s.regulatoryProductId)].filter((x): x is string => Boolean(x)))];
   const dossiersRaw = await prisma.regulatoryProduct.findMany({
     where: { AND: [verrou, societe ? { OR: [{ companyId: societe }, { companyId: null }] } : {}, { OR: [{ id: { in: idsCites } }, { status: { in: [...EN_COURS] } }] }] },
-    select: { id: true, reference: true, dci: true, brandName: true, status: true, workflow: true },
+    select: { id: true, reference: true, dci: true, brandName: true, status: true, workflow: true, targetSubmissionDate: true },
     orderBy: { reference: "asc" },
     take: 2000,
   });
@@ -97,6 +99,7 @@ export async function vueBvParDossier(user: SessionUser, overview: BudgetOvervie
     totaux: totauxBv(lignes),
     categories: { bv25: cat(c25), bv75: cat(c75) },
     saisiesSansDossier,
+    depotPrevu: Object.fromEntries(dossiersRaw.map((d) => [d.id, d.targetSubmissionDate ? d.targetSubmissionDate.toISOString() : null])),
     dossiers: dossiersRaw.map((d) => ({ id: d.id, libelle: `${d.reference} — ${d.brandName ?? d.dci}` })),
     lienDossiers: userCan(user, "REGULATORY", "VIEW"),
   };

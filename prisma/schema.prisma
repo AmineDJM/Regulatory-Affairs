@@ -696,6 +696,8 @@ model Department {
   /// La Business Unit dont ce département est le sous-département, le cas échéant.
   businessUnits  BusinessUnit[]            @relation("BusinessUnitDepartment")
   adamRules      AdamRule[]
+  /// Les propositions de ce pôle aux campagnes budgétaires (Budgets 2027…).
+  budgetProposals BudgetProposal[]         @relation("BudgetProposalDepartment")
 
   @@unique([companyId, name])
   @@index([parentId])
@@ -1170,6 +1172,9 @@ model User {
   adoptionScore   Int?
   adoptionScoreAt DateTime?
 
+  /// @deprecated (10/2026) — L'ORGANIGRAMME EST LA SEULE SOURCE : le département d'un compte est celui de sa FICHE
+  /// SALARIÉ (`Employee.departmentId`). Cette colonne n'est plus saisie à l'écran ; elle est tenue alignée sur la fiche
+  /// (`src/lib/org/source-unique.ts`) et gardée pour compatibilité des lectures existantes.
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
 
@@ -2750,6 +2755,154 @@ model BudgetCategoryLine {
   @@index([envelopeId])
   @@index([parentId])
   @@index([cle])
+}
+
+/// CAMPAGNE BUDGÉTAIRE (« Budgets 2027 », Direction 10/2026) — chaque pôle (un DÉPARTEMENT de l'organigramme) prépare
+/// sa proposition, les valideurs l'examinent ligne par ligne, on arbitre, on valide, et les enveloppes de l'année se
+/// créent d'elles-mêmes. Règles pures : `src/lib/budget-campagne/regles.ts`.
+///
+/// Statuts en texte (DRAFT | OPEN | REVIEW | ARBITRAGE | CLOSED) — la liste vit dans le module pur, comme `domaine`.
+/// LE CADRAGE est PRIVÉ (Direction, 10/2026) : le DG, les valideurs et le Super Admin seuls le lisent ; les vues d'un
+/// pôle ne le reçoivent jamais (filtré côté serveur, `vuePoleSansCadrage`).
+model BudgetCampaign {
+  id                    String           @id @default(cuid())
+  year                  Int
+  /// Entité de rattachement (id sans contrainte, comme `BudgetEnvelope.businessUnitId`) ; null = tout le groupe.
+  companyId             String?
+  title                 String
+  opensAt               DateTime
+  submitDeadline        DateTime
+  validationDeadline    DateTime
+  status                String           @default("DRAFT")
+  /// Enveloppe globale du DG (facultative, PRIVÉE).
+  cadrageTotal          Decimal?         @db.Decimal(16, 2)
+  /// DG (un seul valideur) ou COMITE (une liste) — `validatorIds` porte les comptes dans les deux cas.
+  validatorMode         String           @default("COMITE")
+  validatorIds          String[]         @default([])
+  /// ALL = tous les valideurs acceptent ; ANY = le premier avis tranche.
+  validatorRule         String           @default("ALL")
+  /// Budget rectificatif permis pour toute la campagne (réglé par le Super Admin seul ; défaut : non).
+  allowRectificatif     Boolean          @default(false)
+  /// Au-delà de cet écart (en %) avec le réalisé de l'année en cours, une justification est exigée.
+  seuilJustificationPct Decimal          @default(5) @db.Decimal(6, 2)
+  createdById           String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  proposals             BudgetProposal[]
+
+  @@index([year])
+  @@index([status])
+}
+
+/// LA PROPOSITION D'UN PÔLE pour une campagne. Statuts : EN_PREPARATION | SOUMIS | A_REVOIR | ACCEPTE |
+/// ACCEPTE_AVEC_AJUSTEMENTS | REFUSE. Chaque soumission fige une version (`BudgetProposalVersion`).
+model BudgetProposal {
+  id                     String                  @id @default(cuid())
+  campaignId             String
+  campaign               BudgetCampaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  /// Le pôle = un département de l'organigramme. Nul si le département a été supprimé depuis (`poleLabel` reste).
+  departmentId           String?
+  department             Department?             @relation("BudgetProposalDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  poleLabel              String
+  /// MARKETING | REGULATORY | OPERATIONS | GENERAL — le domaine des enveloppes créées à la validation.
+  domaine                String                  @default("GENERAL")
+  /// Cadrage par pôle (facultatif, PRIVÉ comme le cadrage global).
+  cadrage                Decimal?                @db.Decimal(16, 2)
+  status                 String                  @default("EN_PREPARATION")
+  currentVersion         Int                     @default(0)
+  submittedById          String?
+  submittedAt            DateTime?
+  decidedAt              DateTime?
+  /// RÉVISION APRÈS VALIDATION — autorisée par le Super Admin seul, proposition par proposition (auditée).
+  revisionAutorisee      Boolean                 @default(false)
+  revisionAutoriseeParId String?
+  /// La version en cours est-elle un budget rectificatif ?
+  estRectificatif        Boolean                 @default(false)
+  rectificatifs          Int                     @default(0)
+  /// L'enveloppe de l'année créée à la validation — UNE par proposition, jamais deux (idempotence).
+  envelopeId             String?                 @unique
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  lines                  BudgetProposalLine[]
+  versions               BudgetProposalVersion[]
+  comments               BudgetProposalComment[]
+  votes                  BudgetProposalVote[]
+
+  @@unique([campaignId, departmentId])
+  @@index([status])
+}
+
+/// Une version SOUMISE, figée : les lignes telles qu'envoyées, et le résumé des changements (Luna ou repli exact).
+model BudgetProposalVersion {
+  id            String         @id @default(cuid())
+  proposalId    String
+  proposal      BudgetProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  version       Int
+  lines         Json
+  total         Decimal        @default(0) @db.Decimal(16, 2)
+  rectificatif  Boolean        @default(false)
+  submittedById String?
+  submittedAt   DateTime       @default(now())
+  summary       String?
+  summaryByLuna Boolean        @default(false)
+
+  @@unique([proposalId, version])
+}
+
+/// Une ligne de la proposition. Source : AUTO_PAIE | AUTO_RECRUTEMENT | AUTO_BV | AUTO_ADPRO | REALISE_2026 | SAISIE.
+/// Décision du valideur (version en cours) : ACCEPTE | AJUSTE | QUESTION | REFUSE | null.
+model BudgetProposalLine {
+  id             String         @id @default(cuid())
+  proposalId     String
+  proposal       BudgetProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  key            String
+  label          String
+  /// Clé de catégorie reconnue (BV_25, BV_75, MASSE_SALARIALE_FDV) ou libre — reprise à la création de l'enveloppe.
+  categoryKey    String?
+  source         String         @default("SAISIE")
+  realise2026    Decimal        @default(0) @db.Decimal(16, 2)
+  propose        Decimal        @default(0) @db.Decimal(16, 2)
+  ajuste         Decimal?       @db.Decimal(16, 2)
+  decision       String?
+  justification  String?
+  /// Pièces jointes : [{ id, name }] (documents `entityType = BUDGET`, `stepKey = campagne:<ligne>`).
+  attachments    Json           @default("[]")
+  /// La catégorie d'enveloppe créée pour cette ligne — la clé de l'idempotence et du rectificatif.
+  categoryLineId String?
+  sortOrder      Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([proposalId, key])
+}
+
+/// Le fil d'échanges d'une proposition, éventuellement sur une ligne.
+model BudgetProposalComment {
+  id         String         @id @default(cuid())
+  proposalId String
+  proposal   BudgetProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  lineId     String?
+  authorId   String?
+  /// Auteur « Luna » (résumé de versions) : `authorId` nul et ce drapeau levé.
+  parLuna    Boolean        @default(false)
+  body       String
+  createdAt  DateTime       @default(now())
+
+  @@index([proposalId, createdAt])
+}
+
+/// L'avis d'un valideur sur UNE version (ACCEPTE | REFUSE). Unique par version : un avis se change, ne se double pas.
+model BudgetProposalVote {
+  id         String         @id @default(cuid())
+  proposalId String
+  proposal   BudgetProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  version    Int
+  userId     String
+  decision   String
+  comment    String?
+  createdAt  DateTime       @default(now())
+
+  @@unique([proposalId, version, userId])
 }
 
 // Ligne de dépense purement BUDGÉTAIRE, saisie depuis le module Budget (« + » : référence
@@ -5271,7 +5424,8 @@ model Employee {
   position      String?
   /// Libellé du département — CACHE dénormalisé du département structuré ci-dessous
   /// (`departmentRef.name`), tenu à jour à chaque rattachement. Conservé pour les vues
-  /// et statistiques historiques ; la SOURCE DE VÉRITÉ est `departmentId`.
+  /// et statistiques historiques ; la SOURCE DE VÉRITÉ est `departmentId`. DÉRIVÉ (10/2026) : il ne se
+  /// saisit plus, il s'écrit à chaque changement de département (`src/lib/org/source-unique.ts`).
   department    String?
   /// Rattachement STRUCTURÉ : département OU sous-département (n'importe quel niveau).
   departmentId  String?

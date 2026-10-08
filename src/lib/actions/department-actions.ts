@@ -7,6 +7,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { getDepartmentSubtreeIds } from "@/lib/departments";
+import { alignerLibellesDuDepartement, alignerSurLaFiche } from "@/lib/org/source-unique";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /**
@@ -40,9 +41,9 @@ async function uniqueCode(base: string, exceptId?: string): Promise<string> {
   return `${base}_${Date.now()}`;
 }
 
-/** Le libellé texte de l'employé est un CACHE du département : on le tient à jour. */
-async function syncMemberLabels(departmentId: string, name: string): Promise<void> {
-  await prisma.employee.updateMany({ where: { departmentId }, data: { department: name } });
+/** Le libellé texte de l'employé est un CACHE du département : on le tient à jour (l'organigramme, seule source). */
+async function syncMemberLabels(departmentId: string): Promise<void> {
+  await alignerLibellesDuDepartement(departmentId);
 }
 
 // ─────────────────────────────── Départements ───────────────────────────────
@@ -135,7 +136,7 @@ export async function updateDepartment(formData: FormData): Promise<ActionResult
       ...(code ? { code } : {}),
     },
   });
-  if (name !== dept.name) await syncMemberLabels(id, name);
+  if (name !== dept.name) await syncMemberLabels(id);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines",
     summary: `Département « ${name} » modifié`,
@@ -193,7 +194,8 @@ export async function assignEmployeeDepartment(formData: FormData): Promise<Acti
   }
 
   await prisma.employee.update({ where: { id: employeeId }, data: { departmentId, department: label } });
-  if (employee.userId) await prisma.user.update({ where: { id: employee.userId }, data: { departmentId } });
+  // Le compte applicatif SUIT la fiche (l'organigramme, seule source) — jamais saisi à part.
+  await alignerSurLaFiche(employeeId);
 
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines",

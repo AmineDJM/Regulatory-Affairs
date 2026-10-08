@@ -45,6 +45,9 @@ export interface KamRow {
 export type { EtabOpt } from "./choix-etablissements";
 export type { TerritoireRow } from "./territoire-kam";
 
+/** Ce que l'organigramme dit d'une BU (`lectureBuParOrganigramme`). */
+export interface LectureOrg { propose: string | null; horsLigne: string[] }
+
 export interface ProductRow {
   id: string; name: string; code: string | null; channel: string;
   businessUnitId: string | null; managerId: string | null; isActive: boolean; dossier: string | null;
@@ -64,6 +67,7 @@ const CLES_ETAPE: Record<Etape, BuStepKey[]> = {
 export function BusinessUnitsManager({
   businessUnits, companies, supervisors, users, kams, products, dossiers, config,
   territoires, etablissements, referents, referentsEligibles, specialitesReferentiel, etapeInitiale, buInitiale,
+  departements = [], organigramme = {},
 }: {
   businessUnits: BuRow[];
   companies: Opt[];
@@ -87,6 +91,10 @@ export function BusinessUnitsManager({
   etapeInitiale?: Etape | null;
   /** La BU dépliée d'arrivée ; sans elle et avec une étape, toutes les BU s'ouvrent sur cette étape. */
   buInitiale?: string | null;
+  /** Les départements de l'organigramme (la seule source) — la BU s'y rattache à l'étape d'identité. */
+  departements?: Opt[];
+  /** Ce que l'organigramme dit de chaque BU : superviseur proposé, KAM hors de la ligne hiérarchique. */
+  organigramme?: Record<string, LectureOrg>;
 }) {
   // LES GESTES ATTENDENT LES NOUVELLES DONNÉES (§118.172) : rouvert avant le rafraîchissement, un panneau remontrerait
   // l'état d'AVANT, et l'enregistrer le RÉÉCRIVAIT par-dessus ce qu'on venait de changer.
@@ -134,6 +142,10 @@ export function BusinessUnitsManager({
             <select name="channel" className={`${inputCls} w-full`} defaultValue="BOTH">
               {CHANNELS.map((c) => <option key={c} value={c}>Terrain : {CHANNEL_LABELS[c]}</option>)}
             </select>
+            <select name="departmentId" className={`${inputCls} w-full sm:col-span-2`} defaultValue="" aria-label="Département de la BU">
+              <option value="">— Département (organigramme) —</option>
+              {departements.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
             <select name="companyId" className={`${inputCls} w-full`} defaultValue="">
               <option value="">— Société —</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -179,6 +191,7 @@ export function BusinessUnitsManager({
           territoiresInside={territoiresOf(bu.id)} etablissements={etablissements}
           referentsInside={referentsOf(bu.id)} referentsEligibles={referentsEligibles}
           specialitesReferentiel={specialitesReferentiel}
+          departements={departements} lectureOrg={organigramme[bu.id] ?? null}
           productsInside={productsOf(bu.id)} productsFree={orphelinsProd}
         />
       ))}
@@ -205,8 +218,9 @@ export function BusinessUnitsManager({
 function BuCard({
   bu, open, onToggle, etapeInitiale, companies, supervisors, users, dossiers, config, busy, run,
   kamsInside, kamsFree, productsInside, productsFree, territoiresInside, etablissements,
-  referentsInside, referentsEligibles, specialitesReferentiel,
+  referentsInside, referentsEligibles, specialitesReferentiel, departements, lectureOrg,
 }: {
+  departements: Opt[]; lectureOrg: LectureOrg | null;
   bu: BuRow; open: boolean; onToggle: () => void; etapeInitiale: Etape | null;
   companies: Opt[]; supervisors: Opt[]; users: Opt[];
   dossiers: { id: string; label: string }[];
@@ -235,7 +249,8 @@ function BuCard({
   const manquantes = steps.filter((s) => !s.done);
   const { done, total } = buSetupProgress(etat);
   const superviseur = supervisors.find((u) => u.id === bu.supervisorId)?.name ?? null;
-  const manque = (e: Etape) => steps.some((s) => CLES_ETAPE[e].includes(s.key) && !s.done);
+  // LE DÉPARTEMENT manque aussi à l'identité : sans lui, la BU n'est nulle part dans l'organigramme.
+  const manque = (e: Etape) => steps.some((s) => CLES_ETAPE[e].includes(s.key) && !s.done) || (e === "identite" && !bu.departmentId);
 
   function saveBu(patch: Partial<BuRow>) {
     const next = { ...bu, ...patch };
@@ -243,6 +258,7 @@ function BuCard({
     fd.set("id", next.id); fd.set("name", next.name); fd.set("code", next.code ?? "");
     fd.set("color", next.color ?? ""); fd.set("companyId", next.companyId ?? "");
     fd.set("headId", next.headId ?? ""); fd.set("supervisorId", next.supervisorId ?? "");
+    fd.set("departmentId", next.departmentId ?? "");
     fd.set("channel", next.channel);
     // « on » OU « off » : n'envoyer que « on » laissait une gamme décochée active (§118.172).
     fd.set("isActive", next.isActive ? "on" : "off");
@@ -291,6 +307,7 @@ function BuCard({
 
           {etape === "identite" && (
             <EtapeIdentite bu={bu} companies={companies} supervisors={supervisors} users={users} steps={steps} saveBu={saveBu}
+              departements={departements} lectureOrg={lectureOrg}
               busy={busy} run={run} referentsInside={referentsInside} referentsEligibles={referentsEligibles} />
           )}
           {etape === "produits" && (

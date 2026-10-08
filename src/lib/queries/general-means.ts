@@ -8,6 +8,7 @@ import { nextRechargeDate, type PettyCashStatus } from "@/lib/petty-cash";
 import { continuousCash, remittanceSpent, type ContinuousCash, type CashRemittance } from "@/lib/general-means/continuous-cash";
 import { etatRemise, remiseEnAttente, type EtatRemise } from "@/lib/general-means/remise-centre";
 import { isFullyClassified } from "@/lib/budget/imputation";
+import { natureDeLaDepense } from "@/lib/general-means/ecran";
 import { getAppSettings } from "@/lib/settings";
 
 /**
@@ -41,6 +42,8 @@ export interface GeneralMeansExpense {
   budgetLabel: string | null;
   /** Reste-t-il une part non classée sur cette dépense ? (elle est alors signalée) */
   toClassify: boolean;
+  /** LA NATURE de la dépense : le nom de sa catégorie budgétaire (« Café et eau ») — `null` = non classée. */
+  nature: string | null;
   createdBy: string;
 }
 
@@ -108,7 +111,7 @@ export interface GeneralMeansTopUp {
 }
 
 export interface GeneralMeansView {
-  department: { id: string; name: string; path: string };
+  department: { id: string; name: string; path: string; /** La société du département (nom court), pour l'en-tête. */ company: string | null };
   year: number;
   allocated: number;
   consumed: number;
@@ -242,7 +245,7 @@ export async function getGeneralMeans(
 ): Promise<GeneralMeansView | null> {
   const department = await prisma.department.findUnique({
     where: { id: departmentId },
-    select: { id: true, name: true, parent: { select: { name: true } } },
+    select: { id: true, name: true, parent: { select: { name: true } }, company: { select: { name: true, shortName: true } } },
   });
   if (!department) return null;
 
@@ -353,6 +356,7 @@ export async function getGeneralMeans(
       })
     : [];
   const categoryPath = new Map(categoryRows.map((c) => [c.id, `${c.envelope.name} › ${c.name}`]));
+  const categoryName = new Map(categoryRows.map((c) => [c.id, c.name]));
 
   type ExpenseRow = {
     id: string; label: string; amount: unknown; date: Date; kind: string; notes: string | null;
@@ -381,6 +385,7 @@ export async function getGeneralMeans(
       // « À classer » se calcule avec la MÊME règle que le budget : ce qui reste après les
       // articles classés, quand le ticket lui-même n'a pas de case.
       toClassify: !isFullyClassified({ amount, budgetCategoryId: e.budgetCategoryId, lines }),
+      nature: natureDeLaDepense({ budgetCategoryId: e.budgetCategoryId, lines }, categoryName),
       createdBy: e.createdBy?.name ?? "",
     };
   };
@@ -455,6 +460,7 @@ export async function getGeneralMeans(
       id: department.id,
       name: department.name,
       path: department.parent ? `${department.parent.name} › ${department.name}` : department.name,
+      company: department.company ? department.company.shortName || department.company.name : null,
     },
     year,
     allocated,

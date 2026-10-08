@@ -169,6 +169,11 @@ export const MODULES = [
   // opérations : livré à la PCH, exécution des marchés, demande non servie, ruptures de la chaîne, couverture terrain, et
   // « À traiter ». Lecture seule : chaque geste se fait dans l'écran du module visé. Voir = l'ouvrir.
   "COCKPIT_OPERATIONS",
+  // BUDGET_CAMPAIGN : « Budgets 2027 / Campagne budgétaire » (Direction, 10/2026) — chaque pôle prépare sa proposition,
+  // les valideurs l'examinent ligne par ligne, on arbitre, on valide, les enveloppes de l'année se créent. Voir (portée
+  // TOUT) = la vue de la Direction ; Modifier = piloter la campagne ; le responsable d'un département prépare SON pôle
+  // par l'organigramme (accès implicite, portée bornée). Valider = le comité nommé dans la campagne, pas ce droit seul.
+  "BUDGET_CAMPAIGN",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -701,6 +706,18 @@ const COCKPIT_OPERATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
 };
 for (const [role, actions] of Object.entries(COCKPIT_OPERATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
   if (!PERMISSIONS[role].COCKPIT_OPERATIONS) PERMISSIONS[role].COCKPIT_OPERATIONS = [...actions];
+}
+
+/** « CAMPAGNE BUDGÉTAIRE » PAR DÉFAUT (Direction, 10/2026) — la Direction et le DG la pilotent (le Super Admin a tout) ;
+ *  les Finances l'examinent en lecture ; les responsables de département préparent LEUR pôle par l'organigramme
+ *  (`getAccess`, accès implicite). Personne d'autre : la console l'ouvre au cas par cas. */
+const BUDGET_CAMPAIGN_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  FINANCE_BUDGET_MANAGER: READ,
+};
+for (const [role, actions] of Object.entries(BUDGET_CAMPAIGN_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].BUDGET_CAMPAIGN) PERMISSIONS[role].BUDGET_CAMPAIGN = [...actions];
 }
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
@@ -1485,6 +1502,11 @@ export const getAccess = perRequest(
       rhCanUpdate: modules.get("RH")?.actions.has("UPDATE") ?? false,
     });
     grantImplicit("RECRUITMENT", recruitment.actions, recruitment.scope);
+
+    // ── LA CAMPAGNE BUDGÉTAIRE : QUI DIRIGE UN DÉPARTEMENT PRÉPARE LE BUDGET DE SON PÔLE ──
+    // Un FAIT de l'organigramme (responsable ou adjoint), pas un rôle. En LECTURE et portée bornée (ASSIGNED) : l'écran
+    // ne lui montre que SES pôles, jamais la vue de la Direction ni le cadrage (`lib/budget-campagne/regles.ts`).
+    if (departmentsLed > 0) grantImplicit("BUDGET_CAMPAIGN", ["VIEW"], null);
 
     // ── « MON ÉQUIPE » SUIT L'ORGANIGRAMME, PAS LE RÔLE ──
     //

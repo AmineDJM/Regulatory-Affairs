@@ -1818,6 +1818,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   PCH_VENTES: "Ventes PCH",
   KPI: "KPI & bilans",
   COCKPIT_OPERATIONS: "Cockpit Opérations",
+  BUDGET_CAMPAIGN: "Campagne budgétaire",
 };
 
 /**
@@ -2103,6 +2104,9 @@ export const NAVIGATION: NavItem[] = [
   // seulement l'encadrant.
   { module: "MY_TEAM", label: "Mon Équipe", href: "/mon-equipe", icon: "Users", group: "Pilotage", gate: "myTeam" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/business-units", "/budgets/reglages"] },
+  // LA CAMPAGNE BUDGÉTAIRE (Budgets 2027, Direction 10/2026) — chaque pôle prépare, le comité valide, les enveloppes de
+  // l'année s'ouvrent d'elles-mêmes. Un responsable de département y entre par l'organigramme (accès implicite).
+  { module: "BUDGET_CAMPAIGN", label: "Campagne budgétaire", href: "/budget-campagne", icon: "PiggyBank", group: "Pôles", pole: "ADMINISTRATION", match: ["/budget-campagne"] },
 
   // MARKETING — séparé de « Operations & Sales » (Direction, 08/10 : « sépare Marketing et Sales »). Ce que la
   // Direction Marketing tient : son cockpit, la segmentation, les produits, Ad & Pro, le stock promotionnel et le site

@@ -144,7 +144,7 @@ describe("Moyens généraux — plus aucune porte vers les autres départements 
     expect(page).toMatch(/const departements = pilote\s*\?/);
   });
 
-  it("EN-TÊTE : le catalogue d'articles, et lui seul — la caisse, les dépenses et le service restent dans la PAGE (décision du 04/10)", () => {
+  it("EN-TÊTE : « Ajouter une dépense » et le menu ⋯ (catalogue) — la caisse, la liste et le service restent dans la PAGE (décisions du 04/10 puis du 09/10)", () => {
     const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
     // L'en-tête de la page de la CAISSE (celui qui porte le titre du service), pas ceux des écrans vides.
     const debut = page.lastIndexOf("<PageHeader", page.indexOf("title={pilote ?"));
@@ -153,8 +153,9 @@ describe("Moyens généraux — plus aucune porte vers les autres départements 
     expect(debut).toBeGreaterThan(-1);
     expect(fin).toBeGreaterThan(debut);
     const entete = page.slice(debut, fin);
-    expect(entete, "le catalogue est dans l'en-tête").toMatch(/<SuppliesManager articles=\{catalogRows\} \/>/);
-    for (const interdit of [/ServiceSwitch/, /ChangerDeService/, /<Link/, /mon-espace\/annuaire/, /budgets\/departements/, /<CashPanel/, /<ExpensePanel/, /<ExpenseTable/]) {
+    expect(entete, "le catalogue est derrière le ⋯ de l'en-tête").toMatch(/<EnteteMenu articles=\{catalogRows\} peutModifier \/>/);
+    expect(entete, "le geste principal est dans l'en-tête").toMatch(/<ExpensePanel\b/);
+    for (const interdit of [/ServiceSwitch/, /ChangerDeService/, /<Link/, /mon-espace\/annuaire/, /budgets\/departements/, /<CashPanel/, /<ExpenseTable/]) {
       expect(entete, `l'en-tête porte encore ${interdit}`).not.toMatch(interdit);
     }
   });

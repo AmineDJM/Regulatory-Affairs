@@ -8,6 +8,7 @@ import { BusinessUnitsManager } from "./bu-manager";
 import type { Etape } from "./etapes";
 import { EnteteBu } from "./entete";
 import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
+import { chargerOrganigramme, lectureBuParOrganigramme } from "@/lib/org/coherence-donnees";
 
 /**
  * LE MONTAGE DE LA FORCE DE VENTE — module « Business Units » (Direction, 08/10 ; avant : « ⋯ › Réglages » de la Force
@@ -114,6 +115,10 @@ export async function MontageBu({ user, etape, bu }: { user: SessionUser; etape:
     prisma.medicalSpecialty.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const profileByRep = new Map(profiles.map((p) => [p.repId, p]));
+  // L'ORGANIGRAMME, SEULE SOURCE (Direction, 10/2026) : le département de chaque BU, le superviseur qu'il propose (son
+  // responsable) et les KAM dont le superviseur choisi n'est pas dans la ligne hiérarchique.
+  const organigramme = await chargerOrganigramme();
+  const lectureOrg = lectureBuParOrganigramme(organigramme);
 
   return (
     <div className="space-y-5">
@@ -129,6 +134,8 @@ export async function MontageBu({ user, etape, bu }: { user: SessionUser; etape:
             .sort((x, y) => Number(y.principale) - Number(x.principale) || x.name.localeCompare(y.name, "fr")),
         }))}
         specialitesReferentiel={specialites}
+        departements={organigramme.departements.map((d) => ({ id: d.id, name: d.name }))}
+        organigramme={lectureOrg}
         companies={companies.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
         supervisors={supervisors}
         referents={referents

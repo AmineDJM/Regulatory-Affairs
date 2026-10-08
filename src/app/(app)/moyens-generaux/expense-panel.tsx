@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Receipt, Loader2, Plus, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Sheet } from "@/components/ui/sheet";
 import { formatCurrency } from "@/lib/utils";
 import { DEPT_BUDGET_LABEL } from "@/lib/department-budget";
 import { addDepartmentExpense } from "@/lib/actions/department-budget-actions";
@@ -58,13 +59,18 @@ export function ExpensePanel({
   const ceiling = source === "CASH" && cash ? cash.remaining : remaining;
   const overBudget = total > 0 && total > ceiling;
 
+  React.useEffect(() => {
+    if (!msg?.ok) return;
+    const t = window.setTimeout(() => setMsg(null), 8000);
+    return () => window.clearTimeout(t);
+  }, [msg]);
+
   return (
-    <div className="space-y-2">
-      {!open ? (
-        <Button size="sm" onClick={() => { setOpen(true); setMsg(null); }}>
-          <Plus className="h-4 w-4" /> Ajouter une dépense
-        </Button>
-      ) : (
+    <>
+      <Button onClick={() => { setOpen(true); setMsg(null); }}>
+        <Plus className="h-4 w-4" /> Ajouter une dépense
+      </Button>
+      <Sheet open={open} onClose={() => setOpen(false)} title="Ajouter une dépense" width="lg">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -84,10 +90,8 @@ export function ExpensePanel({
               if (r.ok) { setOpen(false); setTotal(0); router.refresh(); }
             });
           }}
-          className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
+          className="space-y-3"
         >
-          <p className="text-sm font-medium">Achat à imputer</p>
-
           {/* PAYÉ COMMENT ? La question qui séparait deux boutons — elle tient en deux cases. */}
           {cashUsable && (
             <div className="grid grid-cols-2 gap-2">
@@ -160,13 +164,14 @@ export function ExpensePanel({
             <Button size="sm" type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
           </div>
         </form>
-      )}
+      </Sheet>
 
+      {/* Le résultat de l'enregistrement, sous l'en-tête où se tient le bouton. Il s'efface seul. */}
       {msg && (
-        <p className={`rounded-xl px-3 py-2 text-sm ${msg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+        <p role="status" className={`w-full rounded-xl px-3 py-2 text-sm sm:max-w-md ${msg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
           {msg.text}
         </p>
       )}
-    </div>
+    </>
   );
 }

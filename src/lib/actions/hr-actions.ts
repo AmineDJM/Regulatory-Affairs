@@ -24,6 +24,7 @@ import { entitePermisePourFiche } from "@/lib/company";
 import { compteSuitLaFiche } from "@/lib/hr/depart";
 import { chargerSalairesPartis } from "@/lib/hr/salaires-partis";
 import { decisionRattachement } from "@/lib/hr/rattachement-paie";
+import { alignerSurLaFiche } from "@/lib/org/source-unique";
 // LA FRONTIÈRE — l'ERP annonce ses faits ; il ne sait pas qui les écoute, et c'est le principe.
 import { emit } from "@/platform/events";
 
@@ -85,9 +86,8 @@ export async function createEmployee(
   }
 
   // Le compte applicatif lié hérite du département (permissions, périmètres, notifications).
-  if (created.userId && created.departmentId) {
-    await prisma.user.update({ where: { id: created.userId }, data: { departmentId: created.departmentId } }).catch(() => undefined);
-  }
+  // L'organigramme est la seule source : le compte suit la fiche (`org/source-unique.ts`), sans saisie à part.
+  if (created.userId) await alignerSurLaFiche(created.id);
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Ressources humaines",
     entityType: "EMPLOYEE", entityId: created.id, summary: `Employé « ${fullName} »${created.department ? ` — ${created.department}` : ""}`,
@@ -204,8 +204,9 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
     return { ok: false, error: "Modification impossible : ce compte applicatif est déjà lié à un autre employé." };
   }
   // Le compte applicatif suit le rattachement de la fiche (permissions, périmètres, notifications).
-  if (after.userId && after.departmentId !== before.departmentId) {
-    await prisma.user.update({ where: { id: after.userId }, data: { departmentId: after.departmentId } }).catch(() => undefined);
+  // Un compte nouvellement lié suit aussi la fiche, et celui qu'on délie ne garde pas un département qu'il ne tient plus.
+  if (after.userId !== before.userId || after.departmentId !== before.departmentId) {
+    await alignerSurLaFiche(id, before.userId);
   }
   await recordFieldChanges(
     { actorId: user.id, module: "Ressources humaines", entityType: "EMPLOYEE", entityId: id, summary: `Fiche de ${after.fullName}` },

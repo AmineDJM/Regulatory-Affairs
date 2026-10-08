@@ -106,6 +106,8 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // Budget Regulatory et Budget Operations & Sales (08/10) — mêmes enveloppes, bornées à leur pôle.
   BUDGET_REGULATORY: { domaines: ["FINANCE"], mots: ["budget regulatory", "budget reglementaire", "bv 25", "bv 75", "frais enregistrement"] },
   BUDGET_OPERATIONS: { domaines: ["FINANCE"], mots: ["budget operations", "masse salariale force de vente", "budget force de vente"] },
+  // Campagne budgétaire (10/2026) — propositions des pôles, revue, arbitrage. Aucun outil d'Adam : gestes d'écran.
+  BUDGET_CAMPAIGN: { domaines: ["FINANCE"], mots: ["campagne budgetaire", "budget 2027", "budgets 2027", "proposition budgetaire", "arbitrage budgetaire"] },
   FINANCES: { domaines: ["FINANCE"] },
   RH: { domaines: ["HR"] },
   RECRUITMENT: { domaines: ["HR"] },
