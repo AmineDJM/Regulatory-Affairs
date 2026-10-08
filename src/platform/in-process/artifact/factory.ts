@@ -54,6 +54,7 @@ import {
 } from "@/lib/artifact/factory/commercial";
 import { construireDossier } from "@/lib/artifact/factory/dossier";
 import { charteDe, lireMarque, mentionsDe, resumerMarque, signatairePour, type Charte, type Marque } from "@/lib/brand/model";
+import { validerNumeroBc } from "@/lib/ad-pro/bc-brouillon";
 import type { DonneesCanoniques } from "@/lib/artifact/factory/canonical";
 import { MIME_DOCX } from "@/lib/artifact/factory/word";
 import { MIME_XLSX } from "@/lib/artifact/adapters/xlsx/adapter";
@@ -494,6 +495,8 @@ export interface DemandeDocument {
   /** Émettre même si une pièce au contenu identique existe déjà. */
   forcerDoublon?: boolean;
   sansPdf?: boolean;
+  /** Pour les bons de commande : numéro choisi par l'utilisateur (ex. « 040/DG/2026 »). Vide = attribué automatiquement. */
+  numeroChoisi?: string | null;
 }
 
 /** Ce que le registre garde de la pièce, sous `LegalDocument.custom.fabrique`. */
@@ -906,6 +909,14 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   const annee = Number(base.date.slice(0, 4));
   const prefixe = prefixeDe(type, profil);
   const totaux = essai.totaux;
+  // NUMÉRO CHOISI PAR L'UTILISATEUR — validation avant la transaction (pour ne pas verrouiller).
+  // Pour les bons de commande, le requester peut choisir un numéro au lieu d'en attribuer un.
+  let numeroChoisiValidation: { ok: true; numero: number; annee: number } | null = null;
+  if (type === "BON_DE_COMMANDE" && demande.numeroChoisi?.trim()) {
+    const valide = validerNumeroBc(demande.numeroChoisi, profil.reglages.numerotation[type] ?? null, annee);
+    if (!valide.ok) return echec("MISSING_INPUT", valide.motif);
+    numeroChoisiValidation = valide;
+  }
   let cree: { id: string; fabrique: Fabrique };
   try {
   cree = await prisma.$transaction(async (tx) => {
@@ -916,8 +927,28 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
       const refus = refusPlafondAvoir(facture.numero, totaux.totalTtc, resteACrediter(facture.ttc, await montantsDesAvoirsActifs(facture.id, tx)));
       if (refus) throw new PlafondAvoirDepasse(refus);
     }
-    const seq = await attribuerNumero(tx, profil.societe.id, kind, annee, departDe(profil.reglages.numerotationDepart, type, annee));
-    const numero = formaterNumero(prefixe, annee, seq, profil.reglages.numerotation[type] ?? null);
+    let seq: number;
+    let numero: string;
+    if (numeroChoisiValidation) {
+      // NUMÉRO CHOISI : vérifier l'unicité et mettre à jour le compteur si nécessaire.
+      const existant = await tx.legalDocument.findFirst({
+        where: { companyId: profil.societe.id, kind, reference: demande.numeroChoisi!.trim(), status: { not: "CANCELLED" } },
+        select: { id: true },
+      });
+      if (existant) return echec("MISSING_INPUT", `Le numéro « ${demande.numeroChoisi} » est déjà utilisé pour une autre pièce de la même année.`);
+      // Mettre à jour le compteur pour garantir que le prochain numéro sera > numeroChoisi.
+      const rows = await tx.$queryRaw<{ last: number }[]>`
+        INSERT INTO "DocumentSequence" ("id", "companyId", "kind", "year", "last", "updatedAt")
+        VALUES (${randomUUID()}, ${profil.societe.id}, ${kind}, ${annee}, ${numeroChoisiValidation.numero}::int, now())
+        ON CONFLICT ("companyId", "kind", "year")
+        DO UPDATE SET "last" = GREATEST("DocumentSequence"."last", ${numeroChoisiValidation.numero}::int), "updatedAt" = now()
+        RETURNING "last"`;
+      seq = Number(rows[0].last);
+      numero = demande.numeroChoisi.trim();
+    } else {
+      seq = await attribuerNumero(tx, profil.societe.id, kind, annee, departDe(profil.reglages.numerotationDepart, type, annee));
+      numero = formaterNumero(prefixe, annee, seq, profil.reglages.numerotation[type] ?? null);
+    }
     const fabrique: Fabrique = {
       version: 1, etat: "EN_COURS", type, empreinte, societeId: profil.societe.id, numero,
       spec: { ...base, numero }, totaux: resumeTotaux(totaux), docx: null, pdf: null,

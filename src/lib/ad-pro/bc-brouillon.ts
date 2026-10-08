@@ -45,6 +45,8 @@ export interface BrouillonBc {
   livraison: { adresse: string | null; date: string | null; delai: string | null } | null;
   /** Le bloc « A : » du fournisseur : seuls les champs écrits remplacent ceux du devis. */
   tiers: Partial<Pick<PartieCommerciale, "nom" | "adresse" | "telephone" | "email" | "rc" | "nif">> | null;
+  /** Le numéro de BC choisi par le demandeur (ex. « 040/DG/2026 ») ; `null` = attribué automatiquement à la validation. */
+  numeroChoisi: string | null;
 }
 
 const texte = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -90,6 +92,7 @@ export function lireBrouillon(brut: unknown): BrouillonBc | null {
     modePaiement: mode, conditionsPaiement: texte(o.conditionsPaiement),
     livraison: l ? { adresse: texte(l.adresse), date: texte(l.date), delai: texte(l.delai) } : null,
     tiers: t ? { nom: texte(t.nom) ?? undefined, adresse: texte(t.adresse), telephone: texte(t.telephone), email: texte(t.email), rc: texte(t.rc), nif: texte(t.nif) } : null,
+    numeroChoisi: texte(o.numeroChoisi),
   };
 }
 
@@ -98,6 +101,7 @@ export function brouillonNeuf(p: { itemId: string; par: string; parNom: string |
   return {
     itemId: p.itemId, par: p.par, parNom: p.parNom, le: (p.maintenant ?? new Date()).toISOString(), modifieLe: null, modifiePar: null,
     lignes: null, signature: null, objet: null, notes: null, contact: null, modePaiement: null, conditionsPaiement: null, livraison: null, tiers: null,
+    numeroChoisi: null,
   };
 }
 
@@ -127,3 +131,35 @@ export function totalHtDesLignes(lignes: readonly LigneCommerciale[]): number {
 /** Les lignes que le brouillon porte ou, à défaut, celles du devis. */
 export const lignesEffectives = (b: BrouillonBc | null, duDevis: readonly LigneCommerciale[]): LigneCommerciale[] =>
   b?.lignes && b.lignes.length > 0 ? b.lignes : [...duDevis];
+
+/**
+ * Valide un numéro BC au format NNN/DG/AAAA.
+ * Retourne { ok: true, numero: NNN, annee: AAAA } si valide, sinon { ok: false, motif: "message d'erreur" }.
+ */
+export function validerNumeroBc(
+  numero: string | null | undefined,
+  motif: string | null | undefined,
+  anneeActuelle: number,
+): { ok: true; numero: number; annee: number } | { ok: false; motif: string } {
+  if (!numero || !numero.trim()) return { ok: false, motif: "Le numéro de BC est obligatoire." };
+  const trimmed = numero.trim();
+  if (!motif) return { ok: false, motif: "Le motif de numérotation est introuvable." };
+  // Motif comme "{n:3}/DG/{aaaa}" → regex "^(\\d{3})/DG/(\\d{4})$"
+  const regexMotif = motif
+    .replace(/\{n:(\d+)\}/g, (match, width: string) => `(\\d{${width}})`)
+    .replace(/\{aaaa\}/g, "(\\d{4})")
+    .replace(/\{aa\}/g, "(\\d{2})");
+  const regex = new RegExp(`^${regexMotif}$`);
+  const match = trimmed.match(regex);
+  if (!match) {
+    return { ok: false, motif: `Le numéro doit respecter le format du motif : ${motif.replace(/\{n:\d+\}/, "NNN").replace(/\{aaaa\}/, "AAAA").replace(/\{aa\}/, "AA")}.` };
+  }
+  // Extraire NNN (groupe 1) et AAAA (dernier groupe)
+  const nnnStr = match[1];
+  const yyyyStr = match[match.length - 1];
+  const nnn = parseInt(nnnStr, 10);
+  const yyyy = parseInt(yyyyStr, 10);
+  if (!Number.isFinite(nnn) || nnn < 1) return { ok: false, motif: "Le numéro doit être un entier positif." };
+  if (yyyy !== anneeActuelle) return { ok: false, motif: `Le numéro doit être de l'année ${anneeActuelle}.` };
+  return { ok: true, numero: nnn, annee: yyyy };
+}

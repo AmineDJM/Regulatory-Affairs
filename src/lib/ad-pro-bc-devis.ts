@@ -208,6 +208,7 @@ export function demandeDuBC(
     ...(m.modePaiement ? { modePaiement: m.modePaiement } : {}),
     ...(m.conditionsPaiement ? { conditionsPaiement: m.conditionsPaiement } : {}),
     ...(m.livraison ? { livraison: m.livraison } : {}),
+    ...(brouillon?.numeroChoisi ? { numeroChoisi: brouillon.numeroChoisi } : {}),
     chainFromId: d.pieceId,
     dossier: `Ad & Pro/${poste.ref}`,
   };

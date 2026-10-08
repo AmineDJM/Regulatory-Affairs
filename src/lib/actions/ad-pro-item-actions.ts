@@ -4040,6 +4040,7 @@ export async function modifierApercuBcPoste(formData: FormData): Promise<ActionR
     modePaiement: (mode as BrouillonBc["modePaiement"]) ?? null, conditionsPaiement: champ("conditionsPaiement"),
     livraison: champ("livraisonAdresse") || dateLivraison || champ("livraisonDelai") ? { adresse: champ("livraisonAdresse"), date: dateLivraison, delai: champ("livraisonDelai") } : null,
     tiers: Object.values(tiers).some(Boolean) ? tiers : null,
+    numeroChoisi: champ("numeroChoisi"),
     modifieLe: maintenant, modifiePar: user.id,
   };
   return chez(id, pieceId, async () => {

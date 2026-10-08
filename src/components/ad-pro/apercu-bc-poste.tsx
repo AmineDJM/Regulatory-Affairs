@@ -67,6 +67,7 @@ export function ApercuBonDeCommande({ itemId, devis, peutEditer, peutValider, bu
   const [fEmail, setFEmail] = React.useState(b.tiers?.email ?? "");
   const [fRc, setFRc] = React.useState(b.tiers?.rc ?? "");
   const [fNif, setFNif] = React.useState(b.tiers?.nif ?? "");
+  const [numeroChoisi, setNumeroChoisi] = React.useState(b.numeroChoisi ?? "");
 
   const [apercu, setApercu] = React.useState<ApercuBcPoste | null>(null);
   const [url, setUrl] = React.useState<string | null>(null);
@@ -90,6 +91,7 @@ export function ApercuBonDeCommande({ itemId, devis, peutEditer, peutValider, bu
     fd.set("livraisonAdresse", lieu); fd.set("livraisonDate", dateLivraison); fd.set("livraisonDelai", delai);
     fd.set("fournisseurNom", fNom); fd.set("fournisseurAdresse", fAdresse); fd.set("fournisseurTelephone", fTel);
     fd.set("fournisseurEmail", fEmail); fd.set("fournisseurRc", fRc); fd.set("fournisseurNif", fNif);
+    fd.set("numeroChoisi", numeroChoisi);
     return fd;
   };
   const simple = (): FormData => { const fd = new FormData(); fd.set("id", itemId); fd.set("pieceId", devis.pieceId); return fd; };
@@ -134,18 +136,27 @@ export function ApercuBonDeCommande({ itemId, devis, peutEditer, peutValider, bu
       description={`${ETIQUETTE_BROUILLON}. Aucun numéro n'est attribué et rien n'est envoyé aux Finances tant que vous n'avez pas validé.`}
     >
       <div className="space-y-4 text-sm">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 font-medium">
-          <Eye className="h-4 w-4 shrink-0" aria-hidden />
-          <span>{ETIQUETTE_BROUILLON}</span>
-          <span className="font-normal text-muted-foreground">
-            · N° {devis.bc ? devis.bc.reference : "à attribuer à la validation"}
-            {apercu && apercu.ok && !apercu.referenceExistante && <> (prochain : {apercu.numeroPrevu})</>}
-          </span>
-          <InfoBulle label="Pourquoi pas de numéro ?" align="left">
-            Le numéro NNN/DG/AAAA suit l&apos;ordre de validation : il n&apos;est attribué qu&apos;au moment d&apos;envoyer le BC aux Finances,
-            pour que la série reste continue, sans trou, même si un brouillon est corrigé ou abandonné.
-          </InfoBulle>
-        </p>
+        <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+            <Eye className="h-4 w-4 shrink-0" aria-hidden />
+            <span>{ETIQUETTE_BROUILLON}</span>
+            <span className="font-normal text-muted-foreground">
+              · N° {devis.bc ? devis.bc.reference : "à attribuer à la validation"}
+              {apercu && apercu.ok && !apercu.referenceExistante && <> (prochain : {apercu.numeroPrevu})</>}
+            </span>
+            <InfoBulle label="Pourquoi pas de numéro ?" align="left">
+              Le numéro NNN/DG/AAAA suit l&apos;ordre de validation : il n&apos;est attribué qu&apos;au moment d&apos;envoyer le BC aux Finances,
+              pour que la série reste continue, sans trou, même si un brouillon est corrigé ou abandonné.
+            </InfoBulle>
+          </p>
+          {apercu && apercu.ok && !apercu.referenceExistante && peutValider && (
+            <div className="space-y-1">
+              <Label htmlFor="bc-numero">Numéro du BC à valider</Label>
+              <Input id="bc-numero" value={numeroChoisi} onChange={(e) => setNumeroChoisi(e.target.value)} placeholder={apercu.numeroPrevu} className="text-sm" />
+              <p className="text-xs text-muted-foreground">Laisser vide pour attribuer automatiquement (prochain : {apercu.numeroPrevu}). Vous pouvez proposer un autre numéro si vous le souhaitez.</p>
+            </div>
+          )}
+        </div>
         {b.perime && (
           <p className="flex gap-1 text-warning"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> Les lignes validées du devis ont changé depuis vos corrections : retirez cet aperçu et générez-le de nouveau.</p>
         )}
