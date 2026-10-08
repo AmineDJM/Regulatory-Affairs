@@ -751,7 +751,7 @@ article « existe par produit » (fiche posologique, aide de visite) exige son p
 Un article qui a servi ne se supprime pas : la corbeille le **refuse avant le clic** et nomme l'archivage ;
 il ne passe pas non plus vers ou depuis « numérique ».
 
-**Le stock** (`/stock-promotionnel`, module `PROMO_STOCK`, sous-module à part de Sales & Marketing) — une quantité ne se saisit **jamais** : elle
+**Le stock** (`/stock-promotionnel`, module `PROMO_STOCK`, sous-module à part du pôle Marketing depuis le 08/10) — une quantité ne se saisit **jamais** : elle
 est la somme des **mouvements**, par article, par **lot** et par **détenteur** (le magasin central, ou une
 personne). Un article de stock = (société, article du catalogue, produits) : « Fiche posologique —
 Nivolex » et « — Trastuzex » sont deux stocks.

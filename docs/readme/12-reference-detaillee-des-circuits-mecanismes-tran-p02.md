@@ -96,6 +96,11 @@
 
 ### Stocks (états datés)
 
+> **08/10** : le module rejoint le pôle **Operations & Sales** et gagne deux onglets réservés à la chaîne
+> d'approvisionnement — **Stocks de la chaîne** (couverture par BU, lue sur Ventes PCH) et **Stock PCH central saisi à
+> la main** depuis le mail de la PCH (mêmes `StockSnapshot`, même écrivain `ecrireEtatDuJour`). Règles : section
+> « Operations & Sales — cockpit, Ventes PCH, chaîne, réclamations (08/10) ».
+
 - **Principe** : plus d'entrées/sorties — un **état daté** par (produit, lieu, jour) : « à cette date, il reste X ».
   Ressaisir la même date **corrige** la valeur (remplacement jour). Lieux : `PCH` | `HOSPITAL` | `ANNEX` ;
   hôpitaux et **annexes PCH** sont des `StockAnnex` (discriminés par `kind`). **Un hôpital de stock EST un

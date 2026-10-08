@@ -87,6 +87,11 @@ describe("Produits 360 — signal et échéance de la DE", () => {
     expect(signalPrincipal({ joursAvantDepotDe: 400 })).toBeNull();
     expect(signalPrincipal({})).toBeNull();
   });
+  it("la demande non servie à la PCH passe après le stock bas, avant le générique", () => {
+    expect(signalPrincipal({ couvertureMois: 0.5, nonServiSignificatif: true })?.code).toBe("STOCK_BAS");
+    expect(signalPrincipal({ nonServiSignificatif: true, generiquesRecents: 1 })).toMatchObject({ code: "NON_SERVI", label: "demande non servie", ton: "warning" });
+    expect(signalPrincipal({ nonServiSignificatif: false, generiquesRecents: 1 })?.code).toBe("GENERIQUE");
+  });
 });
 
 describe("Produits 360 — prix : la saisie manuelle l'emporte sur l'explorateur", () => {

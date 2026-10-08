@@ -11,6 +11,11 @@ intention** — on ne consulte plus son budget en traversant tout ce qui le modi
 | **Business Units** | `/budgets/business-units` | **Le budget par gamme** : une Business Unit est un sous-département — son enveloppe et ses dépenses sont celles de son sous-département, lues gamme par gamme ; le consolidé est la somme des lignes affichées, et une gamme sans sous-département apparaît à zéro, signalée. |
 | **Réglages** | `/budgets/reglages` | **Le paramétrage.** L'enveloppe, ses catégories et sous-catégories, le budget total au-dessus des enveloppes. |
 
+> **Budgets des pôles (08/10)** : trois modules — **Budget Marketing** (`/budget-marketing`), **Budget Regulatory**
+> (`/budget-regulatory`, BV 25 % / 75 % par dossier) et **Budget Operations & Sales** (`/budget-operations`, masse
+> salariale de la force de vente) — lisent les MÊMES enveloppes, bornées à leur `domaine`. Budgets lit et additionne
+> tout, mais une enveloppe de pôle s'y **lit sans se régler**. → [référence](#budgets-des-pôles--marketing-regulatory-operations--sales-0810)
+
 La **barre de contexte** (`budget-context-bar.tsx`) ne porte que ce qui change ce qu'on **regarde** : l'enveloppe et
 la période. Une **alerte actionnable** unique remplace l'ancienne section « dépenses non attribuées » dépliée.
 

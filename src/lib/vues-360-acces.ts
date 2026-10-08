@@ -9,6 +9,8 @@ export const SECTIONS_360 = {
   consommation: "CONSUMPTION", finances: "FINANCES", terrain: "MEDICAL", forceDeVente: "SALES_PLANNING", adpro: "SPONSORING",
   // Produits 360 (Direction, 07/10) : le stock des dossiers, les cas signalés, le matériel promotionnel, les messages.
   stock: "STOCKS", pharmacovigilance: "PHARMACOVIGILANCE", materiel: "PROMO_STOCK", marketing: "MARKETING_COCKPIT",
+  // Les ventes d'Adventum = ce que la PCH reçoit de nous et distribue (Direction, 08/10) : le module Ventes PCH.
+  ventesPch: "PCH_VENTES",
 } as const satisfies Record<string, Module>;
 export type Section360 = keyof typeof SECTIONS_360;
 

@@ -10,7 +10,8 @@ La segmentation de la force de vente, native et reliée (Direction, 06/10/2026).
   capacité** des KAM du secteur (contacts/jour × jours du cycle × nombre de KAM) ; **Praticiens** (`praticiens-table.tsx`)
   — les colonnes du fichier de la Direction, **Q1 (potentiel) / Q2 (affinité) / statut saisis en ligne**, lettre
   provisoire recalculée à l'écran le temps que le serveur rende la sienne ; **Règles** (`regles-vue.tsx`) — versionnées
-  et publiées. Vues secondaires : cycles, import, avancé, historique. Export : `/api/segmentation/export`.
+  et publiées. Vues secondaires : cycles, avancé, historique ; l'import a son espace `/segmentation/import` (08/10).
+  Export : `/api/segmentation/export`.
 - **La lettre** (`lib/segmentation/regles.ts`) : **H** (décideur), **A–D**, **NA** (une réponse manque — jamais D,
   même un « 0 patient » sans la seconde réponse), **NC** (non ciblé). Valeurs proposées tant qu'une BU n'a rien publié
   (`PROPOSITION`, `charge.ts`) : seuil de potentiel **22 patients/semaine**, affinité **> 10 %** (repère « moyenne
@@ -62,22 +63,50 @@ La segmentation de la force de vente, native et reliée (Direction, 06/10/2026).
 - **Pourquoi** : chaque résultat porte son explication.
 - **Impact** : `impactDesRegles` montre qui change, et de quoi à quoi, avant toute publication.
 
-### Import d'un classeur (`lecture-classeur.ts`, `rapprochement.ts`, `service.ts`)
+### Import du classeur de la Direction « en une fois » (08/10 — `/segmentation/import`)
 
-- **Colonnes reconnues** :
-  - par synonymes (Région/Zone, CDR/Établissement/Hôpital…) ;
-  - la colonne du classement est reconnue par ses valeurs ;
-  - le produit est lu dans la question.
-- **Règles proposées en v1, à relire avant publication** :
-  - seuils lus dans le texte de la feuille ;
-  - méthode d'affinité **déduite** des pourcentages du fichier ;
-  - fréquences lues dans la feuille des KAM ;
-  - exception de zone **déduite** des classements quand le texte l'annonce sans chiffre.
-- **Rapprochement avec l'annuaire**, sans jamais créer de doublon :
-  - une fiche existante n'est que **complétée** sur ses champs vides, jamais écrasée ;
-  - les homonymes sont départagés par l'établissement, sinon la ligne est laissée « à trancher » ;
-  - un doublon interne au fichier est signalé et n'est jamais additionné.
-- **« NA » du fichier** : il devient une dérogation de ciblage « non ciblé », tracée et levable.
+« Un espace où j'importe exactement ce fichier et ça fait le tout, annuaires et tout connectés. » L'ancienne vue
+`?vue=import` (`import-classeur.tsx`, supprimé) **redirige** vers `/segmentation/import` ; le bouton « Importer le
+fichier » est en tête de page dans **tous** les états (BU sans stratégie comprise). Garde : le droit de **valider** la
+segmentation (`droitsSegmentation`) ; forcer reste `SEGMENTATION_POTENTIEL`. Écran `segmentation/import/import-direction.tsx`,
+action `apercuImportDirection` / `appliquerImportDirection` (`lib/actions/segmentation-actions.ts`).
+
+- **Un fichier, une BU** (`lib/segmentation/import-direction.ts`, côté base) : la stratégie est créée si elle manque, le
+  produit nommé par la question Q2 (« … sous raltegravir ») est classé (concordance dite à l'aperçu), les **règles sont
+  LUES dans la feuille** (seuils, méthode Q2 ÷ Q1, NA = non applicable, grille et capacité des KAM — `lecture-classeur.ts`,
+  `proposerRegles`, `reglesDuTexte`) et **publiées**.
+- **Annuaires reliés** (`plan-import.ts`, pur + tests) : chaque ligne retrouve son praticien (`rapprochement.ts` —
+  homonymes « ambigus » listés, doublons internes signalés) ou est **créée dans l'annuaire de la BU** avec spécialité,
+  grade, établissement et wilaya **reliés** ; l'établissement par le nom exact puis une **clé souple** (sans casse,
+  accents, ponctuation ni articles — « CHU d'Oran » ≡ « CHU Oran »), retenue seulement si elle n'en désigne qu'UN
+  (plusieurs → « à trancher ») ; la wilaya d'un établissement à créer se lit dans son nom ou une commune connue, sinon
+  vide — jamais devinée ; deux écritures d'une spécialité n'en font qu'une.
+- **Fiche, réponses, lettre** : statut et zone posés, réponses Q1/Q2 **historisées** (`HcpObservation`) ; la **lettre
+  du fichier fait foi** — quand le calcul en donne une autre, elle est gardée comme **dérogation motivée** (« Lettre du
+  fichier importé »), l'écart restant lisible ; un **NA** du fichier face à une lettre calculée ne se force pas (la
+  lettre calculée s'applique, l'aperçu le signale) ; les lettres forcées que le fichier contredit sont **levées**, jamais
+  effacées.
+- **Aperçu avant écriture** (praticiens nouveaux / existants, ambigus, doublons, établissements et spécialités rattachés
+  ou créés, lettres après import, écarts). **Réimporter le même fichier ne fait rien** (empreinte) ; un fichier mis à
+  jour met à jour réponses, statuts et lettres et dit ce qui change ; jamais un praticien en double. La lecture des
+  feuilles (`feuilles.ts`, serveur) recalcule la plage sur les cellules remplies (un classeur qui déclare `A1:K1048165`
+  pour 324 lignes ne fabrique pas un million de lignes vides).
+- **Affinité Q2 ÷ Q1** (méthode `RATIO_FICHIER`, « =I40/H40 » du classeur) à côté de `SUR_10` (Q2 ÷ 10) :
+  `affiniteAffichee` (`regles.ts`) ; la lettre provisoire de l'écran se recalcule pour les deux méthodes déclarées.
+  Règle `ciblage.potentielNulNA` : un potentiel déclaré à 0 donne **NA — non applicable** (résidents, pharmaciens…),
+  l'emporte sur `potentielNulNonCible` (`moteur.ts`).
+
+### Tableau Praticiens éditable (08/10)
+
+`praticiens-table.tsx` se manipule comme un tableur : cellules éditables (Q1, Q2, statut, secteur ; colonnes de
+l'annuaire via `saveDirectoryCell`), **tri et filtres par colonne** (listes fermées secteur, CDR, In/Out, spécialité,
+grade, statut, potentiel ; texte nom/prénom ; plages Q1, Q2, %) dont l'**état vit dans l'URL** — règles pures
+`lib/segmentation/tableau-praticiens.ts` (+ tests), lues par l'écran ET la page serveur. **Effacer une réponse** Q1/Q2
+(`enregistrerPotentiel` avec `effacer` : une observation SANS valeur dont la source dit le champ vidé — la lettre
+retombe en NA, l'historique garde la réponse d'avant ; audité). **Retirer de la segmentation** (`retirerDuPanel`, en
+lot sur la sélection) ou **aussi de l'annuaire** (`deleteDirectoryDoctors`), confirmation exigée. La wilaya du praticien
+pour In / Out : la sienne, sinon celle de son établissement, sinon lue dans le nom de l'établissement
+(`wilayaDuPraticien`, `in-out.ts`) ; un grade inconnu de la liste garde son texte (« KOL », `gradeBrut`).
 
 ### Droits (défauts, réglables dans Administration › Accès)
 
@@ -114,6 +143,10 @@ règles, fréquences, publication, import, stratégie, secteur d'une fiche ; **f
 - **Avancement par KAM** : requis, réalisé, restant, capacité, utilisation, H sous-visités, P1. Le KAM ne voit que son panel.
 
 ### Consumption Intelligence (module `CONSUMPTION`, `/consommation`, migration `20270114110000_consumption_intelligence`)
+
+> **08/10 : plus d'entrée de menu** (« supprime ce module Consommation ou masque-le de ma vue »). Seule l'entrée part :
+> écrans, données et module restent — ils nourrissent l'affinité de la segmentation et Produits 360, qui y mènent par
+> leurs liens. La consommation hospitalière mensuelle des écrans d'opérations se lit désormais dans **Ventes PCH**.
 
 - **Lecture (`consommation/lecture.ts`, pur)** :
   - l'en-tête est trouvé même s'il n'est pas sur la première ligne ;

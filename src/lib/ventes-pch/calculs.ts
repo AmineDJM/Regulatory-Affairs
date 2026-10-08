@@ -5,6 +5,7 @@
  *   • REMPLACEMENT d'un import : un fichier plus récent pour la même source (DR, ou réceptions) et le même mois
  *     REMPLACE ce mois ; un fichier annuel remplace ses douze mois ; le même fichier (empreinte) ne fait rien ;
  *   • part de marché, évolution, chaîne d'un contrat (attribué → BC → livré, dépassement = avenant) ;
+ *   • Produits 360 : série mensuelle, valeur au coût PCH, parts des fournisseurs, demande non servie significative ;
  *   • fraîcheur : les mois manquants d'une source.
  */
 
@@ -152,6 +153,45 @@ export function chaineContrat(attribue: number, commande: number, livre: number,
     pctCommande: a > 0 ? Math.round((c / a) * 1000) / 10 : null,
     pctLivre: a > 0 ? Math.round((l / a) * 1000) / 10 : null,
   };
+}
+
+// ─────────────────────────── Produits 360 ───────────────────────────
+
+/** Les quantités ramenées aux mois demandés, dans leur ordre (un mois sans ligne vaut 0). */
+export function serieSurMois(mois: readonly string[], lignes: readonly { mois: string; qte: number }[]): number[] {
+  const par = new Map<string, number>();
+  for (const l of lignes) par.set(l.mois, (par.get(l.mois) ?? 0) + l.qte);
+  return mois.map((m) => par.get(m) ?? 0);
+}
+
+/** Le coût d'achat PCH d'une unité : valeur ÷ quantité livrée ; rien de livré → null. */
+export function coutDeReference(valeur: number, qte: number): number | null {
+  return qte > 0 && valeur > 0 ? valeur / qte : null;
+}
+
+/** Une quantité au coût d'achat PCH (DZD, arrondi) ; coût inconnu → null (on n'invente pas de prix). */
+export function valeurAuCout(qte: number, cout: number | null): number | null {
+  return cout === null ? null : Math.round(qte * cout);
+}
+
+/** Les fournisseurs des réceptions FO, du plus gros au plus petit, avec leur part (les nôtres restent marqués). */
+export function partsFournisseurs<T extends { qte: number; nous: boolean }>(lignes: readonly T[]): (T & { partPct: number | null })[] {
+  const total = lignes.reduce((s, l) => s + Math.max(0, l.qte), 0);
+  return [...lignes].sort((a, b) => b.qte - a.qte || Number(b.nous) - Number(a.nous)).map((l) => ({ ...l, partPct: partDeMarche(l.qte, total) }));
+}
+
+/** Au-delà, la demande non servie devient LE signal d'un produit : 3 établissements, ou 10 % de la demande. */
+export const SEUIL_NON_SERVI_ETABLISSEMENTS = 3;
+export const SEUIL_NON_SERVI_PART = 0.1;
+
+/**
+ * DEMANDE NON SERVIE SIGNIFICATIVE — des hôpitaux ont commandé et la PCH a livré 0 : ça compte dès que plusieurs
+ * établissements sont touchés, ou qu'une part notable de la demande (non servi ÷ (non servi + livré)) reste sans réponse.
+ */
+export function nonServiSignificatif(f: { nonServi: number; livre: number; etablissements: number }): boolean {
+  if (!(f.nonServi > 0)) return false;
+  if (f.etablissements >= SEUIL_NON_SERVI_ETABLISSEMENTS) return true;
+  return f.nonServi / (f.nonServi + Math.max(0, f.livre)) >= SEUIL_NON_SERVI_PART;
 }
 
 // ─────────────────────────── Fraîcheur ───────────────────────────

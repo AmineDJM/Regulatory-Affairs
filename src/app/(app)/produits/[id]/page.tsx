@@ -12,6 +12,8 @@ import { fiche360, type ASurveiller } from "@/lib/queries/produits-360";
 import { chargerProduitCanonique } from "@/lib/queries/produits-canoniques";
 import { sections360, peutModifierLesPrix } from "@/lib/vues-360-acces";
 import { LIBELLE_PERIMETRE } from "@/lib/market/produit-marche";
+import { chainesContratsPch, territoiresPch, fraicheurPch } from "@/lib/ventes-pch/requetes";
+import { SOURCE_RECEPTIONS, moisCourt } from "@/lib/ventes-pch/calculs";
 import { COUVERTURE_LABELS } from "@/lib/pch/rattachement-produit";
 import { STATUT_PV, GRAVITE_PV, estStatutPv, estGravitePv } from "@/lib/pharmacovigilance/regles";
 import { pct, ETAT_LABELS } from "@/lib/segmentation/regles";
@@ -20,7 +22,7 @@ import { REGULATORY_STATUS, PCH_LINE_STATUS, MANUFACTURING_STATUS, VARIATION_STA
 import { BackLink } from "@/components/shared/back-link";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { ProductDriveExplorer, dossierDriveAffiche } from "@/components/documents/product-drive-explorer";
-import { Onglets, Pastille, Point, FriseCycle, Carte, Vide, type Ton } from "@/components/produits/ui-360";
+import { Onglets, Pastille, Point, FriseCycle, Carte, Vide, BarreContrat, type Ton } from "@/components/produits/ui-360";
 import { AliasProduit, RenommerProduit } from "./fiche-gestes";
 import { RepartitionBu } from "./repartition-bu";
 import { PrixProduit } from "./prix-produit";
@@ -30,6 +32,8 @@ export const metadata = { title: "Produits 360 — AMD Internal OS" };
 
 const dzd = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
 const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+const entier = (n: number) => Math.round(n).toLocaleString("fr-FR");
+const signe = (n: number) => `${n > 0 ? "+" : ""}${nombre(n)} %`;
 const jour = (d: string | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const ROLES: Record<string, string> = { DELEGATE: "Délégué", PRODUCT_MANAGER: "Chef de produit", NATIONAL_SALES: "National Sales", SUPERVISOR: "Superviseur" };
 const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
@@ -47,37 +51,41 @@ function Chiffre({ label, valeur, contexte, ton }: { label: string; valeur: stri
   );
 }
 
-/** Les ventes mois par mois : hôpital (marché, PCH) en plein, officine en clair, empilés. */
-function BarresMensuelles({ serie }: { serie: { mois: string; hopital: number; officine: number }[] }) {
-  const max = Math.max(...serie.map((m) => m.hopital + m.officine), 0);
-  if (max <= 0) return <Vide>Aucune vente sur les 12 derniers mois.</Vide>;
-  const W = 520; const H = 170; const base = 140; const pas = (W - 20) / serie.length; const l = Math.min(28, pas - 8);
+/** Mois par mois, en boîtes : nos réceptions à la PCH (sell-in, plein) à côté de la distribution aux hôpitaux (sell-out, clair). */
+function BarresMensuelles({ mois, sellIn, sellOut }: { mois: string[]; sellIn: number[]; sellOut: number[] }) {
+  const max = Math.max(...sellIn, ...sellOut, 0);
+  if (max <= 0) return <Vide>Aucune réception ni distribution sur ces 12 mois.</Vide>;
+  const W = 520; const H = 170; const base = 140; const pas = (W - 20) / mois.length; const l = Math.max(4, Math.min(13, pas / 2 - 3));
   return (
     <div className="px-4 py-3">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Ventes mensuelles, hôpital et officine">
-        {serie.map((m, i) => {
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Réceptions PCH et distribution hospitalière, par mois">
+        {mois.map((m, i) => {
           const x = 14 + i * pas;
-          const hh = (m.hopital / max) * (base - 14);
-          const ho = (m.officine / max) * (base - 14);
-          const mois = Number(m.mois.slice(5)) - 1;
+          const hi = (sellIn[i] / max) * (base - 14);
+          const ho = (sellOut[i] / max) * (base - 14);
+          const k = Number(m.slice(5)) - 1;
           return (
-            <g key={m.mois}>
-              <title>{`${MOIS[mois]} ${m.mois.slice(0, 4)} — hôpital ${dzd(m.hopital)} · officine ${dzd(m.officine)}`}</title>
-              <rect x={x} y={base - hh} width={l} height={hh} rx={2} fill="hsl(var(--primary))" />
-              <rect x={x} y={base - hh - ho} width={l} height={ho} rx={2} fill="hsl(var(--primary))" opacity={0.35} />
-              <text x={x + l / 2} y={base + 16} textAnchor="middle" fontSize="10" fill="hsl(var(--muted-foreground))">{MOIS[mois]}</text>
+            <g key={m}>
+              <title>{`${MOIS[k]} ${m.slice(0, 4)} — nos réceptions ${entier(sellIn[i])} · distribuées ${entier(sellOut[i])} boîtes`}</title>
+              <rect x={x} y={base - hi} width={l} height={hi} rx={2} fill="hsl(var(--primary))" />
+              <rect x={x + l + 2} y={base - ho} width={l} height={ho} rx={2} fill="hsl(var(--primary))" opacity={0.35} />
+              <text x={x + l + 1} y={base + 16} textAnchor="middle" fontSize="10" fill="hsl(var(--muted-foreground))">{MOIS[k]}</text>
             </g>
           );
         })}
         <line x1={8} y1={base} x2={W - 4} y2={base} stroke="hsl(var(--border))" />
       </svg>
-      <p className="flex gap-4 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-primary" />hôpital (AO)</span>
-        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-primary/35" />officine</span>
+      <p className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-primary" />nos réceptions PCH</span>
+        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-primary/35" />distribution aux hôpitaux</span>
       </p>
     </div>
   );
 }
+
+/** Les cellules des tableaux de la fiche (au téléphone, le tableau défile et sa 1re colonne reste visible). */
+const TH = "whitespace-nowrap px-3 py-2 font-medium";
+const TD = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
 
 function ListeSurveiller({ items }: { items: ASurveiller[] }) {
   if (!items.length) return <Vide>Rien à signaler.</Vide>;
@@ -141,13 +149,27 @@ export default async function Produit360Page({ params, searchParams }: { params:
     onglet === "couts" && voit.finances ? attributionProduit(id, annee) : Promise.resolve(null),
     onglet === "reglementaire" && voit.reglementaire ? chargerProduitCanonique(user, id) : Promise.resolve(null),
   ]);
+  // Ventes PCH (droit Ventes PCH, porté par `f.ventes`) : la chaîne des contrats, la distribution par territoire, la fraîcheur.
+  const v = f.ventes;
+  const [contrats, territoires, fraicheur] = onglet === "ventes" && v
+    ? await Promise.all([chainesContratsPch(null, [id]), territoiresPch(v.periode, { productId: id }), fraicheurPch()])
+    : [null, null, null];
+  const peutImporter = userCan(user, "PCH_VENTES", "UPLOAD");
+  const periodePch = v ? `${moisCourt(v.periode.debut)} → ${moisCourt(v.periode.fin)}` : "";
+  const qPch = v ? `p=12m&m=${v.periode.fin}&produit=${id}` : "";
 
   // ── Les cinq chiffres ──
   const prescripteursAC = voit.segmentation && segmentation.length ? segmentation.reduce((s, x) => s + x.repartition.A + x.repartition.C, 0) : null;
   const investi = adpro12 ? adpro12.reduce((s, a) => s + (a.amountAllocated !== null ? toNumber(a.amountAllocated) : a.sharePct !== null && a.item.amountGranted !== null ? Math.round(toNumber(a.item.amountGranted) * toNumber(a.sharePct) / 100) : 0), 0) : null;
   const chiffres: React.ReactNode[] = [];
-  if (f.ventes) chiffres.push(<Chiffre key="v" label="Ventes 12 mois" valeur={montantCourt(f.ventes.total12m)} contexte={f.ventes.variationPct !== null ? `${f.ventes.variationPct > 0 ? "+" : ""}${f.ventes.variationPct} %` : "sans année de comparaison"} ton={f.ventes.variationPct === null ? null : f.ventes.variationPct >= 0 ? "ok" : "ko"} />);
-  if (f.voitMarche) chiffres.push(<Chiffre key="m" label="Part de marché" valeur={f.marche?.partPct !== null && f.marche?.partPct !== undefined ? `${nombre(f.marche.partPct)} %` : "—"} contexte={f.marche ? "IQVIA ville + PCH" : "molécule absente du marché"} />);
+  // Ventes = nos réceptions à la PCH (sell-in), seul client d'Adventum : en DZD au coût PCH, et en boîtes.
+  if (v) {
+    chiffres.push(<Chiffre key="v" label="Ventes 12 mois"
+      valeur={v.recuNous <= 0 ? "—" : v.recuValeur !== null ? montantCourt(v.recuValeur) : `${entier(v.recuNous)} bt`}
+      contexte={v.sansFournisseur ? "fournisseur à régler" : [v.recuValeur !== null && v.recuNous > 0 ? `${entier(v.recuNous)} bt` : null, v.evolRecu !== null ? signe(v.evolRecu) : "sans comparaison"].filter(Boolean).join(" · ")}
+      ton={v.evolRecu === null ? null : v.evolRecu >= 0 ? "ok" : "ko"} />);
+    chiffres.push(<Chiffre key="m" label="Part de marché" valeur={v.partPct !== null ? `${nombre(v.partPct)} %` : "—"} contexte={v.recuMarche > 0 ? "réceptions PCH" : "aucune réception PCH"} />);
+  }
   if (prescripteursAC !== null || voit.segmentation) chiffres.push(<Chiffre key="s" label="Prescripteurs A + C" valeur={prescripteursAC !== null ? String(prescripteursAC) : "—"} contexte="segmentation" />);
   if (f.stock) chiffres.push(<Chiffre key="k" label="Stock" valeur={f.stock.couvertureMois !== null ? `${nombre(f.stock.couvertureMois)} mois` : f.stock.lieux ? `${f.stock.unites.toLocaleString("fr-FR")}` : "—"} contexte={f.stock.lieux ? `${f.stock.unites.toLocaleString("fr-FR")} boîtes` : "aucun relevé"} ton={f.stock.couvertureMois !== null && f.stock.couvertureMois < 2 ? "ko" : null} />);
   if (investi !== null) chiffres.push(<Chiffre key="a" label="Investi Ad & Pro" valeur={montantCourt(investi)} contexte="12 mois" />);
@@ -191,9 +213,9 @@ export default async function Produit360Page({ params, searchParams }: { params:
         <div className="space-y-4 p-4">
           {onglet === "vue" && (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-              {f.ventes ? (
-                <Carte titre="Ventes mensuelles" sousTitre="hôpital (AO) · officine">
-                  <BarresMensuelles serie={f.ventes.serie} />
+              {v ? (
+                <Carte titre="Réceptions PCH et distribution" sousTitre={`${periodePch} · boîtes`}>
+                  <BarresMensuelles mois={v.mois} sellIn={v.sellIn} sellOut={v.sellOut} />
                 </Carte>
               ) : (
                 <Carte titre="Identité">
@@ -206,26 +228,91 @@ export default async function Produit360Page({ params, searchParams }: { params:
 
           {onglet === "ventes" && (
             <>
-              {f.ventes && p360 && (
-                <Carte titre="Ventes" sousTitre={`12 mois : ${dzd(f.ventes.total12m)} · ${f.ventes.unites12m.toLocaleString("fr-FR")} boîtes`}>
-                  <Dl items={[
-                    ["Chiffre d'affaires (toutes ventes)", dzd(p360.ventes.chiffreAffairesDzd)],
-                    ["Sous marché (AO)", `${dzd(p360.rattachement.ventesSousMarche.montantDzd)} · ${p360.rattachement.ventesSousMarche.nombre} vente(s)`],
-                    ["Ville (officine)", `${dzd(p360.rattachement.ventesDeVille.montantDzd)} · ${p360.rattachement.ventesDeVille.nombre} vente(s)`],
-                    ["Dernière vente", jour(p360.ventes.derniere)],
-                  ]} />
-                  {p360.ventes.detail.length > 0 && (
-                    <div className="overflow-x-auto border-t border-border">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className="sticky left-0 bg-card px-3 py-2 font-medium">Date</th><th className="px-3 py-2 font-medium">Client</th><th className="px-3 py-2 text-right font-medium">Quantité</th><th className="px-3 py-2 text-right font-medium">Montant</th></tr></thead>
-                        <tbody>{p360.ventes.detail.slice(0, 10).map((v) => (
-                          <tr key={v.id} className="border-t border-border/60"><td className="sticky left-0 whitespace-nowrap bg-card px-3 py-2">{jour(v.date)}</td><td className="whitespace-nowrap px-3 py-2">{v.client}</td><td className="px-3 py-2 text-right tabular-nums">{v.quantite.toLocaleString("fr-FR")}</td><td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{dzd(v.montantDzd)}</td></tr>
-                        ))}</tbody>
-                      </table>
-                    </div>
-                  )}
+              {v && contrats && territoires && (v.recuMarche + v.distribue + v.nonServi === 0 && contrats.length === 0 ? (
+                <Carte titre="Ventes PCH">
+                  <Vide>Aucune donnée PCH pour ce produit sur {periodePch}.{peutImporter && <> <Link href="/sales/importer" className="text-primary hover:underline">Importer des fichiers</Link></>}</Vide>
                 </Carte>
-              )}
+              ) : (
+                <>
+                  <Carte titre="Réceptions PCH et distribution" sousTitre={<>{periodePch} · boîtes <InfoBulle>Nos réceptions = les réceptions fournisseur (FO) de la PCH centrale venant de nos fournisseurs : nos ventes (sell-in), valorisées au coût d&apos;achat PCH. Distribution = ce que les directions régionales ont livré aux hôpitaux, toutes origines (sell-out).</InfoBulle></>}
+                    action={<Link href={`/sales?p=12m&m=${v.periode.fin}`} className="text-primary hover:underline">Ventes PCH</Link>}>
+                    <Dl items={[
+                      ["Nos réceptions", `${entier(v.recuNous)} boîtes${v.recuValeur !== null ? ` · ${dzd(v.recuValeur)}` : ""}`],
+                      ["12 mois précédents", `${entier(v.recuNousPrecedent)} boîtes${v.evolRecu !== null ? ` · ${signe(v.evolRecu)}` : ""}`],
+                      ["Distribuées aux hôpitaux", `${entier(v.distribue)} boîtes`],
+                    ]} />
+                    {v.sansFournisseur && <p className="border-t border-border px-4 py-2 text-xs text-warning">Aucun fournisseur « à nous » réglé : nos réceptions ne se lisent pas.{userCan(user, "PCH_VENTES", "UPDATE") && <> <Link href="/sales/importer" className="underline">Régler</Link></>}</p>}
+                    <div className="border-t border-border"><BarresMensuelles mois={v.mois} sellIn={v.sellIn} sellOut={v.sellOut} /></div>
+                  </Carte>
+
+                  <Carte titre="Contrats PCH" sousTitre={<>unités du marché <InfoBulle>Attribué : les lignes du contrat (avenants compris), à défaut la quantité gagnée à l&apos;appel d&apos;offres. BC cumulés : les bons de commande de la PCH, hors annulés. Livré : les bons de livraison datés. Barre : clair = commandé, foncé = livré, orange = au-delà de l&apos;attribué.</InfoBulle></>}
+                    action={<Link href="/sales/contrats" className="text-primary hover:underline">Tous les contrats</Link>}>
+                    {contrats.length === 0 ? <Vide>Aucun marché gagné ni contrat.</Vide> : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr>
+                            <th className={`sticky left-0 bg-card ${TH}`}>Marché · contrat</th><th className={TH}>Avancement</th>
+                            <th className={`${TH} text-right`}>Attribué</th><th className={`${TH} text-right`}>BC cumulés</th><th className={`${TH} text-right`}>Livré</th><th className={`${TH} text-right`}>Reste</th>
+                          </tr></thead>
+                          <tbody>{[...contrats].sort((a, b) => Number(b.chaine.reste > 0) - Number(a.chaine.reste > 0)).map((c) => (
+                            <tr key={c.cle} className="border-t border-border/60">
+                              <td className="sticky left-0 max-w-[14rem] bg-card px-3 py-2">
+                                <span className="block truncate">{c.marche ? (voit.marches ? <Link href={`/pch/${c.marche.id}`} className="text-primary hover:underline">{c.marche.reference}</Link> : c.marche.reference) : "—"}</span>
+                                <small className="block truncate text-xs text-muted-foreground">{c.contrat ? [c.contrat.reference, c.contrat.titre].filter(Boolean).join(" · ") : "sans contrat"}</small>
+                              </td>
+                              <td className="px-3 py-2">
+                                <BarreContrat attribue={c.chaine.attribue} commande={c.chaine.commande} livre={c.chaine.livre} className="w-28" />
+                                <small className="mt-1 block whitespace-nowrap text-xs text-muted-foreground">{c.chaine.pctCommande !== null ? `${nombre(c.chaine.pctCommande)} % commandé` : "attribué inconnu"} · {c.bcs} BC</small>
+                              </td>
+                              <td className={TD}>{entier(c.chaine.attribue)}</td>
+                              <td className={TD}>{entier(c.chaine.commande)}{c.chaine.avenant && <> <Pastille ton="warning">avenant{c.bcAvenants ? ` · ${c.bcAvenants} BC` : ""}</Pastille></>}</td>
+                              <td className={TD}>{entier(c.chaine.livre)}</td>
+                              <td className={TD}>{c.chaine.depassement > 0 ? <span className="text-warning">+{entier(c.chaine.depassement)}</span> : entier(c.chaine.reste)}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                    )}
+                  </Carte>
+
+                  <Carte titre="Distribution hospitalière" sousTitre={`${periodePch} · boîtes`} action={<Link href={`/sales/territoires?${qPch}`} className="text-primary hover:underline">Territoires</Link>}>
+                    {v.nonServi > 0 && (
+                      <p className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2 text-sm">
+                        <span>Demande non servie : <b className="font-medium text-warning">{entier(v.nonServi)} boîtes</b> · {v.etablissementsNonServis} établissement{v.etablissementsNonServis > 1 ? "s" : ""}</span>
+                        <Link href={`/sales/non-servi?${qPch}`} className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary">Voir</Link>
+                      </p>
+                    )}
+                    {territoires.etablissements.length === 0 ? <Vide>Aucune distribution aux hôpitaux sur la période.</Vide> : (
+                      <>
+                        <div className="grid grid-cols-1 lg:grid-cols-2">
+                          {([["Direction régionale", territoires.parDr], ["Wilaya", territoires.parWilaya.slice(0, 12)]] as const).map(([titre, lignes]) => (
+                            <div key={titre} className="overflow-x-auto border-border lg:odd:border-r">
+                              <table className="w-full text-sm">
+                                <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className={`sticky left-0 bg-card ${TH}`}>{titre}</th><th className={`${TH} text-right`}>Livré</th><th className={`${TH} text-right`}>Non servi</th><th className={`${TH} text-right`}>Étab.</th></tr></thead>
+                                <tbody>{lignes.map((t) => (
+                                  <tr key={t.cle} className="border-t border-border/60"><td className="sticky left-0 max-w-[12rem] truncate bg-card px-3 py-2">{t.libelle}</td><td className={TD}>{entier(t.livre)}</td><td className={TD}>{t.nonServi > 0 ? <span className="text-warning">{entier(t.nonServi)}</span> : "—"}</td><td className={TD}>{t.etablissements}</td></tr>
+                                ))}</tbody>
+                              </table>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="overflow-x-auto border-t border-border">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className={`sticky left-0 bg-card ${TH}`}>Établissement</th><th className={TH}>Wilaya</th><th className={TH}>DR</th><th className={`${TH} text-right`}>Livré</th><th className={`${TH} text-right`}>Non servi</th></tr></thead>
+                            <tbody>{territoires.etablissements.slice(0, 10).map((e) => (
+                              <tr key={`${e.dr}|${e.cle}`} className="border-t border-border/60">
+                                <td className="sticky left-0 max-w-[16rem] truncate bg-card px-3 py-2"><Link href={`/sales/territoires?${qPch}&etab=${encodeURIComponent(e.cle)}`} className="hover:underline">{e.nom}</Link></td>
+                                <td className="whitespace-nowrap px-3 py-2">{e.wilaya ?? "—"}</td><td className="whitespace-nowrap px-3 py-2">{e.dr}</td>
+                                <td className={TD}>{entier(e.livre)}</td><td className={TD}>{e.nonServi > 0 ? <span className="text-warning">{entier(e.nonServi)}</span> : "—"}</td>
+                              </tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </Carte>
+                </>
+              ))}
 
               {voit.marches && p360 && (
                 <Carte titre="Appels d'offres → marchés" sousTitre={COUVERTURE_LABELS[p360.rattachement.couverture]}>
@@ -264,29 +351,42 @@ export default async function Produit360Page({ params, searchParams }: { params:
                 </Carte>
               )}
 
-              {f.voitMarche && (
-                <Carte titre="Marché" sousTitre={f.marche ? <>{LIBELLE_PERIMETRE[f.marche.perimetre]} <InfoBulle>Mêmes données et mêmes règles que l&apos;Explorateur produits : IQVIA ville ({f.marche.source.periode}) et réceptions PCH, en valeur. Nos lignes = notre nom commercial, nos alias, notre société ou notre laboratoire partenaire.</InfoBulle></> : null}>
-                  {!f.marche ? <Vide>Molécule absente des données de marché.</Vide> : (
-                    <>
-                      <Dl items={[["Marché total", dzd(f.marche.totalDzd)], ["Notre part", f.marche.partPct !== null ? `${nombre(f.marche.partPct)} %` : "nos lignes ne sont pas identifiées"], ["Nos ventes au marché", dzd(f.marche.notreDzd)]]} />
-                      <ul className="space-y-1.5 border-t border-border px-4 py-3 text-sm">
-                        {f.marche.concurrents.map((c) => (
-                          <li key={c.lab} className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)_3.5rem] items-center gap-3">
-                            <span className={`truncate ${c.nous ? "font-semibold" : ""}`}>{c.lab}</span>
-                            <span className="h-1.5 overflow-hidden rounded-full bg-muted"><i className={`block h-full ${c.nous ? "bg-success" : "bg-primary"}`} style={{ width: `${Math.min(100, c.partPct)}%` }} /></span>
-                            <span className="text-right tabular-nums text-muted-foreground">{nombre(c.partPct)} %</span>
-                          </li>
-                        ))}
-                      </ul>
-                      {f.marche.generiquesRecents.length > 0 && (
-                        <div className="border-t border-border px-4 py-3 text-sm">
-                          <p className="mb-1 text-xs font-medium text-muted-foreground">Enregistrés depuis moins d&apos;un an</p>
-                          {f.marche.generiquesRecents.map((g, i) => <p key={i}>{g.lab} · {g.marque} · <span className="text-muted-foreground">{jour(g.date)} · {g.origine.toLowerCase()}</span></p>)}
-                        </div>
-                      )}
-                    </>
+              {(v || f.voitMarche) && (
+                <Carte titre="Marché" sousTitre={v ? <>réceptions FO de la PCH · {periodePch} <InfoBulle>Toutes les réceptions fournisseur (FO) de la PCH centrale sur les postes de ce produit : même molécule, dosage et forme. Nos fournisseurs en vert ; ils se règlent dans Ventes PCH → Importer.</InfoBulle></> : null}>
+                  {v && (v.fournisseurs.length === 0 ? <Vide>Aucune réception FO sur la période.</Vide> : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className={`sticky left-0 bg-card ${TH}`}>Fournisseur</th><th className={`${TH} text-right`}>Quantité</th><th className={`${TH} text-right`}>Part</th></tr></thead>
+                        <tbody>{v.fournisseurs.slice(0, 15).map((x) => (
+                          <tr key={x.fournisseur} className={`border-t border-border/60 ${x.nous ? "bg-success/5" : ""}`}>
+                            <td className={`sticky left-0 max-w-[16rem] truncate px-3 py-2 ${x.nous ? "bg-card font-semibold text-success" : "bg-card"}`}>{x.fournisseur}</td>
+                            <td className={TD}>{entier(x.qte)}</td>
+                            <td className={TD}>{x.partPct !== null ? `${nombre(x.partPct)} %` : "—"}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  ))}
+                  {f.voitMarche && (f.marche ? (
+                    <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+                      IQVIA ville + hôpital ({f.marche.source.periode}, {LIBELLE_PERIMETRE[f.marche.perimetre]}) : notre part {f.marche.partPct !== null ? `${nombre(f.marche.partPct)} %` : "non identifiée"} · marché {dzd(f.marche.totalDzd)}
+                    </p>
+                  ) : !v && <Vide>Molécule absente des données de marché.</Vide>)}
+                  {f.voitMarche && f.marche && f.marche.generiquesRecents.length > 0 && (
+                    <div className="border-t border-border px-4 py-3 text-sm">
+                      <p className="mb-1 text-xs font-medium text-muted-foreground">Enregistrés depuis moins d&apos;un an</p>
+                      {f.marche.generiquesRecents.map((g, i) => <p key={i}>{g.lab} · {g.marque} · <span className="text-muted-foreground">{jour(g.date)} · {g.origine.toLowerCase()}</span></p>)}
+                    </div>
                   )}
                 </Carte>
+              )}
+
+              {fraicheur && (
+                <p className="text-xs text-muted-foreground">
+                  Données PCH : {fraicheur.sources.filter((s) => s.source !== SOURCE_RECEPTIONS).map((s) => `${s.source} ${s.dernier ? moisCourt(s.dernier) : "—"}`).join(" · ") || "aucune DR"}
+                  {(() => { const r = fraicheur.sources.find((s) => s.source === SOURCE_RECEPTIONS); return r ? ` · réceptions ${r.dernier ? `jusqu'à ${moisCourt(r.dernier)}` : "—"}${r.manquants.length ? ` (${r.manquants.length} mois manquant${r.manquants.length > 1 ? "s" : ""})` : ""}` : ""; })()}
+                  {peutImporter && <> · <Link href="/sales/importer" className="text-primary hover:underline">Importer</Link></>}
+                </p>
               )}
 
               <Carte titre="Prix" sousTitre={<InfoBulle>L&apos;Explorateur produits donne le prix observé (IQVIA ville : valeur ÷ boîtes ; réceptions PCH : prix unitaire). Une saisie l&apos;emporte à partir de sa date d&apos;effet ; l&apos;historique garde chaque ligne.</InfoBulle>}>
@@ -433,11 +533,11 @@ export default async function Produit360Page({ params, searchParams }: { params:
           )}
 
           {onglet === "stock" && f.stock && (
-            <Carte titre="Stock" sousTitre={<>{f.stock.date ? `dernier relevé le ${jour(f.stock.date)}` : "aucun relevé"} <InfoBulle>Le stock d&apos;un produit = le dernier relevé de chaque lieu (PCH, hôpitaux, annexes) de ses dossiers, dans votre portée. Couverture = stock ÷ écoulement mensuel (ventes des 12 derniers mois, sinon consommation hospitalière en boîtes).</InfoBulle></>} action={<Link href="/stocks" className="text-primary hover:underline">Stocks</Link>}>
+            <Carte titre="Stock" sousTitre={<>{f.stock.date ? `dernier relevé le ${jour(f.stock.date)}` : "aucun relevé"} <InfoBulle>Le stock d&apos;un produit = le dernier relevé de chaque lieu (PCH, hôpitaux, annexes) de ses dossiers, dans votre portée. Couverture = stock ÷ écoulement mensuel : la distribution aux hôpitaux par les DR de la PCH (moyenne des 3 derniers mois reçus), à défaut les ventes saisies ou la consommation hospitalière en boîtes.</InfoBulle></>} action={<Link href="/stocks" className="text-primary hover:underline">Stocks</Link>}>
               <Dl items={[
                 ["Niveau actuel", `${f.stock.unites.toLocaleString("fr-FR")} boîtes · ${f.stock.lieux} lieu(x)`],
                 ["Couverture", f.stock.couvertureMois !== null ? `${nombre(f.stock.couvertureMois)} mois` : "—"],
-                ["Écoulement mensuel", f.stock.ecoulementMensuel !== null ? `${f.stock.ecoulementMensuel.toLocaleString("fr-FR")} boîtes · ${f.stock.sourceEcoulement === "VENTES" ? "ventes" : "consommation"}` : "—"],
+                ["Écoulement mensuel", f.stock.ecoulementMensuel !== null ? `${f.stock.ecoulementMensuel.toLocaleString("fr-FR")} boîtes · ${f.stock.sourceEcoulement === "PCH" ? "distribution PCH" : f.stock.sourceEcoulement === "VENTES" ? "ventes" : "consommation"}` : "—"],
               ]} />
               {f.stock.releves.length > 0 && (
                 <div className="overflow-x-auto border-t border-border">

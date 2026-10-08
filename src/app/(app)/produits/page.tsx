@@ -7,6 +7,7 @@ import { compterProduitsARapprocher } from "@/lib/queries/product-catalog";
 import { MenuDossier } from "@/components/shared/menu-dossier";
 import { VerifierCatalogue } from "./verifier-catalogue";
 import { montantCourt } from "@/lib/products/fiche-360";
+import { moisCourt } from "@/lib/ventes-pch/calculs";
 import { REGULATORY_STATUS } from "@/lib/labels";
 import { Input } from "@/components/ui/input";
 import { InfoBulle } from "@/components/ui/info-bulle";
@@ -26,7 +27,7 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
   const user = await requireModule("PRODUCTS");
   const q = (searchParams?.q ?? "").trim();
   const onglet: OngletListe = searchParams?.onglet === "enregistrement" ? "enregistrement" : "commercialises";
-  const { lignes, compte, colonnes } = await listeProduits360(user, { q, onglet });
+  const { lignes, compte, colonnes, periodePch } = await listeProduits360(user, { q, onglet });
   const lien = (o: OngletListe) => `/produits?onglet=${o}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
   const commerce = onglet === "commercialises";
   // LE MENU ⋯ — rapprocher un produit BD / BU créé sans dossier (le réglementaire, et seulement s'il en reste un), et
@@ -82,7 +83,13 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
                 <th className="whitespace-nowrap px-3 py-2 font-medium">BU</th>
                 {commerce ? (
                   <>
-                    {colonnes.ventes && <th className="whitespace-nowrap px-3 py-2 text-right font-medium">Ventes 12 mois</th>}
+                    {colonnes.ventes && (
+                      <th className="whitespace-nowrap px-3 py-2 text-right font-medium">
+                        <span className="inline-flex items-center gap-1">Ventes 12 mois
+                          <InfoBulle label="D'où viennent les ventes ?">Nos réceptions à la PCH (seul client d&apos;Adventum), au coût d&apos;achat PCH{periodePch ? `, ${moisCourt(periodePch.debut)} → ${moisCourt(periodePch.fin)}` : ""}. Part de marché = nos réceptions ÷ toutes les réceptions de la même molécule, dosage et forme.</InfoBulle>
+                        </span>
+                      </th>
+                    )}
                     {colonnes.ventes && <th className="whitespace-nowrap px-3 py-2 font-medium">Tendance</th>}
                     {colonnes.marche && <th className="whitespace-nowrap px-3 py-2 text-right font-medium">Part de marché</th>}
                     {colonnes.stock && <th className="whitespace-nowrap px-3 py-2 text-right font-medium">Stock</th>}
@@ -112,7 +119,11 @@ export default async function ProduitsPage({ searchParams }: { searchParams?: { 
                   <td className="whitespace-nowrap px-3 py-2">{p.bu ?? <span className="text-muted-foreground">—</span>}</td>
                   {commerce ? (
                     <>
-                      {colonnes.ventes && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{p.ventes12m ? montantCourt(p.ventes12m) : <span className="text-muted-foreground">—</span>}</td>}
+                      {colonnes.ventes && (
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title={p.ventes12mBoites ? `${p.ventes12mBoites.toLocaleString("fr-FR")} boîtes reçues par la PCH` : undefined}>
+                          {p.ventes12mBoites ? (p.ventes12m !== null ? montantCourt(p.ventes12m) : `${p.ventes12mBoites.toLocaleString("fr-FR")} bt`) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                      )}
                       {colonnes.ventes && <td className="px-3 py-2">{p.tendance ? <Tendance valeurs={p.tendance} /> : null}</td>}
                       {colonnes.marche && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{p.partPct !== null ? `${nombre(p.partPct)} %` : <span className="text-muted-foreground">—</span>}</td>}
                       {colonnes.stock && (

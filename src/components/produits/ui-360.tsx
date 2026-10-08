@@ -87,6 +87,20 @@ export function Carte({ titre, sousTitre, action, children, className }: { titre
   );
 }
 
+/** La barre d'un contrat PCH : commandé (clair) et livré (foncé) sur l'attribué ; au-delà, le dépassement en orange. */
+export function BarreContrat({ attribue, commande, livre, className }: { attribue: number; commande: number; livre: number; className?: string }) {
+  const echelle = Math.max(attribue, commande, 1);
+  const pc = (v: number) => `${Math.min(100, (v / echelle) * 100)}%`;
+  return (
+    <div className={cn("relative h-2.5 w-40 overflow-hidden rounded-full bg-secondary", className)} aria-hidden>
+      <div className="absolute inset-y-0 left-0 bg-primary/35" style={{ width: pc(Math.min(commande, attribue)) }} />
+      {commande > attribue && <div className="absolute inset-y-0 bg-warning" style={{ left: pc(attribue), width: pc(commande - attribue) }} />}
+      <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: pc(livre) }} />
+      {attribue > 0 && commande > attribue && <div className="absolute inset-y-0 w-px bg-foreground/60" style={{ left: pc(attribue) }} />}
+    </div>
+  );
+}
+
 export function Vide({ children }: { children: React.ReactNode }) {
   return <p className="px-4 py-4 text-sm text-muted-foreground">{children}</p>;
 }

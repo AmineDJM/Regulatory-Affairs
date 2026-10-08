@@ -1,7 +1,10 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
-import { SOURCE_RECEPTIONS, chaineContrat, dateDuMois, decalerMois, evolution, moisDeDate, moisEntre, moisManquants, partDeMarche as partDeMarchePct, type ChaineContrat } from "./calculs";
+import {
+  SOURCE_RECEPTIONS, chaineContrat, coutDeReference, dateDuMois, decalerMois, evolution, moisDeDate, moisEntre, moisManquants,
+  partDeMarche as partDeMarchePct, partsFournisseurs, serieSurMois, valeurAuCout, type ChaineContrat,
+} from "./calculs";
 import { cleClient, moleculeDe, motsDistinctifs } from "./normalisation";
 
 /**
@@ -16,7 +19,9 @@ import { cleClient, moleculeDe, motsDistinctifs } from "./normalisation";
  *   • `consommationHospitaliereMensuelle(productId, { debut?, fin? })` — par établissement et par mois : livré, non servi ;
  *   • `receptionsPch(productId, { debut, fin })` — réceptions FO de la PCH centrale par mois et par fournisseur, en
  *     distinguant les nôtres (sell-in) ;
- *   • `partDeMarche(productId, { debut, fin })` — nos réceptions FO ÷ toutes les réceptions FO des mêmes postes PCH.
+ *   • `partDeMarche(productId, { debut, fin })` — nos réceptions FO ÷ toutes les réceptions FO des mêmes postes PCH ;
+ *   • `indicateursProduitsPch(productIds, { debut, fin })` — tout cela d'un coup pour une liste de produits (Produits 360) ;
+ *   • `dernierMoisPch()` — le dernier mois reçu, fin des « 12 mois » des autres modules.
  * Un produit est relié à ses postes PCH par `PchPoste` ; une ligne sans produit est une donnée de marché.
  */
 
@@ -142,6 +147,13 @@ export async function partDeMarche(productId: string, periode: Bornes): Promise<
 
 // ─────────────────────────── Synthèse ───────────────────────────
 
+/** Le coût d'achat PCH de référence d'un produit : valeur ÷ quantité livrée, sur toutes les données (stable). */
+async function coutsDeReference(ids: string[]): Promise<Map<string, number | null>> {
+  if (!ids.length) return new Map();
+  const rows = await prisma.pchVenteLigne.groupBy({ by: ["productId"], where: { productId: { in: ids }, qteLivree: { gt: 0 }, valeurAchat: { not: null } }, _sum: { qteLivree: true, valeurAchat: true } });
+  return new Map(rows.map((c) => [c.productId!, coutDeReference(n(c._sum.valeurAchat), n(c._sum.qteLivree))]));
+}
+
 interface Agregat { distribue: number; valeurAchat: number; nonServi: number; recuNous: number; recuMarche: number }
 
 async function agregats(ids: string[], b: Bornes): Promise<Map<string, Agregat>> {
@@ -181,13 +193,7 @@ export interface LigneSynthese {
 export async function synthesePch(periode: Bornes, precedente: Bornes, buId?: string | null): Promise<LigneSynthese[]> {
   const produits = await produitsVentesPch(buId);
   const ids = produits.map((p) => p.id);
-  const [cur, prev, couts, nos] = await Promise.all([
-    agregats(ids, periode), agregats(ids, precedente),
-    // Le coût d'achat PCH de référence d'un produit : valeur ÷ quantité livrée, sur toutes les données (stable).
-    ids.length ? prisma.pchVenteLigne.groupBy({ by: ["productId"], where: { productId: { in: ids }, qteLivree: { gt: 0 }, valeurAchat: { not: null } }, _sum: { qteLivree: true, valeurAchat: true } }) : Promise.resolve([]),
-    fournisseursActifs(ids),
-  ]);
-  const cout = new Map(couts.map((c) => [c.productId!, n(c._sum.qteLivree) > 0 ? n(c._sum.valeurAchat) / n(c._sum.qteLivree) : null]));
+  const [cur, prev, cout, nos] = await Promise.all([agregats(ids, periode), agregats(ids, precedente), coutsDeReference(ids), fournisseursActifs(ids)]);
   return produits.map((p) => {
     const a = cur.get(p.id) ?? { distribue: 0, valeurAchat: 0, nonServi: 0, recuNous: 0, recuMarche: 0 };
     const b = prev.get(p.id);
@@ -202,6 +208,88 @@ export async function synthesePch(periode: Bornes, precedente: Bornes, buId?: st
       sansFournisseur: !(nos.get(p.id)?.size),
     };
   });
+}
+
+// ─────────────────────────── Produits 360 ───────────────────────────
+
+/** Le dernier mois présent dans les données PCH (ventes des DR ou réceptions) — `null` sans aucune donnée. */
+export async function dernierMoisPch(): Promise<string | null> {
+  const [v, r] = await Promise.all([prisma.pchVenteLigne.aggregate({ _max: { mois: true } }), prisma.pchReceptionLigne.aggregate({ _max: { mois: true } })]);
+  return [v._max.mois, r._max.mois].filter((d): d is Date => !!d).map(moisDeDate).sort().at(-1) ?? null;
+}
+
+export interface IndicateursProduitPch {
+  productId: string;
+  /** Nos réceptions FO à la PCH centrale (sell-in, boîtes), leur valeur au coût PCH (DZD), l'évolution sur la période d'avant. */
+  recuNous: number; recuValeur: number | null; recuNousPrecedent: number; evolRecu: number | null;
+  /** Toutes les réceptions FO des mêmes postes (le marché de la molécule-dosage-forme) et notre part. */
+  recuMarche: number; partPct: number | null;
+  /** Mois par mois (les mois de la période) : nos réceptions, la distribution aux hôpitaux par les DR (sell-out). */
+  sellIn: number[]; sellOut: number[];
+  /** Les seuls mois où les DR ont une ligne du produit (un mois sans fichier n'est pas une consommation nulle). */
+  sellOutLignes: { mois: string; livre: number }[];
+  distribue: number; nonServi: number; etablissementsNonServis: number;
+  /** Les 3 derniers mois de la période — la demande non servie qui fait le signal. */
+  recent: { nonServi: number; livre: number; etablissements: number };
+  fournisseurs: { fournisseur: string; qte: number; nous: boolean; partPct: number | null }[];
+  /** Aucun fournisseur « à nous » réglé : le sell-in ne se lit pas encore. */
+  sansFournisseur: boolean;
+}
+
+/**
+ * LES CHIFFRES PCH DE PLUSIEURS PRODUITS (Produits 360 : la liste et la fiche) sur une période, en une poignée de
+ * requêtes groupées : sell-in, part de marché, sell-out mensuel, demande non servie, fournisseurs.
+ */
+export async function indicateursProduitsPch(productIds: string[], periode: Bornes): Promise<{ mois: string[]; parProduit: Map<string, IndicateursProduitPch> }> {
+  const mois = moisEntre(periode.debut, periode.fin);
+  const parProduit = new Map<string, IndicateursProduitPch>();
+  if (!productIds.length) return { mois, parProduit };
+  const precedente = { debut: decalerMois(periode.debut, -mois.length), fin: decalerMois(periode.debut, -1) };
+  const recente = { debut: [periode.debut, decalerMois(periode.fin, -2)].sort().at(-1)!, fin: periode.fin };
+  const ou = { productId: { in: productIds }, type: "FO" };
+  const [recus, recusAvant, ventes, ns, nsRecent, couts, nos] = await Promise.all([
+    prisma.pchReceptionLigne.groupBy({ by: ["productId", "mois", "fournisseurCle", "fournisseur"], where: { ...ou, mois: entreMois(periode) }, _sum: { qte: true } }),
+    prisma.pchReceptionLigne.groupBy({ by: ["productId", "fournisseurCle"], where: { ...ou, mois: entreMois(precedente) }, _sum: { qte: true } }),
+    venteParProduitEtMois({ ...periode, productIds }),
+    demandeNonServie({ ...periode, productIds }),
+    demandeNonServie({ ...recente, productIds }),
+    coutsDeReference(productIds),
+    fournisseursActifs(productIds),
+  ]);
+  for (const id of productIds) {
+    const miens = nos.get(id) ?? new Map<string, string>();
+    const r = recus.filter((x) => x.productId === id);
+    const four = new Map<string, { fournisseur: string; qte: number; nous: boolean }>();
+    let recuNous = 0, recuMarche = 0;
+    const sellIn: { mois: string; qte: number }[] = [];
+    for (const x of r) {
+      const q = n(x._sum.qte), estNous = miens.has(x.fournisseurCle);
+      recuMarche += q;
+      if (estNous) { recuNous += q; sellIn.push({ mois: moisDeDate(x.mois), qte: q }); }
+      const f = four.get(x.fournisseurCle) ?? four.set(x.fournisseurCle, { fournisseur: x.fournisseur, qte: 0, nous: estNous }).get(x.fournisseurCle)!;
+      f.qte += q;
+    }
+    const recuNousPrecedent = recusAvant.filter((x) => x.productId === id && miens.has(x.fournisseurCle)).reduce((s, x) => s + n(x._sum.qte), 0);
+    const v = ventes.filter((x) => x.productId === id);
+    const nsRecents = nsRecent.filter((x) => x.productId === id);
+    const vRecentes = v.filter((x) => x.mois >= recente.debut);
+    parProduit.set(id, {
+      productId: id,
+      recuNous, recuValeur: valeurAuCout(recuNous, couts.get(id) ?? null), recuNousPrecedent, evolRecu: evolution(recuNous, recuNousPrecedent),
+      recuMarche, partPct: partDeMarchePct(recuNous, recuMarche),
+      sellIn: serieSurMois(mois, sellIn), sellOut: serieSurMois(mois, v.map((x) => ({ mois: x.mois, qte: x.livre }))),
+      sellOutLignes: v.map((x) => ({ mois: x.mois, livre: x.livre })),
+      distribue: v.reduce((s, x) => s + x.livre, 0), nonServi: v.reduce((s, x) => s + x.nonServi, 0),
+      etablissementsNonServis: ns.filter((x) => x.productId === id).reduce((s, x) => s + x.etablissements, 0),
+      recent: {
+        nonServi: nsRecents.reduce((s, x) => s + x.quantite, 0), etablissements: nsRecents.reduce((s, x) => s + x.etablissements, 0),
+        livre: vRecentes.reduce((s, x) => s + x.livre, 0),
+      },
+      fournisseurs: partsFournisseurs([...four.values()]),
+      sansFournisseur: miens.size === 0,
+    });
+  }
+  return { mois, parProduit };
 }
 
 // ─────────────────────────── Contrats ───────────────────────────
@@ -221,8 +309,8 @@ export interface LigneContrat {
  * compris ; à défaut la quantité attribuée du lot gagné) → BC cumulés (hors annulés) → livré (BL datés) → reste,
  * dépassement, avenant. Les faits viennent du module Marchés PCH, rien n'est ressaisi.
  */
-export async function chainesContratsPch(buId?: string | null): Promise<LigneContrat[]> {
-  const produits = await produitsVentesPch(buId);
+export async function chainesContratsPch(buId?: string | null, productIds?: readonly string[]): Promise<LigneContrat[]> {
+  const produits = (await produitsVentesPch(buId)).filter((p) => !productIds || productIds.includes(p.id));
   const ids = produits.map((p) => p.id);
   if (!ids.length) return [];
   const parId = new Map(produits.map((p) => [p.id, p]));
