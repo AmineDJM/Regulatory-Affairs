@@ -1,3 +1,61 @@
+### LE SPONSORING D'UN KAM PASSE PAR LE NATIONAL SALES PUIS LA DIRECTION DES OPÉRATIONS, ET LES TROIS PAIEMENTS HORS CENTRE SONT ASSUMÉS (2026-09)
+
+Deux décisions de la Direction, le 28/09. **Le sponsoring d'un KAM** passe désormais par le National Sales PUIS la
+Direction des opérations, avant que la Direction Marketing pré-valide ou refuse la tenue (« une fois validée par le
+national sales et directeur des opérations »). La règle du 22/09 — le National Sales seul — reste celle des
+congrès, des événements et des autres demandes d'un KAM : la décision a été prise pour le sponsoring. Le parcours se
+fige à la naissance d'une demande ; celles déjà déposées gardent le leur. **Les paiements hors centre** (la paie, la
+remise de caisse d'avance et sa rallonge) restent des exceptions, désormais assumées : chacune porte la décision
+écrite, et un test tombe si un chemin de paiement sort du centre sans décision.
+
+**Mesure** : 7 sabotages joués et tous détectés, dont un qui fait ignorer la nature de la demande par le moteur. Un
+test de bout en bout passe par le vrai moteur de circuit (National Sales → porte du DG → Direction des opérations →
+Direction Marketing), avec un témoin : le congrès du même KAM saute toujours la Direction des opérations. Détail au
+§118.156 de `CLAUDE.md`.
+
+### LE CONTRÔLE DE STYLE BLOQUAIT LE DÉPLOIEMENT (2026-09)
+
+Render construit l'application par `npm run build:render`, qui lance `next lint` **avant** `next build`. Les
+vérifications du dépôt lançaient `next build`, qui ignore le lint : une erreur de lint ne se voyait nulle part avant le
+serveur de déploiement. Depuis le 05/09, une seule ligne — une directive qui désactivait une règle d'un plugin que la
+configuration ne charge pas — faisait sortir `next lint` en échec. La ligne est retirée (la règle n'étant pas active,
+la directive ne servait à rien) et `next lint` rend « No ESLint warnings or errors ». Deux garde-fous empêchent le
+retour : `npx next lint` fait désormais partie des vérifications avant commit, et un test (`lint-directives.test.ts`)
+refuse toute directive qui nomme une règle absente de la configuration réellement chargée — lue par ESLint lui-même,
+pas recopiée à la main.
+
+**Ce qu'on ne sait pas d'ici.** Si le service Render suit le `render.yaml` du dépôt, tout déploiement de la branche
+publiée échouait depuis le 05/09 et la production tournait sur une version antérieure. Ce conteneur ne voit ni le
+tableau de bord de Render ni l'adresse de l'ERP en production (l'adresse inscrite dans la description d'API sert une
+autre application) : la vérification se fait dans Render › Events.
+
+**Mesure** : `next lint` en code 0 (au lieu de 1), 8 sabotages joués sur le nouveau test et tous détectés. Détail au
+§118.155 de `CLAUDE.md`.
+
+### LES PASTILLES DU MENU, ET LES DEMANDES AU SECRÉTARIAT QUI NAISSAIENT SANS SOCIÉTÉ (2026-09)
+
+Suite des parcours par rôle. **Les pastilles du menu ne se répètent plus.** Une pastille compte les notifications non
+lues d'un module, et plusieurs entrées portent le même module : dans le menu des Finances, « 3 » s'affichait sur
+Finances, Banque & paiements, Comptabilité ET Bons de commande — les mêmes trois notifications, quatre fois, et « Bons
+de commande 3 » quand aucun bon n'attendait de signature. Chaque module est désormais compté une fois : sur l'entrée
+parente, jamais répété sur ses sous-menus ; un sous-menu d'un autre module garde sa propre pastille. Même règle dans la
+barre latérale et dans le menu mobile.
+
+**Une demande au secrétariat porte toujours une société.** Le bureau du secrétariat n'affiche que les demandes de la
+société de chacun ; une demande née sans société n'apparaissait donc chez personne. C'était le cas de la demande de
+devis d'un dossier de matériel promotionnel créé avant le rattachement automatique, de la pièce (devis, BC, facture)
+demandée pour un poste Ad & Pro, et des demandes créées en LOT — dont l'auteur lui-même ne retrouvait pas ses propres
+demandes. La demande prend la société de l'opération, à défaut celle où travaille son demandeur ; un lot prend la même
+société qu'une demande créée seule. Un contrôle automatique exige désormais la société sur toute création de demande
+au secrétariat.
+
+**Ce qui reste, nommé.** Le « Bureau de Donna » (`/demandes/assistant`) n'applique pas le filtre par société, contrairement
+à la liste du secrétariat : deux écrans du même module ne répondent pas pareil à « quelles demandes vois-je ? » — une
+décision de périmètre, pas une ligne de code.
+
+**Mesure** : 9 271 tests verts sur 805 fichiers, typecheck et build propres, 18 sabotages joués et tous détectés,
+frontière Adam ↔ ERP à 427 (inchangée). Détail au §118.154 de `CLAUDE.md`.
+
 ### DANS LA PEAU DE CHAQUE EMPLOYÉ — CE QUE LES PARCOURS PAR RÔLE ONT TROUVÉ, ET ADAM RÉSERVÉ AU SUPER ADMIN (2026-09)
 
 Le dirigeant a demandé de tester la plateforme « comme un vrai user », rôle par rôle. Les parcours ont été joués dans

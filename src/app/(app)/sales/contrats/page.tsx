@@ -5,26 +5,13 @@ import { formatNumber } from "@/lib/utils";
 import { chainesContratsPch } from "@/lib/ventes-pch/requetes";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { Badge } from "@/components/ui/badge";
+import { BarreContrat } from "@/components/produits/ui-360";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EnteteVentesPch } from "../entete";
 import { FiltresVentesPch } from "../filtres";
 import { contexteVentesPch, type ParamsVentesPch } from "../contexte";
 
 export const dynamic = "force-dynamic";
-
-/** La barre d'un contrat : commandé (plein) et livré (foncé) sur l'attribué ; au-delà, le dépassement en orange. */
-function Barre({ attribue, commande, livre }: { attribue: number; commande: number; livre: number }) {
-  const echelle = Math.max(attribue, commande, 1);
-  const pc = (v: number) => `${Math.min(100, (v / echelle) * 100)}%`;
-  return (
-    <div className="relative h-2.5 w-40 overflow-hidden rounded-full bg-secondary" aria-hidden>
-      <div className="absolute inset-y-0 left-0 bg-primary/35" style={{ width: pc(Math.min(commande, attribue)) }} />
-      {commande > attribue && <div className="absolute inset-y-0 bg-warning" style={{ left: pc(attribue), width: pc(commande - attribue) }} />}
-      <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: pc(livre) }} />
-      {attribue > 0 && commande > attribue && <div className="absolute inset-y-0 w-px bg-foreground/60" style={{ left: pc(attribue) }} />}
-    </div>
-  );
-}
 
 /**
  * VENTES PCH — LA CHAÎNE DE CHAQUE CONTRAT (Direction, 08/10 : « on nous attribue un volume global lors de l'appel
@@ -79,7 +66,7 @@ export default async function ContratsVentesPchPage({ searchParams }: { searchPa
                     {!l.contrat && <p className="text-xs text-muted-foreground">sans contrat enregistré</p>}
                   </TableCell>
                   <TableCell>
-                    <Barre attribue={l.chaine.attribue} commande={l.chaine.commande} livre={l.chaine.livre} />
+                    <BarreContrat attribue={l.chaine.attribue} commande={l.chaine.commande} livre={l.chaine.livre} />
                     <p className="mt-1 text-xs text-muted-foreground">{l.chaine.pctCommande !== null ? `${l.chaine.pctCommande.toLocaleString("fr-FR")} % commandé` : "attribué inconnu"} · {l.bcs} BC</p>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatNumber(l.chaine.attribue)}</TableCell>

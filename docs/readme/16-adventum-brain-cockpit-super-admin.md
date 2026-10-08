@@ -1,6 +1,7 @@
 ## 🧠 Adventum Brain (cockpit Super Admin)
 
-**Une seule couche premium, visible du Super Admin uniquement** (`/adventum-brain`). **Refonte du 07/10 (maquette
+**Une seule couche premium, visible du Super Admin** (`/adventum-brain` ; depuis le 08/10, ouvrable à une autre
+personne **bornée à un périmètre** — voir plus bas). **Refonte du 07/10 (maquette
 validée)** : l'ancien cockpit à panneaux (War Room, Knowledge Graph/Relations, Intelligence Feed, bandeau
 `PulseStrip`) est retiré au profit de **quatre vues** qui LISENT ce que la passe horaire et le briefing ont gardé —
 aucun calcul au rendu (`lib/adventum/brain-read.ts`) :
@@ -40,6 +41,17 @@ médecins C/D** au-delà d'un maximum · **BC non signé** · **plan de tournée
 
 > **Règle anti-bureaucratie** : Brain **lit, relie, résume, explique et propose** — il ne duplique aucun workflow et
 > ne crée qu'après confirmation.
+
+> **Brain borné à un périmètre (08/10)** — « Droits du Directeur des opérations : … une vue Brain limitée à son
+> périmètre → oui ». Le module `ADVENTUM_BRAIN` peut s'ouvrir hors Super Admin (par défaut le **Directeur des
+> opérations**, VIEW/UPDATE). Une telle personne ne lit — et n'agit sur (prendre en charge, relancer, ignorer,
+> résoudre) — que les risques du **domaine des opérations** : `lib/adventum/perimetre.ts` (pur + tests), règle écrite
+> sur la **catégorie** et le **module** que pose chaque détecteur, pas sur un rôle (catégories PCH, FIELD, MEDICAL,
+> QUALITY, SALES, STOCKS, LOGISTICS, RECLAMATIONS, ou un module stocks / logistique / PCH / ventes / force de vente /
+> terrain / réclamations ; un module qui nomme un autre domaine — Ad & Pro, marketing, réglementaire, RH, finances,
+> budget, BD, contrôle de l'IA — l'emporte). `lireRisques(…, filtreDuPerimetre(estSuperAdmin))`
+> (`lib/adventum/brain-read.ts`). L'écran ne lui offre que **Ce matin** (ce qui attend une décision, **sans briefing**)
+> et **Risques** ; ni Demander, ni Historique, ni seuils. Le **Cockpit Opérations** lit les mêmes risques bornés.
 
 ### Process Intelligence (`/process-intelligence`, Super Admin — `requireModule("PROCESS_INTELLIGENCE")`)
 

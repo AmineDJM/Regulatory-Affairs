@@ -1,5 +1,58 @@
 ## 🧾 Journal des évolutions récentes
 
+### OPERATIONS & SALES, MARKETING SÉPARÉ, CATALOGUE UNIQUE, IMPORT DE SEGMENTATION EN UN FICHIER, BUSINESS UNITS, BUDGETS DES PÔLES, KPI SANS CODE, MISSIONS RELIÉES AU PROFIL (2026-10-08/09)
+
+Commits `2fd508ad`, `88c1a130`, `ac6565ec`, `f5a34ea0`. Migrations additives et idempotentes :
+`20270115203000_acces_pipeline`, `20270116090000_budget_marketing`, `20270116100000_module_business_units`,
+`20270116143000_retours_reclamations`, `20270116160000_ventes_pch`, `20270116170000_missions_profil`,
+`20270117090000_kpi`, `20270117100000_budget_regulatory_operations`.
+
+- **Menu en pôles** : « Sales & Marketing » scindé en **Marketing** (Marketing cockpit, Segmentation, Produits 360, Ad &
+  Pro, Budget Marketing, Stock promotionnel, **Site web** — venu de l'Administration) et **Operations & Sales** ; le pôle
+  **Supply Chain & Logistics disparaît** (Stocks et Logistique rejoignent Operations & Sales) ; **Consommation** n'a plus
+  d'entrée de menu (écrans et données gardés). `NAV_POLES`, `lib/navigation.ts`.
+- **Force de vente** : « ⋯ › Business units / Secteurs » ne plante plus (2fd508ad — les étapes vivaient dans un module
+  client lu côté serveur : `business-units/etapes.ts`, neutre) ; puis le « ⋯ Réglages » disparaît : module **Business
+  Units** (`/business-units` : BU, Secteurs — territoires **nommables** sur place, `renommerSecteur` —, Paramètres),
+  défaut recopié de qui modifiait la Force de vente. **Mon Équipe** : colonne « Personne » réduite de moitié.
+- **Catalogue unique** (88c1a130) : **un dossier réglementaire = un produit**, créé ou mis à jour automatiquement
+  (création, modification, ouverture du cadenas, passage au démarrage ; identité incomplète = indication, jamais
+  blocage ; aucun produit partagé scindé d'office) ; « **Vérifier le catalogue** » (Super Admin) ; l'écran « Rattachement
+  au catalogue » est retiré (`/regulatory/catalogue` → `/produits`), il ne reste que **« Rapprocher un produit BD / BU »**
+  (`/produits/rapprocher`). `lib/products/produit-du-dossier.ts`.
+- **Segmentation** : **import en un fichier** du classeur de la Direction (`/segmentation/import` — règles lues et
+  publiées, annuaires reliés : établissement par clé souple, wilaya lue dans le nom, spécialités dédoublées ; la lettre
+  du fichier fait foi, en dérogation motivée ; même fichier = rien) ; **affinité Q2 ÷ Q1** ; potentiel 0 → NA
+  (`potentielNulNA`) ; **tableau Praticiens éditable** (tri, filtres dans l'URL, effacer une réponse, retirer de la
+  segmentation ou de l'annuaire).
+- **Pipeline réglementaire** : module à part `REGULATORY_PIPELINE` (deux clés : module + confidence ; mêmes gestes que
+  Regulatory par défaut, accès personnalisés recopiés).
+- **Operations & Sales** (f5a34ea0) : **Cockpit Opérations** (`/operations`, lecture seule, un seul client : la PCH) ;
+  **Ventes PCH** remplace la saisie Ventes (`/sales` : imports des fichiers mensuels des DR `VENTEDR*` et des réceptions
+  PCH annuelles ou mensuelles, remplacement par tranche, mémoire des postes `PchPoste` et des établissements, contrats et
+  **avenants** `PchOrder.estAvenant`, non servi, territoires, historique en lecture seule) ; **Stocks de la chaîne**
+  (couverture par BU) et **stock PCH central saisi** depuis le mail ; **Retours & réclamations** (`Reclamation`, déclarée
+  par le KAM, instruite jusqu'à la clôture) ; **directeur des opérations** : Force de vente et Business Units en gestion,
+  Adventum Brain **borné à son périmètre** (`lib/adventum/perimetre.ts`).
+- **Budgets des pôles** : **Budget Marketing** (ac6565ec), **Budget Regulatory** (BV 25 % en préparation / 75 % avant
+  dépôt, par dossier) et **Budget Operations & Sales** (masse salariale agrégée de la force de vente, dépenses hors Ad &
+  Pro) — mêmes enveloppes que Budgets, marquées `domaine` ; Budgets les lit sans les régler. `lib/budget/domaines.ts`.
+- **KPI sans code** : module `KPI` ouvert à tous, périmètre = l'arbre de Mon équipe ; briques écrites une fois,
+  définitions créées à l'écran avec Luna (aperçu sur 3 mois réels), score pondéré plafonné à 120, KPI évalués / déclarés,
+  revue signée ; **Mon équipe › KPI**, **Mon espace › Mon bilan**, **Administration › KPI & modèles** (modèle KAM, 6
+  KPI) ; « Proposer une nouvelle mesure » remonte au Super Admin.
+- **Missions Ad & Pro reliées au profil** : assigner = **inviter** (confirmer / décliner avec motif), carte « Équipe
+  Adventum », **Mon espace › Mes missions** (`/missions` y renvoie) — l'ordre de mission passe par le **N+1** puis les RH,
+  transport / hébergement / matériel / note de frais seulement à la demande ; « Frais de l'équipe » intégrés au budget à
+  la clôture, à la main.
+- En cours (autre lot) : **Produits 360 › Ventes & marchés lit les données Ventes PCH** (réceptions PCH, distribution
+  DR, part de marché fournisseurs, chaîne contrat).
+
+Documentation : panorama, rôles (directeur des opérations, Direction Marketing, Regulatory), référence des circuits
+(nouvelles sections Business Units, Operations & Sales, KPI & bilans, Missions, Budgets des pôles ; Produits 360,
+pipeline, Force de vente réécrits — la référence passe à **quatre parties**, `12-…-p04.md`), carte du code, Segmentation
+Studio, Brain, modèle de données.
+
 ### REFONTES VALIDÉES PAR LA DIRECTION — SEGMENTATION PAR BU, FORCE DE VENTE, MARKETING COCKPIT, MON ÉQUIPE, RECRUTEMENT, AUDIENCE, RAPPORTS TERRAIN, TÂCHES, INFORMATION MÉDICALE, PRODUITS 360, BRAIN & PROCESS INTELLIGENCE (2026-10-07/08)
 
 Commit `28b1988e` (maquettes validées). Migrations additives et idempotentes : `20270115100000_recrutement_suivi_canaux`,
@@ -1198,62 +1251,4 @@ superviseur, KAM, collègue, impression, téléphone) ; 40 sabotages, 40 détect
 0 rouge ; build propre et `next lint` sans erreur. Détail au §118.157 de `CLAUDE.md`. **Déploiement** : la migration
 `20261201090000_fiche_coaching` crée deux tables et s'applique d'elle-même au déploiement (`prisma migrate deploy`
 dans la commande de build de Render) ; la grille d'origine s'écrit à la première ouverture de l'écran.
-
-### LE SPONSORING D'UN KAM PASSE PAR LE NATIONAL SALES PUIS LA DIRECTION DES OPÉRATIONS, ET LES TROIS PAIEMENTS HORS CENTRE SONT ASSUMÉS (2026-09)
-
-Deux décisions de la Direction, le 28/09. **Le sponsoring d'un KAM** passe désormais par le National Sales PUIS la
-Direction des opérations, avant que la Direction Marketing pré-valide ou refuse la tenue (« une fois validée par le
-national sales et directeur des opérations »). La règle du 22/09 — le National Sales seul — reste celle des
-congrès, des événements et des autres demandes d'un KAM : la décision a été prise pour le sponsoring. Le parcours se
-fige à la naissance d'une demande ; celles déjà déposées gardent le leur. **Les paiements hors centre** (la paie, la
-remise de caisse d'avance et sa rallonge) restent des exceptions, désormais assumées : chacune porte la décision
-écrite, et un test tombe si un chemin de paiement sort du centre sans décision.
-
-**Mesure** : 7 sabotages joués et tous détectés, dont un qui fait ignorer la nature de la demande par le moteur. Un
-test de bout en bout passe par le vrai moteur de circuit (National Sales → porte du DG → Direction des opérations →
-Direction Marketing), avec un témoin : le congrès du même KAM saute toujours la Direction des opérations. Détail au
-§118.156 de `CLAUDE.md`.
-
-### LE CONTRÔLE DE STYLE BLOQUAIT LE DÉPLOIEMENT (2026-09)
-
-Render construit l'application par `npm run build:render`, qui lance `next lint` **avant** `next build`. Les
-vérifications du dépôt lançaient `next build`, qui ignore le lint : une erreur de lint ne se voyait nulle part avant le
-serveur de déploiement. Depuis le 05/09, une seule ligne — une directive qui désactivait une règle d'un plugin que la
-configuration ne charge pas — faisait sortir `next lint` en échec. La ligne est retirée (la règle n'étant pas active,
-la directive ne servait à rien) et `next lint` rend « No ESLint warnings or errors ». Deux garde-fous empêchent le
-retour : `npx next lint` fait désormais partie des vérifications avant commit, et un test (`lint-directives.test.ts`)
-refuse toute directive qui nomme une règle absente de la configuration réellement chargée — lue par ESLint lui-même,
-pas recopiée à la main.
-
-**Ce qu'on ne sait pas d'ici.** Si le service Render suit le `render.yaml` du dépôt, tout déploiement de la branche
-publiée échouait depuis le 05/09 et la production tournait sur une version antérieure. Ce conteneur ne voit ni le
-tableau de bord de Render ni l'adresse de l'ERP en production (l'adresse inscrite dans la description d'API sert une
-autre application) : la vérification se fait dans Render › Events.
-
-**Mesure** : `next lint` en code 0 (au lieu de 1), 8 sabotages joués sur le nouveau test et tous détectés. Détail au
-§118.155 de `CLAUDE.md`.
-
-### LES PASTILLES DU MENU, ET LES DEMANDES AU SECRÉTARIAT QUI NAISSAIENT SANS SOCIÉTÉ (2026-09)
-
-Suite des parcours par rôle. **Les pastilles du menu ne se répètent plus.** Une pastille compte les notifications non
-lues d'un module, et plusieurs entrées portent le même module : dans le menu des Finances, « 3 » s'affichait sur
-Finances, Banque & paiements, Comptabilité ET Bons de commande — les mêmes trois notifications, quatre fois, et « Bons
-de commande 3 » quand aucun bon n'attendait de signature. Chaque module est désormais compté une fois : sur l'entrée
-parente, jamais répété sur ses sous-menus ; un sous-menu d'un autre module garde sa propre pastille. Même règle dans la
-barre latérale et dans le menu mobile.
-
-**Une demande au secrétariat porte toujours une société.** Le bureau du secrétariat n'affiche que les demandes de la
-société de chacun ; une demande née sans société n'apparaissait donc chez personne. C'était le cas de la demande de
-devis d'un dossier de matériel promotionnel créé avant le rattachement automatique, de la pièce (devis, BC, facture)
-demandée pour un poste Ad & Pro, et des demandes créées en LOT — dont l'auteur lui-même ne retrouvait pas ses propres
-demandes. La demande prend la société de l'opération, à défaut celle où travaille son demandeur ; un lot prend la même
-société qu'une demande créée seule. Un contrôle automatique exige désormais la société sur toute création de demande
-au secrétariat.
-
-**Ce qui reste, nommé.** Le « Bureau de Donna » (`/demandes/assistant`) n'applique pas le filtre par société, contrairement
-à la liste du secrétariat : deux écrans du même module ne répondent pas pareil à « quelles demandes vois-je ? » — une
-décision de périmètre, pas une ligne de code.
-
-**Mesure** : 9 271 tests verts sur 805 fichiers, typecheck et build propres, 18 sabotages joués et tous détectés,
-frontière Adam ↔ ERP à 427 (inchangée). Détail au §118.154 de `CLAUDE.md`.
 

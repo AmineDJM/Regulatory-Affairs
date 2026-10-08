@@ -3,6 +3,7 @@ import { requireModule } from "@/lib/session";
 import { formatNumber } from "@/lib/utils";
 import { matriceNonServi, directionsRegionales } from "@/lib/ventes-pch/requetes";
 import { InfoBulle } from "@/components/ui/info-bulle";
+import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EnteteVentesPch } from "../entete";
 import { FiltresVentesPch } from "../filtres";
@@ -17,7 +18,12 @@ export const dynamic = "force-dynamic";
 export default async function NonServiVentesPchPage({ searchParams }: { searchParams: ParamsVentesPch }) {
   const user = await requireModule("PCH_VENTES");
   const ctx = await contexteVentesPch(searchParams);
-  const [m, drs] = await Promise.all([matriceNonServi(ctx.periode, ctx.buId), directionsRegionales()]);
+  const [matrice, drs] = await Promise.all([matriceNonServi(ctx.periode, ctx.buId), directionsRegionales()]);
+  // Filtre produit (lien de la fiche Produits 360) : la ligne du produit seul, ses DR.
+  const produit = searchParams.produit ? matrice.lignes.find((l) => l.productId === searchParams.produit) ?? null : null;
+  const m = searchParams.produit
+    ? { drs: matrice.drs.filter((d) => produit?.parDr[d]), lignes: produit ? [produit] : [] }
+    : matrice;
   const lib = new Map(drs.map((d) => [d.code, d.libelle]));
   const q = (extra: Record<string, string>) => new URLSearchParams({ ...(ctx.buId ? { bu: ctx.buId } : {}), ...(searchParams.p ? { p: searchParams.p } : {}), m: ctx.ref, ...extra }).toString();
 
@@ -28,6 +34,7 @@ export default async function NonServiVentesPchPage({ searchParams }: { searchPa
       <div className="flex items-center gap-2 text-sm font-medium">
         Demande non servie · {ctx.periode.libelle} · boîtes
         <InfoBulle>Quantités commandées par les établissements et livrées à 0 par la direction régionale. Sous le chiffre : le nombre d&apos;établissements qui l&apos;ont demandée. Un clic sur une case ouvre les établissements de cette DR.</InfoBulle>
+        {searchParams.produit && <Badge tone="info">{produit?.nom ?? "Produit"} <Link href={`/sales/non-servi?${q({})}`} className="ml-1 underline">retirer</Link></Badge>}
       </div>
       {m.lignes.length === 0 ? (
         <p className="surface p-4 text-sm text-muted-foreground">Aucune demande non servie de nos produits sur {ctx.periode.libelle}.</p>

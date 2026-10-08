@@ -142,19 +142,21 @@ export const HORIZON_ECHEANCE_DE_JOURS = 183;
 
 // ─────────────────────────── LE signal d'une ligne ───────────────────────────
 
-export type CodeSignal = "PV_OUVERT" | "STOCK_BAS" | "GENERIQUE" | "ECHEANCE_DE";
+export type CodeSignal = "PV_OUVERT" | "STOCK_BAS" | "NON_SERVI" | "GENERIQUE" | "ECHEANCE_DE";
 export interface Signal { code: CodeSignal; label: string; ton: "danger" | "warning" }
 
 /**
  * UN SEUL SIGNAL PAR PRODUIT dans la liste — le plus grave d'abord : un cas de pharmacovigilance
- * ouvert, puis le stock bas, puis un générique fraîchement enregistré, puis l'échéance de la DE.
+ * ouvert, puis le stock bas, puis une demande non servie significative à la PCH (des hôpitaux
+ * commandent, rien n'est livré), puis un générique fraîchement enregistré, puis l'échéance de la DE.
  * Chaque fait n'est fourni que si la personne a le module qui le montre (`undefined` = non vu).
  */
 export function signalPrincipal(f: {
-  pvOuverts?: number; couvertureMois?: number | null; generiquesRecents?: number; joursAvantDepotDe?: number | null;
+  pvOuverts?: number; couvertureMois?: number | null; nonServiSignificatif?: boolean; generiquesRecents?: number; joursAvantDepotDe?: number | null;
 }): Signal | null {
   if ((f.pvOuverts ?? 0) > 0) return { code: "PV_OUVERT", label: f.pvOuverts === 1 ? "PV ouvert" : `${f.pvOuverts} PV ouverts`, ton: "danger" };
   if (f.couvertureMois !== null && f.couvertureMois !== undefined && f.couvertureMois < SEUIL_STOCK_BAS_MOIS) return { code: "STOCK_BAS", label: "stock bas", ton: "warning" };
+  if (f.nonServiSignificatif) return { code: "NON_SERVI", label: "demande non servie", ton: "warning" };
   if ((f.generiquesRecents ?? 0) > 0) return { code: "GENERIQUE", label: "générique enregistré", ton: "danger" };
   if (f.joursAvantDepotDe !== null && f.joursAvantDepotDe !== undefined && f.joursAvantDepotDe <= HORIZON_ECHEANCE_DE_JOURS) return { code: "ECHEANCE_DE", label: "échéance DE", ton: "warning" };
   return null;

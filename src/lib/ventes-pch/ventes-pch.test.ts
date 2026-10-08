@@ -2,7 +2,34 @@ import { describe, it, expect } from "vitest";
 import { detecterEntete, lireDate, classerLigne, quantiteNonServie, periodeDuFichier, lireVentes, lireReceptions, codeDr, libellePeriode } from "./lecture";
 import { cleClient, presentationPch, presentationProduit, clePresentation, moleculeDe, fournisseurCorrespond, memeMarche } from "./normalisation";
 import { indexEtablissementsPch, indexProduitsPch, decisionPoste, proposerFournisseurs, type ProduitRef } from "./correspondance";
-import { planRemplacement, partDeMarche, evolution, chaineContrat, periodeDe, periodePrecedente, moisManquants, decalerMois } from "./calculs";
+import {
+  planRemplacement, partDeMarche, evolution, chaineContrat, periodeDe, periodePrecedente, moisManquants, decalerMois,
+  serieSurMois, coutDeReference, valeurAuCout, partsFournisseurs, nonServiSignificatif,
+} from "./calculs";
+
+describe("Produits 360 — les calculs PCH d'un produit", () => {
+  it("série mensuelle : les mois demandés, dans l'ordre, cumulés ; un mois absent vaut 0", () => {
+    expect(serieSurMois(["2026-04", "2026-05", "2026-06"], [{ mois: "2026-06", qte: 5 }, { mois: "2026-04", qte: 2 }, { mois: "2026-06", qte: 1 }, { mois: "2025-12", qte: 9 }])).toEqual([2, 0, 6]);
+  });
+  it("valeur au coût PCH : quantité × coût de référence ; coût inconnu → null", () => {
+    expect(coutDeReference(12_000, 100)).toBe(120);
+    expect(coutDeReference(0, 100)).toBeNull();
+    expect(coutDeReference(500, 0)).toBeNull();
+    expect(valeurAuCout(30, 120.4)).toBe(3612);
+    expect(valeurAuCout(30, null)).toBeNull();
+  });
+  it("parts des fournisseurs : triées, part sur le total, les nôtres marquées", () => {
+    const p = partsFournisseurs([{ fournisseur: "B", qte: 100, nous: false }, { fournisseur: "NOUS", qte: 300, nous: true }]);
+    expect(p.map((x) => [x.fournisseur, x.partPct, x.nous])).toEqual([["NOUS", 75, true], ["B", 25, false]]);
+    expect(partsFournisseurs([{ fournisseur: "A", qte: 0, nous: false }])[0].partPct).toBeNull();
+  });
+  it("demande non servie significative : 3 établissements, ou 10 % de la demande", () => {
+    expect(nonServiSignificatif({ nonServi: 0, livre: 0, etablissements: 5 })).toBe(false);
+    expect(nonServiSignificatif({ nonServi: 10, livre: 10_000, etablissements: 3 })).toBe(true);
+    expect(nonServiSignificatif({ nonServi: 10, livre: 10_000, etablissements: 1 })).toBe(false);
+    expect(nonServiSignificatif({ nonServi: 20, livre: 180, etablissements: 1 })).toBe(true);
+  });
+});
 
 /**
  * VENTES PCH — les parties PURES, sur des fixtures SYNTHÉTIQUES (aucune ligne des vrais fichiers de la PCH n'entre

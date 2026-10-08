@@ -97,7 +97,10 @@ Demande de la DIRECTION, du DG, du DIRECTEUR DES OPÉRATIONS ou du SUPER ADMIN
 > pré-validée ne se conteste pas : ses postes se discutent un à un) —, le demandeur peut faire appel, motif exigé →
 > le circuit se rouvre sur l'étape qui a tranché, qui est prévenue (`reopenInstance`) ; la Direction et le Super Admin
 > sont informés de tout appel. Pour les congrès/événements pris en charge, on saisit la **liste
-> des personnes prises en charge** (avec pièces d'identité) et un **ordre de mission**.
+> des personnes prises en charge** (avec pièces d'identité) et un **ordre de mission**. Les personnes **de la société**
+> (accompagnant, délégué de référence) sont, depuis le 08/10, **invitées** depuis la carte « Équipe Adventum » : elles
+> confirment ou déclinent dans **Mon espace › Mes missions**, où leur ordre de mission passe par le **N+1** puis les RH
+> (→ [missions](#missions-ad--pro-reliées-au-profil-0810)).
 
 #### Sponsoring — la tenue d'abord, l'argent à la fin (27/09/2026)
 

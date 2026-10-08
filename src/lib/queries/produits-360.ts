@@ -1,8 +1,10 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { userCan, hasGlobalView, regulatoryLockWhere, type SessionUser } from "@/lib/rbac";
-import { clauseVentesVisibles } from "@/lib/queries/visibilite-listes";
 import { STATUTS_REGULATORY_TERMINES } from "@/lib/products/termines";
+import { dernierMoisPch, indicateursProduitsPch, type Bornes, type IndicateursProduitPch } from "@/lib/ventes-pch/requetes";
+import { decalerMois, nonServiSignificatif } from "@/lib/ventes-pch/calculs";
+import { consommationMoyenne } from "@/lib/stocks/pch-central";
 import { sections360, voitLeMarche } from "@/lib/vues-360-acces";
 import { clauseCasPvVisibles, voitTousLesCasPv } from "@/lib/pharmacovigilance/acces";
 import { chargerPorteeStock, clauseRelevesDePortee } from "@/lib/queries/stock-portee";
@@ -15,7 +17,7 @@ import { manquesIdentite } from "@/lib/products/identity";
 import { titreACompleter } from "@/lib/products/produit-du-dossier";
 import { toNumber } from "@/lib/utils";
 import {
-  etapeCycle, stockActuel, moisDeCouverture, ecoulementMensuel, serieMensuelle, moisGlissants, cleMois, variationPct,
+  etapeCycle, stockActuel, moisDeCouverture, ecoulementMensuel, cleMois,
   echeanceDecision, signalPrincipal, resoudrePrix, TYPES_PRIX, SEUIL_STOCK_BAS_MOIS,
   type EtapeCycle, type Signal, type PrixResolu, type TypePrix,
 } from "@/lib/products/fiche-360";
@@ -38,8 +40,9 @@ import {
  *
  * Un produit se voit par un dossier NON VERROUILLÉ (le verrou du pipeline reste la seule
  * confidentialité, `regulatoryLockWhere`) ; chaque colonne, chaque onglet suit SON module :
- * ventes (SALES, portée de la personne), stock (STOCKS, sa portée de relevés), marché
- * (Market Intelligence ou Explorateur), pharmacovigilance (ses cas), réglementaire (REGULATORY).
+ * ventes et part de marché (Ventes PCH : nos réceptions à la PCH, seul client d'Adventum), stock
+ * (STOCKS, sa portée de relevés), marché IQVIA (Market Intelligence ou Explorateur),
+ * pharmacovigilance (ses cas), réglementaire (REGULATORY).
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -102,31 +105,39 @@ function dateDecision(workflow: unknown): Date | null {
 
 // ─────────────────────────── Faits partagés (liste et fiche) ───────────────────────────
 
-/** Ventes des 12 derniers mois glissants, par produit — dans la portée Ventes de la personne. */
-async function ventesDouzeMois(user: SessionUser, productIds: string[], maintenant: Date) {
-  const debut = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - 11, 1));
-  return prisma.sale.findMany({
-    // La MÊME clause que l'écran Ventes (portée du module, dans l'entité) : la liste ne montre pas d'autres chiffres.
-    where: { AND: [await clauseVentesVisibles(user), { productId: { in: productIds }, date: { gte: debut } }] },
-    select: { productId: true, date: true, revenue: true, quantity: true, isPch: true, tenderLineId: true },
-  });
+/**
+ * LES 12 MOIS PCH — ceux qui finissent sur le DERNIER MOIS REÇU (les fichiers de la PCH arrivent après coup : un mois
+ * pas encore reçu ne se lit pas comme une vente nulle), à défaut le mois en cours.
+ */
+async function douzeMoisPch(maintenant: Date): Promise<Bornes> {
+  const fin = (await dernierMoisPch()) ?? cleMois(maintenant);
+  return { debut: decalerMois(fin, -11), fin };
 }
 
+export type SourceEcoulement = "PCH" | "VENTES" | "CONSOMMATION";
+
 /**
- * L'ÉCOULEMENT MENSUEL de chaque produit — ce qui sort, pour diviser le stock. Les ventes (toutes : c'est une mesure du
- * flux, pas une lecture des ventes d'autrui, et seul le nombre de mois s'affiche), sinon la consommation hospitalière
- * comptée en BOÎTES (une consommation en unités ne se compare pas à un stock en boîtes).
+ * L'ÉCOULEMENT MENSUEL de chaque produit — ce qui sort, pour diviser le stock. D'abord la distribution aux hôpitaux par
+ * les DR de la PCH (moyenne des 3 derniers mois complets reçus, la règle de la chaîne `stocks/pch-central.ts`) ; à
+ * défaut les ventes saisies (toutes : c'est une mesure du flux, seul le nombre de mois s'affiche), sinon la
+ * consommation hospitalière comptée en BOÎTES (une consommation en unités ne se compare pas à un stock en boîtes).
  */
-async function ecoulements(productIds: string[], maintenant: Date): Promise<Map<string, { parMois: number; source: "VENTES" | "CONSOMMATION" }>> {
+async function ecoulements(productIds: string[], maintenant: Date, pch?: Map<string, IndicateursProduitPch> | null): Promise<Map<string, { parMois: number; source: SourceEcoulement }>> {
+  const out = new Map<string, { parMois: number; source: SourceEcoulement }>();
+  for (const [id, x] of pch ?? []) {
+    const c = consommationMoyenne(x.sellOutLignes, cleMois(maintenant));
+    if (c !== null && c > 0) out.set(id, { parMois: c, source: "PCH" });
+  }
+  const reste = productIds.filter((id) => !out.has(id));
+  if (!reste.length) return out;
   const debut = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - 11, 1));
   const [ventes, conso] = await Promise.all([
-    prisma.sale.findMany({ where: { productId: { in: productIds }, date: { gte: debut } }, select: { productId: true, date: true, quantity: true } }),
+    prisma.sale.findMany({ where: { productId: { in: reste }, date: { gte: debut } }, select: { productId: true, date: true, quantity: true } }),
     prisma.consommationLigne.findMany({
-      where: { productId: { in: productIds }, statut: "OK", unite: "BOITE", import: { statut: "VALIDE" }, periodeDebut: { gte: debut } },
+      where: { productId: { in: reste }, statut: "OK", unite: "BOITE", import: { statut: "VALIDE" }, periodeDebut: { gte: debut } },
       select: { productId: true, periodeDebut: true, quantite: true },
     }),
   ]);
-  const out = new Map<string, { parMois: number; source: "VENTES" | "CONSOMMATION" }>();
   const unitesVendues = new Map<string, number>();
   for (const v of ventes) if (v.productId) unitesVendues.set(v.productId, (unitesVendues.get(v.productId) ?? 0) + v.quantity);
   for (const [id, u] of unitesVendues) if (u > 0) out.set(id, { parMois: u / 12, source: "VENTES" });
@@ -197,7 +208,10 @@ export interface LigneProduit360 {
   etape: EtapeCycle;
   /** Onglet « En enregistrement » : le dossier le plus avancé et sa cible. */
   dossier: { statut: string; cible: string | null; reference: string } | null;
+  /** Nos réceptions PCH sur 12 mois : valeur au coût PCH (DZD) et boîtes. */
   ventes12m: number | null;
+  ventes12mBoites: number | null;
+  /** Nos réceptions PCH, mois par mois (boîtes). */
   tendance: number[] | null;
   partPct: number | null;
   couvertureMois: number | null;
@@ -209,6 +223,8 @@ export interface ListeProduits360 {
   lignes: LigneProduit360[];
   compte: { commercialises: number; enregistrement: number };
   colonnes: { ventes: boolean; marche: boolean; stock: boolean };
+  /** Les 12 mois PCH lus (fin = dernier mois reçu). */
+  periodePch: Bornes | null;
 }
 
 const ORDRE_STATUT: Record<string, number> = {
@@ -247,14 +263,16 @@ export async function listeProduits360(user: SessionUser, opts: { q?: string; on
   const commerce = opts.onglet === "commercialises";
   const dossierVersProduit = new Map(produits.flatMap((p) => p.regulatoryProfiles.map((r) => [r.id, p.id] as const)));
 
-  const [ventes, flux, releves, pv] = await Promise.all([
-    commerce && voit.ventes && ids.length ? ventesDouzeMois(user, ids, maintenant) : Promise.resolve(null),
-    commerce && voit.stock && ids.length ? ecoulements(ids, maintenant) : Promise.resolve(null),
+  // Ventes PCH : lues pour la colonne Ventes (droit Ventes PCH) ET pour l'écoulement qui divise le stock (droit Stocks).
+  const periodePch = commerce && ids.length && (voit.ventesPch || voit.stock) ? await douzeMoisPch(maintenant) : null;
+  const [pch, releves, pv] = await Promise.all([
+    periodePch ? indicateursProduitsPch(ids, periodePch).then((r) => r.parProduit) : Promise.resolve(null),
     commerce && voit.stock ? relevesDeStock(user, [...dossierVersProduit.keys()]) : Promise.resolve(null),
     commerce && voit.pharmacovigilance && ids.length ? casPvOuverts(user, ids) : Promise.resolve(null),
   ]);
+  const flux = commerce && voit.stock && ids.length ? await ecoulements(ids, maintenant, pch) : null;
+  const ventesPch = voit.ventesPch ? pch : null;
 
-  const mois = moisGlissants(maintenant, 12);
   const lignes: LigneProduit360[] = produits.map((p) => {
     const statuts = p.regulatoryProfiles.map((r) => r.status as string);
     const forme = texteForme(p.form);
@@ -267,16 +285,10 @@ export async function listeProduits360(user: SessionUser, opts: { q?: string; on
     };
     if (!commerce) {
       const d = [...p.regulatoryProfiles].sort((a, b) => (ORDRE_STATUT[b.status] ?? 0) - (ORDRE_STATUT[a.status] ?? 0))[0];
-      return { ...base, dossier: d ? { statut: d.status, cible: ymd(d.targetDate), reference: d.reference } : null, ventes12m: null, tendance: null, partPct: null, couvertureMois: null, stockUnites: null, signal: null };
+      return { ...base, dossier: d ? { statut: d.status, cible: ymd(d.targetDate), reference: d.reference } : null, ventes12m: null, ventes12mBoites: null, tendance: null, partPct: null, couvertureMois: null, stockUnites: null, signal: null };
     }
 
-    let ventes12m: number | null = null; let tendance: number[] | null = null;
-    if (ventes) {
-      const miennes = ventes.filter((v) => v.productId === p.id);
-      ventes12m = miennes.reduce((s, v) => s + num(v.revenue), 0);
-      const serie = serieMensuelle(miennes.map((v) => ({ date: v.date, montant: num(v.revenue), hopital: false })), maintenant);
-      tendance = mois.map((_, i) => serie[i].officine);
-    }
+    const v = ventesPch?.get(p.id) ?? null;
 
     let couvertureMois: number | null = null; let stockUnites: number | null = null;
     if (releves) {
@@ -296,17 +308,24 @@ export async function listeProduits360(user: SessionUser, opts: { q?: string; on
     const signal = signalPrincipal({
       pvOuverts: pv ? pv.filter((c) => c.produit === p.id && c.status !== "CLOS").length : undefined,
       couvertureMois: releves ? couvertureMois : undefined,
+      nonServiSignificatif: v ? nonServiSignificatif(v.recent) : undefined,
       generiquesRecents: m ? m.generiquesRecents.length : undefined,
       joursAvantDepotDe: decision ? decision.joursAvantDepot : undefined,
     });
 
-    return { ...base, dossier: null, ventes12m, tendance, partPct: m?.partPct ?? null, couvertureMois, stockUnites, signal };
+    return {
+      ...base, dossier: null,
+      ventes12m: v ? v.recuValeur : null, ventes12mBoites: v ? v.recuNous : null, tendance: v ? v.sellIn : null, partPct: v?.partPct ?? null,
+      couvertureMois, stockUnites, signal,
+    };
   });
 
   return {
     lignes,
     compte: { commercialises, enregistrement },
-    colonnes: { ventes: voit.ventes, marche, stock: voit.stock },
+    // Ventes, tendance et part de marché viennent de Ventes PCH : ces colonnes suivent son droit de lecture.
+    colonnes: { ventes: voit.ventesPch, marche: voit.ventesPch, stock: voit.stock },
+    periodePch: voit.ventesPch ? periodePch : null,
   };
 }
 
@@ -329,10 +348,11 @@ export interface Fiche360 {
   }[];
   /** Dossiers du produit que la personne ne voit pas : comptés, jamais nommés. */
   dossiersMasques: number;
-  ventes: { total12m: number; precedent12m: number; variationPct: number | null; unites12m: number; serie: { mois: string; hopital: number; officine: number }[] } | null;
+  /** Ventes PCH sur les 12 mois qui finissent au dernier mois reçu — `null` sans le droit Ventes PCH. */
+  ventes: (IndicateursProduitPch & { periode: Bornes; mois: string[]; nonServiSignificatif: boolean }) | null;
   stock: {
     unites: number; date: string | null; lieux: number; couvertureMois: number | null; ecoulementMensuel: number | null;
-    sourceEcoulement: "VENTES" | "CONSOMMATION" | null;
+    sourceEcoulement: SourceEcoulement | null;
     releves: { id: string; date: string; lieu: string; portee: string; quantite: number }[];
   } | null;
   pv: { id: string; reference: string; statut: string; gravite: string | null; survenu: string; href: string }[] | null;
@@ -366,7 +386,8 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
   const dossiersNonVerrouilles = p.regulatoryProfiles.filter((r) => !("isLocked" in lock) || !r.isLocked);
   const dossierIds = dossiersNonVerrouilles.map((r) => r.id);
 
-  const [visibles, ventes, flux, releves, pv, saisies, messages, materiel] = await Promise.all([
+  const periodePch = voit.ventesPch || voit.stock ? await douzeMoisPch(maintenant) : null;
+  const [visibles, pch, releves, pv, saisies, messages, materiel] = await Promise.all([
     voit.reglementaire
       ? prisma.regulatoryProduct.findMany({
           where: { AND: [await regulatoryVisibleWhere(user), { productId: p.id }] },
@@ -380,11 +401,7 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
           },
         })
       : Promise.resolve([]),
-    voit.ventes ? prisma.sale.findMany({
-      where: { AND: [await clauseVentesVisibles(user), { productId: p.id, date: { gte: new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - 23, 1)) } }] },
-      select: { date: true, revenue: true, quantity: true, isPch: true, tenderLineId: true },
-    }) : Promise.resolve(null),
-    voit.stock ? ecoulements([p.id], maintenant) : Promise.resolve(null),
+    periodePch ? indicateursProduitsPch([p.id], periodePch) : Promise.resolve(null),
     voit.stock ? relevesDeStock(user, dossierIds) : Promise.resolve(null),
     voit.pharmacovigilance ? casPvOuverts(user, [p.id]) : Promise.resolve(null),
     prisma.productPrice.findMany({ where: { productId: p.id }, orderBy: [{ validFrom: "desc" }, { createdAt: "desc" }], take: 100 }),
@@ -396,20 +413,12 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
       : Promise.resolve(null),
   ]);
 
-  // ── Ventes : 12 mois glissants contre les 12 d'avant ──
-  let blocVentes: Fiche360["ventes"] = null;
-  if (ventes) {
-    const debut12 = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - 11, 1));
-    const recentes = ventes.filter((v) => v.date >= debut12);
-    const total12m = recentes.reduce((s, v) => s + num(v.revenue), 0);
-    const precedent12m = ventes.filter((v) => v.date < debut12).reduce((s, v) => s + num(v.revenue), 0);
-    blocVentes = {
-      total12m, precedent12m, variationPct: variationPct(total12m, precedent12m),
-      unites12m: recentes.reduce((s, v) => s + v.quantity, 0),
-      // Hôpital = la vente relève de la PCH (drapeau historique) ou d'une ligne d'AO ; le reste est l'officine.
-      serie: serieMensuelle(recentes.map((v) => ({ date: v.date, montant: num(v.revenue), hopital: v.isPch || v.tenderLineId !== null })), maintenant),
-    };
-  }
+  // ── Ventes PCH : nos réceptions (sell-in) et la distribution aux hôpitaux (sell-out), 12 mois contre les 12 d'avant ──
+  const indicateurs = pch?.parProduit.get(p.id) ?? null;
+  const flux = voit.stock ? await ecoulements([p.id], maintenant, pch?.parProduit) : null;
+  const blocVentes: Fiche360["ventes"] = voit.ventesPch && indicateurs && periodePch && pch
+    ? { ...indicateurs, periode: periodePch, mois: pch.mois, nonServiSignificatif: nonServiSignificatif(indicateurs.recent) }
+    : null;
 
   // ── Stock : dernier relevé de chaque lieu, couverture ──
   let blocStock: Fiche360["stock"] = null;
@@ -476,6 +485,14 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
   }
   if (blocStock?.couvertureMois !== null && blocStock?.couvertureMois !== undefined && blocStock.couvertureMois < SEUIL_STOCK_BAS_MOIS) {
     aSurveiller.push({ ton: "warning", titre: "Stock bas", detail: `${String(blocStock.couvertureMois).replace(".", ",")} mois · ${blocStock.unites.toLocaleString("fr-FR")} boîtes`, href: "?onglet=stock" });
+  }
+  if (blocVentes?.nonServiSignificatif) {
+    const r = blocVentes.recent;
+    aSurveiller.push({
+      ton: "warning", titre: "Demande non servie",
+      detail: `${r.nonServi.toLocaleString("fr-FR")} boîtes · ${r.etablissements} établissement${r.etablissements > 1 ? "s" : ""} · 3 derniers mois`,
+      href: `/sales/non-servi?p=12m&m=${blocVentes.periode.fin}&produit=${p.id}`,
+    });
   }
   // PRODUIT = DOSSIER : une identité incomplète est une INDICATION de qualité (« Conditionnement à compléter »),
   // avec le lien vers le dossier où elle se complète — jamais un blocage.

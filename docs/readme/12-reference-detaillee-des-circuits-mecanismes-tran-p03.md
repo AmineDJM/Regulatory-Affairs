@@ -234,6 +234,17 @@ autorisation nominative ne l'ouvrent d'eux-mêmes.
 - Tests : `rbac.test.ts` couvre les trois cas qui garantissent que la règle ne se contourne pas
   (portée ALL, responsable nommé, Super Admin) ; `pipeline-access.test.ts` (17 tests) couvre les
   deux niveaux d'accès, le rôle secondaire, et le fait que tenir le cadenas implique de voir.
+- **Module à part depuis le 08/10** (« sépare Pipeline et Suivi de dossiers dans les accès ») :
+  `REGULATORY_PIPELINE` (« Pipeline réglementaire ») se règle dans la console indépendamment de
+  `REGULATORY` (« Suivi des dossiers »). **Deux clés** : `seesLockedRegulatory` / `holdsRegulatoryLock`
+  exigent la confidence ci-dessus **ET** le module — le fermer à quelqu'un ferme le pipeline partout
+  (écran, recherche, sélecteurs, assistant), pas seulement l'entrée de menu. `moduleDuDossierRegulatory`
+  (pur) dit quel module gouverne un dossier (verrouillé → pipeline, ouvert → suivi) ; `scopeRegulatory`
+  compose deux moitiés, chacune avec SA portée (`porteeDossiers` : tout, ou « ses lignes » — créés,
+  portés, partagés, accordés). **Défaut** : chaque rôle reçoit sur le pipeline exactement ses gestes de
+  Regulatory (l'assistante en portée « ses lignes », `defaultScope`) ; **porter** un dossier verrouillé
+  ouvre le module à sa portée nommée (`getAccess`, `carrierAccess`) sauf blocage de la console.
+  Migration `20270115203000_acces_pipeline` ; tests `regulatory/pipeline-module-flow.test.ts`.
 
 ### Regulatory — les trois champs du Super Admin
 
@@ -376,9 +387,11 @@ réalité réglementaire.
 
 **LA DÉCISION** (maquette validée) : l'outil du superviseur et de la Direction, **trois onglets**
 (`SALES_PLANNING_TABS`, `lib/labels.ts`) et UN seul « requis ». En-tête commun (`planning/entete.tsx`) : le cycle (mois
-`PromoCycle`) et son jour ouvré, les BU de la portée, Exporter, « ⋯ » → **Réglages** (Business units — montage par
-étapes —, Secteurs, Paramètres ; réservés à qui configure, vérifié côté serveur, `planning/reglages.tsx`). La BU et le
-mois choisis suivent d'un onglet à l'autre.
+`PromoCycle`) et son jour ouvré, les BU de la portée, Exporter. La BU et le mois choisis suivent d'un onglet à l'autre.
+**Plus de « ⋯ › Réglages » depuis le 08/10** (`planning/reglages.tsx` supprimé) : le montage est le module **Business
+Units** (section suivante). Le 08/10 aussi (2fd508ad), « ⋯ › Business units / Secteurs » plantait : les étapes du
+montage vivaient dans un module client lu côté serveur — elles sont désormais dans `business-units/etapes.ts`, module
+neutre sans `"use client"`.
 
 | Vue | Route | Ce qu'elle montre |
 |---|---|---|
@@ -399,13 +412,34 @@ puis l'alphabet). Lectures : `lib/queries/force-de-vente.ts` (`chargerPilotage`,
 `plan-de-tournee/grille.tsx`) et son PDF (`lib/sfe/plan-pdf.ts`, `lib/plan-tournee-pdf.ts`).
 
 **LA PORTÉE** (`resolveRepScope`, `lib/sfe.ts`) : un **lecteur de pilotage** — le module en lecture, **sans** rôle
-terrain (`MEDICAL_DELEGATE`, `NATIONAL_SALES`, principal ou secondaire) ni profil de KAM : Direction Marketing,
-directeur des opérations… — reçoit `mode: "all"` **`lectureSeule`** (tous les KAM, rien à toucher ; ni périmètre de
-coaching ni de chiffre d'affaires) — `estLecteurDePilotage`. Avant, il tombait en `self` et voyait un pilotage vide.
+terrain (`MEDICAL_DELEGATE`, `NATIONAL_SALES`, principal ou secondaire) ni profil de KAM : Direction Marketing… —
+reçoit `mode: "all"` **`lectureSeule`** (tous les KAM, rien à toucher ; ni périmètre de coaching ni de chiffre
+d'affaires) — `estLecteurDePilotage`. Avant, il tombait en `self` et voyait un pilotage vide. Le **directeur des
+opérations** n'est plus un lecteur depuis le 08/10 : `SALES_PLANNING` MANAGE (et `BUSINESS_UNITS` MANAGE), portée tout.
 
 **Anciennes adresses** : `/planning/pilotage` → `/planning` (cycle compris, liens des alertes déjà envoyées),
 `/planning/affectations` → `/planning/produits`, `/planning/specialites` → `/annuaires/specialites`,
 `/planning/messages` → `/marketing-cockpit?vue=messages`.
+
+### Business Units — le montage de la force de vente, module à part (08/10)
+
+**LA DÉCISION** : « tu crées dans le menu un module "Business Units" et tu y mets BU et secteurs et paramètres ». Module
+`BUSINESS_UNITS` (pôle Operations & Sales, `BUSINESS_UNITS_TABS`) ; les pages ont déménagé de `planning/business-units`
+et `planning/parametres` vers `app/(app)/business-units/` :
+
+| Onglet | Route | Garde | Contenu |
+|---|---|---|---|
+| **Business units** | `/business-units` (`?etape=`, `?bu=`) | `requireModule("BUSINESS_UNITS")` + `peutConfigurerBu` (sinon → Paramètres) | `MontageBu` (`montage.tsx`, composant serveur partagé) : une carte par BU, quatre étapes `bu-etapes.tsx` — BU et superviseur, spécialités et produits (venus des dossiers Regulatory), KAM, secteurs |
+| **Secteurs** | `/business-units/secteurs` | idem | toutes les BU ouvertes sur l'étape Secteurs ; **nommer un territoire** sur place (`NomTerritoire`, `nom-territoire.tsx` → `renommerSecteur`, `lib/actions/sales-planning-actions.ts` : seul le NOM change, pas la couverture ; un nom unique par BU, insensible à la casse ; droit Business Units « Modifier ») — le même composant sert dans Force de vente › Territoires |
+| **Paramètres** | `/business-units/parametres` | module Voir ; écrire = Business Units « Modifier » ; la maille des plans de tournée = Super Admin | capacité terrain, poids des positions, fréquences de repli par palier, maille de planification |
+
+Les gestes du montage se gardent par `BUSINESS_UNITS` ; prévisions et affectations restent à la Force de vente
+(`SALES_PLANNING`). **Défaut** (`rbac.ts`) : chaque rôle qui **modifiait** la Force de vente reçoit ses gestes sur
+Business Units (un lecteur n'y gagne rien) ; le **directeur des opérations** gère les deux depuis le 08/10. Migration
+`20270116100000_module_business_units` : un accès personnalisé qui pouvait modifier la Force de vente est recopié, tout
+autre (lecture seule, blocage) devient un **blocage** — personne ne perd le montage, personne ne le gagne. Anciennes
+adresses : `/planning/business-units` (`?etape=secteurs` → Secteurs, autres étapes et `?bu=` suivent) et
+`/planning/parametres` redirigent.
 
 ### Marketing cockpit — le tableau de la Direction Marketing (refonte du 07/10)
 
@@ -451,6 +485,8 @@ du panel `clausePanelDuKam`, mêmes définitions que le cockpit SFE ; autres : t
 contrat, fin de période d'essai, solde de congés, visites sans compte rendu, anniversaire). **N'en sortent jamais** :
 salaire, type de congé (§118.184), année de naissance. La file « À décider » garde ses cinq natures et leurs circuits
 (congés, achats, formations, marches de recrutement, plans de tournée). Le **Recrutement** n'est plus son sous-menu.
+**08/10** : quatrième vue **KPI** (`?vue=kpi`, à qui a le module `KPI` — voir « KPI & bilans » plus bas) ; la colonne
+« Personne » du tableau de l'équipe réduite de moitié (`vue-equipe.tsx`).
 
 ### Rapports terrain — l'onglet « Rapports » de la Promotion médicale (07/10)
 
@@ -511,8 +547,8 @@ restent des tables internes rattachées au même `productId` (`lib/queries/produ
 
 - **Liste** `/produits` (menu « Produits 360 ») : onglets **Commercialisés** (dossier terminé — ventes, tendance, part
   de marché, mois de stock, **UN signal** : PV ouvert > stock bas (< 2 mois de couverture) > générique fraîchement
-  enregistré > échéance de la DE à 6 mois — `signalPrincipal`) et **En enregistrement** ; les dossiers pas encore au
-  catalogue sont signalés à qui peut les rattacher.
+  enregistré > échéance de la DE à 6 mois — `signalPrincipal`) et **En enregistrement**. Menu ⋯ : « Vérifier le
+  catalogue » (Super Admin) et « Rapprocher un produit BD / BU » (voir plus bas).
 - **Fiche** `/produits/[id]` = **LA page du produit** : identité, frise du cycle de vie (étude → enregistrement →
   commercialisé → fin de vie), cinq chiffres, « À surveiller » (dont AO attribués), onglets **Vue d'ensemble · Ventes &
   marchés · Terrain & marketing · Réglementaire & qualité · Stock · Coûts · Documents**. Échéance DE : validité 5 ans,
@@ -528,12 +564,163 @@ restent des tables internes rattachées au même `productId` (`lib/queries/produ
   ligne ; la saisie l'emporte sur l'Explorateur à partir de sa date d'effet (`resoudrePrix`) ; une ligne **sans
   montant** rend la main à l'Explorateur. Actions `lib/actions/prix-produit-actions.ts`, garde `peutModifierLesPrix`
   (Produits 360 « Modifier » OU Regulatory « Modifier » — le prix est fixé avec la décision d'enregistrement).
-- **Regulatory** : `/regulatory/catalogue` devient **« Rattachement au catalogue »** (produit canonique, rapprochement,
-  « Rattacher tout l'existant » du Super Admin) ; `/regulatory/catalogue/[id]` **redirige** vers `/produits/[id]?onglet=reglementaire`
-  pour qui a `PRODUCTS` VIEW (l'onglet porte identité, nom, alias et historique ; la page ne reste que pour qui n'a pas
-  Produits 360). En ligne de commande : `npx tsx scripts/produits-rattachement-bilan.ts`
-  (simulation et bilan ; `--appliquer` écrit — `rattacherTout`, idempotent ; un dossier à l'identité incomplète n'est
-  jamais rattaché au jugé).
+- **UN DOSSIER = UN PRODUIT (08/10, « on a dit : un seul catalogue de produits ! »)** — règle pure
+  `lib/products/produit-du-dossier.ts` (+ tests), écriture `ensureProduitDuDossier` (`lib/products/canonique.ts`) :
+  chaque dossier **non verrouillé** reçoit SON produit — jamais celui d'un autre dossier, même de même identité (le
+  catalogue ne fusionne plus) ; une identité **incomplète** n'est plus un blocage mais une indication sur la fiche
+  (« Conditionnement à compléter ») ; une identité complétée ou corrigée met à jour **le même** produit, un champ vidé
+  ne le vide pas ; un produit hérité, partagé par plusieurs dossiers, n'est **pas scindé d'office** — seul le dossier
+  dont l'identité s'en écarte reçoit le sien. Clé `Product.identityKey` : l'identité si libre, sinon suffixée de l'id
+  du dossier ; identité incomplète → clé `dossier:<id>`. **Quand** : à la création et à chaque modification du dossier
+  (`regulatory-actions.ts`), à l'ouverture du cadenas (`setRegulatoryLock`, `unlockAllRegulatory` — un dossier
+  verrouillé entre au catalogue à ce moment), **une fois par processus au démarrage** (`assurerProduitsDesDossiersAuDemarrage`,
+  `lib/scheduled.ts`), et à la demande : **« Vérifier le catalogue »** (Super Admin seul, `verifierProduitsDesDossiers`,
+  `lib/actions/produit-canonique-actions.ts`, bilan : dossiers, créés, mis à jour, à compléter, produits partagés listés)
+  ou `npx tsx scripts/produits-rattachement-bilan.ts` (même passage, idempotent). Un dossier d'avant sans produit
+  porte sur sa fiche **« Créer sa fiche produit »** (`regulatory/[id]/creer-produit.tsx` → `rattacherDossierCanonique`,
+  droit de modifier le dossier ; refusé sur un dossier verrouillé).
+- **L'écran « Rattachement au catalogue » est retiré** : `/regulatory/catalogue` → `/produits`,
+  `/regulatory/catalogue/[id]` → `/produits/[id]?onglet=reglementaire` (adresses gardées pour les liens d'avant). Seul
+  reste le **rapprochement d'un produit BD / BU** créé sans dossier : `/produits/rapprocher` (Produits 360 Voir +
+  **Regulatory « Modifier »**, sinon renvoi à `/produits` ; `reconcile-table.tsx`, `getCatalogReconciliation`) — la
+  machine propose le dossier qui ressemble et dit pourquoi, une personne tranche ; rattaché, le produit BD / BU reçoit
+  le produit du dossier et peut être rapporté en visite.
+- **Ventes & marchés** lit les données **Ventes PCH** (réceptions PCH, distribution DR, part de marché fournisseurs,
+  chaîne contrat).
+
+### Operations & Sales — cockpit, Ventes PCH, chaîne, réclamations (08/10)
+
+**LE PÔLE** : « sépare Marketing et Sales » puis « Stocks et Logistique rejoignent Operations & Sales » — `NAV_POLES`
+(`lib/navigation.ts`) n'a plus `SALES_MARKETING` ni `SUPPLY_CHAIN` ; le pôle `OPERATIONS_SALES` range Cockpit
+Opérations, Promotion médicale, Force de vente, Business Units, Marchés PCH, Ventes PCH, Stocks, Logistique (toujours
+retirée, `modules-retired.ts`), Retours & réclamations, Budget Operations & Sales. **Consommation** n'a plus d'entrée
+(écrans, données et module `CONSUMPTION` intacts : affinité de segmentation, Produits 360).
+
+**COCKPIT OPÉRATIONS** (`/operations`, `COCKPIT_OPERATIONS`, lecture seule — Voir = l'ouvrir ; défaut : directeur des
+opérations, Direction, DG). Lecture `lib/queries/cockpit-operations.ts` (`chargerCockpitOperations`), calculs purs
+`lib/cockpit-operations/calculs.ts` (+ tests) : tuiles **livré à la PCH** (nos réceptions PCH sur la période, valeur au
+coût d'achat, évolution — un produit sans fournisseur « à nous » réglé est illisible, pas zéro), **exécution des
+marchés**, **demande non servie**, **ruptures à 60 jours** (couverture de la chaîne), couverture terrain ; table « Par
+BU » (`?bu=`) ; « À traiter » (avenants, BC en retard, fichiers PCH manquants, hôpitaux en rupture, stock PCH périmé,
+logistique, risques Brain du périmètre — `filtreDuPerimetre`). **Rien n'est ressaisi** : ventes PCH, chaîne des contrats,
+stocks de la chaîne, force de vente, Brain. `AccesCockpit` : un signal dont la personne ne voit pas l'écran n'est pas lu.
+
+**VENTES PCH** (`/sales`, `PCH_VENTES`, `VENTES_PCH_TABS` — remplace l'ancienne saisie `SALES`, retirée, dont
+l'historique se lit en lecture seule dans `/sales/historique`). **Deux natures de fichiers** (`lib/ventes-pch/lecture.ts`,
+pur, reconnues par leur en-tête) : les **ventes mensuelles d'une direction régionale** aux hôpitaux (`VENTEDR*.xls` —
+ANNEXE … QTÉ_COMMANDÉE, QTÉ_LIVRÉE, COUT_ACHAT, PRIX_VENTE, DATEFACT ; livrée 0 pour une commande = **demande non
+servie**, livrée négative = **retour**) et les **réceptions de la PCH centrale** (annuelles ou mensuelles — CODE_FOUR,
+NOM_FOUR, CODE_PRO, QTE, TYPE_RECEP…). Le CODE_PRO des réceptions est le POSTE des ventes. **Import**
+(`/sales/importer`, Téléverser ; `lib/ventes-pch/service.ts`) : aperçu sans écriture → application ; même fichier
+(empreinte) = rien ; un fichier plus récent **remplace** sa tranche DR × mois (ou réceptions × mois), l'annuel ses
+douze mois (`planRemplacement`, `calculs.ts`) ; l'original est gardé (`/api/ventes-pch/fichier/[id]`). **Tout connecté**
+(`correspondance.ts`) : client → établissement de l'annuaire (mémoire `PchEtablissementMemoire`, sinon nom normalisé
+désignant UN établissement), **poste PCH → produit** (mémoire `PchPoste`, sinon la présentation — molécule, dose,
+forme, UC — doit désigner UN de nos produits ; une molécule qui n'est pas à nous reste donnée de marché), fournisseurs
+« à nous » proposés puis corrigés par produit (`PchFournisseurProduit`), directions régionales nommées
+(`PchDirectionRegionale`) ; chaque rattachement (Modifier, audité, `lib/actions/ventes-pch-actions.ts`) s'applique aux
+lignes déjà importées et se mémorise. **Onglets** : Synthèse (BU → produit : reçu PCH, distribué, non servi, part de
+marché, évolution), **Contrats** (attribué → BC → livré ; un BC **d'avenant** — `PchOrder.estAvenant`, case du BC dans
+Marchés PCH — compte à part), Territoires (DR, wilaya, établissement, série 12 mois), Non servi (produit × DR), Importer,
+Historique. API de lecture `requetes.ts` (`venteParProduitEtMois`, `demandeNonServie`,
+`consommationHospitaliereMensuelle`, `receptionsPch`, `partDeMarche`…) — lue par le cockpit, les stocks de la chaîne et
+Produits 360. Défauts : opérations, Direction, DG gèrent ; National Sales, Head of Sales, Manager Promotion médicale,
+Direction Marketing lisent. Migration `20270116160000_ventes_pch`.
+
+**STOCKS DE LA CHAÎNE** (`/stocks/chaine`) et **STOCK PCH CENTRAL** (`/stocks/pch-central`) — onglets du module Stocks
+(`ongletsStocks`, `lib/chemins/stocks.ts`), ouverts à la chaîne d'approvisionnement (`voitLaChaine`,
+`lib/queries/stock-pch.ts` : Super Admin, vue globale ou PCH Voir ; sinon renvoi à `/stocks`). La chaîne : par BU et
+par produit, notre stock, le dernier relevé PCH central, la somme du dernier relevé de chaque hôpital, l'âge des relevés
+(orange au-delà de `JOURS_FRAICHEUR` = 30 j) et la **couverture** = stock ÷ consommation mensuelle (moyenne des 3
+derniers mois complets distribués aux hôpitaux, Ventes PCH) — rouge sous 2 mois, orange sous 3. Le stock PCH central
+est **saisi à la main** (« reçus par mail ») : `enregistrerStockPch` (`lib/actions/stock-pch-actions.ts`, garde
+`saisitLeStockPch` = voit la chaîne + Stocks Créer/Modifier) — date du mail (jamais future), central ou une **annexe /
+DR** (lieu `StockAnnex` de type ANNEX, jamais un nom libre), nos produits seulement (relus côté serveur), « Coller le
+tableau » (règles pures partagées `lib/stocks/pch-central.ts`), mail ou PDF joint (entityType `STOCK_PCH_RELEVE`) ; les
+quantités s'écrivent par `ecrireEtatDuJour` — un état par produit, lieu et jour, ressaisir corrige.
+
+**RETOURS & RÉCLAMATIONS** (`/retours-reclamations`, `RETOURS_RECLAMATIONS`) : `Reclamation` (type RETOUR ·
+RECLAMATION_QUALITE · RAPPEL_LOT ; produit, BU, lot, quantité, établissement ou site PCH, date, description ;
+référence `REC-…`). Déclarée par le terrain (lien « Réclamation » dans l'en-tête de la journée du KAM, si
+`declareDesReclamations`) ou par les opérations ; le **responsable** est prévenu et instruit **OUVERTE → EN_ANALYSE →
+CLOTUREE** (conclusion exigée à la clôture ; `refusTransition`). Qui lit : portée TOUT (ou Super Admin) = toutes ;
+sinon celles qu'on a déclarées ou dont on est responsable (`clauseReclamationsVisibles`, `lib/reclamations/acces.ts`) ;
+instruire = Modifier ; fil et pièces polymorphes (entityType `RECLAMATION`, `accesALaReclamation`). Règles pures
+`lib/reclamations/regles.ts` (+ tests). Défauts : opérations, Direction, DG gèrent ; Head of Regulatory, assistante
+réglementaire, pharmacien responsable lisent ; le KAM déclare (Voir/Créer/Téléverser, portée « ses lignes »).
+Migration `20270116143000_retours_reclamations`.
+
+**DROITS DU DIRECTEUR DES OPÉRATIONS** (« → oui ») : Force de vente et Business Units en **gestion** (portée tout),
+Marketing cockpit en lecture, et **Adventum Brain borné à son périmètre** (`ADVENTUM_BRAIN` VIEW/UPDATE ;
+`lib/adventum/perimetre.ts`, pur + tests : catégories PCH, FIELD, MEDICAL, QUALITY, SALES, STOCKS, LOGISTICS,
+RECLAMATIONS, ou un module des opérations — un module qui nomme un autre domaine, Ad & Pro, marketing, réglementaire,
+RH, finances, budget…, l'emporte). Hors Super Admin, `/adventum-brain` n'offre que « Ce matin » (sans briefing) et
+« Risques », filtrés par `lireRisques(…, filtreDuPerimetre(false))` ; ni question libre, ni historique, ni seuils.
+
+### KPI & bilans — des KPI sans code (08/10)
+
+Module `KPI` (« KPI & bilans »), **porte accordée à tous les rôles** (Voir, Créer, Modifier, Valider, Exporter) ; le
+**périmètre suit l'organigramme, jamais le rôle** (`lib/kpi/droits.ts`, pur) : on voit SON bilan et celui de SON arbre
+(`subtreeOf`, le même que Mon équipe) ; noter un KPI évalué, valider une déclaration, signer une revue = Valider, sur
+quelqu'un de son arbre, **jamais sur soi** ; créer un KPI pour son équipe = Créer + avoir une équipe ; déclarer = pour
+soi seulement ; le **catalogue et les modèles par rôle** = Super Admin (`/admin/kpi`, « KPI & modèles »).
+
+- **Couche 1 — briques** (`lib/kpi/briques.ts`, pur ; calcul serveur `briques-calcul.ts`) : des mesures écrites une
+  fois dans le code sur des données que la plateforme tient déjà (visites, messages portés, contacts requis /
+  réalisés, cibles vues à fréquence, rapports dans le délai, plans de tournée validés à temps, note de coaching, tâches
+  à temps, réclamations déclarées, validations et leur délai…). Aucune brique n'estime : donnée absente → `null` et sa
+  raison. **Ajouter une brique est le seul cas où l'on code.**
+- **Couche 2 — définitions** (`KpiDefinition`, versionnée par famille — modifier crée une version) : une brique ou le
+  rapport de deux, filtres, cible, sens (plus haut / plus bas = mieux), nature **CALCULÉ · RATIO · ÉVALUÉ · DÉCLARÉ ·
+  IMPORTÉ** ; affectée à un rôle, à l'équipe d'un manager ou à une personne, avec un **poids** (`KpiAssignment`).
+  Création depuis l'écran (`components/kpi/kpi-createur.tsx`) : une phrase → définitions proposées par **Luna**,
+  contraintes aux briques → **aperçu sur les 3 derniers mois réels** de l'équipe → « Ajouter » ; ce que les briques ne
+  savent pas mesurer → **« Proposer une nouvelle mesure »** (un retour Feedback de module KPI au Super Admin).
+- **Note et score** (`lib/kpi/score.ts`, pur) : note sur 100 **plafonnée à 120** (valeur ÷ cible, ou cible ÷ valeur
+  pour un délai ; ÉVALUÉ = niveau ÷ niveau max) ; sans cible, un KPI s'affiche mais ne compte pas ; **score global**
+  pondéré, un KPI sans donnée sort du calcul et son poids se répartit (l'écran le dit).
+- **Luna** (`lib/kpi-luna.ts`, portes : interrupteur IA → bascule → clé → appel borné 25 s → relecture stricte →
+  journal ; consignes pures `kpi/luna-pur.ts`) propose des définitions, un commentaire, et le **niveau** d'un KPI évalué
+  sur preuve ancrée — **jamais le chiffre d'un KPI** ; sans preuve, pas de proposition : le manager note.
+- **Écrans** : **Mon équipe › KPI** (`?vue=kpi`, `vue-kpi.tsx`, `chargerTableauKpi`) — une colonne par KPI, score,
+  propositions à noter, déclarations à valider, revue (fréquence mensuelle / trimestrielle / semestrielle par manager,
+  `KpiReviewSetting`) ; **Mon espace › Mon bilan** (`/mon-espace/bilan`, `components/kpi/bilan-kpi.tsx`) — ses KPI en
+  continu, sa revue signée (`KpiReview` fige ses lignes), « Déclarer » avec la pièce (`/api/kpi/piece/[id]`).
+- **Cache** (`lib/kpi/service.ts`) : valeur rangée dans `KpiValue`, recalculée au-delà de 15 min tant que la période
+  vit ; battement quotidien `rafraichirKpiSiDu` (`lib/scheduled.ts`). Actions `lib/actions/kpi-actions.ts`. Migration
+  `20270117090000_kpi` (seed : le modèle de rôle **KAM**, 6 KPI, poids 30/20/15/20/5/10).
+
+### Missions Ad & Pro reliées au profil (08/10)
+
+« L'ordre de mission doit être validé par le N+1 avant d'arriver chez les RH » ; « ils ne sont pas obligés de demander
+transport, hôtellerie etc. : ça ne doit même pas s'afficher tant qu'ils n'ont pas cliqué ». Remplace l'ancien suivi
+par marqueur sur l'assignation (`/missions`, `mission-item.tsx` supprimé ; `/missions` → `/mon-espace/missions`).
+
+- **Inviter** (`assignMission`, carte **« Équipe Adventum »** `components/missions/equipe-adventum.tsx` sur congrès
+  internationaux / nationaux, événements, sponsoring) : une assignation (accompagnant, délégué de référence) est une
+  **INVITATION** (`MissionAssignment.response` = INVITEE) ; une seule ligne par personne et par demande (réinviter
+  rouvre celle d'une personne qui avait décliné ou été retirée) ; on ne s'invite pas soi-même. Relancer, remplacer,
+  retirer (archive souple) dans « ⋯ ». Règles pures `lib/missions-equipe/etat.ts` (+ tests), orchestration
+  `missions-equipe/serveur.ts`.
+- **Répondre** (`repondreMission`) : seule la personne invitée, une fois ; **décliner exige un motif**. Les
+  assignations d'avant la migration valent CONFIRMEE.
+- **Mes missions** (`/mon-espace/missions`, onglet de Mon espace ; `components/missions/mes-missions.tsx`) : en tête
+  les ordres à valider comme N+1 et les invitations ; puis une carte par mission confirmée où **seul l'ordre de mission
+  paraît d'office**. Dates et ville reprises de la demande, modifiables (`modifierMission`) — le sponsoring en reçoit
+  ainsi pour paraître aux calendriers.
+- **Ordre de mission** (`requestMissionOrder`) : mission confirmée et dossier RH lié exigés ; une demande RH
+  `MISSION_ORDER` pré-remplie (`omPrefill` : objet, destination, dates) précédée de la **marche du N+1**
+  (`managerGate` PENDING → `deciderOrdreMissionN1` : le N+1 enregistré ou toute personne au-dessus dans la chaîne
+  actuelle ; refus motivé, la personne est prévenue) ; sans N+1, elle part **directement aux RH** (`HR_REQUESTS`
+  Modifier, notifiés). Retirable tant que les RH ne l'ont pas produite.
+- **Étapes facultatives** (`ajouterEtapeMission`) : **transport / hébergement** (demande « Déplacement / Hôtel /
+  Billet » au Bureau du secrétariat, reliée et pré-remplie), **matériel** (demande de stock promotionnel reliée,
+  `PromoStockRequest.missionAssignmentId`), **note de frais** (la demande RH `EXPENSE_REPORT`, à partir du jour du
+  retour).
+- **Frais de l'équipe** (`integrerFraisEquipe`, à la clôture, droit de modifier la demande) : l'organisateur reporte
+  **à la main** le montant exact du transport ou de l'hébergement d'un membre → un **poste Ad & Pro** (Déplacement /
+  Hôtellerie) créé par le mécanisme habituel, qui le validera et l'imputera ; rien d'automatique. Migration
+  `20270116170000_missions_profil`.
 
 ### Force de vente — gamme et produits attribués
 
@@ -556,7 +743,7 @@ Fichiers : `lib/sales-portfolio.ts` (pur + `sales-portfolio.test.ts`, 15 tests),
 `lib/queries/portfolio.ts`, `components/planning/my-portfolio-card.tsx` (serveur, dans
 `/mon-espace`). Paramétrage : depuis le 07/10, Force de vente › **Produits** (`/planning/produits` : matrice délégué
 × produit P1/P2/P3 par cycle, « Reprendre le mois précédent » ; `/planning/affectations` y redirige) ; la gamme par
-produit se règle au montage de la BU (« ⋯ › Réglages › Business units »).
+produit se règle au montage de la BU (module **Business Units**, `/business-units`, depuis le 08/10).
 
 ### Force de vente — les référents Direction Marketing d'une gamme
 
@@ -564,7 +751,7 @@ produit se règle au montage de la BU (« ⋯ › Réglages › Business units �
 configuration des BU, mais le directeur du département marketing recevra **également** l'accès et
 la notif et pourra modifier, valider. » Le menu « Référent Direction Marketing (facultatif) » des
 nouvelles demandes a disparu au lot précédent ; la désignation vit désormais **là où se configure
-la gamme** (`/planning/business-units` — « ⋯ › Réglages », montage de la BU **par étapes** depuis le 07/10 :
+la gamme** (`/business-units` — module **Business Units** depuis le 08/10, ex-« ⋯ › Réglages » de la Force de vente ; montage de la BU **par étapes** depuis le 07/10 :
 BU et superviseur → spécialités & produits → KAM → secteurs, `bu-etapes.tsx`), et plus dans chaque formulaire.
 
 **CE QUE LA DÉSIGNATION FAIT — ET CE QU'ELLE NE FAIT PAS.** Elle **CIBLE** la notification : une
@@ -1007,307 +1194,4 @@ rejeté) et la **leçon retenue** en une phrase.
   testée) — seuls les textes du corpus font règle. Pas de « fine-tuning » du modèle : la
   connaissance vit en base, citée mot à mot, retirable à tout instant — fiable et auditable.
 - Vecteurs sémantiques rattrapés par le planificateur (`embedBacklog`), couverture affichée.
-
-### RH — quatre écrans, et les questions du quotidien
-
-Le module était **une page à sept sections** : on y trouvait tout, sauf vite. Désormais :
-
-| Écran | Route | Ce qu'on y fait |
-|---|---|---|
-| **À traiter** | `/rh` | Ce qui attend une décision : demandes RH, congés, avances, contrats à échéance. |
-| **Équipe** | `/rh/equipe` | L'annuaire **cherchable** + la répartition de l'effectif (camembert). |
-| **Congés** | `/rh/conges` | L'état de l'équipe **maintenant** + l'historique des décisions. |
-| **Départements** | `/rh/departements` | La structure (hiérarchie, responsables, rattachements). |
-
-**Sur le fond** — `lib/queries/hr-pulse.ts` (`getHrPulse`) répond à ce que le module ignorait :
-
-- **qui est absent aujourd'hui** (nombre sur l'effectif, motif, date de retour) — LA question
-  quotidienne d'un service RH ;
-- **qui part dans les 14 jours** : anticiper au lieu de constater ;
-- **les échéances qu'on oublie** : fin de **période d'essai** (la renouvelée prime) et fin de
-  contrat sous 60 jours, côte à côte — laisser filer une fin d'essai a des conséquences
-  juridiques ;
-- **les soldes de congés** les plus élevés : ce qui risque d'être reporté ou perdu ;
-- **la recherche** dans l'annuaire (nom, poste, département, e-mail, téléphone — un seul champ,
-  filtrage local, réponse à la frappe).
-
-Salaire et masse salariale restent réservés aux comptes qui **valident**, comme partout ailleurs.
-
-### Mobile — l'écran respire
-
-Sur 375 px, chaque carte mangeait ~32 px en marges, bordures et arrondis : l'application
-paraissait « boxée » au lieu de native.
-
-- Les cartes de **premier niveau** passent **bord à bord** sur téléphone (ni bordure latérale,
-  ni arrondi sur les côtés) ; les cartes **imbriquées** gardent leur cadre — c'est lui qui montre
-  l'imbrication. Porté par une seule classe `page-shell` sur le conteneur de page
-  (`app/(app)/layout.tsx` + `globals.css`), donc aucun composant à retoucher un par un.
-- Un tableau qui déborde défile **bord à bord** ; marges de page 16 → 12 px ; ombres allégées ;
-  titres compacts ; `text-size-adjust: 100%` (iOS n'agrandit plus le texte en paysage).
-- **Les tiroirs deviennent des feuilles** : sur téléphone, `<Sheet>` monte du bas, arrondi en
-  haut, avec une poignée, et s'arrête à 95 % de la hauteur pour qu'on voie ce qu'il y a derrière.
-  Sur ordinateur, rien ne change.
-
-### Frontière client / serveur (règle de compilation)
-
-Un composant `"use client"` est compilé **pour le navigateur**. S'il importe — même
-indirectement — un module qui lit des fichiers (`fs`, `zlib`…), la compilation de production
-échoue avec **« Module not found: Can't resolve 'fs' »**. Le typecheck ne le voit pas, et un
-`npm run build` local peut le rater à cause du cache `.next`.
-
-- Les **actions serveur** (`"use server"`) ne comptent pas : Next.js les remplace par un appel
-  distant. Un composant client peut les appeler librement.
-- Pattern appliqué dans le code : les fonctions **pures** vivent dans un module dédié sans
-  dépendance lourde — `src/lib/market/text.ts` (normalisation) et `galenic.ts` (molécule,
-  dosage, forme) — tandis que `molecule.ts`, qui **lit les données**, les réexporte pour les
-  modules serveur. L'explorateur de produits importe donc `galenic`, jamais `molecule`.
-- **`src/lib/client-bundle-guard.test.ts`** remonte les chaînes d'import de chaque composant
-  client et fait échouer `npm test` en affichant le chemin fautif, module par module.
-
-### Graphiques — une seule palette, vérifiée
-
-Tous les graphiques de la plateforme partagent les mêmes primitives (`src/components/charts/` :
-`Donut`, `Trend`, `Bars`, `Meter`) et la **même palette catégorielle**, définie une fois dans
-`palette.ts`.
-
-- L'**ordre des teintes n'est pas décoratif** : il a été vérifié par l'outil de validation —
-  écart CVD ≥ 8 sur toutes les paires voisines, écart en vision normale ≥ 15, sur le fond
-  **blanc réel** de nos cartes. Ne pas réordonner.
-- Trois teintes passent sous 3:1 de contraste sur blanc → règle tenue partout : **jamais la
-  couleur seule**. Chaque part est reprise dans une **légende chiffrée** (qui vaut vue
-  tabulaire) et décrite dans son `<title>` (info-bulle native, accessible).
-- Au-delà de **6 catégories**, `foldTail` replie la queue dans « Autres » — on n'invente
-  jamais une 7ᵉ teinte, indistinguable d'une existante en vision daltonienne.
-- **Un seul axe** par graphique (jamais deux échelles), écart de 2 px entre tranches, marques
-  fines, grille discrète. Composants **serveur** : aucun JS envoyé au navigateur.
-
-### Intelligence marché — la maille MOLÉCULE
-
-On cherche **par la case que l'on remplit** : **molécule**, **nom de produit**, ou
-**laboratoire** (les trois se cumulent). Remplir la molécule débloque en plus l'**analyse
-concurrentielle** — c'est la seule maille qui a un sens pour comparer des acteurs entre eux.
-
-Une molécule, au sens métier, est un **triplet molécule + dosage + forme** : l'amoxicilline
-500 mg gélule et l'amoxicilline 1 g injectable ne s'affrontent pas sur le même marché.
-
-**Ce que l'analyse répond** (`src/lib/market/molecule.ts` → `analyzeMolecule`) :
-- le **poids du marché** (valeur DZD/USD, volume, nombre d'acteurs) ;
-- le **marché adressable** : part **ville** et part **hôpital** en %, avec les acteurs de chaque côté ;
-- les **parts de marché** de chaque laboratoire, le leader, la **concentration** (HHI : > 2500 = concentré) ;
-- qui est **enregistré** à la nomenclature, et surtout s'il **fabrique en Algérie ou importe** ;
-- les **dosages et formes réellement présents**, pour affiner la recherche.
-
-**Le vrai travail : réconcilier trois sources qui n'écrivent rien pareil.**
-
-| Normalisation | Ce qu'elle résout |
-|---|---|
-| `moleculeStem` / `moleculeMatches` | « AMOXICILLIN » (IQVIA, anglais) ≡ « AMOXICILLINE TRIHYDRATÉE EXPRIMÉE EN AMOXICILLINE » (nomenclature). Les **sels** et l'hydratation ne font pas une molécule différente. Une association demandée exige **tous** ses composants. |
-| `canonicalForm` | Décode les présentations abrégées d'IQVIA (`PD.SAC`, `P/SUS`, `FL+SOLV`, `STYL PRE REM`…). Formes non reconnues : **32,6 % → 3,8 %** de la valeur du marché. Stylos et seringues préremplies = **injectables** (c'est ainsi qu'ils s'achètent) ; bandelettes et lecteurs = **dispositifs**, pas des médicaments. L'ordre des règles est la règle métier (`GELULE` avant `GEL`, `PERFUSION` avant `INJECTABLE`). |
-| `extractDosage` / `dosageMatches` | « CP.PE 875MG/ 125 MG 10 » → `875MG/125MG`. Renvoie `null` plutôt que d'inventer. |
-| `labKey` | « SAIDAL » ≡ « GROUPE SAIDAL » ≡ « EPE / SPA GROUPE SAIDAL » — sans quoi le même acteur apparaissait trois fois et son origine ne se rattachait à rien. |
-
-Saisie **assistée** (`moleculeSuggestions`, `labSuggestions`) : on ne propose que ce qui existe
-réellement dans les données, les plus gros marchés d'abord. Écran : `/business-development/marche/produits`.
-Tests : `src/lib/market/molecule.test.ts` (20 tests, cas tirés des données réelles).
-
-### PCH — un appel d'offres lu par l'IA devient un tableau Excel
-
-Téléverser le document suffit : **lecture (le texte du fichier d'abord, l'OCR seulement quand il
-manque) → extraction IA des produits → enrichissement automatique de chaque ligne** par
-l'intelligence marché. Avant, il fallait cliquer « Enrichir »
-ligne par ligne — sur un marché de quarante produits, personne ne le faisait.
-
-- **Nature de l'unité demandée** (`unitLabel`) : un appel d'offres ne parle pas toujours de
-  comprimés — flacon, ampoule, seringue, poche, sachet. C'est ce mot qui donne son sens à la
-  quantité ; sans lui on compare des flacons à des comprimés.
-- **Analyse de marché par ligne** (`enrichLineById` → `analyzeMolecule`) : taille du marché,
-  nombre d'acteurs, partage **ville / hôpital** en %, principaux concurrents avec leur part,
-  concentration, et **production locale ou importée**. L'origine est **pondérée par le poids
-  des acteurs**, pas par leur nombre : un marché à 80 % importé reste importé même s'il compte
-  dix petits fabricants locaux (`dominantOrigin`).
-- **Enrichir tout** (`enrichAllTenderLines`) rejoue l'analyse sur l'ensemble des lignes.
-- **Export Excel** (`/api/pch/export?id=…`, `src/lib/pch-tender-export.ts`) — deux feuilles :
-  - *Produits demandés* : désignation, molécule, dosage, forme, **unité demandée**, quantité,
-    conditionnement, **boîtes à fournir** (arrondi au **supérieur** — on ne livre pas une
-    demi-boîte), prix de référence verrouillé sur les réceptions PCH, valeur du marché à ce
-    prix, et notre position ;
-  - *Analyse de marché* : taille, concurrents, ville/hôpital, concentration, principaux
-    acteurs, production locale ou importée.
-  Les colonnes sans donnée **restent vides** : pas de demi-vérité dans le fichier qui sert à
-  chiffrer une offre. Tests : `src/lib/pch-tender-export.test.ts` (11 tests).
-
-### Pièces jointes (pattern standard)
-
-Téléversement **en lot** (plusieurs fichiers **ou un dossier entier**, tous types sauf exécutables,
-**sans limite de nombre**, **en parallèle**) : composant `components/documents/document-upload.tsx` →
-route en flux `POST /api/documents/upload` → `persistUploadedDocument` (`src/lib/documents.ts`), logique
-partagée avec l'action serveur historique `uploadDocument` (compat).
-
-```ts
-const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-// persistUploadedDocument(userId, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb })
-//   → validateDocumentUpload(name, size, maxMb)  (bloque seulement les exécutables ; taille réglable)
-//   → clé `${ENTITY}/${id}/${randomUUID()}__${name}` ; saveFile(key, buffer) en try/catch (métadonnées quand même)
-//   → prisma.document.create({ name, category, entityType, entityId, stepKey, fileKey, mimeType, sizeBytes, version, confidentiality, uploadedById })
-```
-Téléchargement : `/api/documents/[id]?dl=1`. Le **Drive** utilise un stockage distinct (`putBlob`/`getBlob`/`releaseBlob`
-— blobs chiffrés dédupliqués + `FileVersion`). La fiche de paie utilise `EmployeeDocument` (blob Drive + `period`).
-
-### Budgets par département — trois natures, trois responsables
-
-Écran `/budgets/departements`. Le modèle porte **une ligne par (département, année, NATURE)** :
-
-| Nature | Ce que ça couvre | Qui la règle |
-|---|---|---|
-| `OPERATING` | **Moyens généraux** — fournitures, prestations, déplacements | **Le directeur du département** (responsable ou adjoint dans l'organigramme) + l'administrateur |
-| `HR` | **Masse salariale** — employés, charges, recrutement | **Les ressources humaines** (`RH:UPDATE`), exclusivement |
-| `ACTIVITY` | **Budget métier** — Ad & Pro au marketing, paiement des BV au Regulatory… | **Le directeur du département** + l'administrateur (listes d'accès **séparées** de celles des moyens généraux) |
-| `TRAINING` | **Budget formation** — montée en compétence de l'équipe | Les RH, doté par l'administration |
-
-**Personne ne s'accorde son propre budget.** Une **dotation** (montant initial) ou une **rallonge**
-se DEMANDE (`DepartmentBudgetRequest`) et l'administration tranche — c'est ce qui rend vérifiable
-« budget fixé par les RH, validé par l'administration » au lieu d'en faire un usage. Une dotation
-initiale est une rallonge partant de zéro : même geste, même circuit. Un montant accordé
-**s'ajoute** au budget en cours (le remplacer effacerait silencieusement la dotation précédente).
-
-**La consommation est réelle**, pas déduite : chaque dépense s'impute via
-`DepartmentBudgetExpense`, avec sa **facture ou son bon de paiement** en pièce **obligatoire** —
-sans pièce, une ligne de dépense n'est qu'une affirmation. La masse salariale fait exception : elle
-se lit sur la **paie**, jamais saisie.
-
-Le Super Admin règle les deux. **La séparation n'est pas cosmétique** : un directeur administratif n'a pas à
-connaître la masse salariale pour accorder un budget de déplacement, et les RH n'ont pas à arbitrer les achats.
-Comme les deux responsables **n'écrivent jamais la même ligne**, l'un ne peut pas écraser l'autre — la contrainte
-`@@unique([departmentId, year, kind])` le rend structurellement impossible, avant même le contrôle applicatif, qui
-vérifie le droit **par nature** (`canSetDepartmentBudget`).
-
-- **Les deux colonnes sont CÔTE À CÔTE**, et une case non modifiable est **affichée en lecture** (cadenas) plutôt
-  que masquée : c'est la seule façon de voir ce que coûte réellement un département. Ce qui est réservé, c'est
-  l'écriture, pas la lecture. Qui règle quoi est **écrit à l'écran**, pas seulement appliqué en silence.
-- **La masse salariale RÉELLE est calculée depuis la paie** de l'exercice (**coût employeur** de chaque ligne, repli brut + primes − retenues sur les mois d'avant ce champ — `hr/payroll-cost.ts`),
-  jamais saisie — un montant ressaisi dirait ce qu'on espère, pas ce qui se passe.
-- **Le fonctionnement n'a volontairement PAS de colonne de consommation** : aucune dépense n'est aujourd'hui
-  imputée à un département, et un chiffre inventé ressemblerait à une mesure sans en être une. La page le dit.
-- `budgetHealth` distingue **« pas de budget réglé »** (`UNSET`) de **« rien consommé »** — une absence de décision
-  n'est pas une bonne nouvelle. Seuils : ≥ 80 % `AT_RISK`, ≥ 100 % `OVER_BUDGET`.
-- Le tableau nomme les départements par leur **chemin complet** (« Commercial › Ville »), sans quoi deux
-  sous-départements homonymes de deux pôles se confondraient. Il reste dans la **portée d'entité** en cours.
-**QUI Y A ACCÈS — réglé par le Super Admin, et par lui seul.** Le socle par rôle vaut *partout* ; il manquait de
-quoi dire « le responsable du Commercial règle le fonctionnement DE SON département », ni plus ni ailleurs.
-
-- **Trois portées distinctes**, parce que ce ne sont pas les mêmes personnes : **consultation**, **édition du
-  fonctionnement**, **édition des employés**. On peut consulter sans rien régler.
-- **Une règle par département + une règle GÉNÉRALE** (`departmentId = null`) valable pour tous. Les deux se
-  **cumulent** (union, jamais intersection : intersecter ferait d'une règle de département une *restriction* de la
-  règle générale). Unicité de la règle générale garantie par un **index partiel** — en SQL deux `NULL` ne s'égalent
-  pas, un `@unique` ordinaire laisserait créer dix règles générales contradictoires.
-- **Les autorisations s'AJOUTENT, elles ne retranchent jamais.** Poser la première ne doit pas retirer aux RH le
-  budget des employés par effet de bord, et un droit qui disparaît sans qu'on l'ait demandé se diagnostique très
-  mal. Pour restreindre, c'est le **droit de module** qu'on revoit. L'écran le dit, plutôt que de le laisser
-  découvrir.
-- **La porte de l'écran** n'est plus `requireModule("BUDGETS")` mais « droit de module **OU** une autorisation
-  quelconque » : sinon une personne autorisée sur un département mais sans le module serait refoulée à l'entrée, et
-  son autorisation ne servirait à rien. Les lignes qu'on n'a pas le droit de voir sont **filtrées côté serveur** —
-  le montant ne transite même pas jusqu'au navigateur.
-- Le droit est **revérifié à l'écriture**, sur CE département : les règles affichées à l'ouverture ont pu changer.
-- La liste des rôles proposés est **dérivée de `ROLE_LABELS`**, jamais recopiée — une liste écrite à la main finit
-  par proposer un rôle qui n'existe plus, et une case cochée sur un rôle fantôme n'autorise personne sans que rien
-  ne le signale.
-- **Fichiers** : `src/lib/department-budget.ts` (+ `.test.ts`, 28 tests), `src/lib/queries/department-budget.ts`,
-  `src/lib/actions/department-budget-actions.ts`, `src/app/(app)/budgets/departements/` (`page.tsx`,
-  `department-budget-table.tsx`, `access-sheet.tsx`). Modèles `DepartmentBudget`, `DepartmentBudgetAccess`.
-
-### Ad & Pro — corriger une demande, joindre un fichier à un avis
-
-**Corriger une demande** (bouton « Modifier » sur les sept fiches du pôle — sponsoring, deux prises en charge,
-événement, matériel promotionnel, consulting, autre demande). Deux règles portent tout le reste :
-
-1. **Ce qui a fondé une décision ne se réécrit pas.** Une fois la demande tranchée (`isAdProDecided`), le demandeur ne modifie
-   plus : réécrire « 200 000 demandés » en « 400 000 » après un accord transformerait la décision en autre chose
-   que ce qui a été décidé. Seule la **vue globale** garde la main — et l'audit note explicitement
-   « **APRÈS DÉCISION** ». Avant décision : le demandeur, ou le droit `UPDATE` du module.
-2. **Les champs de décision ne sont jamais modifiables ici** (montant accordé, statut, Direction Marketing, avis,
-   motifs) : ils appartiennent au circuit. D'où une **LISTE BLANCHE** (`EDITABLE_FIELDS`) plutôt qu'une liste
-   d'interdits — elle ne se trompe pas quand un champ nouveau apparaît dans le modèle. Le `select` de la requête
-   **ET** le formulaire en sont dérivés : le formulaire ne peut pas afficher un champ que le serveur refuserait.
-
-Le point d'entrée est **unique pour les sept natures** ; ce qui varie (table, module RBAC, chemin, colonne de
-statut) tient dans la table `TARGETS`. L'audit consigne **ce qui CHANGE** (avant → après), pas l'état final :
-relire « ville : Alger » n'apprend rien, « ville : Oran → Alger » dit ce qui s'est passé. Les comparaisons ignorent
-les espaces de bordure et l'heure d'une date, sans quoi le journal se remplirait de non-modifications.
-
-**Pièce jointe à un avis.** La Direction Marketing, le National Sales et la Direction peuvent joindre un document à leur
-décision (devis comparatif, note, courrier), **à toutes les issues** — y compris un simple commentaire. **L'ordre
-des opérations porte la garantie** : les fichiers sont **contrôlés avant** que le circuit n'avance (enregistrer
-l'avis puis refuser la pièce laisserait la décision prise et sa justification perdue), l'**étape courante est lue
-avant** l'avancement (sinon la pièce serait rattachée à l'étape suivante, c'est-à-dire à quelqu'un d'autre), et
-l'écriture n'a lieu qu'une fois le moteur ayant **autorisé** l'action. Catégorie `SUPPORTING_DOC`, `stepKey` = slug
-de l'étape. Le contrôle sans écriture est extrait dans `validateAttachments` (`src/lib/attach-files.ts`).
-
-- **Fichiers** : `src/lib/ad-pro-edit.ts` (+ `.test.ts`, 14 tests), `src/lib/queries/ad-pro-edit.ts`,
-  `src/lib/actions/ad-pro-edit-actions.ts`, `src/components/ad-pro/edit-request-button.tsx` ;
-  `src/lib/actions/workflow-actions.ts` (`advanceWorkflow`), `src/components/workflow/workflow-panel.tsx`.
-
-### Assistant — recherche Regulatory complète et écriture sur les produits
-
-- **`search_products` cherche là où les mots sont écrits** : DCI, nom commercial, référence, **classe
-  thérapeutique** (« oncologie », « biosimilaire », « anticorps monoclonal »…), forme galénique, laboratoire
-  partenaire, pays d'origine et entité. Sans la classe thérapeutique, ces recherches ne remontaient rien. La
-  limite n'est plus figée (40 par défaut, **300** au plus) et la réponse dit le **total du portefeuille** et si
-  elle est **tronquée** — omettre en silence serait pire que tronquer.
-- **`set_products_company`** — seul outil d'écriture Regulatory : rattacher **un ou plusieurs** produits à une
-  entité. Le lot est décrit par un **FILTRE**, jamais par une liste devinée, et ce filtre (`productBulkWhere`) est
-  **partagé entre l'aperçu et l'exécution** — deux filtres écrits séparément finiraient par diverger, et on
-  modifierait autre chose que ce qui a été montré. À l'exécution il est **intersecté avec les références
-  affichées**, pour qu'un produit créé entre l'aperçu et le clic ne soit pas emporté. La confirmation **liste** les
-  produits (25 puis « … et N autres ») plutôt qu'un compte. Droit vérifié : `REGULATORY:UPDATE` — écrire n'est pas
-  lire — **revérifié à l'exécution**, jamais déduit de la proposition.
-- **`MAX_TURNS = 16`** (contre 6) : lister tout le portefeuille consomme déjà plusieurs tours, et l'utilisateur
-  recevait « je n'ai pas pu finaliser la demande » alors que l'assistant travaillait. Un tour ne coûte que s'il est
-  utilisé — la boucle s'arrête dès que le modèle répond sans outil.
-
-### Cloisonnement — entité, gamme, et ce que chacun voit
-
-**Deux dimensions, pas une.** L'**entité** (société du groupe) dit *de qui* est un objet. La
-**gamme** (`ProductRange`, propre à une entité) dit *de quoi* relève un produit. Elles se composent :
-une gamme AFFINE l'entité, elle ne la remplace pas.
-
-**Ce qui ouvre une entité** (`allowedCompanyIds`, pur, testé) : la société d'appartenance
-(`Employee.companyId`), une autorisation nominative (`UserCompanyAccess`), **ou une gamme rattachée**
-— une gamme ouvre son entité en lecture, sans quoi le rattachement n'ouvrirait rien. Le Super Admin
-voit tout le groupe (`GROUP_WIDE_ROLES`) ; la Direction, non — ses accès inter-entités se saisissent.
-
-**Ce qui restreint les produits** (`productRangeWhere`, pur, testé) : les gammes rattachées, **sauf**
-celles dont l'entité est déjà ouverte en entier — on ne retire jamais un droit donné plus haut.
-Composé côté serveur par `productRangeScope(userId)` dans `queries/regulatory-rows.ts` et
-`queries/product-catalog.ts`.
-
-**Le filtre d'entité des écrans** : `platformScope(userId)` — la portée du cookie **validée** contre les
-droits, avec deux garde-fous (aucun filtre si le groupe n'a qu'une société ; aucun filtre pour qui ne relève
-d'aucune entité, on n'aveugle personne par omission) —, composée en `AND` par `companyScopedWhere` (une LISTE,
-lignes sans entité comprises) ou `ficheScopedWhere` (une FICHE ouverte par son lien : toutes les sociétés auxquelles
-la personne a droit, §118.184). ⚠️ `currentCompanyWhere()` puis `currentCompanyWhereFor()` ont été **supprimés** : le
-premier posait le cookie tel quel et, **sans cookie, ne filtrait rien** ; le second se laissait **étaler** dans un
-`where` qui porte déjà un `OR`, et la portée métier disparaissait en silence.
-
-**Le sélecteur** (`CompanySwitcher`) n'affiche un menu que si l'on a **plusieurs** entités ; sinon
-il montre la sienne, sans choix. `setCompanyScope` **refuse** une entité hors droits et retombe sur
-la portée légitime — jamais sur « toutes ».
-
-**Écran** : `/admin/gammes` (Super Admin) — arbre entité › gammes › produits + rattachement des
-personnes. Les produits sont ceux de Regulatory ; seuls ceux de l'entité de la gamme (ou sans
-entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SET NULL`).
-
----
-
-### Accusés, verrous & confidentialité — règles éparses à ne pas casser
-
-- Événements (`Event`) n'a **pas** de champ `updatedById` → le moteur de workflow le retire avant `update`.
-- `PERMISSIONS` (rbac.ts) est exhaustif par rôle — tout nouveau rôle casse le typecheck tant qu'il n'a pas son entrée.
-- Références séquentielles : `buildRef`/`createWithRetry` (`src/lib/refs.ts`) — jamais `count()+1`.
-- Suppression d'une demande RH par les RH : corbeille par demande (`deleteHrRequest`) — le bouton employé de la
-  fiche est réservé à la **fiche complète** et l'annonce clairement.
-- La **dernière activité** admin = max(`UserSession.lastSeenAt` groupé, `User.lastSeenAt` heartbeat, `lastLoginAt`).
-
----
 
