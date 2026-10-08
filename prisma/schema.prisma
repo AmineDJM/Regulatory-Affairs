@@ -1613,6 +1613,7 @@ model Company {
   letterheads             OfficeLetterhead[]
   documentProfile         CompanyDocumentProfile?
   documentSequences       DocumentSequence[]
+  documentReferences      DocumentReference[]
   legalFolders            LegalFolder[]
   mailEntryFolders        MailEntryFolder[]
   medicalDirectories      MedicalDirectory[]
@@ -2554,7 +2555,7 @@ model AdProDevis {
   /// pas de fiche dans l'annuaire : c'est elle que porte le bon de commande. Jamais devinée (étiquettes imprimées).
   fournisseurLu   Json?
   /// LE BROUILLON DU BON DE COMMANDE (« à vérifier par le demandeur », Direction 10/2026) : ce que le demandeur relit et corrige AVANT que le
-  /// numéro NNN/DG/AAAA soit attribué et que le BC parte aux Finances. `null` : pas de brouillon. Forme : `lib/ad-pro/bc-brouillon.ts`.
+  /// numéro NNN/DG/AAAA soit attribué et que le BC parte aux Finances. `null` : pas de brouillon. Forme : `lib/bons-de-commande/brouillon.ts`.
   bcBrouillon     Json?
   quoteDate       DateTime?
   /// La lecture (`LecturePiece`) dont viennent les lignes proposées, et d'où elles viennent, dit à la personne.
@@ -5099,13 +5100,39 @@ model DocumentSequence {
   id        String   @id @default(cuid())
   companyId String
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  /// `QUOTE` | `PURCHASE_ORDER` | `INVOICE` — la nature Legal de la pièce.
+  /// `QUOTE` | `PURCHASE_ORDER` | `INVOICE` — la nature Legal de la pièce ; `REGISTRE_DG` — le compteur COMMUN des
+  /// références NNN/DG/AAAA (tous types de documents d'une société, une ligne par année : `lib/references/registre.ts`).
   kind      String
   year      Int
   last      Int      @default(0)
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, kind, year])
+}
+
+/// LE REGISTRE COMMUN DES RÉFÉRENCES NNN/DG/AAAA (Direction, 10/2026 : « tout document ou BC généré doit avoir la numérotation
+/// NNN/DG/AAAA », « un compteur commun pour les références »). Une ligne par numéro ATTRIBUÉ — bon de commande, ordre de mission,
+/// demande de devis… — par société et par année : l'unicité (`companyId`, `year`, `numero`) vaut pour TOUS les types, et une
+/// ligne ne se supprime jamais (un document annulé ne rend pas son numéro). Le compteur est `DocumentSequence` (kind
+/// `REGISTRE_DG`) ; la règle et ses gardes : `lib/references/registre.ts`.
+model DocumentReference {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  year        Int
+  numero      Int
+  /// La référence telle qu'elle est imprimée (« 040/DG/2026 »).
+  reference   String
+  /// `BON_DE_COMMANDE` | `ORDRE_MISSION` | `DEMANDE_DEVIS` | `DEVIS` | `FACTURE` | `AVOIR`.
+  docType     String
+  /// Ce que le document sert : `LEGAL_DOCUMENT`, `HR_REQUEST`, `AD_PRO_ITEM`, `PROMO_MATERIAL`… (nul tant qu'il naît).
+  entityType  String?
+  entityId    String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([companyId, year, numero])
+  @@index([entityType, entityId])
 }
 
 /// TEACH ADAM — ce qu'une personne a ENSEIGNÉ à Adam (§119) : une règle structurée, bornée à un
@@ -7043,6 +7070,9 @@ model PromoQuote {
   lines                 PromoQuoteLine[]
   /// LE BON DE COMMANDE généré pour CE devis (pièce Legal). Nul = pas encore généré, ou annulé.
   purchaseOrderId       String?
+  /// L'APERÇU DU BC « à vérifier par le demandeur » (Direction, 10/2026) : déposé par la génération, SANS numéro ; la
+  /// validation par le demandeur (ou le Super Admin) émet le BC et l'efface. Forme : `lib/promo-material/bc-brouillon-promo.ts`.
+  bcBrouillon           Json?
   /// Le BC est-il parti chez le fournisseur ? Seul un BC SIGNÉ part (§118.149).
   purchaseOrderSentAt   DateTime?
   purchaseOrderSentById String?
@@ -7249,6 +7279,9 @@ model PromoCatalogueArticle {
   exigeProduit     Boolean            @default(false)
   /// Archivé : ne se propose plus, mais reste lisible partout où il a servi.
   actif            Boolean            @default(true)
+  /// « AUTRE ARTICLE » saisi librement depuis une demande : archivé (il ne se propose pas) tant qu'un gestionnaire du
+  /// catalogue ne l'y a pas ajouté (« Proposer au catalogue »).
+  horsCatalogue    Boolean            @default(false)
   createdById      String?
   updatedById      String?
   createdAt        DateTime           @default(now())
@@ -8075,6 +8108,7 @@ model PharmacovigilanceParticipant {
 // quantité, l'établissement et/ou le site PCH (DR / annexe), ce qui s'est passé. Statut OUVERTE → EN_ANALYSE → CLOTUREE
 // (avec sa conclusion). Le fil d'échange est un `Comment` (entityType RECLAMATION), les pièces des `Document`. Comme la
 // pharmacovigilance : aucune relation dure — les libellés sont des instantanés, un produit renommé ne réécrit rien.
+// module retiré le 09/10/2026, table conservée
 model Reclamation {
   id              String    @id @default(cuid())
   /// REC-AAAA-NNN
@@ -15813,4 +15847,45 @@ model AdProMedecin {
   @@unique([entityType, entityId, doctorId])
   @@index([entityType, entityId])
   @@index([doctorId])
+}
+
+/// LE BESOIN ANNUEL D'UN SERVICE (Direction, 10/2026 — Marketing cockpit · terrain) : en marché d'appels d'offres, le
+/// DÉCIDEUR (H) fixe les prévisions de son service, et ces prévisions fixent le volume de l'AO. Le KAM saisit le besoin
+/// annoncé (en boîtes) à la visite du décideur ; la Direction Marketing et le chef de produit le corrigent au cockpit.
+/// Une ligne par produit × établissement × service × année — `serviceId` nul = l'établissement entier (l'index unique
+/// SQL est `NULLS NOT DISTINCT`). Identifiants SANS relation Prisma (la convention des marques de renvoi) : les clés
+/// étrangères vivent dans la migration `20270117183000_besoins_services` (cascade sur produit, établissement, service ;
+/// décideur retiré = `SET NULL`). La règle : `src/lib/besoins-services/regles.ts`.
+model BesoinAnnuelService {
+  id            String   @id @default(cuid())
+  productId     String
+  institutionId String
+  serviceId     String?
+  annee         Int
+  /// En boîtes.
+  quantite      Int
+  /// Le praticien (décideur) qui l'a annoncé.
+  decideurId    String?
+  note          String?
+  saisiParId    String
+  saisiLe       DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([productId, institutionId, serviceId, annee])
+  @@index([productId, annee])
+  @@index([institutionId])
+  @@index([decideurId])
+}
+
+/// LA VOIX DU TERRAIN, MISE EN CACHE POUR LA JOURNÉE (`src/lib/voix-terrain-luna.ts`) : le regroupement des rapports de
+/// visite par Luna (ou son repli par mots-clés) se calcule une fois par jour et par périmètre — `cle` = périmètre +
+/// fenêtre + jour. Une donnée de confort : la supprimer fait seulement recalculer.
+model VoixTerrainCache {
+  cle     String   @id
+  jour    String
+  contenu Json
+  parLuna Boolean  @default(false)
+  creeLe  DateTime @default(now())
+
+  @@index([jour])
 }

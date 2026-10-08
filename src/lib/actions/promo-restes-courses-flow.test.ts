@@ -30,7 +30,7 @@ import { getAccess, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { faitsStock, peutRecevoirDuStock } from "@/lib/queries/promo-stock";
 import { decouperActions } from "./contrat";
 import { cancelPromoMaterial, submitQuotes, chooseAgency, initiatePayment, settle } from "./promo-material-actions";
-import { genererBonsDeCommandePromo } from "./promo-execution-actions";
+import { genererBonsDeCommandePromo, validerEtEnvoyerBcPromo } from "./promo-execution-actions";
 import { markQuoteReceived } from "./promo-circuit-actions";
 import { reprendreRecurrenceComptage } from "./promo-comptage-actions";
 
@@ -328,10 +328,15 @@ suite("Matériel promotionnel — les restes : annulation commune, file des BC, 
   it("UNE GÉNÉRATION LANCÉE, PUIS UNE ANNULATION : le BC part et l'annulation est refusée — jamais les deux", async () => {
     const { id, quoteId } = await dossierEnExecution();
     const dem = await actorFor(u.dem!);
+    // L'APERÇU D'ABORD (Direction, 10/2026) : la génération dépose l'aperçu ; c'est sa VALIDATION par le demandeur qui émet.
+    ACTOR = dem;
+    const apercu = await genererBonsDeCommandePromo(form({ promoMaterialId: id }));
+    expect(apercu.ok, apercu.error).toBe(true);
+    expect(await bcsActifs(id), "un aperçu n'émet rien").toBe(0);
     let gen!: ReturnType<typeof lancer>, annul!: ReturnType<typeof lancer>;
-    // Le banc tient le DEVIS : la génération émet le BC, puis attend à l'écriture qui le lie au devis.
+    // Le banc tient le DEVIS : la validation émet le BC, puis attend à l'écriture qui le lie au devis.
     await enTenant(verrouDevis(quoteId), async (tx) => {
-      ACTOR = dem; gen = lancer(() => genererBonsDeCommandePromo(form({ promoMaterialId: id })));
+      ACTOR = dem; gen = lancer(() => validerEtEnvoyerBcPromo(form({ promoMaterialId: id, quoteId })));
       await jusqua(tx, "la génération", async () => (await bloquesParNous(tx)) >= 1);
       const avant = entrees(`promo-bc:${id}`);
       ACTOR = dem; annul = lancer(() => cancelPromoMaterial(form({ id, motif: "Croisement." })));

@@ -162,9 +162,6 @@ export function propositionsDeSecours(phrase: string): ReponseDefinitions {
   if (a("tache", "taches")) {
     pousser({ nom: "Tâches faites à temps", nature: "RATIO", numerateur: { brique: "TACHES_A_TEMPS" }, denominateur: { brique: "TACHES_ECHUES" }, sens: "PLUS_HAUT", periode: "MOIS" }, "Tâches terminées au plus tard le jour de l'échéance ÷ tâches échues.");
   }
-  if (a("reclamation", "retour")) {
-    pousser({ nom: "Réclamations déclarées", nature: "CALCULE", numerateur: { brique: "RECLAMATIONS_DECLAREES" }, sens: "PLUS_HAUT", periode: "MOIS" }, "Réclamations déclarées depuis le terrain.");
-  }
   if (a("validation")) {
     pousser({ nom: "Délai de réponse aux validations", nature: "CALCULE", numerateur: { brique: "DELAI_VALIDATIONS" }, sens: "PLUS_BAS", periode: "MOIS" }, "Médiane des heures entre l'arrivée d'une validation et sa décision.");
   }

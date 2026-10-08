@@ -20,7 +20,7 @@ import { demanderDevisPromo, enregistrerDevisPromo, terminerRetranscriptionPromo
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
 import {
   genererBonsDeCommandePromo, deposerFacturePromo, lireFacturePromo, receptionnerLigneFacturePromo, annulerReceptionLigneFacturePromo,
-  annulerFacturePromo, demanderPaiementFacturePromo,
+  annulerFacturePromo, demanderPaiementFacturePromo, validerEtEnvoyerBcPromo,
 } from "./promo-execution-actions";
 import { deciderVisaCentreAdPro } from "./ad-pro-centre-actions";
 import { signerBonDeCommande } from "./bc-signature-actions";
@@ -438,6 +438,13 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     await comme("asst");
     const gen = await genererBonsDeCommandePromo(form({ promoMaterialId: pmId }));
     expect(gen.ok, gen.ok ? "" : gen.error).toBe(true);
+    // L'APERÇU D'ABORD (Direction, 10/2026) : rien n'est émis tant que le demandeur ne l'a pas validé.
+    expect((await executionDuDossier(pmId)).filter((e) => e.bc)).toHaveLength(0);
+    await comme("cp");
+    for (const quoteId of [quoteA, quoteB]) {
+      const v = await validerEtEnvoyerBcPromo(form({ promoMaterialId: pmId, quoteId }));
+      expect(v.ok, v.ok ? "" : v.error).toBe(true);
+    }
     const execution = await executionDuDossier(pmId);
     expect(execution.filter((e) => e.bc)).toHaveLength(2);
     // LE BC DIT CE QU'ON COMMANDE au fournisseur : l'action devant la désignation du devis.

@@ -20,6 +20,7 @@ import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 import { lecteurDeLaDemandeDeValidation } from "@/lib/entity-access";
+import { lienEtapeAValider } from "@/lib/chemins/validations";
 
 const ROLES: UserRole[] = [
   "SUPER_ADMIN", "DIRECTION", "HEAD_OF_REGULATORY", "REGULATORY_ASSISTANT", "HEAD_OF_SALES",
@@ -260,12 +261,12 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
       data: { status: r.status, currentOrder: r.currentOrder, decidedAt: finalisee ? new Date() : null },
     });
     const suivante = r.suivanteId ? etapes.find((e) => e.id === r.suivanteId) ?? null : null;
-    return { ok: true as const, status: r.status, finalisee, currentOrder: r.currentOrder, suivanteValidatorId: suivante?.validatorId ?? null };
+    return { ok: true as const, status: r.status, finalisee, currentOrder: r.currentOrder, suivanteValidatorId: suivante?.validatorId ?? null, suivanteStepId: suivante?.id ?? null };
   });
   if (!issue.ok) return { ok: false, error: issue.error };
   const newStatus: ValidationStatus = issue.status;
   const finalized = issue.finalisee;
-  if (issue.suivanteValidatorId) await notifyValidator(issue.suivanteValidatorId, req);
+  if (issue.suivanteValidatorId) await notifyValidator(issue.suivanteValidatorId, req, issue.suivanteStepId);
 
   if (finalized && req.requesterId !== user.id) {
     // UNE DÉCISION SUR UNE PIÈCE N'EST PAS UNE DÉCISION SUR LA DEMANDE. « Validation acceptée »
@@ -672,7 +673,7 @@ export async function resoumettreValidation(formData: FormData): Promise<ActionR
       userId: e.validatorId, type: "VALIDATION_REQUIRED",
       title: "Demande resoumise après correction",
       body: `${req.reference} — ${req.title} (version ${version}). Ce qui a été corrigé : « ${note} ».`,
-      link: `/validations/${id}`,
+      link: lienEtapeAValider(e.id),
     }).catch(() => undefined);
   }
   await recordAudit({
@@ -706,7 +707,7 @@ export async function remindValidator(formData: FormData): Promise<ActionResult>
     type: "VALIDATION_REQUIRED",
     title: "Relance — validation en attente",
     body: `${step.request.reference} — ${step.request.title}${note ? ` · ${note}` : ""}`,
-    link: "/validations",
+    link: lienEtapeAValider(stepId),
     push: { tag: `validation-${step.request.id}`, requireInteraction: true },
   });
   await recordAudit({

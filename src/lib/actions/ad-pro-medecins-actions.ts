@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -101,7 +102,7 @@ export async function retirerMedecinConcerne(formData: FormData): Promise<Action
  * (rien de la fiche). Deux lettres au moins ; 15 résultats, les plus proches du début du nom d'abord.
  */
 export async function chercherMedecinsAnnuaire(formData: FormData): Promise<{ id: string; nom: string; specialite: string | null; etablissement: string | null }[]> {
-  await requireUser();
+  await enLecture(requireUser);
   const q = (fdStr(formData, "q") ?? "").trim();
   if (q.length < 2) return [];
   const rows = await prisma.medicalDoctor.findMany({

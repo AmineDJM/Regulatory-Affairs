@@ -13,6 +13,11 @@ import { MODES_PAIEMENT } from "@/lib/artifact/factory/commercial";
  * numéro, produit le Word et le PDF définitifs et lance la marche existante (visa du centre, signature).
  *
  * Module PUR (aucun import lourd) : lu par l'écran (composant client) comme par les actions serveur.
+ *
+ * POURQUOI ICI, sous `bons-de-commande/` et non sous `ad-pro/` : deux circuits le partagent (le poste Ad & Pro et le
+ * devis de matériel promotionnel, `promo-material/bc-brouillon-promo.ts`), et il parle le vocabulaire de la pièce
+ * commerciale (`artifact/factory/commercial`, domaine `office`). Logé dans le domaine `adpro`, il en faisait deux
+ * traversées inter-domaines (`platform/domains.test.ts`) ; c'est la règle du BC, pas celle d'un circuit.
  * Une valeur `null` d'un champ dit « telle que le devis la donne » ; une valeur écrite remplace.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
@@ -131,35 +136,3 @@ export function totalHtDesLignes(lignes: readonly LigneCommerciale[]): number {
 /** Les lignes que le brouillon porte ou, à défaut, celles du devis. */
 export const lignesEffectives = (b: BrouillonBc | null, duDevis: readonly LigneCommerciale[]): LigneCommerciale[] =>
   b?.lignes && b.lignes.length > 0 ? b.lignes : [...duDevis];
-
-/**
- * Valide un numéro BC au format NNN/DG/AAAA.
- * Retourne { ok: true, numero: NNN, annee: AAAA } si valide, sinon { ok: false, motif: "message d'erreur" }.
- */
-export function validerNumeroBc(
-  numero: string | null | undefined,
-  motif: string | null | undefined,
-  anneeActuelle: number,
-): { ok: true; numero: number; annee: number } | { ok: false; motif: string } {
-  if (!numero || !numero.trim()) return { ok: false, motif: "Le numéro de BC est obligatoire." };
-  const trimmed = numero.trim();
-  if (!motif) return { ok: false, motif: "Le motif de numérotation est introuvable." };
-  // Motif comme "{n:3}/DG/{aaaa}" → regex "^(\\d{3})/DG/(\\d{4})$"
-  const regexMotif = motif
-    .replace(/\{n:(\d+)\}/g, (match, width: string) => `(\\d{${width}})`)
-    .replace(/\{aaaa\}/g, "(\\d{4})")
-    .replace(/\{aa\}/g, "(\\d{2})");
-  const regex = new RegExp(`^${regexMotif}$`);
-  const match = trimmed.match(regex);
-  if (!match) {
-    return { ok: false, motif: `Le numéro doit respecter le format du motif : ${motif.replace(/\{n:\d+\}/, "NNN").replace(/\{aaaa\}/, "AAAA").replace(/\{aa\}/, "AA")}.` };
-  }
-  // Extraire NNN (groupe 1) et AAAA (dernier groupe)
-  const nnnStr = match[1];
-  const yyyyStr = match[match.length - 1];
-  const nnn = parseInt(nnnStr, 10);
-  const yyyy = parseInt(yyyyStr, 10);
-  if (!Number.isFinite(nnn) || nnn < 1) return { ok: false, motif: "Le numéro doit être un entier positif." };
-  if (yyyy !== anneeActuelle) return { ok: false, motif: `Le numéro doit être de l'année ${anneeActuelle}.` };
-  return { ok: true, numero: nnn, annee: yyyy };
-}

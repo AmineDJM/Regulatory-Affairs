@@ -15,6 +15,7 @@ import { createTaskRecord } from "@/lib/tasks/create-core";
 import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { rejouerNotifications } from "@/lib/notifications/ecrire";
+import { CHEMIN_TACHES, lienTache, vueTachePour } from "@/lib/chemins/espace";
 
 /**
  * CRÉER UNE TÂCHE — et le destinataire décide de ce que ce geste veut dire.
@@ -233,7 +234,7 @@ export async function addTaskComment(formData: FormData): Promise<ActionResult> 
       userId, type: "GENERIC" as const,
       title: `${user.name} a commenté une tâche`,
       body: `${task.title} — ${body.slice(0, 120)}`,
-      link: `/mon-espace/taches/${id}`,
+      link: lienTache(id, vueTachePour(userId, task)),
     }));
     try {
       await prisma.notification.createMany({ data: lignes });
@@ -279,7 +280,7 @@ export async function respondTaskRequest(formData: FormData): Promise<ActionResu
         userId: task.createdById, type: "GENERIC",
         title: accept ? "Demande de tâche acceptée" : "Demande de tâche refusée",
         body: accept ? task.title : `${task.title} — ${declineSummary(reason)}`,
-        link: `/mon-espace/taches/${id}`,
+        link: lienTache(id, "demandees"),
       },
     }).catch(() => undefined);
   }
@@ -322,7 +323,7 @@ export async function submitTaskWork(formData: FormData): Promise<ActionResult> 
       data: {
         userId: task.createdById, type: "GENERIC",
         title: again ? "Travail mis à jour" : "Travail terminé",
-        body: task.title, link: `/mon-espace/taches/${id}`,
+        body: task.title, link: lienTache(id, "demandees"),
       },
     }).catch(() => undefined);
   }
@@ -401,7 +402,7 @@ export async function relanceTaskRequest(formData: FormData): Promise<ActionResu
       data: {
         userId: task.assignedToId, type: "ASSIGNMENT",
         title: relanceTitre(rang), body: corps,
-        link: `/mon-espace/taches/${id}`,
+        link: lienTache(id),
         // Elle INTERROMPT : c'est le sens même d'une relance. La demande initiale interrompt
         // déjà ; une relance qui, elle, ne le ferait pas serait plus faible que ce qu'elle
         // rappelle.
@@ -468,7 +469,7 @@ export async function annulerDemandeTache(formData: FormData): Promise<ActionRes
         userId: task.assignedToId, type: "ASSIGNMENT",
         title: "Demande annulée",
         body: `${user.name} a annulé « ${task.title} »${motif ? ` — ${motif}` : ""}. Vous n'avez plus à la traiter.`,
-        link: `/mon-espace/taches/${id}`,
+        link: lienTache(id),
       },
     }).catch(() => undefined);
   }
@@ -521,9 +522,10 @@ export async function reattribuerDemandeTache(formData: FormData): Promise<Actio
     data: { taskId: id, authorId: user.id, body: `Demande réattribuée à ${nouveau.name}${ancien ? ` (auparavant : ${ancien})` : ""}.` },
   }).catch(() => undefined);
   const lignes = [
-    { userId: nouveau.id, type: "ASSIGNMENT" as const, title: "Demande de tâche", body: task.title, link: `/mon-espace/taches/${id}`, popup: true },
+    { userId: nouveau.id, type: "ASSIGNMENT" as const, title: "Demande de tâche", body: task.title, link: lienTache(id), popup: true },
+    // L'ancien destinataire ne voit plus la tâche : on le mène à SES tâches, pas à une fiche fermée.
     ...(task.status === "REQUESTED" && task.assignedToId && task.assignedToId !== nouveau.id
-      ? [{ userId: task.assignedToId, type: "ASSIGNMENT" as const, title: "Demande réattribuée", body: `${task.title} — vous n'avez plus à la traiter.`, link: `/mon-espace/taches/${id}`, popup: false }]
+      ? [{ userId: task.assignedToId, type: "ASSIGNMENT" as const, title: "Demande réattribuée", body: `${task.title} — vous n'avez plus à la traiter.`, link: CHEMIN_TACHES, popup: false }]
       : []),
   ];
   try {

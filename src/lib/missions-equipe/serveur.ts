@@ -2,26 +2,22 @@ import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import { recordAudit } from "@/lib/audit";
+import { CHEMIN_PARENT_AD_PRO, lienDemandeAdPro, type ParentAdPro } from "@/lib/chemins/ad-pro";
+import { CHEMIN_MES_MISSIONS } from "@/lib/chemins/espace";
 
 /**
  * MISSIONS AD & PRO — l'orchestration côté SERVEUR (base, notifications). Les règles vivent dans
  * `missions-equipe/etat.ts` (pur) ; ce module n'est jamais importé par un composant client.
  */
 
-export const MES_MISSIONS = "/mon-espace/missions";
+export const MES_MISSIONS = CHEMIN_MES_MISSIONS;
 
 /** Les demandes Ad & Pro qui portent une équipe Adventum. */
 export const PARENT_TYPES: EntityType[] = ["CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENT", "SPONSORING"];
 
 /** Chemin de la fiche de la demande parente. */
 export function parentPath(entityType: EntityType, entityId: string): string {
-  switch (entityType) {
-    case "CONGRESS_INTERNATIONAL": return `/congress-international/${entityId}`;
-    case "CONGRESS_NATIONAL": return `/congress-national/${entityId}`;
-    case "EVENT": return `/events/${entityId}`;
-    case "SPONSORING": return `/sponsoring/${entityId}`;
-    default: return "/";
-  }
+  return entityType in CHEMIN_PARENT_AD_PRO ? lienDemandeAdPro(entityType as ParentAdPro, entityId) : MES_MISSIONS;
 }
 
 /** Ce que la demande dit de la mission — libellé, ville, dates (pour pré-remplir). */

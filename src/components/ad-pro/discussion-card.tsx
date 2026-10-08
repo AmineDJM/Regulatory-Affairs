@@ -1,4 +1,5 @@
 import type { EntityType } from "@prisma/client";
+import { ChevronDown } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import { canModerateEntity } from "@/lib/entity-access";
@@ -26,11 +27,13 @@ import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export async function AdProDiscussionCard({
-  entityType, entityId, user,
+  entityType, entityId, user, replie = false,
 }: {
   entityType: EntityType;
   entityId: string;
   user: SessionUser & { id: string };
+  /** Repliée sous « Discussion · n » (fiche du matériel promotionnel, maquette validée 10/2026) — le fil s'ouvre d'un clic. */
+  replie?: boolean;
 }) {
   const rows = await prisma.comment.findMany({
     where: { entityType, entityId },
@@ -43,34 +46,47 @@ export async function AdProDiscussionCard({
   // que l'action refuse (§118.5).
   const canModerate = await canModerateEntity(user, entityType, entityId);
 
+  const fil = (
+    <CommentThread
+      comments={rows.map((c) => ({
+        id: c.id,
+        author: c.author?.name ?? "—",
+        authorId: c.authorId,
+        body: c.body,
+        createdAt: c.createdAt.toISOString(),
+        editedAt: c.editedAt?.toISOString() ?? null,
+      }))}
+      action={addAdProComment}
+      hiddenFields={{ entityType, entityId }}
+      currentUserId={user.id}
+      canModerate={canModerate}
+      updateAction={updateComment}
+      deleteAction={deleteComment}
+      // LE CHEMIN VOYAGE : les actions canoniques revalident ce que le composant leur donne,
+      // et l'adresse d'une entité se lit UNE fois (`entityHref`) — la recopier par nature
+      // ferait sept chemins qui divergent au premier renommage de route.
+      path={entityHref(entityType, entityId) ?? undefined}
+    />
+  );
+  if (replie) {
+    return (
+      <details className="surface group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-[0.9375rem] font-semibold [&::-webkit-details-marker]:hidden">
+          <span>{DISCUSSION_TITRE} <span className="font-normal text-muted-foreground">· {rows.length}</span></span>
+          <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+        </summary>
+        <div className="border-t border-border px-4 py-3">{fil}</div>
+      </details>
+    );
+  }
+
   return (
     <Card>
       {/* PLUS DE PARAGRAPHE D'AIDE NI DE PHRASE « AUCUN ÉCHANGE » (Direction, 07/10) : le titre et le fil suffisent. */}
       <CardHeader>
         <CardTitle>{DISCUSSION_TITRE}</CardTitle>
       </CardHeader>
-      <CardContent>
-        <CommentThread
-          comments={rows.map((c) => ({
-            id: c.id,
-            author: c.author?.name ?? "—",
-            authorId: c.authorId,
-            body: c.body,
-            createdAt: c.createdAt.toISOString(),
-            editedAt: c.editedAt?.toISOString() ?? null,
-          }))}
-          action={addAdProComment}
-          hiddenFields={{ entityType, entityId }}
-          currentUserId={user.id}
-          canModerate={canModerate}
-          updateAction={updateComment}
-          deleteAction={deleteComment}
-          // LE CHEMIN VOYAGE : les actions canoniques revalident ce que le composant leur donne,
-          // et l'adresse d'une entité se lit UNE fois (`entityHref`) — la recopier par nature
-          // ferait sept chemins qui divergent au premier renommage de route.
-          path={entityHref(entityType, entityId) ?? undefined}
-        />
-      </CardContent>
+      <CardContent>{fil}</CardContent>
     </Card>
   );
 }

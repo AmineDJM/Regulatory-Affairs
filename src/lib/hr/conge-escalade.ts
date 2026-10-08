@@ -5,6 +5,7 @@ import { getManagerOfUser } from "@/lib/departments";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import type { SessionUser } from "@/lib/rbac";
 import { leaveDecider } from "@/lib/hr/leave-core";
+import { LIEN_CONGES_A_SIGNER } from "@/lib/chemins/rh";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -73,7 +74,7 @@ export async function remonterConge(user: SessionUser, leaveId: string, note: st
   await notifyUser({
     userId: n1.userId, type: "GENERIC", title: "Avis demandé sur un congé",
     body: `${await nomDe(user.id)} vous demande de valider le congé de ${leave.employee.fullName} (${periode}).${note ? ` « ${note} »` : ""}`,
-    link: "/mon-equipe",
+    link: LIEN_CONGES_A_SIGNER,
   }).catch(() => undefined);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST", entityId: leaveId,
@@ -123,7 +124,7 @@ export async function trancherSousEscalade(
   await notifyUser({
     userId: ouverte.fromUserId, type: "GENERIC", title: "Congé validé par votre N+1",
     body: `${await nomDe(user.id)} a validé le congé de ${leave?.employee.fullName ?? "—"}${note ? ` (« ${note} »)` : ""} : à vous de le valider pour qu'il continue.`,
-    link: "/mon-equipe",
+    link: LIEN_CONGES_A_SIGNER,
   }).catch(() => undefined);
   await recordAudit({
     actorId: user.id, action: "VALIDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST", entityId: leaveId,

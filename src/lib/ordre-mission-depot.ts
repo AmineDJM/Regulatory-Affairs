@@ -8,6 +8,8 @@ import { docxToPdf } from "@/lib/payslip/to-pdf";
 import { nomOrdreMission, refusOrdreMission, remplirOrdreDeMission, type ChampsOrdreMission } from "@/lib/hr/ordre-mission/modele";
 import { synchroniserOrdreEmis } from "@/lib/missions-equipe/serveur";
 import { refusTraitementRh } from "@/lib/missions-equipe/etat";
+import { saisieEffective } from "@/lib/references/registre";
+import { anneeDuRegistre, attribuerAuRegistre, registreDe } from "@/lib/references/registre-serveur";
 
 /**
  * HORS DU DOMAINE RH, À DESSEIN (comme hr-drive-mirror.ts) : c'est l'orchestration qui touche au stockage (drive-storage)
@@ -20,7 +22,31 @@ import { refusTraitementRh } from "@/lib/missions-equipe/etat";
 const CHEMIN_MODELE = join(process.cwd(), "src", "lib", "hr", "ordre-mission", "modele-ordre-de-mission.docx");
 const MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-/** La référence proposée : le numéro suivant de l'année, au format du document de la Direction (« 007/DPG/2026 »). */
+const plier = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * LA SOCIÉTÉ QUI ÉMET L'ORDRE DE MISSION — celle que le document IMPRIME (le champ « Entreprise », « ADVENTUM PHARMA ») : la
+ * référence NNN/DG/AAAA est celle de son registre. À défaut (un nom qui ne désigne aucune société), l'employeur du salarié.
+ */
+export async function societeDeLOrdreDeMission(requestId: string, entreprise: string | null | undefined): Promise<string | null> {
+  const voulu = plier(entreprise ?? "");
+  if (voulu) {
+    const societes = await prisma.company.findMany({ where: { isActive: true }, select: { id: true, name: true, shortName: true } });
+    const exacte = societes.filter((c) => plier(c.name) === voulu || (c.shortName && plier(c.shortName) === voulu));
+    const proche = exacte.length ? exacte : societes.filter((c) => voulu.includes(plier(c.name)) || plier(c.name).includes(voulu));
+    if (proche.length === 1) return proche[0].id;
+  }
+  const d = await prisma.hrDocumentRequest.findUnique({
+    where: { id: requestId },
+    select: { employee: { select: { companyId: true, departmentRef: { select: { companyId: true } } } } },
+  });
+  return d?.employee.companyId ?? d?.employee.departmentRef?.companyId ?? null;
+}
+
+/**
+ * La référence proposée HORS REGISTRE (une société qui ne tient pas le registre NNN/DG/AAAA) : le numéro suivant de l'année,
+ * au format historique du document de la Direction (« 007/DPG/2026 »). Au registre, le formulaire lit le prochain NNN/DG/AAAA.
+ */
 export async function referenceOrdreMissionSuggeree(maintenant = new Date()): Promise<string> {
   const annee = maintenant.getFullYear();
   const deja = await prisma.employeeDocument.count({
@@ -31,7 +57,9 @@ export async function referenceOrdreMissionSuggeree(maintenant = new Date()): Pr
 }
 
 export async function genererEtRemettreOrdreDeMission(
-  acteurId: string, requestId: string, champs: ChampsOrdreMission,
+  acteurId: string, requestId: string, saisis: ChampsOrdreMission,
+  /** Le numéro que le formulaire avait prérempli : laissé tel quel, le registre attribue le prochain libre. */
+  opts: { referenceSuggeree?: string | null } = {},
 ): Promise<{ ok: true; message: string; employeeId: string } | { ok: false; error: string }> {
   const demande = await prisma.hrDocumentRequest.findUnique({
     where: { id: requestId },
@@ -43,8 +71,24 @@ export async function genererEtRemettreOrdreDeMission(
   // LA MARCHE DU N+1 PASSE AVANT LES RH (Direction, 10/2026) : un ordre encore chez le N+1, ou refusé par lui, ne se produit pas.
   const avantRh = refusTraitementRh(demande.managerGate ?? null);
   if (avantRh) return { ok: false, error: avantRh };
-  const refus = refusOrdreMission(champs);
+  // LE REGISTRE COMMUN NNN/DG/AAAA (Direction, 10/2026) de la société qui émet : la référence est attribuée ICI, au moment de
+  // produire l'ordre — la saisie si elle a été modifiée (vérifiée : libre pour la société et l'année, tous documents
+  // confondus), sinon le prochain numéro libre. Hors registre, la référence saisie est imprimée telle quelle (« 007/DPG/2026 »).
+  const societeId = await societeDeLOrdreDeMission(requestId, saisis.entreprise);
+  const annee = anneeDuRegistre();
+  const registre = await registreDe(societeId, annee);
+  const auRegistre = registre.actif && societeId !== null;
+  const refus = refusOrdreMission(auRegistre && !saisis.reference.trim() ? { ...saisis, reference: "—" } : saisis);
   if (refus) return { ok: false, error: refus };
+  let champs = saisis;
+  if (auRegistre) {
+    const r = await attribuerAuRegistre({
+      companyId: societeId, annee, docType: "ORDRE_MISSION", entityType: "HR_REQUEST", entityId: requestId, createdById: acteurId,
+      saisie: saisieEffective(saisis.reference, opts.referenceSuggeree),
+    });
+    if (!r.ok) return { ok: false, error: r.motif };
+    champs = { ...saisis, reference: r.reference };
+  }
 
   const docx = await remplirOrdreDeMission(await readFile(CHEMIN_MODELE), champs);
   const nom = nomOrdreMission(champs.reference, champs.collaborateur);
@@ -72,7 +116,7 @@ export async function genererEtRemettreOrdreDeMission(
   // La mission Ad & Pro reliée passe « ordre émis » — le PDF paraît aussi dans « Mes missions ».
   await synchroniserOrdreEmis(requestId, acteurId);
   if (demande.employee.userId) {
-    await notifyUser({ userId: demande.employee.userId, type: "GENERIC", title: "Votre ordre de mission est prêt", body: `N° ${champs.reference}`, link: "/mon-dossier" }).catch(() => undefined);
+    await notifyUser({ userId: demande.employee.userId, type: "GENERIC", title: "Votre ordre de mission est prêt", body: `N° ${champs.reference}`, link: `/mon-dossier#demande-rh-${requestId}` }).catch(() => undefined);
   }
   await recordAudit({
     actorId: acteurId, action: "CREATE", module: "RH", entityType: "EMPLOYEE", entityId: demande.employeeId,

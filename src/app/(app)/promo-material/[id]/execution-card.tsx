@@ -20,6 +20,8 @@ import type { ActionResult } from "@/lib/actions/types";
 import type { OptionCatalogue } from "@/lib/queries/promo-achats";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 import { InfoBulle } from "@/components/ui/info-bulle";
+import { ApercuBcPromo, type BrouillonAffiche } from "./apercu-bc-promo";
+import { MenuLigne, useGeste, type EntreeMenu } from "./menu-ligne";
 
 /**
  * L'EXÉCUTION D'UN DOSSIER DU CIRCUIT 2 — du devis retenu au stock (§118.152, §118.165).
@@ -98,6 +100,8 @@ export interface ExecutionAffichee {
   lignesBC: LigneBCAffichee[];
   /** Les taxes du devis (donc du BC) — reprises par la facture, corrigeables. */
   taxes: { tvaRate: number | null; extraTaxLabel: string | null; extraTaxRate: number | null };
+  /** L'aperçu du BC « à vérifier par le demandeur » (sans numéro) — `null` : pas d'aperçu. */
+  brouillon: BrouillonAffiche | null;
 }
 
 interface Props {
@@ -111,6 +115,8 @@ interface Props {
   ouvert: boolean;
   /** Le catalogue et les produits, pour une ligne « en plus » qui choisit son article à la réception. */
   optionsReception: { catalogue: OptionCatalogue[]; produits: { id: string; nom: string }[] } | null;
+  /** Valider l'aperçu d'un BC et l'envoyer aux Finances : le demandeur, ou le Super Admin — tranché au serveur. */
+  peutValiderBc: boolean;
 }
 
 function useRun() {
@@ -511,12 +517,7 @@ function Facture({ id, f, agir, canReceive, options }: {
           )}
         </form>
       )}
-      {agir && f.paiementDemande && !f.demandeInfoMedicale && (
-        <form className="flex flex-wrap items-center gap-2" action={(fd: FormData) => { fd.set("promoMaterialId", id); fd.set("invoiceId", f.id); run(() => adresserInfoMedicaleFacturePromo(fd)); }}>
-          <ChoixFormalite name="formalite" />
-          <Button type="submit" size="sm" variant="outline" className={aLaLigne} disabled={saving}><Stethoscope className="h-4 w-4" /> Adresser à l&apos;information médicale</Button>
-        </form>
-      )}
+      {/* LA DEMANDE À L'INFORMATION MÉDICALE d'un paiement déjà demandé vit dans la carte « Visa / déclaration ». */}
       <Erreur msg={err} />
       <Info msg={msg} />
     </div>
@@ -562,13 +563,20 @@ function FriseBcPromo({ etape, libelleEtape, envoyeLe, envoyer }: { etape: strin
   );
 }
 
-// ───────────────────────── Une ligne d'exécution (un devis retenu) ─────────────────────────
+// ───────────────────────── Le détail d'un BC (un devis retenu) ─────────────────────────
 
-function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
+type ModeBc = "modifier" | "supprimer" | "facture" | null;
+
+/**
+ * LE DÉTAIL D'UNE LIGNE DU TABLEAU — sous le tableau, pleine largeur (au téléphone comme au bureau) : la frise du BC,
+ * ses fichiers, la modification ou la suppression, le dépôt d'une facture, et chaque facture avec sa réception et son
+ * paiement. Le geste ouvert arrive du « ⋯ » de la ligne (ou de « Ce qu'il reste à faire »).
+ */
+function DetailBc({ id, e, canPilot, canReceive, ouvert, options, mode, setMode }: {
   id: string; e: ExecutionAffichee; canPilot: boolean; canReceive: boolean; ouvert: boolean; options: Props["optionsReception"];
+  mode: ModeBc; setMode: (m: ModeBc) => void;
 }) {
   const { saving, err, msg, run } = useRun();
-  const [mode, setMode] = React.useState<"modifier" | "supprimer" | "facture" | null>(null);
   const bc = e.bc;
   const signe = bc?.etape === "SIGNE";
   const fige = e.factures.length > 0;
@@ -577,18 +585,10 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
   const form = (extra: Record<string, string>) => { const f = new FormData(); f.set("promoMaterialId", id); f.set("quoteId", e.quoteId); for (const [k, v] of Object.entries(extra)) f.set(k, v); return f; };
 
   return (
-    <div className="space-y-3 rounded-lg border border-border p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate font-medium">{e.fournisseur}</p>
-          <p className="text-xs text-muted-foreground">
-            {e.reference ? `Devis n° ${e.reference} · ` : ""}{e.lignes} ligne{e.lignes > 1 ? "s" : ""} retenue{e.lignes > 1 ? "s" : ""} · {formatDzd(e.ttc)} TTC
-          </p>
-        </div>
-        {bc
-          ? <span className="inline-flex items-center gap-1.5 text-sm font-medium"><FileText className="h-4 w-4 text-muted-foreground" /> {bc.reference ? `BC ${bc.reference}` : "Bon de commande"}</span>
-          : <Badge tone="warning">Bon de commande à générer</Badge>}
-      </div>
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {e.reference ? `Devis n° ${e.reference} · ` : ""}{e.lignes} ligne{e.lignes > 1 ? "s" : ""} retenue{e.lignes > 1 ? "s" : ""} · {formatDzd(e.ttc)} TTC
+      </p>
 
       {bc && (
         <FriseBcPromo
@@ -604,7 +604,6 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
           {bc.pdf && <a className={lien} href={lienFichierEmis(bc.id, "pdf")} target="_blank" rel="noreferrer"><FileText className="h-3.5 w-3.5" /> PDF</a>}
           {bc.docx && <a className={lien} href={lienFichierEmis(bc.id, "docx", true)}><FileText className="h-3.5 w-3.5" /> Word</a>}
           <a className={lien} href={lienFichierEmis(bc.id, "xlsx", true)} aria-label="Générer ce bon de commande sur Excel"><FileText className="h-3.5 w-3.5" /> Excel</a>
-          {bc.montant != null && <span className="text-xs text-muted-foreground">{formatDzd(bc.montant)} TTC</span>}
           {agir && !fige && mode === null && (
             <>
               <Button size="sm" variant="ghost" disabled={saving} onClick={() => setMode("modifier")}><Pencil className="h-4 w-4" /> Modifier</Button>
@@ -670,29 +669,164 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
   );
 }
 
-export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouvert, optionsReception }: Props) {
+/** L'état du BC d'une ligne, en une pastille : où il est, chez qui. */
+function etatDuBc(e: ExecutionAffichee): { texte: string; ton: "neutral" | "success" | "warning" | "danger" | "info" } {
+  if (!e.bc) return e.brouillon ? { texte: "à vérifier par le demandeur", ton: "warning" } : { texte: "à préparer", ton: "neutral" };
+  switch (e.bc.etape) {
+    case "A_SIGNER": return { texte: "chez les Finances", ton: "warning" };
+    case "A_VALIDER": return { texte: "au centre Ad & Pro", ton: "info" };
+    case "SANS_PORTE": return { texte: "à adresser au centre", ton: "warning" };
+    case "A_REVOIR": case "A_CORRIGER": return { texte: "à corriger", ton: "warning" };
+    case "REFUSE": return { texte: "refusé", ton: "danger" };
+    case "SIGNE": return e.envoyeLe
+      ? { texte: `envoyé le ${new Date(e.envoyeLe).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}`, ton: "success" }
+      : { texte: "signé — à envoyer", ton: "info" };
+    default: return { texte: e.bc.libelleEtape.toLowerCase(), ton: "neutral" };
+  }
+}
+
+const nombreDzd = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+
+/**
+ * BONS DE COMMANDE, RÉCEPTION, FACTURES — UNE LIGNE PAR BC (maquette validée, 10/2026) : son numéro (le PDF), le fournisseur,
+ * le TTC, où en est le BC (aperçu « à vérifier par le demandeur », chez les Finances, signé, envoyé), la réception, les
+ * factures et le paiement. « ⋯ » : les fichiers (PDF, Word, Excel), l'aperçu à valider, modifier, supprimer, marquer envoyé,
+ * déposer la facture — les gestes d'hier, rangés. Le détail de la ligne choisie s'ouvre sous le tableau.
+ */
+export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouvert, optionsReception, peutValiderBc }: Props) {
   const { saving, err, msg, run } = useRun();
+  const router = useRouter();
   const [options, setOptions] = React.useState(false);
-  const aGenerer = executions.filter((e) => !e.bc).length;
+  const [generer, setGenerer] = React.useState(false);
+  const [choisi, setChoisi] = React.useState<string | null>(null);
+  const [mode, setMode] = React.useState<ModeBc>(null);
+  const [apercu, setApercu] = React.useState<string | null>(null);
+  const [annonce, setAnnonce] = React.useState<string | null>(null);
+  const detailRef = React.useRef<HTMLDivElement>(null);
+  const aGenerer = executions.filter((e) => !e.bc && !e.brouillon).length;
+  const agir = canPilot && ouvert;
+  const ouvrir = (quoteId: string, m: ModeBc) => {
+    setChoisi(quoteId); setMode(m);
+    window.setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
+  };
+
+  // « Ce qu'il reste à faire » ouvre ici la bonne ligne, et le bon formulaire.
+  useGeste((g) => {
+    if (!g.quoteId) return;
+    if (g.cle === "VERIFIER_BC") setApercu(g.quoteId);
+    else if (g.cle === "MODIFIER_BC") ouvrir(g.quoteId, "modifier");
+    else if (g.cle === "DEPOSER_FACTURE") ouvrir(g.quoteId, "facture");
+    else ouvrir(g.quoteId, null);
+  });
+
+  const enApercu = apercu ? executions.find((e) => e.quoteId === apercu) ?? null : null;
+  const detail = choisi ? executions.find((e) => e.quoteId === choisi) ?? null : null;
+
+  const entrees = (e: ExecutionAffichee): EntreeMenu[] => {
+    const bc = e.bc;
+    const signe = bc?.etape === "SIGNE";
+    const fige = e.factures.length > 0;
+    const reste = e.lignesBC.some((l) => l.reste > 0);
+    const form = () => { const f = new FormData(); f.set("promoMaterialId", id); f.set("quoteId", e.quoteId); return f; };
+    return [
+      ...(e.brouillon ? [{ libelle: peutValiderBc ? "Vérifier et valider l'aperçu" : "Voir l'aperçu", onClick: () => setApercu(e.quoteId) }] : []),
+      ...(bc?.pdf ? [{ libelle: "PDF", href: lienFichierEmis(bc.id, "pdf") }] : []),
+      ...(bc?.docx ? [{ libelle: "Word", href: lienFichierEmis(bc.id, "docx", true), telecharger: true }] : []),
+      ...(bc ? [{ libelle: "Excel", href: lienFichierEmis(bc.id, "xlsx", true), telecharger: true }] : []),
+      ...(agir && bc && signe && !e.envoyeLe ? [{ libelle: "Marquer envoyé au fournisseur", onClick: () => run(() => marquerBonDeCommandeEnvoye(form())), disabled: saving }] : []),
+      ...(agir && bc && signe && reste ? [{ libelle: "Déposer la facture", onClick: () => ouvrir(e.quoteId, "facture") }] : []),
+      ...(agir && bc && !fige ? [{ libelle: "Modifier le BC", onClick: () => ouvrir(e.quoteId, "modifier") }] : []),
+      ...(agir && bc && !fige ? [{ libelle: "Supprimer le BC", danger: true, onClick: () => ouvrir(e.quoteId, "supprimer") }] : []),
+      ...(bc ? [{ libelle: "Détail, réception, paiement", onClick: () => ouvrir(e.quoteId, null) }] : []),
+    ];
+  };
 
   return (
-    <div className="space-y-3">
-      {executions.length === 0 && <p className="text-sm text-muted-foreground">Aucune ligne de devis n&apos;est retenue.</p>}
+    <section id="bc" className="surface scroll-mt-20 overflow-hidden" aria-labelledby="titre-bc">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <h2 id="titre-bc" className="text-[0.9375rem] font-semibold">Bons de commande, réception, factures</h2>
+        {agir && aGenerer > 0 && !generer && (
+          <Button size="sm" variant="outline" onClick={() => setGenerer(true)}><Wand2 className="h-4 w-4" /> Préparer les BC ({aGenerer})</Button>
+        )}
+      </header>
 
-      {canPilot && ouvert && aGenerer > 0 && (
-        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <p className="text-sm">
-            {/* LES BC SE GÉNÈRENT D'EUX-MÊMES à la dernière validation (§118.204) : ce cadre n'apparaît que pour
-                ce que la génération automatique n'a pas pu émettre — le geste de repli, avec livraison et taxe. */}
-            <span className="inline-flex items-center gap-1">
-              <strong>{aGenerer}</strong>&nbsp;bon{aGenerer > 1 ? "s" : ""} de commande à générer.
-              <InfoBulle label="Pourquoi ils ne sont pas générés" align="left">
-                Ils n&apos;ont pas pu être générés automatiquement à la dernière validation (un par fournisseur, d&apos;après les lignes
-                validées). Relancez la génération : le message dira ce qui bloque.
-              </InfoBulle>
-            </span>
+      {executions.length === 0 ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground">Aucune ligne de devis n&apos;est retenue.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[46rem] text-sm">
+            <thead>
+              <tr className="bg-muted/50 text-left text-xs text-muted-foreground">
+                <th className="sticky left-0 z-[1] bg-card px-3 py-2 font-medium">BC</th>
+                <th className="px-3 py-2 font-medium">Fournisseur</th>
+                <th className="px-3 py-2 text-right font-medium">TTC</th>
+                <th className="px-3 py-2 font-medium">BC</th>
+                <th className="px-3 py-2 font-medium">Réception</th>
+                <th className="px-3 py-2 font-medium">Facture</th>
+                <th className="px-3 py-2 font-medium">Paiement</th>
+                <th className="w-10 px-2 py-2" aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {executions.map((e) => {
+                const etat = etatDuBc(e);
+                const lignes = e.factures.flatMap((f) => f.detail?.lignes ?? []);
+                const recues = lignes.filter((l) => l.etat !== "EN_ATTENTE" && l.etat !== "PARTIELLE").length;
+                const factureTtc = e.factures.reduce((s, f) => s + (f.montant ?? 0), 0);
+                const reste = e.lignesBC.some((l) => l.reste > 0);
+                const nonReglee = e.factures.find((f) => !f.reglee);
+                const menu = entrees(e);
+                return (
+                  <tr key={e.quoteId} className={`border-t border-border ${choisi === e.quoteId ? "bg-primary/5" : ""}`}>
+                    <td className={`sticky left-0 z-[1] whitespace-nowrap px-3 py-2 ${choisi === e.quoteId ? "bg-primary/5" : "bg-card"}`}>
+                      {e.bc
+                        ? (e.bc.pdf
+                          ? <a className="font-medium text-primary hover:underline" href={lienFichierEmis(e.bc.id, "pdf")} target="_blank" rel="noreferrer">{e.bc.reference ?? "Bon de commande"}</a>
+                          : <span className="font-medium">{e.bc.reference ?? "Bon de commande"}</span>)
+                        : e.brouillon
+                          ? <button type="button" className="font-medium text-primary hover:underline" onClick={() => setApercu(e.quoteId)}>Aperçu</button>
+                          : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-3 py-2">{e.fournisseur}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{nombreDzd(e.bc?.montant ?? e.ttc)}</td>
+                    <td className="px-3 py-2"><Badge tone={etat.ton}>{etat.texte}</Badge></td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      {lignes.length === 0 ? <span className="text-muted-foreground">—</span>
+                        : <Badge tone={recues === lignes.length ? "success" : "warning"}>{recues}/{lignes.length} reçue{lignes.length > 1 ? "s" : ""}</Badge>}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      {e.factures.length > 0
+                        ? <span className="tabular-nums">{e.factures.length > 1 ? `${e.factures.length} · ` : ""}{nombreDzd(factureTtc)}</span>
+                        : e.bc?.etape === "SIGNE" && reste ? <span className="text-warning">à déposer</span> : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      {e.factures.length === 0 ? <span className="text-muted-foreground">—</span>
+                        : !nonReglee ? <Badge tone="success">payé</Badge>
+                        : <span className="text-xs text-muted-foreground">{nonReglee.etatReglement}</span>}
+                    </td>
+                    <td className="px-2 py-2 text-right">{menu.length > 0 && <MenuLigne entrees={menu} label={`Actions — ${e.fournisseur}`} />}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {(err || msg || annonce) && <div className="space-y-2 border-t border-border px-4 py-2.5"><Erreur msg={err} /><Info msg={msg ?? annonce} /></div>}
+
+      {/* LE GESTE DE REPLI (§118.204) : les aperçus se préparent d'eux-mêmes à la dernière validation ; ce cadre ne sert qu'à
+          ce qui n'a pas pu l'être, ou à régler la livraison et la taxe avant. Rien n'est numéroté ni envoyé ici. */}
+      {agir && aGenerer > 0 && generer && (
+        <div className="space-y-2 border-t border-border bg-primary/5 px-4 py-3">
+          <p className="flex items-center gap-1 text-sm font-medium">
+            {aGenerer} bon{aGenerer > 1 ? "s" : ""} de commande à préparer
+            <InfoBulle label="Ce que fait la préparation" align="left">
+              Un aperçu par fournisseur, d&apos;après les lignes validées — sans numéro. Le demandeur le relit, puis « Valider et envoyer aux
+              Finances » attribue le numéro. Le message dit ce qui bloque, s&apos;il y a lieu.
+            </InfoBulle>
           </p>
-          <form className="space-y-2" action={(f: FormData) => { f.set("promoMaterialId", id); run(() => genererBonsDeCommandePromo(f)); }}>
+          <form className="space-y-2" action={(f: FormData) => { f.set("promoMaterialId", id); run(() => genererBonsDeCommandePromo(f), () => setGenerer(false)); }}>
             {/* LA CASE DES TAXES SUPPLÉMENTAIRES, toujours visible : « Taxe Pub 2 % » sur le HT, hors base de TVA. Vide = celle de chaque devis ; 0 = aucune. */}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_9rem]">
               <div><Label htmlFor="gen-taxe">Taxe supplémentaire (libellé)</Label><Input id="gen-taxe" name="extraTaxLabel" placeholder="Taxe Pub" /></div>
@@ -712,20 +846,86 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              <BoutonDecisif type="submit" size="sm" className={aLaLigne} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande manquants</BoutonDecisif>
+              <BoutonDecisif type="submit" size="sm" className={aLaLigne} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande (aperçus)</BoutonDecisif>
               {!options && <Button type="button" size="sm" variant="ghost" onClick={() => setOptions(true)}>Livraison et notes…</Button>}
+              <Button type="button" size="sm" variant="ghost" onClick={() => setGenerer(false)}>Annuler</Button>
             </div>
           </form>
         </div>
       )}
 
-      <Erreur msg={err} />
-      <Info msg={msg} />
+      {detail && (
+        <div ref={detailRef} className="space-y-2 border-t border-border px-4 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-medium">{detail.bc?.reference ? `BC ${detail.bc.reference}` : "Bon de commande"} — {detail.fournisseur}</p>
+            <Button size="sm" variant="ghost" onClick={() => { setChoisi(null); setMode(null); }} aria-label="Fermer le détail"><X className="h-4 w-4" /></Button>
+          </div>
+          <DetailBc key={detail.quoteId} id={id} e={detail} canPilot={canPilot} canReceive={canReceive} ouvert={ouvert} options={optionsReception} mode={mode} setMode={setMode} />
+        </div>
+      )}
 
-      {executions.map((e) => (
-        <LigneExecution key={e.quoteId} id={id} e={e} canPilot={canPilot} canReceive={canReceive} ouvert={ouvert} options={optionsReception} />
-      ))}
-    </div>
+      {enApercu?.brouillon && (
+        <ApercuBcPromo
+          promoMaterialId={id} quoteId={enApercu.quoteId} fournisseur={enApercu.fournisseur} brouillon={enApercu.brouillon}
+          peutValider={peutValiderBc} onClose={() => setApercu(null)}
+          onDone={(r) => { setApercu(null); setAnnonce(r.message ?? null); router.refresh(); }}
+        />
+      )}
+    </section>
+  );
+}
+
+/**
+ * VISA / DÉCLARATION — compacte, à côté du tableau des BC : la demande de visa publicitaire (ou la déclaration au
+ * ministère) qui part avec chaque paiement, à l'information médicale. Une ligne par facture dont le paiement est demandé ;
+ * « Adresser » pour celle qui n'a pas encore la sienne (les pilotes de l'exécution).
+ */
+export function PromoVisaCard({ id, executions, canPilot, ouvert }: { id: string; executions: ExecutionAffichee[]; canPilot: boolean; ouvert: boolean }) {
+  const { saving, err, msg, run } = useRun();
+  const [ouverte, setOuverte] = React.useState<string | null>(null);
+  const agir = canPilot && ouvert;
+  const payees = executions.flatMap((e) => e.factures.filter((f) => f.paiementDemande).map((f) => ({ e, f })));
+  const aAdresser = payees.find(({ f }) => !f.demandeInfoMedicale);
+  useGeste((g) => { if (g.cle === "ADRESSER_IM" && aAdresser) setOuverte(aAdresser.f.id); });
+
+  return (
+    <section id="visa" className="surface scroll-mt-20 overflow-hidden" aria-labelledby="titre-visa">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <h2 id="titre-visa" className="text-[0.9375rem] font-semibold">Visa / déclaration</h2>
+        {payees.length === 0 && <Badge tone="neutral">après le 1er paiement</Badge>}
+      </header>
+      {payees.length === 0 ? (
+        <div className="flex items-center gap-1 px-4 py-3 text-sm text-muted-foreground">
+          Déclaration ou visa publicitaire
+          <InfoBulle label="Quand part la demande" align="left">Elle part avec chaque demande de paiement, à l&apos;information médicale : visa publicitaire ou déclaration au ministère.</InfoBulle>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border">
+          {payees.map(({ e, f }) => (
+            <li key={f.id} className="space-y-2 px-4 py-2.5 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="min-w-0">
+                  Facture {f.reference ?? "sans numéro"}
+                  <span className="block text-xs text-muted-foreground">{e.fournisseur}</span>
+                </span>
+                {f.demandeInfoMedicale
+                  ? <span className="text-right text-xs"><span className="block font-medium">{f.demandeInfoMedicale.reference}</span><span className="text-muted-foreground">{f.demandeInfoMedicale.nature}</span></span>
+                  : agir && ouverte !== f.id
+                    ? <Button size="sm" variant="outline" onClick={() => setOuverte(f.id)}><Stethoscope className="h-4 w-4" /> Adresser</Button>
+                    : <Badge tone="warning">à adresser</Badge>}
+              </div>
+              {agir && !f.demandeInfoMedicale && ouverte === f.id && (
+                <form className="flex flex-wrap items-center gap-2" action={(fd: FormData) => { fd.set("promoMaterialId", id); fd.set("invoiceId", f.id); run(() => adresserInfoMedicaleFacturePromo(fd), () => setOuverte(null)); }}>
+                  <ChoixFormalite name="formalite" />
+                  <Button type="submit" size="sm" className={aLaLigne} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Stethoscope className="h-4 w-4" />} Adresser à l&apos;information médicale</Button>
+                </form>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {(err || msg) && <div className="space-y-2 border-t border-border px-4 py-2.5"><Erreur msg={err} /><Info msg={msg} /></div>}
+    </section>
   );
 }
 

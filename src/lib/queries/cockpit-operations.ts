@@ -2,7 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { isRetiredModule } from "@/lib/modules-retired";
 import { resolveRepScope } from "@/lib/sfe";
-import { busDuPerimetre, chargerPilotage } from "@/lib/queries/force-de-vente";
+import { busDuPerimetre, chargerPilotage, type Pilotage } from "@/lib/queries/force-de-vente";
+import {
+  chargerEquipeDuJour, livraisonsDeLaSemaine, remonteesDuTerrain, rupturesSignalees, stocksReleves, type TerrainOperations,
+} from "@/lib/queries/cockpit-operations-terrain";
+import { aTraiterPlansAValider, aTraiterRupturesSignalees, type EvenementSemaine, type LigneReleve } from "@/lib/cockpit-operations/terrain";
+import type { VoixTerrain } from "@/lib/voix-terrain/pur";
 import { canoniquesDesDossiers, chargerChaine, chargerConsommationMensuelle, chargerProduitsPch, voitLaChaine } from "@/lib/queries/stock-pch";
 import { busPch, chainesContratsPch, demandeNonServie, fraicheurPch, produitsVentesPch, synthesePch, type BuPch } from "@/lib/ventes-pch/requetes";
 import { SOURCE_RECEPTIONS, dateDuMois, decalerMois, periodeDe, periodePrecedente } from "@/lib/ventes-pch/calculs";
@@ -61,6 +66,14 @@ export interface CockpitOperations {
   fdv: { ouvert: boolean; horsPerimetre: boolean; pct: number | null; vues: number; cibles: number; delta: number | null };
   parBu: LigneBuCockpit[];
   aTraiter: ATraiter[];
+  /** L'équipe aujourd'hui, les visites du jour, le score KPI, la semaine — null si la Force de vente est fermée ou hors périmètre. */
+  terrain: TerrainOperations | null;
+  /** Les remontées du terrain (7 jours) — null si ni la Force de vente ni les rapports ne sont ouverts. */
+  voix: VoixTerrain | null;
+  /** Les derniers relevés de stock des hôpitaux — null si la chaîne n'est pas ouverte. */
+  stocks: LigneReleve[] | null;
+  /** Les livraisons PCH attendues dans les 7 jours (PCH ouverte). */
+  livraisons: EvenementSemaine[];
 }
 
 const VIDE: CumulLivre = { lisible: false, boites: 0, valeur: 0, valorise: false };
@@ -147,15 +160,26 @@ export async function chargerCockpitOperations(user: SessionUser, buDemandee: st
   const cumulMoisN1 = refRecus && n1Present ? cumulLivre(livreMoisN1, buId) : null;
 
   let fdv: CockpitOperations["fdv"] = { ouvert: acces.fdv, horsPerimetre: false, pct: null, vues: 0, cibles: 0, delta: null };
+  let pilotage: Pilotage | null = null;
   if (acces.fdv) {
     const scope = await resolveRepScope(user);
     const busFdv = await busDuPerimetre(scope, user.id);
     if (buId && !busFdv.some((b) => b.id === buId)) fdv = { ...fdv, horsPerimetre: true };
     else {
       const p = await chargerPilotage({ scope, userId: user.id, buId, year: maintenant.getFullYear(), month: maintenant.getMonth() + 1, maintenant });
+      pilotage = p;
       fdv = { ...fdv, pct: p.tuiles.couverture.pct, vues: p.tuiles.couverture.vues, cibles: p.tuiles.couverture.cibles, delta: p.tuiles.couverture.delta };
     }
   }
+
+  // ── Le terrain (maquette validée, 10/2026) : l'équipe aujourd'hui, la semaine, les remontées, les relevés d'hôpitaux ─
+  const voitRapports = acces.fdv || userCan(user, "FIELD_REPORTS", "VIEW");
+  const [terrain, voix, stocks, livraisons] = await Promise.all([
+    pilotage ? chargerEquipeDuJour(user, pilotage.lignes, maintenant) : Promise.resolve(null),
+    voitRapports ? remonteesDuTerrain(buId, produitsDeLaBu, user.id, maintenant) : Promise.resolve(null),
+    acces.chaine ? stocksReleves(user, produitsStock, canon, buId, maintenant) : Promise.resolve(null),
+    acces.pch ? livraisonsDeLaSemaine(produitsDeLaBu, maintenant) : Promise.resolve([]),
+  ]);
 
   // ── Par BU ──────────────────────────────────────────────────────────────────────────────────
   const parBu: LigneBuCockpit[] = bus.filter((b) => !buId || b.id === buId).map((b) => {
@@ -197,13 +221,19 @@ export async function chargerCockpitOperations(user: SessionUser, buDemandee: st
       livraisons: o.deliveries.map((d) => ({ attendu: d.expectedAt, livre: d.deliveredAt })),
     })), maintenant)));
   }
+  // Le stock PCH central par produit canonique (dernier relevé du dossier rattaché au produit).
+  const stockPch = new Map<string, number | null>();
+  for (const l of chaine) {
+    const p = canon.get(l.productId);
+    if (p && l.pch) stockPch.set(p, Math.max(stockPch.get(p) ?? 0, l.pch.quantite));
+  }
+  if (acces.chaine) {
+    // Un hôpital SIGNALE une rupture dans un compte rendu alors que la PCH centrale a du stock.
+    items.push(...aTraiterRupturesSignalees(await rupturesSignalees(produitsDeLaBu, maintenant), stockPch, buId ? `${CHEMIN_STOCKS_CHAINE}?bu=${encodeURIComponent(buId)}` : CHEMIN_STOCKS_CHAINE));
+  }
+  if (pilotage) items.push(...aTraiterPlansAValider(pilotage.aTraiter.plansAValider));
   if (acces.ventes) {
-    // Hôpitaux non servis alors que la PCH centrale a du stock (dernier relevé du dossier rattaché au produit).
-    const stockPch = new Map<string, number | null>();
-    for (const l of chaine) {
-      const p = canon.get(l.productId);
-      if (p && l.pch) stockPch.set(p, Math.max(stockPch.get(p) ?? 0, l.pch.quantite));
-    }
+    // Hôpitaux non servis alors que la PCH centrale a du stock.
     const parProduit = new Map<string, NonServiProduit>();
     for (const r of nonServiMois) {
       if (produitsDeLaBu && !produitsDeLaBu.has(r.productId)) continue;
@@ -238,5 +268,6 @@ export async function chargerCockpitOperations(user: SessionUser, buDemandee: st
     fdv,
     parBu,
     aTraiter: selectionnerATraiter(items),
+    terrain, voix, stocks, livraisons,
   };
 }

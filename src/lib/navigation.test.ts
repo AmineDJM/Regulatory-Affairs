@@ -108,13 +108,12 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
     expect(NAV_POLES.map((p) => p.key as string)).not.toContain("SUPPLY_CHAIN");
     const ops = groupIntoPoles(accessible([...MODULES])).find((p) => p.key === "OPERATIONS_SALES")!.children.map((c) => c.label);
     const i = (l: string) => ops.indexOf(l);
-    for (const l of ["Stocks", "Logistique", "Retours & réclamations"]) expect(ops, l).toContain(l);
+    for (const l of ["Stocks", "Logistique"]) expect(ops, l).toContain(l);
     expect(i("Stocks")).toBeGreaterThan(i("Marchés PCH"));
     expect(i("Logistique")).toBe(i("Stocks") + 1);
-    expect(i("Retours & réclamations")).toBe(i("Logistique") + 1);
     // Le rangement n'ouvre rien : sans STOCKS, pas d'entrée Stocks.
     expect(groupIntoPoles(accessible(["PCH"])).flatMap((p) => p.children.map((c) => c.label))).not.toContain("Stocks");
-    expect(NAVIGATION.find((n) => n.href === "/retours-reclamations")?.module).toBe("RETOURS_RECLAMATIONS");
+    expect(NAVIGATION.some((n) => n.href === "/retours-reclamations")).toBe(false);
   });
 
   it("le déplacement ne donne AUCUN droit : sans le module, l'entrée n'apparaît nulle part", () => {

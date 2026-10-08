@@ -5,6 +5,7 @@ import { MARQUE_VUE_COOKIE } from "@/lib/vue-exacte-ui";
 import { IdentiteProvider, GardeIdentite } from "@/components/layout/identite-vue";
 import { userCan } from "@/lib/rbac";
 import { moduleForPath } from "@/lib/labels";
+import { reécriteLienNotification } from "@/lib/notifications/lien-actuel";
 import { navigationFor } from "@/lib/nav-access";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
@@ -76,7 +77,10 @@ export default async function AppLayout({
   // Compte les notifications non lues par MODULE (routées via leur lien) → badges de menu.
   const moduleBadges: Record<string, number> = {};
   for (const n of unreadNotifs) {
-    const m = n.link ? moduleForPath(n.link) : null;
+    // L'adresse ACTUELLE (une notification d'hier porte peut-être un module renommé) : le badge va
+    // sur le module où le clic mènera, pas sur celui qui n'existe plus.
+    const lien = reécriteLienNotification(n.link);
+    const m = lien ? moduleForPath(lien) : null;
     if (m) moduleBadges[m] = (moduleBadges[m] ?? 0) + 1;
   }
 

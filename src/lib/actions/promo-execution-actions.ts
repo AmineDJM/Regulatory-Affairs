@@ -24,7 +24,10 @@ import { empreinteDe } from "@/lib/pieces-lues/lecture-fichier";
 import { lignesProposeesFacturePromo, preremplirFacturePromo, type PrerempliFacturePromo } from "@/lib/pieces-lues/prerempli-facture-promo";
 import { fdCase } from "@/lib/actions/types";
 import { reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
-import { genererLesBonsDeCommande } from "@/lib/promo-automatismes";
+import { genererLesBonsDeCommande, apercuDuBcPromo, type ApercuBcPromo } from "@/lib/promo-automatismes";
+import { brouillonPromoEnJson, lireBrouillonPromo, type BrouillonBcPromo } from "@/lib/promo-material/bc-brouillon-promo";
+import { peutValiderLeBrouillon, REFUS_VALIDATION_BROUILLON } from "@/lib/bons-de-commande/brouillon";
+import { MODES_PAIEMENT } from "@/lib/artifact/factory/commercial";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { formatDzd } from "@/lib/promo-material/devis";
 import { piloteLExecution } from "@/lib/promo-material/circuit";
@@ -158,6 +161,132 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
   const taxeSaisie = lireTaxeSupplementaire(formData);
   if (!taxeSaisie.ok) return { ok: false, error: taxeSaisie.error };
   const r = await genererLesBonsDeCommande(user, pm.id, { livraison, notes, taxe: taxeSaisie.taxe, automatique: false });
+  // LES APERÇUS PRÉPARÉS PAR UN AUTRE (l'assistante, la Direction) : le demandeur, qui les valide, en est prévenu.
+  if (r.ok && r.apercus > 0 && pm.requesterId && pm.requesterId !== user.id) {
+    await notifyUser({
+      userId: pm.requesterId, type: "VALIDATION_REQUIRED", title: "Bons de commande à vérifier et valider",
+      body: `${pm.reference} — ${pm.title}`, link: chemin(pm.id),
+    });
+  }
+  return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error };
+}
+
+// ───────────────────────── 1 bis. L'aperçu du BC, à valider par le demandeur ─────────────────────────
+
+/** Le devis et son aperçu, lus pour l'un des gestes de l'aperçu — après la porte commune de l'exécution. */
+async function devisAvecApercu(pm: Dossier, quoteId: string | null) {
+  if (!quoteId) return null;
+  const devis = await prisma.promoQuote.findFirst({
+    where: { id: quoteId, promoMaterialId: pm.id },
+    select: { id: true, supplierName: true, purchaseOrderId: true, bcBrouillon: true },
+  });
+  if (!devis) return null;
+  return { devis, brouillon: lireBrouillonPromo(devis.bcBrouillon) };
+}
+
+export type ApercuBcPromoResultat = ApercuBcPromo | { ok: false; error: string };
+
+/**
+ * L'APERÇU DU BC D'UN DEVIS (Direction, 10/2026) — le PDF tel qu'il sera imprimé, numéro « À attribuer à la validation » :
+ * rien n'est numéroté ni envoyé. Lisible par qui pilote l'exécution (le demandeur, qui le valide ; l'assistante qui le prépare).
+ */
+export async function apercuBcPromo(formData: FormData): Promise<ApercuBcPromoResultat> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusExecution(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const quoteId = fdStr(formData, "quoteId");
+  if (!quoteId) return { ok: false, error: "Devis non précisé." };
+  return apercuDuBcPromo(user, pm.id, quoteId);
+}
+
+/**
+ * CORRIGER L'APERÇU — Référence, contact, modalités de paiement, livraison (lieu, date, délai), notes, taxe supplémentaire,
+ * numéro proposé. Un champ vide revient à ce que le devis donne. Les LIGNES ne se corrigent pas : ce sont les lignes
+ * retenues et validées. Rien n'est numéroté : on relit l'aperçu autant de fois qu'il le faut.
+ */
+export async function modifierApercuBcPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusExecution(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const lu = await devisAvecApercu(pm, fdStr(formData, "quoteId"));
+  if (!lu) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
+  if (!lu.brouillon) return { ok: false, error: "Ce devis n'a plus d'aperçu de bon de commande : rechargez la fiche." };
+  const mode = fdStr(formData, "modePaiement");
+  if (mode && !(MODES_PAIEMENT as readonly string[]).includes(mode)) return { ok: false, error: "Mode de paiement inconnu." };
+  const dateLivraison = fdStr(formData, "livraisonDate");
+  if (dateLivraison && !/^\d{4}-\d{2}-\d{2}$/.test(dateLivraison)) return { ok: false, error: "La date de livraison s'écrit AAAA-MM-JJ." };
+  const taxeSaisie = lireTaxeSupplementaire(formData);
+  if (!taxeSaisie.ok) return { ok: false, error: taxeSaisie.error };
+  const adresse = fdStr(formData, "livraisonAdresse");
+  const delai = fdStr(formData, "livraisonDelai");
+  const contactNom = fdStr(formData, "contactNom");
+  const contactTelephone = fdStr(formData, "contactTelephone");
+  const apres: BrouillonBcPromo = {
+    ...lu.brouillon,
+    objet: fdStr(formData, "objet"),
+    notes: fdStr(formData, "notes"),
+    contact: contactNom || contactTelephone ? { nom: contactNom, telephone: contactTelephone } : null,
+    modePaiement: (mode as BrouillonBcPromo["modePaiement"]) ?? null,
+    conditionsPaiement: fdStr(formData, "conditionsPaiement"),
+    livraison: adresse || dateLivraison || delai ? { adresse, date: dateLivraison, delai } : null,
+    numeroChoisi: fdStr(formData, "numeroChoisi"),
+    taxe: taxeSaisie.taxe,
+    modifieLe: new Date().toISOString(), modifiePar: user.id,
+  };
+  const r = await prisma.promoQuote.updateMany({
+    where: { id: lu.devis.id, purchaseOrderId: lu.devis.purchaseOrderId, promoMaterial: { circuitVersion: 2, circuitState: "IN_EXECUTION" } },
+    data: { bcBrouillon: brouillonPromoEnJson(apres) as Prisma.InputJsonValue },
+  });
+  if (r.count === 0) return { ok: false, error: "Ce devis vient de changer : rechargez la fiche." };
+  await audit(user, pm.id, `Aperçu du bon de commande de ${lu.devis.supplierName} corrigé — aucun numéro attribué.`);
+  revalidatePath(chemin(pm.id));
+  return { ok: true, message: "Aperçu mis à jour." };
+}
+
+/** RETIRER L'APERÇU — il disparaît ; aucun numéro n'avait été attribué, la série reste continue. */
+export async function annulerApercuBcPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusExecution(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const lu = await devisAvecApercu(pm, fdStr(formData, "quoteId"));
+  if (!lu) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
+  if (!lu.brouillon) return { ok: true, message: "Il n'y avait plus d'aperçu sur ce devis." };
+  await prisma.promoQuote.updateMany({ where: { id: lu.devis.id, purchaseOrderId: lu.devis.purchaseOrderId }, data: { bcBrouillon: Prisma.DbNull } });
+  await audit(user, pm.id, `Aperçu du bon de commande de ${lu.devis.supplierName} retiré — aucun numéro n'avait été attribué.`);
+  revalidatePath(chemin(pm.id));
+  return { ok: true, message: "Aperçu retiré : aucun numéro de bon de commande n'a été consommé." };
+}
+
+/**
+ * VALIDER L'APERÇU ET L'ENVOYER AUX FINANCES — le DEMANDEUR (ou le Super Admin), pas l'assistante qui l'a préparé. C'est ici,
+ * et seulement ici, que le numéro NNN/DG/AAAA est attribué (celui proposé, ou le suivant), que le BC est émis (Word, PDF,
+ * registre) et qu'il part dans sa marche : centre de validation au-dessus du seuil, puis signature des Finances.
+ */
+export async function validerEtEnvoyerBcPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusExecution(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  if (!peutValiderLeBrouillon({ userId: user.id, role: user.role, demandeurId: pm.requesterId })) return { ok: false, error: REFUS_VALIDATION_BROUILLON };
+  const lu = await devisAvecApercu(pm, fdStr(formData, "quoteId"));
+  if (!lu) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
+  if (!lu.brouillon) return { ok: false, error: "Ce devis n'a pas d'aperçu de bon de commande à valider : rechargez la fiche." };
+  // LE NUMÉRO PROPOSÉ au dernier moment (« Numéro du BC à valider ») : écrit sur l'aperçu, que l'émission lit.
+  if (formData.has("numeroChoisi")) {
+    const numero = fdStr(formData, "numeroChoisi");
+    if (numero !== lu.brouillon.numeroChoisi) {
+      await prisma.promoQuote.updateMany({
+        where: { id: lu.devis.id, purchaseOrderId: lu.devis.purchaseOrderId },
+        data: { bcBrouillon: brouillonPromoEnJson({ ...lu.brouillon, numeroChoisi: numero }) as Prisma.InputJsonValue },
+      });
+    }
+  }
+  const r = await genererLesBonsDeCommande(user, pm.id, {
+    livraison: { adresse: null, delai: null }, notes: null, taxe: undefined, automatique: false, mode: "VALIDER", quoteIds: [lu.devis.id],
+  });
   return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error };
 }
 

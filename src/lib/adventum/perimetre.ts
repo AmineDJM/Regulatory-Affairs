@@ -4,7 +4,7 @@
  *
  * Le Super Admin voit tout. Toute autre personne à qui l'on ouvre Adventum Brain (par défaut : le Directeur des
  * opérations) ne lit — et n'agit sur — que les risques du domaine des OPÉRATIONS : marchés et stock PCH, stocks,
- * logistique, ventes, force de vente, couverture terrain, rapports terrain, réclamations. Jamais le marketing (Ad & Pro,
+ * logistique, ventes, force de vente, couverture terrain, rapports terrain. Jamais le marketing (Ad & Pro,
  * ses bons de commande), le réglementaire, le BD, les RH, les finances ou les budgets.
  *
  * La règle est écrite sur la CATÉGORIE et le MODULE que chaque détecteur pose (`risks.ts`, `risks-plus.ts`) — pas sur
@@ -18,13 +18,13 @@ export interface RisqueClasse {
 }
 
 /** Les catégories de détecteurs qui sont, entières, du domaine des opérations. */
-export const CATEGORIES_OPERATIONS: readonly string[] = ["PCH", "FIELD", "MEDICAL", "QUALITY", "SALES", "STOCKS", "LOGISTICS", "RECLAMATIONS"];
+export const CATEGORIES_OPERATIONS: readonly string[] = ["PCH", "FIELD", "MEDICAL", "QUALITY", "SALES", "STOCKS", "LOGISTICS"];
 
 /** Un module qui nomme un autre domaine l'emporte : « Ad & Pro · Bons de commande » reste au marketing. */
 const AUTRE_DOMAINE = /ad\s*&\s*pro|marketing|regulatory|r[ée]glementaire|information m[ée]dicale|recrutement|ressources humaines|budget|comptab|finance|business development|contr[ôo]le de l'ia/i;
 
 /** Un module des opérations, quelle que soit la catégorie que le détecteur a posée. */
-const MODULE_OPERATIONS = /stock|logisti|pch|vente|force de vente|terrain|promotion m[ée]dicale|r[ée]clamation|livraison/i;
+const MODULE_OPERATIONS = /stock|logisti|pch|vente|force de vente|terrain|promotion m[ée]dicale|livraison/i;
 
 export function dansLePerimetreOperations(r: RisqueClasse): boolean {
   if (AUTRE_DOMAINE.test(r.module)) return false;

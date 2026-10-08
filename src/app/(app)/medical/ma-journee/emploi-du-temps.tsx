@@ -41,6 +41,15 @@ export interface LigneVue {
   motifNonTenue: string | null;
   /** Le potentiel à mettre à jour, quand le praticien est dans le panel d'une stratégie de segmentation. */
   potentiel: PotentielVue | null;
+  /** Le besoin annuel du service, quand le praticien est décideur d'une stratégie de sa BU (Marketing cockpit · terrain). */
+  besoin?: BesoinVue | null;
+}
+
+/** Le service du décideur, l'an annoncé et les produits classés, avec ce qui est déjà saisi. */
+interface BesoinVue {
+  annee: number;
+  lieu: string;
+  produits: { productId: string; nom: string; actuel: number | null }[];
 }
 
 /** Ce que la segmentation sait déjà du praticien — pour ne demander que la mise à jour du fait (§17, §18). */
@@ -380,6 +389,7 @@ export function FeuilleRapportVisite({
           } : undefined}
           libelleEnvoi={correction ? "Enregistrer la correction" : "Enregistrer le rapport"}
           potentiel={ouverte.potentiel}
+          besoin={ouverte.besoin ?? null}
           busy={occupe}
           err={err}
           onCancel={onClose}
@@ -526,11 +536,13 @@ export function FeuilleVisiteImprevue({
  */
 function FormulaireRapport({
   action, produits, produitsIncomplets, messages, sansBu, messageObligatoire, produitObligatoire, stock, initial,
-  libelleEnvoi = "Enregistrer le rapport", busy, err, onCancel, entete, potentiel,
+  libelleEnvoi = "Enregistrer le rapport", busy, err, onCancel, entete, potentiel, besoin,
 }: {
   action: (fd: FormData) => void | Promise<void>;
   /** Le potentiel que la segmentation attend de ce praticien — facultatif, la dernière valeur affichée. */
   potentiel?: PotentielVue | null;
+  /** Le besoin annuel du service — facultatif, proposé quand le praticien est décideur. */
+  besoin?: BesoinVue | null;
   produits: { productId: string; name: string }[];
   produitsIncomplets: string[];
   messages: { id: string; title: string; body: string | null; buName: string | null }[];
@@ -704,6 +716,29 @@ function FormulaireRapport({
             {potentiel.productId && <div className="min-w-0"><Label htmlFor="pot-sur10" className="text-xs">Sur 10, sous {potentiel.produit}</Label><Input id="pot-sur10" name="potentielSur10" inputMode="decimal" className="w-full sm:w-28" /></div>}
           </div>
           {potentiel.productId && <input type="hidden" name="potentielProduitId" value={potentiel.productId} />}
+        </div>
+      )}
+
+      {/* ── LE BESOIN ANNUEL DU SERVICE (décideur) — facultatif : ce qu'il annonce fixe le volume de l'AO ─── */}
+      {besoin && besoin.produits.length > 0 && (
+        <div className="space-y-1.5 rounded-lg border border-border p-2.5">
+          <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <span>Besoin annuel du service {besoin.annee} (facultatif)</span>
+            <InfoBulle label="Besoin annuel du service" align="left" className="normal-case tracking-normal">
+              Le décideur fixe les prévisions de son service ({besoin.lieu}), qui fixent le volume de l&apos;appel d&apos;offres.
+              Notez les boîtes qu&apos;il annonce pour {besoin.annee} ; une case vide ne change rien.
+            </InfoBulle>
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            {besoin.produits.map((p) => (
+              <div key={p.productId} className="min-w-0">
+                <input type="hidden" name="besoinProduitId" value={p.productId} />
+                <Label htmlFor={`besoin-${p.productId}`} className="text-xs">{p.nom} (boîtes)</Label>
+                <Input id={`besoin-${p.productId}`} name="besoinQuantite" inputMode="numeric" className="w-full sm:w-32"
+                  placeholder={p.actuel !== null ? p.actuel.toLocaleString("fr-FR") : ""} />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

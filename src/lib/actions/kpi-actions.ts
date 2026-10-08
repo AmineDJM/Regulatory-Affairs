@@ -14,6 +14,7 @@ import { getManagerOfUser } from "@/lib/departments";
 import { FREQUENCES } from "@/lib/kpi/briques";
 import { validerDefinition, type DefinitionKpi } from "@/lib/kpi/definition";
 import { fenetre } from "@/lib/kpi/score";
+import { lienBilanKpi, lienKpiEquipe } from "@/lib/chemins/espace";
 import {
   peutCreerPourEquipe, peutDeclarer, peutGererCatalogue, peutGererPersonne, peutModifierDefinition,
 } from "@/lib/kpi/droits";
@@ -349,7 +350,7 @@ export async function declarerKpi(formData: FormData): Promise<ActionResult> {
   const cree = await prisma.kpiDeclaration.create({ data: { definitionId: d.id, userId: user.id, periode: f.cle, libelle: libelle.slice(0, 200), valeur, ...piece } });
   const n1 =await getManagerOfUser(user.id).catch(() => null);
   if (n1?.userId) {
-    await notifyUser({ userId: n1.userId, type: "GENERIC", title: "Déclaration à valider", body: `${user.name} — ${d.def.nom} : ${libelle.slice(0, 80)}`, link: "/mon-equipe?vue=kpi" });
+    await notifyUser({ userId: n1.userId, type: "GENERIC", title: "Déclaration à valider", body: `${user.name} — ${d.def.nom} : ${libelle.slice(0, 80)}`, link: lienKpiEquipe(f.cle) });
   }
   revalider();
   return { ok: true, id: cree.id, message: "Déclaration envoyée à votre responsable." };
@@ -367,7 +368,7 @@ export async function deciderDeclarationKpi(formData: FormData): Promise<ActionR
   if (decision !== "VALIDEE" && decision !== "REFUSEE") return { ok: false, error: "Décision inconnue." };
   if (decision === "REFUSEE" && !motif) return { ok: false, error: "Un refus se motive." };
   await prisma.kpiDeclaration.update({ where: { id: x.id }, data: { statut: decision, motif: motif?.slice(0, 500) ?? null, valideParId: user.id, valideLe: new Date() } });
-  await notifyUser({ userId: x.userId, type: "GENERIC", title: decision === "VALIDEE" ? "Déclaration validée" : "Déclaration refusée", body: `${x.libelle}${motif ? ` — ${motif.slice(0, 80)}` : ""}`, link: "/mon-espace/bilan" });
+  await notifyUser({ userId: x.userId, type: "GENERIC", title: decision === "VALIDEE" ? "Déclaration validée" : "Déclaration refusée", body: `${x.libelle}${motif ? ` — ${motif.slice(0, 80)}` : ""}`, link: lienBilanKpi(x.periode) });
   revalider();
   return { ok: true, message: decision === "VALIDEE" ? "Déclaration validée." : "Déclaration refusée." };
 }
@@ -491,7 +492,7 @@ export async function signerRevueKpi(formData: FormData): Promise<ActionResult> 
     update: { score: b.score, kpiSansDonnee: b.sansDonnee, detail: lignes as unknown as object, statut: "SIGNEE", signeeParId: user.id, signeeLe: new Date(), commentaireManager: commentaire },
   });
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: MODULE, entityId: cibleUserId, summary: `Revue ${b.periode.libelle} de ${b.nom} signée — score ${b.score ?? "—"}` });
-  await notifyUser({ userId: cibleUserId, type: "GENERIC", title: `Votre revue de ${b.periode.libelle} est signée`, body: `Score ${b.score ?? "—"}${commentaire ? ` — ${commentaire.slice(0, 80)}` : ""}`, link: "/mon-espace/bilan" });
+  await notifyUser({ userId: cibleUserId, type: "GENERIC", title: `Votre revue de ${b.periode.libelle} est signée`, body: `Score ${b.score ?? "—"}${commentaire ? ` — ${commentaire.slice(0, 80)}` : ""}`, link: lienBilanKpi(b.periode.cle) });
   revalider();
   return { ok: true, message: "Revue signée." };
 }

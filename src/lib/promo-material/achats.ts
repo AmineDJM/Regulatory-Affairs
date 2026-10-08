@@ -81,6 +81,8 @@ export interface ArticleDemandeLu {
   quantite: number | null;
   actions: PromoAction[];
   commentaire: string | null;
+  /** « Autre article » saisi librement, absent du catalogue (archivé tant qu'un gestionnaire ne l'y a pas ajouté). */
+  horsCatalogue?: { description: string | null };
 }
 
 /** Ce qu'une ligne promeut, en libellés — les promus quand ils existent, sinon les produits canoniques (ligne d'avant). */

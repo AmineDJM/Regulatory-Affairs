@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { algiersInputToUtc, createEventForUser, CALENDAR_KINDS } from "@/lib/calendar";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { lienCalendrier } from "@/lib/chemins/espace";
 
 const INVITE_STATUSES: CalendarInviteStatus[] = ["INVITED", "ACCEPTED", "DECLINED", "TENTATIVE"];
 
@@ -89,7 +90,7 @@ export async function updateCalendarEvent(
   const toRemove = [...existingIds].filter((uid) => !inviteeIds.includes(uid));
   if (toAdd.length) {
     await prisma.calendarInvite.createMany({ data: toAdd.map((uid) => ({ eventId: id, userId: uid })), skipDuplicates: true });
-    await Promise.all(toAdd.map((uid) => notifyUser({ userId: uid, type: "ASSIGNMENT", title: "Invitation à un rendez-vous", body: title, link: "/calendar" }).catch(() => {})));
+    await Promise.all(toAdd.map((uid) => notifyUser({ userId: uid, type: "ASSIGNMENT", title: "Invitation à un rendez-vous", body: title, link: lienCalendrier(startAt) }).catch(() => {})));
   }
   if (toRemove.length) await prisma.calendarInvite.deleteMany({ where: { eventId: id, userId: { in: toRemove } } });
 

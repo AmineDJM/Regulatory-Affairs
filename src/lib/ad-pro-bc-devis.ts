@@ -7,7 +7,7 @@ import {
   emettreDocumentDrive, previsualiserDocument, reviserDocumentDrive, type DemandeDocument, type ModificationsDocument,
 } from "@/platform/in-process/artifact/factory";
 import type { LigneCommerciale, PartieCommerciale } from "@/lib/artifact/factory/commercial";
-import { brouillonPerime, lignesEffectives, type BrouillonBc } from "@/lib/ad-pro/bc-brouillon";
+import { brouillonPerime, lignesEffectives, type BrouillonBc } from "@/lib/bons-de-commande/brouillon";
 import { devisDesPostes, type DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
 import { rattacherPieceAuPoste } from "@/lib/ad-pro/pieces-poste";
 import { lignesDuBon, refusDepassement, type LigneDevisPoste } from "@/lib/ad-pro/devis-poste";
@@ -220,6 +220,10 @@ export interface ApercuDuBC {
   pages: number;
   /** Le numéro que la validation attribuerait si elle avait lieu maintenant — prévu, JAMAIS réservé. */
   numeroPrevu: string;
+  /** La société qui commande — celle dont le registre NNN/DG/AAAA vérifie un numéro choisi. */
+  societeId: string;
+  /** Le numéro vient du registre commun de la société : il peut être choisi à la validation. */
+  surRegistre: boolean;
   /** Le BC existe déjà (révision) : sa référence, inchangée. */
   referenceExistante: string | null;
   totaux: { totalHt: number; totalTva: number; totalTaxes: number; totalTtc: number; enLettres: string } | null;
@@ -255,6 +259,8 @@ export async function apercuDuBC(
     pdfBase64: r.pdf ? r.pdf.octets.toString("base64") : null,
     pages: r.pdf?.pages ?? 0,
     numeroPrevu: r.numeroProchain,
+    societeId: r.societe.id,
+    surRegistre: r.surRegistre,
     referenceExistante: d.bc ? d.bc.reference : null,
     totaux: r.totaux ? { totalHt: r.totaux.totalHt, totalTva: r.totaux.totalTva, totalTaxes: r.totaux.totalTaxes, totalTtc: r.totaux.totalTtc, enLettres: r.totaux.enLettres } : null,
     bloquants: r.bloquants.length > 0 ? r.bloquants : (r.pdf ? [] : r.pdfErreur ? [r.pdfErreur] : []),

@@ -5,8 +5,9 @@ import { FileSignature, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
-import { genererOrdreDeMission } from "@/lib/actions/hr-document-actions";
+import { genererOrdreDeMission, referenceOrdreDeMission } from "@/lib/actions/hr-document-actions";
 import { MODES_TRANSPORT_MISSION, VALEURS_DU_MODELE } from "@/lib/hr/ordre-mission/constantes";
+import { ChampReference } from "@/components/references/champ-reference";
 
 /**
  * « GÉNÉRER L'ORDRE DE MISSION » (Direction, 06/10) — sur la demande du salarié, côté RH : date d'émission, référence,
@@ -24,6 +25,7 @@ export function OrdreMissionForm({ requestId, employeeName, employeePosition, de
   const [retours, setRetours] = React.useState<string[]>(prefill?.datesRetour.length ? prefill.datesRetour : [""]);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; texte: string } | null>(null);
+  const [refRefusee, setRefRefusee] = React.useState(false);
   const aujourdhui = new Date().toISOString().slice(0, 10);
 
   if (!ouvert) {
@@ -65,7 +67,11 @@ export function OrdreMissionForm({ requestId, employeeName, employeePosition, de
       {details && <p className="rounded bg-background px-2 py-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">Demande du salarié : « {details} »</p>}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1"><Label>Date d&apos;émission</Label><Input type="date" name="dateEmission" defaultValue={aujourdhui} required /></div>
-        <div className="space-y-1"><Label>Référence (N°)</Label><Input name="reference" defaultValue={referenceSuggeree} required /></div>
+        <ChampReference
+          label="Référence (N°)" repli={referenceSuggeree} cle={requestId}
+          charger={() => { const fd = new FormData(); fd.set("requestId", requestId); fd.set("entreprise", VALEURS_DU_MODELE.entreprise); return referenceOrdreDeMission(fd); }}
+          onChange={(e) => setRefRefusee(e.erreur !== null)}
+        />
         <div className="space-y-1"><Label>Collaborateur</Label><Input name="collaborateur" autoComplete="off" defaultValue={employeeName} placeholder="Mme Radia KEBIR" required /></div>
         <div className="space-y-1"><Label>Fonction</Label><Input name="fonction" defaultValue={employeePosition ?? ""} /></div>
         <div className="space-y-1 sm:col-span-2">
@@ -92,7 +98,7 @@ export function OrdreMissionForm({ requestId, employeeName, employeePosition, de
         <div className="space-y-1"><Label>Fonction du signataire</Label><Input name="signataireFonction" defaultValue={VALEURS_DU_MODELE.signataireFonction} /></div>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <Button size="sm" type="submit" className="w-full sm:w-auto" disabled={busy || enCours}>
+        <Button size="sm" type="submit" className="w-full sm:w-auto" disabled={busy || enCours || refRefusee}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />} Générer et remettre au salarié
         </Button>
         <Button size="sm" type="button" variant="ghost" className="w-full sm:w-auto" onClick={() => setOuvert(false)}>Annuler</Button>

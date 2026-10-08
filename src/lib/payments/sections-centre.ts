@@ -101,7 +101,7 @@ export const SECTION_DU_TYPE: Record<EntityType, SectionCentre> = {
   //    d'approvisionnement, du business development — et les PORTEURS sans origine lisible.
   BUDGET: A,
   LOGISTICS: A,
-  RECLAMATION: A,
+  RECLAMATION: A, // module retiré le 09/10 ; valeur d'énumération conservée avec sa table
   STOCK_PCH_RELEVE: A,
   BD_OPPORTUNITY: A,
   BD_PROJECT: A,
@@ -181,6 +181,16 @@ export function classerOrdre(faits: FaitsDeClassement): { section: SectionCentre
   const origine = origineEffective(faits.sourceType, faits.origineDuPorteur);
   if (!origine) return { section: "AUTRES", repli: true };
   return { section: sectionDuType(origine, { contratRH: faits.contratRH === true }), repli: false };
+}
+
+/**
+ * LA SECTION À METTRE DANS UN LIEN (`?section=`) vers un ordre — `null` quand elle ne tient qu'au
+ * REPLI (porteur dont l'origine ne se lit pas ici) : mieux vaut laisser le centre choisir que
+ * d'envoyer sur « Autres » un paiement que le chargeur rangera ailleurs.
+ */
+export function slugSectionDeLOrdre(sourceType: EntityType | null | undefined): string | null {
+  const c = classerOrdre({ sourceType });
+  return c.repli ? null : SECTION_CENTRE_SLUG[c.section];
 }
 
 // ───────────────────────────── L'ENTITÉ ET LA SECTION CHOISIES ─────────────────────────────

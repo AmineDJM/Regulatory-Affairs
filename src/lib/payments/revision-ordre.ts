@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles } from "@/lib/notify";
 import { statutApresRevision, memeBeneficiaire, type CentralStatus } from "@/lib/payments/authorization";
+import { ENTITE_SANS, slugSectionDeLOrdre } from "@/lib/payments/sections-centre";
+import { lienCentreDePaiement } from "@/lib/chemins/finances";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -173,10 +175,12 @@ export async function apresRevisionOrdre(
   const autreBeneficiaire = !memeBeneficiaire(r.beneficiaireAvant, r.beneficiaireApres);
   const cause = releve && autreBeneficiaire ? "montant relevé et bénéficiaire changé"
     : releve ? "montant relevé" : "bénéficiaire changé";
+  // Le centre ouvert sur l'entité et la section où l'ordre attend de nouveau.
+  const o = await prisma.expenseOrder.findUnique({ where: { id: r.orderId }, select: { companyId: true, sourceType: true } }).catch(() => null);
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
     title: `Paiement à ré-autoriser — ${cause}`,
     body: `${r.reference} — ${opts.objet} : ${r.montantAvant.toLocaleString("fr-FR")} → ${r.montantApres.toLocaleString("fr-FR")} DZD${autreBeneficiaire ? `, à « ${r.beneficiaireApres ?? "—"} »` : ""}`,
-    link: "/centre-de-paiement",
+    link: o ? lienCentreDePaiement(o.companyId ?? ENTITE_SANS, slugSectionDeLOrdre(o.sourceType)) : lienCentreDePaiement(),
   });
 }

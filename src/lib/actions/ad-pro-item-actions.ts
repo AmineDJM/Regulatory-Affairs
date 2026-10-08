@@ -1,7 +1,8 @@
 "use server";
 
-import { deposerLettreDevis, phraseDepotLettre } from "@/lib/demande-devis-depot";
+import { deposerLettreDevis, phraseDepotLettre, societeDeLaLettre } from "@/lib/demande-devis-depot";
 import { CHEMIN_STOCK_PROMO, lienStockPromo } from "@/lib/chemins/stock-promo";
+import { lienPosteAdPro } from "@/lib/chemins/ad-pro";
 import { revalidatePath } from "next/cache";
 import type { AdProItemKind, AdProItemOrderStage, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -56,8 +57,10 @@ import { MODES_PAIEMENT, type LigneCommerciale } from "@/lib/artifact/factory/co
 import {
   ETIQUETTE_BROUILLON, REFUS_VALIDATION_BROUILLON, brouillonNeuf, peutValiderLeBrouillon, signatureDesLignes, totalHtDesLignes,
   type BrouillonBc,
-} from "@/lib/ad-pro/bc-brouillon";
+} from "@/lib/bons-de-commande/brouillon";
 import { attachFormFiles, persistUploadedDocument } from "@/lib/documents";
+import { saisieEffective, type ReferenceProchaine } from "@/lib/references/registre";
+import { etatDuRegistre } from "@/lib/references/registre-serveur";
 import { controlerFacture, refusDemandePaiementBC, TOLERANCE_DZD, type ControleFacture } from "@/lib/bons-de-commande/copie-signee";
 import { lireFactureDuPoste } from "@/lib/ad-pro/facture-poste-lecture";
 import { lignesDepuisListes, type ListesDeLignes } from "@/lib/artifact/factory/lignes-saisies";
@@ -520,7 +523,7 @@ async function appliquerGesteVisa(
   ctx: { user: SessionUser; owner: { parent: AdProParent; id: string }; ref: string | null },
 ): Promise<string | null> {
   if (geste.geste === "RIEN") return null;
-  const lien = `${PARENTS[ctx.owner.parent].path}/${ctx.owner.id}`;
+  const lien = lienPosteAdPro(ctx.owner.parent, ctx.owner.id, item.id);
   const cible = `${ctx.ref ?? ""} — « ${item.label} »${apres.montant != null ? ` (${apres.montant.toLocaleString("fr-FR")} DZD)` : ""}`;
   if (geste.geste === "ROUVRIR") {
     const r = await prisma.adProItem.updateMany({
@@ -770,7 +773,7 @@ export async function addAdProItem(_prev: ActionResult | undefined, formData: Fo
         type: "GENERIC",
         title: budgetKind === "ADDITIONAL" ? "Poste hors budget ajouté" : "Poste ajouté après la décision",
         body: `${info.ref} — ${ITEM_KIND_LABELS[kind]} « ${label} »${amountEstimated != null ? ` (${amountEstimated.toLocaleString("fr-FR")} DZD)` : ""} — pour information ; la validation vous parviendra à sa soumission.`,
-        link: `${PARENTS[parentRaw].path}/${parentId}`,
+        link: lienPosteAdPro(parentRaw, parentId, created.id),
       }).catch(() => undefined);
     }
     revalidate(parentRaw, parentId);
@@ -1711,7 +1714,7 @@ export async function submitAdProItem(_prev: ActionResult | undefined, formData:
   const note = fdStr(formData, "note");
   const amount = item.amountGranted ?? item.amountEstimated;
   const corps = `${info?.ref ?? "Opération"} — ${ITEM_KIND_LABELS[item.kind]} « ${item.label} »${amount != null ? ` (${toNumber(amount).toLocaleString("fr-FR")} DZD)` : ""}`;
-  const lien = `${PARENTS[owner.parent].path}/${owner.id}`;
+  const lien = lienPosteAdPro(owner.parent, owner.id, item.id);
 
   // LE MATÉRIEL DU STOCK garde sa décision UNIQUE (§118.167) : il n'engage pas d'argent.
   if (item.kind === "STOCK_MATERIAL") {
@@ -1839,7 +1842,7 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
     await prevenirLeTemps(
       "MARKETING", droits!.demandeur, "Poste validé par la Direction des opérations — à décider",
       `${info?.ref ?? "Opération"} — ${ITEM_KIND_LABELS[item.kind]} « ${item.label} »${montantVu != null ? ` (${montantVu.toLocaleString("fr-FR")} DZD)` : ""} : montant et budget à fixer.`,
-      `${PARENTS[owner.parent].path}/${owner.id}`,
+      lienPosteAdPro(owner.parent, owner.id, item.id),
     );
     await audit(user, owner.parent, owner.id, "UPDATE", `Poste « ${item.label} » validé par la Direction des opérations${note ? ` — ${note}` : ""}.`);
     revalidate(owner.parent, owner.id);
@@ -1948,7 +1951,7 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
       type: "GENERIC",
       title: `Poste ${label}`,
       body: `${info.ref} — « ${item.label} »${note ? ` : ${note}` : ""}`,
-      link: `${PARENTS[owner.parent].path}/${owner.id}`,
+      link: lienPosteAdPro(owner.parent, owner.id, item.id),
     }).catch(() => undefined);
   }
   await audit(user, owner.parent, owner.id, "UPDATE", `Poste « ${item.label} » ${label}${note ? ` — ${note}` : ""}${quitteLAccord && bcEnCours ? " — demande de bon de commande retirée" : ""}.`);
@@ -2126,12 +2129,30 @@ export async function genererDemandeDevisPoste(formData: FormData): Promise<Acti
   if (!info) return { ok: false, error: "Opération introuvable." };
   const r = await deposerLettreDevis(user, [{ entityType: "AD_PRO_ITEM", entityId: item.id }], {
     titre: item.label, brief: null, reference: info.ref, societeId: info.companyId ?? null,
+    // La référence NNN/DG/AAAA (registre commun) : préremplie avec le prochain numéro ; modifiée, elle est vérifiée puis attribuée.
+    referenceChoisie: saisieEffective(fdStr(formData, "reference"), fdStr(formData, "referenceSuggeree")),
     articles: [{ designation: `${ITEM_KIND_LABELS[item.kind]} — ${item.label}`, quantite: null, unite: null, prestations: [], precision: note ?? null, produits: [] }],
   });
   if (!r.ok) return { ok: false, error: r.error };
-  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de devis générée pour le poste « ${item.label} ».`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de devis${r.referenceRegistre ? ` N° ${r.referenceRegistre}` : ""} générée pour le poste « ${item.label} ».`);
   revalidate(owner.parent, owner.id);
   return { ok: true, message: phraseDepotLettre(r) };
+}
+
+/**
+ * LA RÉFÉRENCE QUE PORTERA LA LETTRE DE DEMANDE DE DEVIS D'UN POSTE (registre commun NNN/DG/AAAA, Direction 10/2026) — ce que
+ * le champ « Référence » du formulaire préremplit : la société de l'opération (sinon celle du rédacteur, comme la lettre), si
+ * elle tient le registre, et son prochain numéro — PRÉVU, rien n'est réservé. Lecture seule.
+ */
+export async function referenceDemandeDevisPoste(formData: FormData): Promise<ReferenceProchaine> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const info = await PARENTS[found.owner.parent].load(found.owner.id);
+  if (!info) return { ok: false, error: "Opération introuvable." };
+  return etatDuRegistre(await societeDeLaLettre(user, info.companyId ?? null));
 }
 
 /** Référence d'une demande administrative — même forme que le module (DEM-année-n). */
@@ -2176,7 +2197,7 @@ async function envoyerDemandeBC(i: {
   const d = await demanderBcAAssistante({
     itemId: i.item.id, assistantId: i.assistante.id, demandeurId: i.demandeurId,
     libelle: `Bon de commande — ${ITEM_KIND_LABELS[i.item.kind]} : ${i.item.label} (${i.ref})`,
-    note: contexte, lien: `${PARENTS[i.owner.parent].path}/${i.owner.id}`,
+    note: contexte, lien: lienPosteAdPro(i.owner.parent, i.owner.id, i.item.id),
   });
   await prisma.adProItem.update({ where: { id: i.item.id }, data: { bcAssistantId: i.assistante.id } });
   await notifyUser({
@@ -2326,8 +2347,8 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
     };
   }
   const info = await PARENTS[owner.parent].load(owner.id);
-  const lien = `${PARENTS[owner.parent].path}/${owner.id}`;
-  const cible = `${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`;
+  const lien = lienPosteAdPro(owner.parent, owner.id, item.id);
+  const cible =`${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`;
   const changee = "Cette demande vient de changer (retirée, déjà décidée, ou son montant ou son prestataire a bougé) : rouvrez la fiche.";
   if (decision === "REFUSE") {
     // UN REFUS SANS MOTIF EST UNE IMPASSE pour le demandeur — la règle du centre, ici aussi.
@@ -2473,7 +2494,7 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
   if (item.orderStage === "DIRECTION_OK") {
     await notifyRoles(FINANCES_BC, {
       type: "GENERIC", title: "Bon de commande retiré — ne pas l'émettre",
-      body: `${info?.ref ?? ""} — « ${item.label} » : ${motif}`, link: `${PARENTS[owner.parent].path}/${owner.id}`,
+      body: `${info?.ref ?? ""} — « ${item.label} » : ${motif}`, link: lienPosteAdPro(owner.parent, owner.id, item.id),
     }).catch(() => undefined);
   }
   // LE DEMANDEUR, quand c'est quelqu'un d'autre qui annule (qui tranche) : c'est sa demande qui s'arrête.
@@ -2481,7 +2502,7 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
     await notifyUser({
       userId: item.orderRequestedById, type: "GENERIC", title: "Demande de bon de commande annulée",
       body: `${info?.ref ?? ""} — « ${item.label} »${annules.length ? ` (BC ${annules.join(", ")} annulé)` : ""} : ${motif}`,
-      link: `${PARENTS[owner.parent].path}/${owner.id}`,
+      link: lienPosteAdPro(owner.parent, owner.id, item.id),
     }).catch(() => undefined);
   }
   await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande ANNULÉE pour le poste « ${item.label} »${annules.length ? ` — BC ${annules.join(", ")} annulé au registre` : ""} — ${motif}`);
@@ -2579,7 +2600,7 @@ export async function annulerOrdrePoste(_prev: ActionResult | undefined, formDat
     await notifyUser({
       userId: prevenir, type: "GENERIC", title: "Ordre de dépense annulé",
       body: `${info?.ref ?? ""} — « ${item.label} »${annulation.reference ? ` (${annulation.reference})` : ""} : ${motif}`,
-      link: `${PARENTS[owner.parent].path}/${owner.id}`,
+      link: lienPosteAdPro(owner.parent, owner.id, item.id),
     }).catch(() => undefined);
   }
   await audit(user, owner.parent, owner.id, "UPDATE",
@@ -2654,7 +2675,7 @@ export async function demanderRevisionPoste(_prev: ActionResult | undefined, for
   await prevenirLeTemps(
     opsFranchiALaSoumission(demandeur) ? "MARKETING" : "OPERATIONS", demandeur, "Poste accordé — révision demandée",
     `${info?.ref ?? "Opération"} — « ${item.label} »${estimation != null ? ` (nouvelle estimation : ${estimation.toLocaleString("fr-FR")} DZD)` : ""} : ${motif}`,
-    `${PARENTS[owner.parent].path}/${owner.id}`,
+    lienPosteAdPro(owner.parent, owner.id, item.id),
   );
   await audit(user, owner.parent, owner.id, "UPDATE",
     `Révision demandée sur le poste accordé « ${item.label} »${ancien != null ? ` (accordé ${ancien.toLocaleString("fr-FR")} DZD)` : ""} — ${motif}${bcEnCours ? " — demande de bon de commande retirée" : ""}.`);
@@ -3939,10 +3960,18 @@ async function traiterLeBCDuPoste(formData: FormData, mode: "APERCU" | "VALIDER"
       }
       marche = { sousLeSeuil: prise.sousLeSeuil, seuilBC: prise.seuilBC };
     }
+    // LA RÉFÉRENCE CHOISIE À LA VALIDATION (registre NNN/DG/AAAA, Direction 10/2026) : le champ est prérempli avec le prochain
+    // numéro ; laissé tel quel, il ne fige rien (le prochain libre est attribué) ; modifié, c'est ce numéro-là, vérifié par la fabrique.
+    const numeroDuFormulaire = pieceVoulue && formData.has("numeroChoisi")
+      ? saisieEffective(fdStr(formData, "numeroChoisi"), fdStr(formData, "numeroSuggere"))
+      : undefined;
     const bilan = await genererLesBCsDuPoste(
       user, { item: { id, label: item.label, kind: item.kind, supplier: item.supplier, amountGranted: montantAccorde }, ref: info.ref, societe },
       aFaire.map((d) => d.pieceId),
-      new Map(aFaire.filter((d) => d.brouillon).map((d) => [d.pieceId, d.brouillon as BrouillonBc])),
+      new Map(aFaire.filter((d) => d.brouillon).map((d) => [
+        d.pieceId,
+        (d.pieceId === pieceVoulue && numeroDuFormulaire !== undefined ? { ...(d.brouillon as BrouillonBc), numeroChoisi: numeroDuFormulaire } : d.brouillon) as BrouillonBc,
+      ])),
     );
     // Les brouillons VALIDÉS sont consommés : le BC existe, l'aperçu a fait son œuvre (un échec garde le sien).
     if (bilan.bcs.length > 0) {

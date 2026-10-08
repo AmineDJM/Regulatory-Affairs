@@ -10,6 +10,7 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { entitePermisePourFiche } from "@/lib/company";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { detenteurPourInterim } from "@/lib/hr/stand-in-resolve";
+import { LIEN_INTERIMAIRES_A_VALIDER, LIEN_MES_CONGES } from "@/lib/chemins/rh";
 import {
   normalizeDelegated, delegationsFor, modulesNonPretes, congeTermine, annonceDeValidation, STAND_IN_LABEL,
 } from "@/lib/hr/stand-in";
@@ -145,7 +146,7 @@ export async function proposeStandIn(formData: FormData): Promise<ActionResult> 
     type: "GENERIC",
     title: "Intérimaire à valider",
     body: `${leave.employee.fullName} propose ${candidate.name} pendant son congé (${modules.map((m) => MODULE_LABELS[m]).join(", ")}).`,
-    link: "/rh/conges",
+    link: LIEN_INTERIMAIRES_A_VALIDER,
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "RH", entityType: "LEAVE_REQUEST", entityId: id,
@@ -284,7 +285,8 @@ export async function decideStandIn(formData: FormData): Promise<ActionResult> {
       userId: absentId, type: "GENERIC",
       title: STAND_IN_LABEL[approve ? "APPROVED" : "REJECTED"],
       body: note || (approve ? "Votre intérimaire pourra agir pendant votre congé." : ""),
-      link: "/mon-espace",
+      // L'intérim se règle sur SON congé, dans « Mon dossier RH » — un refus s'y corrige.
+      link: LIEN_MES_CONGES,
     });
   }
   await recordAudit({

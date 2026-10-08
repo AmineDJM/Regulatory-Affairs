@@ -20,7 +20,7 @@ import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
 import type { HebergementVue } from "@/components/ad-pro/hebergements-bloc";
 import { porteDesHebergements } from "@/lib/ad-pro/hebergements";
 import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
-import { peutValiderLeBrouillon } from "@/lib/ad-pro/bc-brouillon";
+import { peutValiderLeBrouillon } from "@/lib/bons-de-commande/brouillon";
 import { pieceEmise, specRevisable } from "@/lib/legal/piece-emise";
 import { devisDesPostes } from "@/lib/queries/ad-pro-devis-poste";
 import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";

@@ -156,7 +156,8 @@ export async function runSfeFieldSweep(now: Date = new Date()): Promise<SfeSweep
       for (const userId of cibles) {
         await notifyUser({
           userId, type: "MEDICAL_TOUR", title: a.title, body: a.body,
-          link: "/planning",
+          // La fiche DU délégué dont parle l'alerte, ouverte dans le pilotage (`?kam=`).
+          link: `/planning?kam=${encodeURIComponent(a.repId)}`,
         }).catch(() => undefined);
       }
       // Le verrou se pose sur le PROFIL du KAM : sans profil (KAM non configuré), l'alerte

@@ -10,6 +10,7 @@ import { getAppSettings } from "@/lib/settings";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getManagerOf, getManagementChain } from "@/lib/departments";
 import { stageNotifyRoles, type LeaveDecider } from "@/lib/leave-workflow";
+import { LIEN_CONGES_A_SIGNER } from "@/lib/chemins/rh";
 
 /**
  * LE CONGÉ EST **UNE** DEMANDE — quel que soit l'écran d'où elle part.
@@ -108,12 +109,13 @@ export async function createLeaveRequest(
   if (stage === "MANAGER" && managerUserId) {
     await notifyUser({
       userId: managerUserId, type: "GENERIC", title: "Congé à valider (votre équipe)",
-      body: `${employee.fullName} — ${period} (${input.days} j).`, link: "/mon-equipe",
+      // « Mon équipe » ne signe rien : la signature vit dans « Mon espace » (`LIEN_CONGES_A_SIGNER`).
+      body: `${employee.fullName} — ${period} (${input.days} j).`, link: LIEN_CONGES_A_SIGNER,
     });
   } else {
     await notifyRoles(stageNotifyRoles("HR") as UserRole[], {
       type: "GENERIC", title: "Congé à valider",
-      body: `${employee.fullName} — ${period} (${input.days} j).`, link: "/rh",
+      body: `${employee.fullName} — ${period} (${input.days} j).`, link: LIEN_CONGES_A_SIGNER,
     });
   }
   return { id: created.id, stage };

@@ -19,6 +19,7 @@ import { prisma } from "@/lib/prisma";
 import { MODULE_LABELS } from "@/lib/labels";
 import { StandInBadge, StandInDecision } from "@/components/hr/stand-in-panel";
 import { congeTermine, type StandInStatus } from "@/lib/hr/stand-in";
+import { ANCRE_INTERIMAIRES } from "@/lib/chemins/rh";
 
 export const dynamic = "force-dynamic";
 
@@ -158,7 +159,7 @@ export default async function RhLeavePage() {
           ce n'est pas un remplaçant de complaisance. Sans cette marche, la délégation
           deviendrait un moyen de contourner un circuit. */}
       {peutValiderInterims && standIns.length > 0 && (
-        <section className="space-y-3">
+        <section id={ANCRE_INTERIMAIRES} className="scroll-mt-20 space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Intérimaires à valider ({standIns.length})
           </h2>

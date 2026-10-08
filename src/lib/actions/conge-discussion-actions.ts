@@ -7,6 +7,7 @@ import { rolesWithModule } from "@/lib/rbac";
 import { peutEchangerSurConge } from "@/lib/entity-access";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { LIEN_MES_CONGES, LIEN_CONGES_A_SIGNER, LIEN_CONGES_A_TRANCHER_RH } from "@/lib/chemins/rh";
 
 /**
  * ÉCRIRE DANS LA DISCUSSION D'UN CONGÉ (Direction, 07/10 : « ajoute une possibilité de discussion dans les congés »).
@@ -40,7 +41,7 @@ export async function commenterConge(formData: FormData): Promise<ActionResult> 
   if (conge.employee.userId && conge.employee.userId !== user.id) {
     await notifyUser({
       userId: conge.employee.userId, type: "GENERIC", title: "Message sur votre demande de congé",
-      body: `${user.name} : ${extrait}`, link: "/mon-dossier",
+      body: `${user.name} : ${extrait}`, link: LIEN_MES_CONGES,
     }).catch(() => undefined);
   } else if (conge.status === "PENDING") {
     // Le salarié écrit : celui qui tient la marche le lit.
@@ -50,13 +51,13 @@ export async function commenterConge(formData: FormData): Promise<ActionResult> 
       if (n1 && n1 !== user.id) {
         await notifyUser({
           userId: n1, type: "GENERIC", title: "Message sur un congé à signer",
-          body: `${conge.employee.fullName} : ${extrait}`, link: "/mon-espace#conges-a-signer",
+          body: `${conge.employee.fullName} : ${extrait}`, link: LIEN_CONGES_A_SIGNER,
         }).catch(() => undefined);
       }
     } else if (conge.stage === "HR") {
       await notifyRoles(rolesWithModule("HR_REQUESTS", "VALIDATE"), {
         type: "GENERIC", title: "Message sur un congé à trancher",
-        body: `${conge.employee.fullName} : ${extrait}`, link: "/rh/demandes",
+        body: `${conge.employee.fullName} : ${extrait}`, link: LIEN_CONGES_A_TRANCHER_RH,
       }).catch(() => undefined);
     }
   }

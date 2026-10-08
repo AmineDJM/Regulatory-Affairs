@@ -59,6 +59,11 @@ import { scanDomains, formatDomains, cycleEdges, DOMAINS } from "./domains";
  * de HEAD : une traversée de moins, aucune de plus. Le même déplacement a fait baisser la
  * frontière Adam ↔ ERP (428 → 427). Plafond ramené au chiffre mesuré — laissé à 69, il ne
  * pourrait plus signaler la première traversée neuve.
+ *
+ * 70 → 68 (2026-10, aperçu du BC à valider) : le brouillon d'un bon de commande (`ad-pro/bc-brouillon.ts`) importait
+ * le vocabulaire de la pièce commerciale (`artifact/factory/commercial`) depuis le domaine `adpro` — deux traversées.
+ * Partagé par le poste Ad & Pro ET le devis de matériel promotionnel, il est la règle du BC, pas d'un circuit : il vit
+ * désormais sous `bons-de-commande/brouillon.ts`, à côté de la règle et de l'aiguillage. Plafond inchangé.
  */
 const CROSSING_CEILING = 68;
 const PROVIDER_CEILING = 42;

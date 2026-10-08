@@ -29,7 +29,9 @@ import {
   canEditExpenseClaim, expenseAmountError, expenseEditDeadline, expenseEditLabel,
 } from "@/lib/hr/expense-claim";
 import { requestDocument } from "@/lib/actions/document-request-actions";
-import { genererEtRemettreOrdreDeMission } from "@/lib/ordre-mission-depot";
+import { genererEtRemettreOrdreDeMission, societeDeLOrdreDeMission } from "@/lib/ordre-mission-depot";
+import { etatDuRegistre } from "@/lib/references/registre-serveur";
+import type { ReferenceProchaine } from "@/lib/references/registre";
 import { synchroniserOrdreEmis } from "@/lib/missions-equipe/serveur";
 import { refusTraitementRh } from "@/lib/missions-equipe/etat";
 
@@ -258,7 +260,7 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
     type: "GENERIC",
     title: "Nouvelle demande RH",
     body: `${employee.fullName} a demandé un document RH.`,
-    link: `/rh/${employee.id}`,
+    link: `/rh/demandes?demande=${created.id}`,
   });
   revalidatePath("/mon-dossier");
   revalidatePath("/rh");
@@ -352,7 +354,7 @@ export async function updateExpenseClaim(formData: FormData): Promise<ActionResu
       type: "GENERIC",
       title: "Note de frais corrigée",
       body: `${req.employee.fullName} a corrigé sa note de frais.`,
-      link: `/rh/${req.employeeId}`,
+      link: `/rh/demandes?demande=${id}`,
     });
   }
   revalidatePath("/mon-dossier");
@@ -406,7 +408,7 @@ export async function setExpenseClaimEditUnlocked(formData: FormData): Promise<A
       userId: req.employee.userId, type: "GENERIC",
       title: "Vous pouvez corriger votre note de frais",
       body: "Les RH ont rouvert la modification. Corrigez-la depuis « Mon dossier RH ».",
-      link: "/mon-dossier",
+      link: `/mon-dossier#demande-rh-${id}`,
     });
   }
   revalidatePath("/mon-dossier");
@@ -479,9 +481,9 @@ export async function addHrRequestComment(formData: FormData): Promise<ActionRes
   await prisma.comment.create({ data: { entityType: "HR_REQUEST", entityId: id, body, authorId: user.id } });
   // Notifie l'autre partie.
   if (isHr && req.employee.userId) {
-    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: "Réponse des RH à votre demande", body, link: "/mon-dossier" });
+    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: "Réponse des RH à votre demande", body, link: `/mon-dossier#demande-rh-${id}` });
   } else if (isOwner) {
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Message sur une demande RH", body: `${req.employee.fullName} : ${body}`, link: `/rh/${req.employeeId}` });
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Message sur une demande RH", body: `${req.employee.fullName} : ${body}`, link: `/rh/demandes?demande=${id}` });
   }
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${req.employeeId}`);
@@ -504,13 +506,26 @@ export async function genererOrdreDeMission(formData: FormData): Promise<ActionR
     collaborateur: txt("collaborateur"), fonction: txt("fonction"), objet: txt("objet"), destination: txt("destination"),
     datesDepart: formData.getAll("dateDepart").map(String), datesRetour: formData.getAll("dateRetour").map(String),
     transport: txt("transport"), signataire: txt("signataire"), signataireFonction: txt("signataireFonction"),
-  });
+  }, { referenceSuggeree: fdStr(formData, "referenceSuggeree") });
   if (!r.ok) return r;
   await archiveHrRequestIfDone(requestId, user.id);
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${r.employeeId}`);
   revalidatePath("/rh");
   return { ok: true, id: requestId, message: r.message };
+}
+
+/**
+ * LA RÉFÉRENCE QUE PORTERA L'ORDRE DE MISSION (registre commun NNN/DG/AAAA, Direction 10/2026) — ce que le champ « Référence »
+ * du formulaire préremplit : la société qui émet (celle que l'ordre imprime, sinon l'employeur du salarié), si elle tient le
+ * registre, et son prochain numéro — PRÉVU, rien n'est réservé. Lecture seule, pour les RH.
+ */
+export async function referenceOrdreDeMission(formData: FormData): Promise<ReferenceProchaine> {
+  const user = await requireUser();
+  if (!userCan(user, "HR_REQUESTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const requestId = fdStr(formData, "requestId");
+  if (!requestId) return { ok: false, error: "Demande introuvable." };
+  return etatDuRegistre(await societeDeLOrdreDeMission(requestId, fdStr(formData, "entreprise")));
 }
 
 export async function processHrRequest(formData: FormData): Promise<ActionResult> {
@@ -545,7 +560,7 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
       type: "GENERIC",
       title: "Votre demande RH a été mise à jour",
       body: `Statut : ${HR_REQUEST_STATUS[status]?.label ?? status}.`,
-      link: "/mon-dossier",
+      link: `/mon-dossier#demande-rh-${id}`,
     });
   }
   await archiveHrRequestIfDone(id, user.id);
@@ -590,7 +605,7 @@ export async function decideExpenseReport(formData: FormData): Promise<ActionRes
     ? `Votre note de frais (${formatMonth(req.expenseMonth)}) a été refusée.`
     : `Votre note de frais (${formatMonth(req.expenseMonth)}) est validée pour ${formatMonth(approvedMonth)}${decision === "APPROVE_NEXT" ? " (mois suivant)" : ""}.`;
   if (req.employee.userId) {
-    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: decision === "REJECT" ? "Note de frais refusée" : "Note de frais validée", body, link: "/mon-dossier" });
+    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: decision === "REJECT" ? "Note de frais refusée" : "Note de frais validée", body, link: `/mon-dossier#demande-rh-${id}` });
   }
   await recordAudit({
     actorId: user.id, action: decision === "REJECT" ? "REFUSE" : "VALIDATE", module: "RH",
@@ -639,7 +654,7 @@ export async function decideHrLeave(formData: FormData): Promise<ActionResult> {
       body: approved
         ? `Votre demande « ${label} »${periodTxt} a été accordée.${debited > 0 ? ` ${debited} j déduits de votre solde de congés.` : ""}`
         : `Votre demande « ${label} »${periodTxt} a été refusée.${note ? ` Motif : ${note}` : ""}`,
-      link: "/mon-dossier",
+      link: `/mon-dossier#demande-rh-${id}`,
     });
   }
   await recordAudit({
@@ -673,13 +688,13 @@ export async function ackExpenseOriginals(formData: FormData): Promise<ActionRes
     await notifyUser({
       userId: req.employee.userId, type: "GENERIC", title: "Originaux réceptionnés",
       body: `Le bureau du secrétariat a accusé réception des originaux de votre note de frais (${formatMonth(req.expenseMonth)}).`,
-      link: "/mon-dossier",
+      link: `/mon-dossier#demande-rh-${id}`,
     });
   }
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "GENERIC", title: "Originaux de note de frais réceptionnés",
     body: `${req.employee.fullName} — ${formatMonth(req.expenseMonth)} (accusé par ${user.name}).`,
-    link: `/rh/${req.employeeId}`,
+    link: `/rh/demandes?demande=${id}`,
   });
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Demandes administratives", summary: `Accusé de réception originaux note de frais — ${req.employee.fullName} (${req.expenseMonth ?? "?"})` });
   revalidatePath("/demandes");
@@ -713,9 +728,9 @@ export async function proposeHrMeeting(formData: FormData): Promise<ActionResult
   });
   const whenLabel = formatAlgiers(at, { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
   if (isOwner) {
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Entrevue RH — date proposée par l'employé", body: `${req.employee.fullName} propose : ${whenLabel}.`, link: `/rh/${req.employeeId}` });
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Entrevue RH — date proposée par l'employé", body: `${req.employee.fullName} propose : ${whenLabel}.`, link: `/rh/demandes?demande=${id}` });
   } else if (req.employee.userId) {
-    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: "Entrevue RH — date proposée", body: `Les RH vous proposent : ${whenLabel}. Acceptez ou proposez une autre date.`, link: "/mon-dossier" });
+    await notifyUser({ userId: req.employee.userId, type: "GENERIC", title: "Entrevue RH — date proposée", body: `Les RH vous proposent : ${whenLabel}. Acceptez ou proposez une autre date.`, link: `/mon-dossier#demande-rh-${id}` });
   }
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${req.employeeId}`);
@@ -760,9 +775,9 @@ export async function confirmHrMeeting(formData: FormData): Promise<ActionResult
 
   const whenLabel = formatAlgiers(req.meetingAt, { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
   if (isOwner) {
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Entrevue RH confirmée", body: `${req.employee.fullName} — ${whenLabel}.`, link: `/rh/${req.employeeId}` });
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Entrevue RH confirmée", body: `${req.employee.fullName} — ${whenLabel}.`, link: `/rh/demandes?demande=${id}` });
   } else if (employeeUserId) {
-    await notifyUser({ userId: employeeUserId, type: "GENERIC", title: "Entrevue RH confirmée", body: `Votre entrevue est confirmée : ${whenLabel}. Elle apparaît dans votre calendrier.`, link: "/mon-dossier" });
+    await notifyUser({ userId: employeeUserId, type: "GENERIC", title: "Entrevue RH confirmée", body: `Votre entrevue est confirmée : ${whenLabel}. Elle apparaît dans votre calendrier.`, link: `/mon-dossier#demande-rh-${id}` });
   }
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: "RH", summary: `Entrevue RH confirmée — ${req.employee.fullName} (${whenLabel})` });
   // Archive dans le Drive du côté RH (même si c'est l'employé qui a accepté).
@@ -805,9 +820,9 @@ export async function annulerDemandeRh(formData: FormData): Promise<ActionResult
   const libelle = HR_REQUEST_TYPE[req.type] ?? req.type;
   const corps = `${req.employee.fullName} a annulé sa demande « ${libelle} »${motif ? ` — ${motif}` : ""}. Il n'y a plus rien à préparer.`;
   if (req.handledById && req.handledById !== user.id) {
-    await notifyUser({ userId: req.handledById, type: "GENERIC", title: "Demande RH annulée", body: corps, link: `/rh/${req.employeeId}` }).catch(() => undefined);
+    await notifyUser({ userId: req.handledById, type: "GENERIC", title: "Demande RH annulée", body: corps, link: "/rh/demandes" }).catch(() => undefined);
   }
-  await notifyRoles(rolesWithModule("HR_REQUESTS", "UPDATE"), { type: "GENERIC", title: "Demande RH annulée", body: corps, link: `/rh/${req.employeeId}` }).catch(() => undefined);
+  await notifyRoles(rolesWithModule("HR_REQUESTS", "UPDATE"), { type: "GENERIC", title: "Demande RH annulée", body: corps, link: "/rh/demandes" }).catch(() => undefined);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "RH", entityType: "HR_REQUEST", entityId: id,
     field: "status", oldValue: req.status, newValue: "CANCELLED",

@@ -13,6 +13,7 @@ import {
   apercuAvantImpressionPiece, emettrePieceCommerciale, previsualiserPieceCommerciale, reglerNumerotationPieces,
   type ApercuPiece, type ResultatEmission,
 } from "@/lib/actions/fabrique-actions";
+import { ChampReference } from "@/components/references/champ-reference";
 
 /**
  * COMPOSER UNE PIÈCE — le bouton des Finances (et de Legal) : une facture, un bon de commande ou
@@ -106,6 +107,8 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
   const [motif, setMotif] = React.useState<string>("");
   const [motifMessage, setMotifMessage] = React.useState<string | null>(null);
   const [depart, setDepart] = React.useState<string>("");
+  // La référence saisie au registre commun NNN/DG/AAAA (quand la pièce y va) : la saisie, la proposition, et son refus en direct.
+  const [reference, setReference] = React.useState({ valeur: "", suggeree: "", refusee: false });
   // L'APERÇU AVANT IMPRESSION : le PDF de la pièce à blanc, en blob local — jamais un fichier du Drive.
   const [impression, setImpression] = React.useState<{ url: string; pages: number; numero: string } | null>(null);
   const [impressionErreur, setImpressionErreur] = React.useState<string | null>(null);
@@ -188,6 +191,8 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
 
   const emettre = () => {
     const fd = construireFormData();
+    // LA RÉFÉRENCE (registre commun NNN/DG/AAAA) : envoyée à l'ÉMISSION seulement — l'aperçu montre le numéro prévu.
+    if (apercu && apercu.ok && apercu.surRegistre) { fd.set("numeroChoisi", reference.valeur); fd.set("numeroSuggere", reference.suggeree); }
     startEmission(async () => {
       const r = await emettrePieceCommerciale(undefined, fd);
       setResultat(r);
@@ -224,7 +229,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
 
   const totaux = apercu && apercu.ok ? apercu.totaux : null;
   const bloquants = apercu && apercu.ok ? apercu.bloquants : apercu && !apercu.ok ? [apercu.error] : [];
-  const peutEmettre = !!(apercu && apercu.ok && apercu.peutEmettre) && !emission && !resultat?.ok;
+  const peutEmettre = !!(apercu && apercu.ok && apercu.peutEmettre) && !emission && !resultat?.ok && !(apercu.surRegistre && reference.refusee);
 
   return (
     <Sheet
@@ -445,6 +450,16 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
               </span>
             )}
           </div>
+          {apercu && apercu.ok && apercu.surRegistre && !resultat?.ok && (
+            <div className="mt-2 max-w-xs">
+              <ChampReference
+                label="Référence" name="numeroChoisi" nameSuggeree="numeroSuggere" cle={`${apercu.societe.id}:${champs.date.slice(0, 4)}`}
+                annee={Number(champs.date.slice(0, 4)) || undefined}
+                charger={async () => ({ ok: true, actif: true, societeId: apercu.societe.id, prochaine: apercu.numeroProchain })}
+                onChange={(e) => setReference({ valeur: e.valeur, suggeree: e.suggeree ?? "", refusee: e.erreur !== null })}
+              />
+            </div>
+          )}
           {totaux ? (
             <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
               <dt className="text-muted-foreground">Total HT</dt><dd className="text-right tabular-nums">{formatCurrency(totaux.totalHt)}</dd>

@@ -113,8 +113,6 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   HR_REQUESTS: { domaines: ["HR"], mots: ["demandes rh", "attestation", "ordre de mission", "conge", "absence", "arret maladie"] },
   TRAINING: { domaines: ["HR"], mots: ["formation", "formations", "seminaire"] },
   PHARMACOVIGILANCE: { domaines: ["REGULATORY"], mots: ["pharmacovigilance", "effet indesirable", "cas pv", "signalement"] },
-  // Retours & réclamations (08/10) — retours, réclamations qualité, rappels de lot. Aucun outil d'Adam : gestes d'écran.
-  RETOURS_RECLAMATIONS: { domaines: ["DATA"], mots: ["retour", "retours", "reclamation", "reclamations", "rappel de lot", "lot defectueux"] },
   DOCUMENTS: { domaines: ["DRIVE"] },
   DRIVE: { domaines: ["DRIVE"] },
   ADMIN: { domaines: ["ADMIN"] },

@@ -26,7 +26,9 @@ import {
   demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder,
   retirerDemandeBC, modifierDemandeBC, annulerOrdrePoste, demanderRevisionPoste,
   ajouterDevisPoste, retirerDevisDuPoste, demanderPaiementPoste, genererBonDeCommandePoste, genererDemandeDevisPoste,
+  referenceDemandeDevisPoste,
 } from "@/lib/actions/ad-pro-item-actions";
+import { ChampReference } from "@/components/references/champ-reference";
 import { deleteDocument } from "@/lib/actions/document-actions";
 import { decideDocumentRequest } from "@/lib/actions/document-request-actions";
 import type { DroitsValidation } from "@/lib/ad-pro/validation-poste";
@@ -55,6 +57,7 @@ import { refusGenerationBC } from "@/lib/ad-pro/devis-poste";
 import { BlocBonDeCommande, PanneauLignesDevis } from "./devis-bc-poste";
 import { DeposerFactureBC, DemandePaiementBC, ControleDeFacture, bcsSansFacture } from "./facture-paiement-bc";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { ancrePoste } from "@/lib/chemins/ad-pro";
 
 export type { LigneStockVue, ContexteMaterielStock, ArticleMagasinVue } from "./materiel-stock";
 export type { VoyageurVue } from "./voyageurs-bloc";
@@ -660,7 +663,9 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
   ) : null;
 
   return (
-    <li className="space-y-2.5 rounded-xl border border-border bg-card p-3">
+    // L'ANCRE DU POSTE : une notification qui parle de CE poste (« Poste à valider », « BC validé »…)
+    // mène ici (`lienPosteAdPro`), pas en haut d'une fiche à faire défiler.
+    <li id={ancrePoste(item.id)} className="scroll-mt-20 space-y-2.5 rounded-xl border border-border bg-card p-3">
       {/* 1. CE QU'IL EST — une fois, son état, ce qu'il coûte. */}
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -897,6 +902,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
             void run(`lettre:${item.id}`, () => genererDemandeDevisPoste(fd), "Demande de devis générée.").then(fermer);
           }}
         >
+          <ChampReference cle={item.id} charger={() => { const fd = new FormData(); fd.set("id", item.id); return referenceDemandeDevisPoste(fd); }} />
           <label className="block space-y-1">
             <span className="font-medium">Précisions pour l&apos;agence <span className="font-normal text-muted-foreground">(facultatif)</span></span>
             <textarea name="note" rows={2} placeholder="Quantité, format, date de l'événement, lieu…" className="w-full rounded-lg border border-border bg-card px-2.5 py-2 text-base outline-none focus:border-primary/60 sm:text-sm" />

@@ -40,12 +40,4 @@ describe("Directeur des opérations — les droits décidés le 08/10", () => {
     expect(od.PROCESS_INTELLIGENCE).toBeUndefined();
     expect(od.ADMIN).toBeUndefined();
   });
-  it("gère les retours & réclamations ; le KAM déclare en portée « ses lignes »", () => {
-    expect(od.RETOURS_RECLAMATIONS).toEqual(expect.arrayContaining(["VIEW", "CREATE", "UPDATE"]));
-    expect(PERMISSIONS.MEDICAL_DELEGATE.RETOURS_RECLAMATIONS).toEqual(["VIEW", "CREATE", "UPLOAD"]);
-    expect(defaultScope("MEDICAL_DELEGATE", "RETOURS_RECLAMATIONS")).toBe("ASSIGNED");
-    expect(PERMISSIONS.HEAD_OF_REGULATORY.RETOURS_RECLAMATIONS).toEqual(["VIEW", "EXPORT"]);
-    expect(PERMISSIONS.MEDICAL_INFO_PHARMACIST.RETOURS_RECLAMATIONS).toEqual(["VIEW", "EXPORT"]);
-    expect(PERMISSIONS.PRODUCT_MANAGER.RETOURS_RECLAMATIONS).toBeUndefined();
-  });
 });

@@ -35,6 +35,7 @@ import { montantsDesAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
 import { netDeLaFacture } from "@/lib/lecteurs/avoir";
 import { accesAuxPiecesLegalDetaille } from "@/lib/entity-access";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
+import { saisieEffective } from "@/lib/references/registre";
 
 /** « 2 500 000,00 » (espaces, insécables, virgule) → 2500000 ; vide ou illisible → null. */
 function nombre(v: string | null | undefined): number | null {
@@ -145,6 +146,9 @@ function lireDemande(formData: FormData, lignes: DemandeDocument["lignes"]): { o
       letterheadId: texte(formData, "letterheadId"),
       chainFromId: texte(formData, "chainFromId"),
       forcerDoublon: fdStr(formData, "forcerDoublon") === "1",
+      // LA RÉFÉRENCE CHOISIE (registre commun NNN/DG/AAAA) : le champ est prérempli avec le numéro prévu ; laissé tel quel, rien
+      // n'est figé (le prochain libre est attribué) ; modifié, la fabrique le vérifie sous verrou.
+      numeroChoisi: saisieEffective(fdStr(formData, "numeroChoisi"), fdStr(formData, "numeroSuggere")),
       // Les pièces composées depuis l'écran se rangent par nature : « Factures émises », etc.
       dossier: type === "FACTURE" ? "Factures émises" : type === "BON_DE_COMMANDE" ? "Bons de commande émis" : "Devis émis",
     },
@@ -156,6 +160,8 @@ export interface ApercuPiece {
   societe: { id: string; nom: string };
   numeroProchain: string;
   motif: string | null;
+  /** Le numéro vient du registre commun NNN/DG/AAAA de la société : il peut être choisi à l'émission. */
+  surRegistre: boolean;
   papierEnTete: { id: string; nom: string } | null;
   identiteIncomplete: string[];
   totaux: { totalHt: number; totalTaxes: number; totalTva: number; timbre: number; totalTtc: number; enLettres: string; taxes: { libelle: string; taux: number; montant: number }[]; tva: { taux: number; montant: number }[] } | null;
@@ -178,7 +184,7 @@ export async function previsualiserPieceCommerciale(_prev: ApercuPiece | { ok: f
   if (!r.ok) return { ok: false, error: r.motif };
   return {
     ok: true,
-    societe: r.societe, numeroProchain: r.numeroProchain, motif: r.motif, papierEnTete: r.papierEnTete, identiteIncomplete: r.identiteIncomplete,
+    societe: r.societe, numeroProchain: r.numeroProchain, motif: r.motif, surRegistre: r.surRegistre, papierEnTete: r.papierEnTete, identiteIncomplete: r.identiteIncomplete,
     totaux: r.totaux
       ? {
         totalHt: r.totaux.totalHt, totalTaxes: r.totaux.totalTaxes, totalTva: r.totaux.totalTva, timbre: r.totaux.timbre, totalTtc: r.totaux.totalTtc, enLettres: r.totaux.enLettres,

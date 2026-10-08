@@ -19,6 +19,7 @@ import {
 } from "@/lib/leave-workflow";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 import { remonterConge, trancherSousEscalade } from "@/lib/hr/conge-escalade";
+import { LIEN_CONGES_A_SIGNER, LIEN_MES_CONGES, LIEN_MES_AVANCES, CHEMIN_PAIE_RH } from "@/lib/chemins/rh";
 import { entitePermisePourFiche } from "@/lib/company";
 import { compteSuitLaFiche } from "@/lib/hr/depart";
 import { chargerSalairesPartis } from "@/lib/hr/salaires-partis";
@@ -447,13 +448,13 @@ export async function decideLeave(formData: FormData): Promise<ActionResult> {
       await notifyRoles(roles, {
         type: "GENERIC", title: "Congé à valider",
         body: `${leave.employee.fullName} — ${period} (${Number(leave.days)} j). ${LEAVE_STAGE_LABELS[next.stage]}.`,
-        link: "/rh",
+        link: LIEN_CONGES_A_SIGNER,
       });
     }
     if (leave.employee.userId) {
       await notifyUser({
         userId: leave.employee.userId, type: "GENERIC", title: "Congé : une étape de plus",
-        body: `Votre demande ${period} avance — ${LEAVE_STAGE_LABELS[next.stage]}.`, link: "/mon-espace",
+        body: `Votre demande ${period} avance — ${LEAVE_STAGE_LABELS[next.stage]}.`, link: LIEN_MES_CONGES,
       });
     }
   } else if (leave.employee.userId) {
@@ -461,7 +462,7 @@ export async function decideLeave(formData: FormData): Promise<ActionResult> {
       userId: leave.employee.userId, type: "GENERIC",
       title: next.status === "APPROVED" ? "Congé approuvé" : "Congé refusé",
       body: `Votre demande ${period} a été ${next.status === "APPROVED" ? "approuvée" : "refusée"}.${note ? ` ${note}` : ""}`,
-      link: "/mon-espace",
+      link: LIEN_MES_CONGES,
     });
   }
 
@@ -540,14 +541,14 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
     if (leave.stage === "MANAGER" && leave.managerId) {
       const chef = await prisma.employee.findUnique({ where: { id: leave.managerId }, select: { userId: true } });
       if (chef?.userId && chef.userId !== user.id) {
-        await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/mon-espace" }).catch(() => undefined);
+        await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: LIEN_CONGES_A_SIGNER }).catch(() => undefined);
       }
     } else {
       const roles = stageNotifyRoles(leave.stage as LeaveStage) as UserRole[];
-      if (roles.length) await notifyRoles(roles, { type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/rh" }).catch(() => undefined);
+      if (roles.length) await notifyRoles(roles, { type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: LIEN_CONGES_A_SIGNER }).catch(() => undefined);
     }
   } else if (!isOwner && leave.employee.userId) {
-    await notifyUser({ userId: leave.employee.userId, type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/mon-espace" }).catch(() => undefined);
+    await notifyUser({ userId: leave.employee.userId, type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: LIEN_MES_CONGES }).catch(() => undefined);
   }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST",
@@ -679,7 +680,7 @@ export async function decideAdvance(formData: FormData): Promise<ActionResult> {
         userId: adv.employee.userId, type: "GENERIC",
         title: decision === "APPROVED" ? "Avance approuvée" : "Avance refusée",
         body: `Votre demande d'avance sur salaire a été ${decision === "APPROVED" ? "approuvée" : "refusée"}.`,
-        link: "/mon-espace",
+        link: LIEN_MES_AVANCES,
       },
     }).catch(() => undefined);
   }
@@ -726,9 +727,9 @@ export async function cancelAdvance(formData: FormData): Promise<ActionResult> {
   // le salarié quand ce sont les RH.
   const corpsAvance = `${adv.employee.fullName} — avance de ${Number(adv.amount)} DZD : demande annulée${isOwner ? " par le salarié" : " par les RH"}.`;
   if (isOwner) {
-    await notifyRoles(rolesWithModule("RH", "VALIDATE"), { type: "GENERIC", title: "Avance sur salaire annulée", body: corpsAvance, link: "/rh" }).catch(() => undefined);
+    await notifyRoles(rolesWithModule("RH", "VALIDATE"), { type: "GENERIC", title: "Avance sur salaire annulée", body: corpsAvance, link: CHEMIN_PAIE_RH }).catch(() => undefined);
   } else if (adv.employee.userId) {
-    await notifyUser({ userId: adv.employee.userId, type: "GENERIC", title: "Avance sur salaire annulée", body: corpsAvance, link: "/mon-espace" }).catch(() => undefined);
+    await notifyUser({ userId: adv.employee.userId, type: "GENERIC", title: "Avance sur salaire annulée", body: corpsAvance, link: LIEN_MES_AVANCES }).catch(() => undefined);
   }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "SALARY_ADVANCE",

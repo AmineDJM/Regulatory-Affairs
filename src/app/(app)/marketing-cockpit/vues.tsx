@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { InfoBulle } from "@/components/ui/info-bulle";
-import { STATUT_LABELS, type Statut } from "@/lib/segmentation/regles";
+import { STATUT_LABELS, type EtatProduit, type Statut } from "@/lib/segmentation/regles";
 import { LettreBadge } from "@/app/(app)/segmentation/lettre-badge";
 import {
-  NATURE_LABELS, joursDepuis, montantDzd, pourcent, type Entonnoir, type LigneNature, type LigneSerie,
+  NATURE_LABELS, joursDepuis, montantDzd, pourcent, type LigneNature, type LigneSerie,
 } from "@/lib/marketing-cockpit/calculs";
 import type { EnveloppeCockpit, LigneLeader } from "@/lib/marketing-cockpit/donnees";
 import type { SignalMarche } from "@/lib/marketing-cockpit/marche";
+import type { RepartitionLots } from "@/lib/marketing-cockpit/terrain";
 import { LigneLien } from "./ligne-lien";
 import { Pilule } from "./pastilles";
 
@@ -45,9 +46,9 @@ export function Vide({ children }: { children: React.ReactNode }) {
 
 export interface TuileCockpit { label: string; valeur: string; note?: string | null; ton?: "ok" | "ko" | "muet"; info?: React.ReactNode; /** La valeur mène à l'écran d'où elle vient. */ href?: string }
 
-export function Tuiles({ tuiles }: { tuiles: TuileCockpit[] }) {
+export function Tuiles({ tuiles, className }: { tuiles: TuileCockpit[]; className?: string }) {
   return (
-    <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+    <div className={cn("grid grid-cols-2 gap-2.5 md:grid-cols-4", className)}>
       {tuiles.map((t) => (
         <div key={t.label} className="surface flex min-w-0 flex-col gap-0.5 rounded-xl px-3.5 py-3">
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -64,33 +65,53 @@ export function Tuiles({ tuiles }: { tuiles: TuileCockpit[] }) {
   );
 }
 
-export function CarteEntonnoir({ e, sousTitre }: { e: Entonnoir & { annuaireConnu: boolean }; sousTitre: string }) {
-  const marches: { label: string; n: number | null; vert?: boolean }[] = [
-    { label: "Annuaire (spécialités ciblées)", n: e.annuaireConnu ? e.annuaire : null },
-    { label: "Segmentés (Q1, Q2)", n: e.segmentes },
-    { label: "Ciblés H · A · B", n: e.cibles },
-    { label: "Vus ce cycle", n: e.vus },
-    { label: "À la bonne fréquence", n: e.aFrequence },
-    { label: "Avec affinité (A)", n: e.affinite, vert: true },
-  ];
-  const max = Math.max(1, ...marches.map((m) => m.n ?? 0));
+/**
+ * « OÙ VONT NOS LOTS » — les n° de lot de nos livraisons PCH retrouvés dans la distribution des DR aux hôpitaux. La liste
+ * des hôpitaux servis uniquement par le concurrent s'ouvre sur place, avec les segments de nos décideurs.
+ */
+export function CarteLots({ lots, molecule }: {
+  lots: (RepartitionLots & { segmentsDecideurs: Map<string, EtatProduit[]> }) | null;
+  molecule: string | null;
+}) {
+  const info = <>Les n° de lot de nos BL PCH (livraisons de nos BC) retrouvés dans les fichiers des directions régionales, sur 12 mois, pour les mêmes postes et la même DCI. Un hôpital sans aucun n° de lot dans les fichiers n&apos;est compté ni d&apos;un côté ni de l&apos;autre.</>;
+  if (!lots || lots.consommateurs === 0) return <Carte titre="Où vont nos lots" info={info}><Vide>Aucune distribution de la DCI aux hôpitaux dans les fichiers des DR (12 mois).</Vide></Carte>;
+  if (!lots.nosLotsConnus) return <Carte titre="Où vont nos lots" info={info}><Vide>Aucun n° de lot sur nos bons de livraison PCH : rien à rapprocher.</Vide></Carte>;
+  const enA = lots.concurrentSeul.filter((h) => h.institutionId && (lots.segmentsDecideurs.get(h.institutionId) ?? []).includes("A")).length;
   return (
-    <Carte
-      titre="De l'annuaire à la prescription"
-      sousTitre={sousTitre}
-      info={<>Annuaire : médecins des spécialités que le produit vise dans la BU (sinon celles de la BU). Segmentés : potentiel et affinité renseignés. Lettres et fréquences : le moteur de la Segmentation. Visites : terminées, Force de vente.</>}
-    >
-      <div className="flex flex-col gap-2 px-4 py-3.5">
-        {marches.map((m) => (
-          <div key={m.label} className="grid grid-cols-[120px_minmax(0,1fr)_50px] items-center gap-2.5 text-[13px] sm:grid-cols-[170px_minmax(0,1fr)_60px]">
-            <span className="[overflow-wrap:anywhere]">{m.label}</span>
-            <div className="h-[22px] rounded-md bg-muted/60">
-              <div className={cn("h-full rounded-md", m.vert ? "bg-success/85" : "bg-primary/85")} style={{ width: `${m.n ? Math.max(1.5, (m.n / max) * 100) : 0}%` }} />
-            </div>
-            <span className="text-right font-semibold tabular-nums">{m.n ?? "—"}</span>
-          </div>
-        ))}
+    <Carte titre="Où vont nos lots" sousTitre="12 mois · fichiers des DR" info={info}>
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2.5 border-b border-border px-4 py-2.5">
+        <i aria-hidden className="inline-block h-2 w-2 rounded-full bg-success" />
+        <div className="min-w-0">
+          <b className="block font-medium">{lots.avecNosLots.length} hôpita{lots.avecNosLots.length > 1 ? "ux" : "l"} servi{lots.avecNosLots.length > 1 ? "s" : ""} avec nos lots</b>
+          <small className="block text-xs text-muted-foreground">sur {lots.consommateurs} qui consomment {molecule ? molecule.toLowerCase() : "la DCI"}</small>
+        </div>
       </div>
+      <details className="group/d border-b border-border last:border-0">
+        <summary className="grid cursor-pointer list-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 px-4 py-2.5 [&::-webkit-details-marker]:hidden">
+          <i aria-hidden className="inline-block h-2 w-2 rounded-full bg-warning" />
+          <span className="min-w-0">
+            <b className="block font-medium">{lots.concurrentSeul.length} servi{lots.concurrentSeul.length > 1 ? "s" : ""} uniquement par le concurrent</b>
+            <small className="block text-xs text-muted-foreground">{enA ? `dont ${enA} où nos décideurs sont A` : "aucun où nos décideurs sont A"}</small>
+          </span>
+          {lots.concurrentSeul.length > 0 && <span className="inline-flex h-8 items-center rounded-[var(--radius)] border border-border bg-card px-2.5 text-xs font-medium group-open/d:bg-secondary">Voir</span>}
+        </summary>
+        {lots.concurrentSeul.length > 0 && (
+          <ul className="max-h-64 overflow-y-auto border-t border-border px-4 py-1.5 text-sm">
+            {lots.concurrentSeul.map((h) => {
+              const segs = h.institutionId ? lots.segmentsDecideurs.get(h.institutionId) ?? [] : [];
+              return (
+                <li key={h.cle} className="flex items-center justify-between gap-2 py-1">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{h.nom}</span>
+                  <span className="flex shrink-0 gap-1">
+                    {segs.length ? segs.map((s, i) => <span key={i} className="rounded border border-border px-1.5 text-xs">{s === "NON_CIBLE" ? "NC" : s === "EN_ATTENTE" ? "NA" : s}</span>) : <span className="text-xs text-muted-foreground">aucun décideur</span>}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </details>
+      {lots.sansLot.length > 0 && <p className="px-4 py-2 text-xs text-muted-foreground">{lots.sansLot.length} sans n° de lot dans les fichiers</p>}
     </Carte>
   );
 }

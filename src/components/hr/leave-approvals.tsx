@@ -16,6 +16,7 @@ import { depuisLisible } from "@/lib/calendar-tz";
 import { LeaveEditButton } from "./leave-edit";
 import { BulleDiscussion, FilConge } from "./conge-discussion";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { ANCRE_CONGES_A_TRANCHER } from "@/lib/chemins/rh";
 
 export interface PendingLeave {
   id: string;
@@ -244,7 +245,8 @@ export function CongesATrancher({ leaves, canManage = false, maintenant, current
   leaves: PendingLeave[]; canManage?: boolean; maintenant?: string; currentUserId?: string;
 }) {
   return (
-    <section className="surface overflow-hidden">
+    // L'ANCRE des notifications « Message sur un congé à trancher » (`LIEN_CONGES_A_TRANCHER_RH`).
+    <section id={ANCRE_CONGES_A_TRANCHER} className="surface scroll-mt-20 overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
         <div className="flex items-center gap-1">
           <h2 className="text-sm font-semibold">Congés et absences à trancher</h2>

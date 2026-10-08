@@ -155,10 +155,6 @@ export const MODULES = [
   // Voir en portée TOUT = la boîte de Regulatory ; en portée « ses lignes » = ses propres signalements et les cas
   // où l'on a été ajouté. Créer = signaler un cas ; Modifier/Valider = instruire (statut, enquête, participants).
   "PHARMACOVIGILANCE",
-  // RETOURS_RECLAMATIONS (Operations & Sales, Direction 08/10) : retours de marchandise, réclamations qualité et rappels
-  // de lot. Voir en portée TOUT = toutes les réclamations ; « ses lignes » = celles qu'on a déclarées ou dont on est
-  // responsable. Créer = déclarer (le KAM, depuis le terrain) ; Modifier = instruire (statut, responsable, conclusion).
-  "RETOURS_RECLAMATIONS",
   // KPI : « KPI & bilans » (Direction, 08/10 — KPI sans code). Voir = son bilan et celui de son arbre ; Créer = déclarer,
   // proposer un KPI, en créer pour son équipe ; Valider = noter un KPI évalué, valider une déclaration, signer une revue.
   // Le PÉRIMÈTRE suit l'organigramme (l'arbre de Mon équipe), jamais le rôle : `src/lib/kpi/droits.ts`.
@@ -685,25 +681,6 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
 }
 
 /**
- * « RETOURS & RÉCLAMATIONS » PAR DÉFAUT (Direction, 08/10) — les opérations, la Direction et le Directeur Général
- * gèrent ; ceux qui reçoivent la pharmacovigilance (Regulatory) et le pharmacien responsable LISENT ; le KAM DÉCLARE
- * depuis le terrain (portée « ses lignes », `defaultScope`). Personne d'autre : la console l'ouvre ensuite personne par
- * personne. ÉCRIT, pas dérivé (§118.130).
- */
-const RECLAMATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
-  DIRECTION: MANAGE,
-  GENERAL_MANAGER: MANAGE,
-  OPERATIONS_DIRECTOR: MANAGE,
-  HEAD_OF_REGULATORY: READ,
-  REGULATORY_ASSISTANT: READ,
-  MEDICAL_INFO_PHARMACIST: READ,
-  MEDICAL_DELEGATE: ["VIEW", "CREATE", "UPLOAD"],
-};
-for (const [role, actions] of Object.entries(RECLAMATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
-  if (!PERMISSIONS[role].RETOURS_RECLAMATIONS) PERMISSIONS[role].RETOURS_RECLAMATIONS = [...actions];
-}
-
-/**
  * « KPI & BILANS » PAR DÉFAUT (Direction, 08/10) — comme Mon équipe, une PORTE accordée à tous : chacun voit son bilan
  * et y déclare ; qui encadre crée des KPI pour son équipe, note, valide et signe — mais seulement sur SON arbre (la
  * règle est dans `kpi/droits.ts`, l'arbre est celui de Mon équipe). Sans équipe, Créer/Valider ne donnent prise sur
@@ -1087,8 +1064,6 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     SPONSORING: ["MEDICAL_DELEGATE"],
     // Segmentation Studio : le KAM ne voit et ne renseigne que SON panel (secteur ∪ rattachement).
     SEGMENTATION: ["MEDICAL_DELEGATE"],
-    // Retours & réclamations : le KAM ne lit que ce qu'il a déclaré (ou ce dont on l'a fait responsable).
-    RETOURS_RECLAMATIONS: ["MEDICAL_DELEGATE"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }

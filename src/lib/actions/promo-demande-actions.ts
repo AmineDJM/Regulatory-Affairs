@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { hasGlobalView, getAccess, userCan, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { rouvrirDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
@@ -14,6 +14,9 @@ import { demandeLesDevis } from "@/lib/promo-material/circuit";
 import { libelleArticleDemande, validerArticleDemande, type FamillePromo } from "@/lib/promo-material/achats";
 import { aucunPromu, designeUnProduit, libellesPromus, lirePromusStockes } from "@/lib/promo-material/promus";
 import { resoudrePromus } from "@/lib/queries/promo-promus";
+import { FAMILLES as FAMILLES_PROMO, prochaineReference } from "@/lib/promo/catalogue";
+import { createWithRetry, enSerie } from "@/lib/refs";
+import { CHEMIN_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -100,17 +103,52 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
 
   const requestItemId = fdStr(formData, "requestItemId");
   const existant = requestItemId
-    ? await prisma.promoRequestItem.findFirst({ where: { id: requestItemId, promoMaterialId: pm.id }, select: { id: true, promus: true } })
+    ? await prisma.promoRequestItem.findFirst({
+        where: { id: requestItemId, promoMaterialId: pm.id },
+        select: { id: true, promus: true, catalogueId: true, catalogue: { select: { horsCatalogue: true, actif: true } } },
+      })
     : null;
   if (requestItemId && !existant) return { ok: false, error: "Cet article n'appartient pas à ce dossier." };
 
-  const catalogueId = fdStr(formData, "catalogueId");
-  const catalogue = catalogueId
+  // « AUTRE ARTICLE » (Direction, 10/2026) : un article absent du catalogue, saisi librement — son libellé et sa famille.
+  // Il entre au catalogue ARCHIVÉ et marqué hors catalogue (il ne se propose à personne), le temps qu'un gestionnaire
+  // l'y ajoute (« Proposer au catalogue »). Corrigé, l'article libre de la ligne est renommé plutôt que recréé.
+  const libre = fdStr(formData, "catalogueId") === "AUTRE";
+  let catalogueId = libre ? null : fdStr(formData, "catalogueId");
+  if (libre) {
+    const nom = fdStr(formData, "autreNom");
+    const famille = fdStr(formData, "autreFamille");
+    if (!nom) return { ok: false, error: "Écrivez le nom de l'article (« Autre article »)." };
+    if (!famille || !(FAMILLES_PROMO as readonly string[]).includes(famille)) return { ok: false, error: "Choisissez la famille de l'article (consommable, durable ou numérique)." };
+    const description = fdStr(formData, "autreDescription");
+    if (existant?.catalogue.horsCatalogue && !existant.catalogue.actif) {
+      await prisma.promoCatalogueArticle.updateMany({
+        where: { id: existant.catalogueId, horsCatalogue: true, actif: false },
+        data: { nom, famille: famille as FamillePromo, description, updatedById: user.id },
+      });
+      catalogueId = existant.catalogueId;
+    } else {
+      const cree = await enSerie("catalogue-promo", () => createWithRetry(async () => {
+        const refs = await prisma.promoCatalogueArticle.findMany({ select: { reference: true } });
+        return prisma.promoCatalogueArticle.create({
+          data: {
+            reference: prochaineReference(refs.map((r) => r.reference)), nom, famille: famille as FamillePromo, description,
+            actif: false, horsCatalogue: true, createdById: user.id, updatedById: user.id,
+          },
+          select: { id: true },
+        });
+      }));
+      catalogueId = cree.id;
+    }
+  }
+  const lu = catalogueId
     ? await prisma.promoCatalogueArticle.findUnique({
         where: { id: catalogueId },
-        select: { id: true, reference: true, nom: true, famille: true, unite: true, exigeProduit: true, actif: true },
+        select: { id: true, reference: true, nom: true, famille: true, unite: true, exigeProduit: true, actif: true, horsCatalogue: true },
       })
     : null;
+  // Un article hors catalogue n'est « archivé » que pour la pioche : la ligne qui le porte se compose avec lui.
+  const catalogue = lu ? { ...lu, actif: lu.actif || lu.horsCatalogue } : null;
   // CE QUE LA LIGNE PROMEUT (§118.204) — les codes du sélecteur, et « Autre » en clair. « Autre » que le
   // formulaire ne porte pas garde sa valeur (§118.152c) : une correction faite sans lui ne l'efface pas.
   const autre = formData.has("autre") ? fdStr(formData, "autre") : lirePromusStockes(existant?.promus ?? null)?.autre ?? null;
@@ -184,6 +222,71 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
   revalidatePath(chemin(pm.id));
   const suite = versRetranscription ? " Le dossier revient à l'assistante pour le faire chiffrer." : ETATS_ASSISTANTE.has(pm.circuitState ?? "") ? " L'assistante en est prévenue." : "";
   return { ok: true, id: article.id, message: `${existant ? "Article corrigé" : "Article ajouté à la demande"} : ${libelle}.${suite}` };
+}
+
+/**
+ * LES GESTIONNAIRES DU CATALOGUE — le Super Admin, et qui il a désigné (module « Catalogue promotionnel », création ou
+ * modification) : l'accès se relit par `getAccess`, la seule résolution du dépôt, comme pour les signataires des BC.
+ */
+async function gestionnairesDuCatalogue(): Promise<string[]> {
+  const [admins, designes] = await Promise.all([
+    prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(["SUPER_ADMIN"]) }, select: { id: true } }),
+    prisma.userAccess.findMany({
+      where: { module: "PROMO_CATALOG", OR: [{ canCreate: true }, { canUpdate: true }], user: { isActive: true } },
+      select: { user: { select: { id: true, role: true, secondaryRole: true } } },
+    }),
+  ]);
+  const ids = new Set(admins.map((a) => a.id));
+  for (const { user: u } of designes) {
+    const acces = await getAccess(u.id, u.role);
+    if (userCan({ id: u.id, role: u.role, secondaryRole: u.secondaryRole, access: acces }, "PROMO_CATALOG", "UPDATE")) ids.add(u.id);
+  }
+  return [...ids];
+}
+
+/**
+ * PROPOSER AU CATALOGUE un « autre article » saisi librement (Direction, 10/2026). Qui tient le catalogue l'y ajoute
+ * d'un clic (l'article devient actif, et se propose à tous) ; les autres préviennent les gestionnaires du catalogue, qui
+ * le retrouvent ARCHIVÉ dans « Catalogue promotionnel » et le réactivent. Le demandeur ou la Direction — à toute étape.
+ */
+export async function proposerArticleAuCataloguePromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  if (!demandeLesDevis(acteur(user), pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) propose un article de sa demande au catalogue." };
+  const requestItemId = fdStr(formData, "requestItemId");
+  const article = requestItemId
+    ? await prisma.promoRequestItem.findFirst({
+        where: { id: requestItemId, promoMaterialId: pm.id },
+        select: { catalogue: { select: { id: true, reference: true, nom: true, horsCatalogue: true, actif: true } } },
+      })
+    : null;
+  if (!article) return { ok: false, error: "Cet article n'appartient pas à ce dossier." };
+  const c = article.catalogue;
+  if (!c.horsCatalogue) return { ok: true, message: `${c.reference} ${c.nom} est déjà au catalogue.` };
+  const tientLeCatalogue = user.role === "SUPER_ADMIN" || userCan(user, "PROMO_CATALOG", "CREATE") || userCan(user, "PROMO_CATALOG", "UPDATE");
+  if (tientLeCatalogue) {
+    const ajoute = await prisma.promoCatalogueArticle.updateMany({ where: { id: c.id, horsCatalogue: true }, data: { actif: true, horsCatalogue: false, updatedById: user.id } });
+    if (ajoute.count === 0) return { ok: true, message: `${c.reference} ${c.nom} vient d'être ajouté au catalogue.` };
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Catalogue promotionnel", entityId: c.id,
+      summary: `Article ${c.reference} ajouté au catalogue depuis la demande ${pm.reference} — ${c.nom}`,
+    });
+    revalidatePath(chemin(pm.id));
+    revalidatePath(CHEMIN_CATALOGUE_PROMO);
+    return { ok: true, message: `${c.reference} ${c.nom} ajouté au catalogue : il se propose désormais à tous.` };
+  }
+  const ids = (await gestionnairesDuCatalogue()).filter((x) => x !== user.id);
+  if (ids.length === 0) return { ok: false, error: "Aucun gestionnaire du catalogue n'est désigné : demandez au Super Admin." };
+  for (const userId of ids) {
+    await notifyUser({
+      userId, type: "ASSIGNMENT", title: "Article proposé au catalogue promotionnel",
+      body: `${c.reference} ${c.nom} — proposé depuis ${pm.reference} (archivé dans le catalogue : réactivez-le pour l'ajouter).`,
+      link: CHEMIN_CATALOGUE_PROMO,
+    });
+  }
+  await audit(user, pm.id, `Article ${c.reference} ${c.nom} proposé au catalogue — ${ids.length} gestionnaire${ids.length > 1 ? "s" : ""} prévenu${ids.length > 1 ? "s" : ""}`);
+  return { ok: true, message: `Proposé : ${ids.length > 1 ? "les gestionnaires du catalogue sont prévenus" : "le gestionnaire du catalogue est prévenu"}.` };
 }
 
 /** RETIRER UN ARTICLE DEMANDÉ — tant que le choix n'est pas parti en validation (§118.190). */

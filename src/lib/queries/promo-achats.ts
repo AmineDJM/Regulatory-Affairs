@@ -18,7 +18,7 @@ const actions = (xs: readonly string[]): PromoAction[] => xs.filter(estAction);
 
 export const SELECT_ARTICLE_DEMANDE = {
   id: true, position: true, catalogueId: true, quantite: true, actions: true, commentaire: true, promus: true,
-  catalogue: { select: { reference: true, nom: true, famille: true, unite: true } },
+  catalogue: { select: { reference: true, nom: true, famille: true, unite: true, horsCatalogue: true, description: true } },
   produits: { select: { product: { select: { id: true, canonicalName: true } } } },
 } satisfies Prisma.PromoRequestItemSelect;
 
@@ -28,6 +28,8 @@ export function articleDemandeLu(a: ArticleBrut): ArticleDemandeLu {
   const promus = lirePromusStockes(a.promus);
   return {
     ...(promus ? { promus: libellesPromus(promus), choixPromus: { codes: codesPromus(promus), autre: promus.autre } } : {}),
+    // « Autre article » saisi librement, pas encore au catalogue (Direction, 10/2026).
+    ...(a.catalogue.horsCatalogue ? { horsCatalogue: { description: a.catalogue.description } } : {}),
     id: a.id, position: a.position, catalogueId: a.catalogueId,
     reference: a.catalogue.reference, nom: a.catalogue.nom, famille: a.catalogue.famille as FamillePromo, unite: a.catalogue.unite,
     produits: a.produits.map((p) => ({ id: p.product.id, nom: p.product.canonicalName })).sort((x, y) => x.nom.localeCompare(y.nom, "fr")),
