@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * BUDGET MARKETING — les deux tiroirs de la Direction Marketing : créer une enveloppe, la régler.
+ * BUDGETS DES PÔLES — les deux tiroirs d'un pôle (Marketing, Regulatory, Operations & Sales) : créer une enveloppe, la
+ * régler.
  *
- * Volontairement plus courts que ceux de Budgets : ni listes d'accès ni délégations (le module Budget Marketing suffit
- * à voir et gérer ses enveloppes ; les accès fins restent au Super Admin, dans Budgets). Une enveloppe se crée pour une
- * ANNÉE, avec ou sans les six catégories Ad & Pro ; la BU et le produit sont facultatifs.
+ * Volontairement plus courts que ceux de Budgets : ni listes d'accès ni délégations (le module du pôle suffit à voir et
+ * gérer ses enveloppes ; les accès fins restent au Super Admin, dans Budgets). Une enveloppe se crée pour une ANNÉE,
+ * avec ou sans les catégories d'office du pôle ; la BU et le produit sont facultatifs.
  */
 
 import * as React from "react";
@@ -16,9 +17,9 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
-import { createMarketingEnvelope, updateMarketingEnvelope, deleteMarketingEnvelope } from "@/lib/actions/budget-marketing-actions";
+import { createPoleEnvelope, updatePoleEnvelope, deletePoleEnvelope } from "@/lib/actions/budget-pole-actions";
 import type { BudgetOverview } from "@/lib/queries/budget";
-import { CHEMIN_BUDGET_MARKETING } from "@/lib/budget-marketing/domaine";
+import { DOMAINES, type DomainePole } from "@/lib/budget/domaines";
 
 export interface RattachementOptions {
   businessUnits: { id: string; nom: string }[];
@@ -26,6 +27,22 @@ export interface RattachementOptions {
 }
 
 type Resultat = { ok: boolean; error?: string };
+
+/** Ce que chaque pôle crée d'office, et comment il nomme sa première enveloppe. */
+const MODELE: Record<DomainePole, { titre: string; exemple: string; libelle: string; aide: string }> = {
+  MARKETING: {
+    titre: "Nouvelle enveloppe marketing", exemple: "Ad & Pro", libelle: "Catégories Ad & Pro",
+    aide: "Crée Sponsoring, Événements, Congrès nationaux, Congrès internationaux, Matériel promotionnel et Autres, chacune liée à son module : les postes Ad & Pro accordés s'y rangent. Décochez pour une enveloppe libre.",
+  },
+  REGULATORY: {
+    titre: "Nouvelle enveloppe Regulatory", exemple: "Frais d'enregistrement (BV)", libelle: "Catégories BV 25 % et 75 %",
+    aide: "Crée « BV 25 % (préparation) » et « BV 75 % (avant dépôt) » : les BV demandés depuis les dossiers s'y rangent selon leur part. Décochez pour une enveloppe libre.",
+  },
+  OPERATIONS: {
+    titre: "Nouvelle enveloppe Operations & Sales", exemple: "Operations & Sales", libelle: "Catégories d'office",
+    aide: "Crée la masse salariale de la force de vente (une sous-catégorie par BU, alimentée par la paie), puis Véhicules & carburant, Frais de déplacement terrain, Téléphonie, Logistique et Formations commerciales. Ad & Pro n'y est pas : il relève du Budget Marketing.",
+  },
+};
 
 function useEnvoi() {
   const { enCours, rafraichir } = useRafraichir();
@@ -61,18 +78,19 @@ function ChampsRattachement({ options, bu, produit }: { options: RattachementOpt
   );
 }
 
-export function NouvelleEnveloppeMarketing({ options }: { options: RattachementOptions }) {
+export function NouvelleEnveloppePole({ domaine, options }: { domaine: DomainePole; options: RattachementOptions }) {
   const [open, setOpen] = React.useState(false);
   const { busy, err, envoyer } = useEnvoi();
   const annee = new Date().getFullYear();
+  const m = MODELE[domaine];
   return (
     <>
       <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Nouvelle enveloppe</Button>
-      <Sheet open={open} onClose={() => setOpen(false)} title="Nouvelle enveloppe marketing" width="md">
-        <form action={(fd) => envoyer(() => createMarketingEnvelope(fd), () => setOpen(false))} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <Sheet open={open} onClose={() => setOpen(false)} title={m.titre} width="md">
+        <form action={(fd) => { fd.set("domaine", domaine); envoyer(() => createPoleEnvelope(fd), () => setOpen(false)); }} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Nom</Label>
-            <Input name="name" required placeholder={`Ad & Pro ${annee}`} />
+            <Input name="name" required placeholder={`${m.exemple} ${annee}`} />
           </div>
           <div className="space-y-1.5">
             <Label>Année</Label>
@@ -84,11 +102,11 @@ export function NouvelleEnveloppeMarketing({ options }: { options: RattachementO
           </div>
           <ChampsRattachement options={options} />
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <input type="checkbox" name="adPro" value="on" defaultChecked className="h-4 w-4 rounded border-input" />
-            Catégories Ad &amp; Pro
-            <InfoBulle label="À propos : catégories Ad & Pro">
-              Crée Sponsoring, Événements, Congrès nationaux, Congrès internationaux, Matériel promotionnel et Autres, chacune liée à son module : les postes Ad &amp; Pro accordés s&apos;y rangent. Décochez pour une enveloppe libre.
-            </InfoBulle>
+            {domaine === "MARKETING"
+              ? <input type="checkbox" name="adPro" value="on" defaultChecked className="h-4 w-4 rounded border-input" />
+              : <input type="checkbox" name="categoriesParDefaut" value="on" defaultChecked className="h-4 w-4 rounded border-input" />}
+            {m.libelle}
+            <InfoBulle label={`À propos : ${m.libelle}`}>{m.aide}</InfoBulle>
           </label>
           <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Textarea name="notes" rows={2} /></div>
           {err && <p className="text-sm text-destructive sm:col-span-2">{err}</p>}
@@ -102,7 +120,8 @@ export function NouvelleEnveloppeMarketing({ options }: { options: RattachementO
   );
 }
 
-export function EnveloppeMarketingSheet({ envelope, options, canDelete, onClose }: {
+export function EnveloppePoleSheet({ domaine, envelope, options, canDelete, onClose }: {
+  domaine: DomainePole;
   envelope: BudgetOverview["envelope"];
   options: RattachementOptions;
   canDelete: boolean;
@@ -113,7 +132,7 @@ export function EnveloppeMarketingSheet({ envelope, options, canDelete, onClose 
   const d10 = (iso: string) => iso.slice(0, 10);
   return (
     <Sheet open onClose={onClose} title="Modifier l'enveloppe" width="md">
-      <form action={(fd) => { fd.set("id", envelope.id); envoyer(() => updateMarketingEnvelope(fd), onClose); }} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <form action={(fd) => { fd.set("id", envelope.id); envoyer(() => updatePoleEnvelope(fd), onClose); }} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2"><Label>Nom</Label><Input name="name" required defaultValue={envelope.name} /></div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label>Montant (DZD)</Label>
@@ -135,7 +154,7 @@ export function EnveloppeMarketingSheet({ envelope, options, canDelete, onClose 
               onClick={() => {
                 if (!window.confirm("Supprimer cette enveloppe et ses catégories ? Les dépenses imputées repasseront « à imputer ».")) return;
                 const fd = new FormData(); fd.set("id", envelope.id);
-                envoyer(() => deleteMarketingEnvelope(fd), () => { onClose(); router.push(CHEMIN_BUDGET_MARKETING); });
+                envoyer(() => deletePoleEnvelope(fd), () => { onClose(); router.push(DOMAINES[domaine].chemin); });
               }}
             >
               <Trash2 className="h-4 w-4" /> Supprimer

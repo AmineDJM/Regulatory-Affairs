@@ -214,8 +214,14 @@ export async function getMyTeamOverview(
     userIds.length ? prisma.task.groupBy({ by: ["assignedToId"], where: { assignedToId: { in: userIds }, status: { in: [...TACHE_EN_COURS] }, dueDate: { lt: maintenant } }, _count: { _all: true } }) : [],
     userIds.length ? prisma.task.groupBy({ by: ["assignedToId"], where: { assignedToId: { in: userIds }, status: "DONE", completedAt: { gte: il30 } }, _count: { _all: true } }) : [],
     repIds.length ? prisma.tourPlan.groupBy({ by: ["repId"], where: { repId: { in: repIds }, status: { in: ["SUBMITTED", "ESCALATED"] } }, _count: { _all: true } }) : [],
-    userIds.length ? prisma.missionAssignment.groupBy({ by: ["userId"], where: { userId: { in: userIds }, orderStatus: "REQUESTED" }, _count: { _all: true } }) : [],
-    userIds.length ? prisma.missionAssignment.findMany({ where: { userId: { in: userIds } }, select: { userId: true, entityType: true, entityId: true } }) : [],
+    userIds.length ? prisma.missionAssignment.groupBy({ by: ["userId"], where: { userId: { in: userIds }, orderStatus: "REQUESTED", archivedAt: null }, _count: { _all: true } }) : [],
+    // Missions Ad & Pro (10/2026) : ni retirées ni déclinées ; leurs PROPRES dates priment (le sponsoring n'en a pas d'autres).
+    userIds.length
+      ? prisma.missionAssignment.findMany({
+          where: { userId: { in: userIds }, archivedAt: null, response: { not: "DECLINEE" } },
+          select: { userId: true, entityType: true, entityId: true, dateDepart: true, dateRetour: true, ville: true, response: true },
+        })
+      : [],
     userIds.length
       ? prisma.trainingParticipant.findMany({
           where: { userId: { in: userIds }, state: { not: "DECLINED" }, training: { status: { in: ["APPROVED", "DONE"] }, startDate: { gte: debutFormations, lt: finFormations } } },
@@ -258,28 +264,39 @@ export async function getMyTeamOverview(
     debut: jourDuConge(c.startDate), fin: jourDuConge(c.endDate), libelle: null, enAttente: c.status === "PENDING",
   }));
 
-  // Missions : l'assignation ne porte pas de date — l'événement, si. Un événement annulé n'emmène personne.
+  // Missions : les dates PROPRES à la mission (reprises de la demande, modifiables — Direction 10/2026), sinon celles
+  // de la demande. Le sponsoring n'a de dates que celles de la mission. Une demande annulée ou refusée n'emmène personne ;
+  // une invitation sans réponse se montre « en attente ».
   const idsPar = (t: string) => [...new Set(assignations.filter((a) => a.entityType === t).map((a) => a.entityId))];
-  const [evts, cn, ci] = await Promise.all([
+  const [evts, cn, ci, spo] = await Promise.all([
     idsPar("EVENT").length
-      ? prisma.event.findMany({ where: { id: { in: idsPar("EVENT") }, status: { not: "CANCELLED" }, startDate: { not: null, lt: dPlageFinExcl } }, select: { id: true, name: true, city: true, startDate: true, endDate: true } })
+      ? prisma.event.findMany({ where: { id: { in: idsPar("EVENT") }, status: { not: "CANCELLED" } }, select: { id: true, name: true, city: true, startDate: true, endDate: true } })
       : [],
     idsPar("CONGRESS_NATIONAL").length
-      ? prisma.congressNational.findMany({ where: { id: { in: idsPar("CONGRESS_NATIONAL") }, status: { not: "CANCELLED" }, date: { not: null, lt: dPlageFinExcl } }, select: { id: true, name: true, city: true, date: true, endDate: true } })
+      ? prisma.congressNational.findMany({ where: { id: { in: idsPar("CONGRESS_NATIONAL") }, status: { not: "CANCELLED" } }, select: { id: true, name: true, city: true, date: true, endDate: true } })
       : [],
     idsPar("CONGRESS_INTERNATIONAL").length
-      ? prisma.congressInternational.findMany({ where: { id: { in: idsPar("CONGRESS_INTERNATIONAL") }, status: { not: "CANCELLED" }, startDate: { not: null, lt: dPlageFinExcl } }, select: { id: true, name: true, city: true, startDate: true, endDate: true } })
+      ? prisma.congressInternational.findMany({ where: { id: { in: idsPar("CONGRESS_INTERNATIONAL") }, status: { not: "CANCELLED" } }, select: { id: true, name: true, city: true, startDate: true, endDate: true } })
+      : [],
+    idsPar("SPONSORING").length
+      ? prisma.sponsoringRequest.findMany({ where: { id: { in: idsPar("SPONSORING") }, status: { not: "REFUSED" } }, select: { id: true, institution: true, city: true } })
       : [],
   ]);
-  const periodeMission = new Map<string, { debut: string; fin: string; libelle: string }>();
-  for (const e of evts) if (e.startDate) periodeMission.set(`EVENT:${e.id}`, { debut: algiersYmd(e.startDate), fin: algiersYmd(e.endDate ?? e.startDate), libelle: e.city || e.name });
-  for (const e of cn) if (e.date) periodeMission.set(`CONGRESS_NATIONAL:${e.id}`, { debut: algiersYmd(e.date), fin: algiersYmd(e.endDate ?? e.date), libelle: e.city || e.name });
-  for (const e of ci) if (e.startDate) periodeMission.set(`CONGRESS_INTERNATIONAL:${e.id}`, { debut: algiersYmd(e.startDate), fin: algiersYmd(e.endDate ?? e.startDate), libelle: e.city || e.name });
+  const parentMission = new Map<string, { debut: Date | null; fin: Date | null; libelle: string }>();
+  for (const e of evts) parentMission.set(`EVENT:${e.id}`, { debut: e.startDate, fin: e.endDate ?? e.startDate, libelle: e.city || e.name });
+  for (const e of cn) parentMission.set(`CONGRESS_NATIONAL:${e.id}`, { debut: e.date, fin: e.endDate ?? e.date, libelle: e.city || e.name });
+  for (const e of ci) parentMission.set(`CONGRESS_INTERNATIONAL:${e.id}`, { debut: e.startDate, fin: e.endDate ?? e.startDate, libelle: e.city || e.name });
+  for (const s of spo) parentMission.set(`SPONSORING:${s.id}`, { debut: null, fin: null, libelle: s.city || s.institution });
   for (const a of assignations) {
-    const p = periodeMission.get(`${a.entityType}:${a.entityId}`);
+    const p = parentMission.get(`${a.entityType}:${a.entityId}`);
     const emp = employeDeUser.get(a.userId);
-    if (!p || !emp || p.fin < plageDebut) continue;
-    evenements.push({ employeeId: emp, genre: "MISSION", debut: p.debut, fin: p.fin < p.debut ? p.debut : p.fin, libelle: p.libelle, enAttente: false });
+    const debutDate = a.dateDepart ?? p?.debut ?? null;
+    if (!p || !emp || !debutDate) continue;
+    const debut = algiersYmd(debutDate);
+    const finBrute = algiersYmd(a.dateRetour ?? p.fin ?? debutDate);
+    const fin = finBrute < debut ? debut : finBrute;
+    if (fin < plageDebut || debut > plageFin) continue;
+    evenements.push({ employeeId: emp, genre: "MISSION", debut, fin, libelle: a.ville || p.libelle, enAttente: a.response === "INVITEE" });
   }
 
   // Formations : participations (hors refus) et demandes accordées — une seule fois par personne et par formation.

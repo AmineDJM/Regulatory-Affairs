@@ -30,6 +30,8 @@ import {
 } from "@/lib/hr/expense-claim";
 import { requestDocument } from "@/lib/actions/document-request-actions";
 import { genererEtRemettreOrdreDeMission } from "@/lib/ordre-mission-depot";
+import { synchroniserOrdreEmis } from "@/lib/missions-equipe/serveur";
+import { refusTraitementRh } from "@/lib/missions-equipe/etat";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
@@ -519,6 +521,11 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
   const statusRaw = fdStr(formData, "status");
   const status = (statusRaw && REQUEST_STATUSES.includes(statusRaw as HrRequestStatus) ? statusRaw : "IN_PROGRESS") as HrRequestStatus;
 
+  // UN ORDRE DE MISSION ENCORE CHEZ LE N+1 ne se traite pas aux RH (missions Ad & Pro, 10/2026).
+  const marche = await prisma.hrDocumentRequest.findUnique({ where: { id }, select: { managerGate: true } });
+  const avantRh = refusTraitementRh(marche?.managerGate ?? null);
+  if (avantRh) return { ok: false, error: avantRh };
+
   const req = await prisma.hrDocumentRequest.update({
     where: { id },
     data: { status, hrNote: fdStr(formData, "hrNote"), handledById: user.id },
@@ -530,6 +537,7 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
   if (status === "READY") {
     await applyAnnualLeaveBalance(req, user.id, req.employee.fullName);
   }
+  if (status === "READY" || status === "DELIVERED") await synchroniserOrdreEmis(id, user.id);
 
   if (req.employee.userId) {
     await notifyUser({

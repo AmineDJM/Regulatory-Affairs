@@ -19,8 +19,6 @@ import { MyReminders } from "@/components/reminders/my-reminders";
 import { ReminderButton } from "@/components/reminders/reminder-button";
 import { LeaveApprovals } from "@/components/hr/leave-approvals";
 import { discussionsDesConges } from "@/lib/queries/conges-discussion";
-import { MissionItem } from "@/components/missions/mission-item";
-import { getMyMissions } from "@/lib/queries/missions";
 import { isOutstanding, isLate } from "@/lib/doc-request";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PIECE_REQUEST_STATUS } from "@/lib/labels";
@@ -52,13 +50,12 @@ export default async function MonEspacePage() {
   // rôle de N+1 est du travail, pas « mes congés »).
   // Les congés à signer arrivent AVEC le centre d'actions (lot E2) : une lecture de la file, celle de la
   // porte. La relire ici en faisait une seconde — et le congé d'un intérim s'affichait deux fois.
-  const [centre, missions, pieces] = await Promise.all([
+  const [centre, pieces] = await Promise.all([
     // « MON TRAVAIL » A FONDU ICI : ce qui attend une signature se lit en tête de son espace,
     // au lieu d'un second écran qu'on ouvrait — ou pas.
     getActionCenter(user),
-    // Les ordres de mission et les pièces demandées ne sont PLUS des onglets à part : deux
-    // écrans de plus pour des choses qui sont, très exactement, « mon travail en cours ».
-    getMyMissions(user.id),
+    // Les pièces demandées ne sont PLUS un onglet à part. Les MISSIONS, elles, ont leur onglet
+    // (« Mes missions », Direction 10/2026) : invitations, ordre de mission, étapes.
     prisma.documentRequest.findMany({
       where: { OR: [{ askedToId: user.id }, { askedById: user.id }] },
       orderBy: { createdAt: "desc" }, take: 100,
@@ -208,21 +205,7 @@ export default async function MonEspacePage() {
         <MyReminders reminders={reminderRows} />
       </section>
 
-      {/* MES ORDRES DE MISSION — sur place, plus un onglet à part : la mission en cours fait
-          partie de « mon travail », au même titre que les tâches. La carte est la MÊME que
-          l'écran /missions (demande d'ordre, pièces, échange) — pas une copie qui divergerait. */}
-      {missions.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Mes ordres de mission ({missions.length})
-          </h2>
-          <div className="space-y-2">
-            {missions.map((m) => (
-              <MissionItem key={m.id} m={m} canManage={false} currentUserId={user.id} path="/mon-espace" showParent />
-            ))}
-          </div>
-        </section>
-      )}
+      {/* LES MISSIONS ONT LEUR ONGLET (« Mes missions », Direction 10/2026) — invitations, ordre de mission, étapes. */}
 
       {/* L'AVANCE SUR SALAIRE NE SE DEMANDE PLUS ICI. L'historique reste tant qu'il y en a
           un — effacer l'écran effacerait la trace de ce que la personne a demandé et

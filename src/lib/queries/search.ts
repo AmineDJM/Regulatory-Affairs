@@ -153,7 +153,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
   for (const r of sponsoring) out.push({ id: r.id, group: "Sponsoring", title: r.institution, subtitle: r.reference, href: `/sponsoring/${r.id}`, icon: "HandCoins" });
   for (const r of finances) out.push({ id: r.id, group: "Finances", title: r.label, subtitle: r.reference, href: `/finances`, icon: "Landmark" });
   for (const r of employees) out.push({ id: r.id, group: "RH", title: r.fullName, subtitle: r.position ?? "", href: `/rh/${r.id}`, icon: "UsersRound" });
-  for (const r of sales) out.push({ id: r.id, group: "Ventes", title: r.product, subtitle: r.client, href: `/sales`, icon: "TrendingUp" });
+  for (const r of sales) out.push({ id: r.id, group: "Ventes", title: r.product, subtitle: r.client, href: `/sales/historique`, icon: "TrendingUp" });
   for (const r of logistics) out.push({ id: r.id, group: "Logistique PCH", title: r.product, subtitle: r.reference, href: `/logistics/${r.id}`, icon: "Truck" });
   for (const r of doctors) out.push({ id: r.id, group: "Annuaire", title: r.name, subtitle: r.specialty ?? "", href: `/praticiens/${r.id}`, icon: "Stethoscope" });
   for (const r of bd) out.push({ id: r.id, group: "Business Development", title: r.name, subtitle: r.dci ?? "", href: `/business-development`, icon: "Lightbulb" });

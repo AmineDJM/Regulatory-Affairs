@@ -19,6 +19,7 @@ import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions"
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runPchDeadlineSweep } from "@/lib/pch/deadline-sweep";
 import { runSfeFieldSweep } from "@/lib/sfe-sweep";
+import { rafraichirKpiSiDu } from "@/lib/kpi/service";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
 import { balayerMentions } from "@/lib/fabric";
@@ -151,6 +152,9 @@ export async function runScheduledJobs(): Promise<void> {
     // armé) — une par type et par mois, jamais une par nuit —, instantané mensuel de chaque KAM
     // (le mois clos ne se recalcule plus) et revue au passage du mois.
     await runSfeFieldSweep().catch(() => undefined);
+    // KPI & BILANS (KPI sans code, Direction 08/10 : « bilan en continu ») : une fois par jour, la période courante de
+    // chacun est recalculée et mise en cache — le calcul à la demande reste là entre deux passages.
+    await rafraichirKpiSiDu().catch((e) => console.error("[scheduled] rafraîchissement des KPI", e));
     // Rappels du Chief of Staff : « rappelle-moi mardi à 10 h », « tous les dimanches relance
     // Regulatory » — pop-up au propriétaire, relance du rôle cible s'il y en a un.
     await runAssistantReminders().catch(() => undefined);

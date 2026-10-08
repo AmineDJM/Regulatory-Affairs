@@ -159,9 +159,9 @@ const CLASSEUR_1: Feuilles = {
     ["Exception pour le PF de l'Ouest ou ce ratio a été revu à la baisse"],
     [],
     ["Region", "CDR", "Specialité", "Nom", "Prenom", "Grade", "Statut", "Question 1\nCombien de patients vous consultez par semaine pour HIV", "Question 2\nSur 10 Patients Consultés combien sont mis sous raltegravir", "%", "Potentiel"],
-    ["Centre", "CHU HCA", "Infectiologie", "Bouhabel", "Maamar", "Prof chef de service", "Decideur", null, null, null, "H"],
-    ["Centre", "EHS EL KETTAR", "Infectiologie", "Rezig", "Ahlem", "Assistant", "Influenceur", 30, 4, 4 / 30, "A"],
-    ["Est", "CHU Setif", "Infectiologie", "Kadi", "Dahbia", "Assistant", "Prescripteur", 45, 2, 2 / 45, "B"],
+    ["Centre", "CHU HCA", "Infectiologie", "Exempleun", "Ali", "Prof chef de service", "Decideur", null, null, null, "H"],
+    ["Centre", "EHS EL KETTAR", "Infectiologie", "Exempledeux", "Nora", "Assistant", "Influenceur", 30, 4, 4 / 30, "A"],
+    ["Est", "CHU Setif", "Infectiologie", "Exempletrois", "Imane", "Assistant", "Prescripteur", 45, 2, 2 / 45, "B"],
     ["Est", "CHU Setif", "Infectiologie", "Amrani", "Sara", "Résident", "Prescripteur", 0, 0, 0, "NA"],
     ["Ouest", "CHU d'Oran", "Infectiologie", "Benali", "Karim", "Assistant", "Réfèrent", 12, 3, 3 / 12, "A"],
     ["Ouest", "CHU d'Oran", "Infectiologie", "Haddad", "Lina", "Assistant", "Prescripteur", 7, 0, 0, "D"],
@@ -176,8 +176,8 @@ const CLASSEUR_1: Feuilles = {
 const CLASSEUR_2: Feuilles = {
   Feuille1: [
     ["Zone", "Etablissement", "Spécialité", "Nom", "Prénom", "Grade", "Rôle", "Patients par semaine", "Sur 10 patients, combien sous raltegravir", "Classement"],
-    ["Centre", "CHU HCA", "Infectiologie", "Bouhabel", "Maamar", "Prof chef de service", "Décideur", null, null, "H"],
-    ["Centre", "EHS EL KETTAR", "Infectiologie", "Rezig", "Ahlem", "Assistant", "Influenceur", 30, 4, "A"],
+    ["Centre", "CHU HCA", "Infectiologie", "Exempleun", "Ali", "Prof chef de service", "Décideur", null, null, "H"],
+    ["Centre", "EHS EL KETTAR", "Infectiologie", "Exempledeux", "Nora", "Assistant", "Influenceur", 30, 4, "A"],
   ],
 };
 
@@ -232,17 +232,17 @@ describe("règles lues dans la feuille — proposées, jamais imposées", () => 
 describe("rapprochement avec l'annuaire — jamais de doublon, jamais de devinette", () => {
   const lignes = lireClasseur(CLASSEUR_1)!.lignes;
   it("clé de personne : casse, accents, ordre, « Ep » mis de côté", () => {
-    expect(clePersonne("Zertal Ep Kechai", "Amel")).toBe(clePersonne("amel", "ZERTAL kechai"));
-    expect(clePersonne("Dr Bouhabel Maamar")).toBe(clePersonne("Bouhabel", "Maamar"));
+    expect(clePersonne("Exemplequatre Ep Exemplecinq", "Amel")).toBe(clePersonne("amel", "EXEMPLEQUATRE exemplecinq"));
+    expect(clePersonne("Dr Exempleun Ali")).toBe(clePersonne("Exempleun", "Ali"));
   });
   it("fiche existante retrouvée ; homonymes départagés par l'établissement ; sinon ambigu ; doublon du fichier signalé", () => {
     const etab = (n: string | null) => (n === "EHS EL KETTAR" ? "etab-kettar" : n === "CHU Setif" ? "etab-setif" : null);
     const connus = [
-      { id: "d1", name: "Maamar Bouhabel", lastName: "Bouhabel", firstName: "Maamar", institutionId: null },
-      { id: "d2", name: "Ahlem Rezig", lastName: "Rezig", firstName: "Ahlem", institutionId: "etab-kettar" },
-      { id: "d3", name: "Ahlem Rezig", lastName: "Rezig", firstName: "Ahlem", institutionId: "etab-autre" },
-      { id: "d4", name: "Dahbia Kadi", lastName: "Kadi", firstName: "Dahbia", institutionId: "x" },
-      { id: "d5", name: "Dahbia Kadi", lastName: "Kadi", firstName: "Dahbia", institutionId: "y" },
+      { id: "d1", name: "Ali Exempleun", lastName: "Exempleun", firstName: "Ali", institutionId: null },
+      { id: "d2", name: "Nora Exempledeux", lastName: "Exempledeux", firstName: "Nora", institutionId: "etab-kettar" },
+      { id: "d3", name: "Nora Exempledeux", lastName: "Exempledeux", firstName: "Nora", institutionId: "etab-autre" },
+      { id: "d4", name: "Imane Exempletrois", lastName: "Exempletrois", firstName: "Imane", institutionId: "x" },
+      { id: "d5", name: "Imane Exempletrois", lastName: "Exempletrois", firstName: "Imane", institutionId: "y" },
     ];
     const avecDoublon = [...lignes, { ...lignes[1], ligne: 99 }];
     const r = rapprocher(avecDoublon, connus, etab);

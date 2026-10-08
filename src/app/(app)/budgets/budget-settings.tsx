@@ -9,13 +9,14 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { deleteBudgetCategory } from "@/lib/actions/budget-envelope-actions";
 import type { BudgetOverview, BudgetCategoryView } from "@/lib/queries/budget";
 import { useRun, CategoryCard, CategorySheet, EnvelopeSheet, BudgetTotalSheet } from "./budget-forms";
-import { EnveloppeMarketingSheet, type RattachementOptions } from "./enveloppe-marketing-forms";
+import { EnveloppePoleSheet, type RattachementOptions } from "./enveloppe-marketing-forms";
+import type { DomainePole } from "@/lib/budget/domaines";
 
 interface BudgetTotalInfo { mode: "FIXED" | "FLEXIBLE"; value: number; fixed: number }
 type UserOpt = { id: string; name: string };
 
-/** Budget Marketing : le tiroir court de la Direction Marketing remplace celui du Super Admin. */
-export interface VarianteMarketing { options: RattachementOptions; canEdit: boolean; canDelete: boolean; rattachement: string | null }
+/** Budget d'un pôle (Marketing, Regulatory, Operations) : le tiroir court du pôle remplace celui du Super Admin. */
+export interface VariantePole { domaine: DomainePole; options: RattachementOptions; canEdit: boolean; canDelete: boolean; rattachement: string | null }
 
 /**
  * BUDGETS — écran « RÉGLAGES ». Tout ce qui se PARAMÈTRE, au même endroit.
@@ -33,9 +34,9 @@ export function BudgetSettings({
   canManageAccess: boolean;
   budgetTotal: BudgetTotalInfo;
   users: UserOpt[];
-  /** Écran Budget Marketing : tiroir court, pas de budget total « toutes enveloppes ». */
-  marketing?: VarianteMarketing;
-  /** Une enveloppe tenue ailleurs (Budget Marketing) : le mot qui le dit, à la place du bouton « Modifier ». */
+  /** Écran d'un budget de pôle : tiroir court, pas de budget total « toutes enveloppes ». */
+  marketing?: VariantePole;
+  /** Une enveloppe tenue ailleurs (le budget d'un pôle) : le mot qui le dit, à la place du bouton « Modifier ». */
   bandeau?: React.ReactNode;
 }) {
   const peutModifier = marketing ? marketing.canEdit : canManageAccess && !bandeau;
@@ -130,7 +131,7 @@ export function BudgetSettings({
       </section>
 
       {editEnv && (marketing
-        ? <EnveloppeMarketingSheet envelope={overview.envelope} options={marketing.options} canDelete={marketing.canDelete} onClose={() => setEditEnv(false)} />
+        ? <EnveloppePoleSheet domaine={marketing.domaine} envelope={overview.envelope} options={marketing.options} canDelete={marketing.canDelete} onClose={() => setEditEnv(false)} />
         : <EnvelopeSheet envelope={overview.envelope} users={users} onClose={() => setEditEnv(false)} onDeleted={() => router.push("/budgets")} canDelete={canManageAccess} />)}
       {catSheet && <CategorySheet envelopeId={overview.envelope.id} cat={catSheet.cat} defaultParentId={catSheet.parentId} parentOptions={topCatOptions} onClose={() => setCatSheet(null)} />}
       {totalSheet && <BudgetTotalSheet info={budgetTotal} onClose={() => setTotalSheet(false)} />}

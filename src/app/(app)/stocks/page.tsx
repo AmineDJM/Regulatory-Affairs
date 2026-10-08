@@ -11,6 +11,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StocksView, type SnapshotDTO } from "./stocks-view";
 import { loadRecurrencesStock } from "@/lib/queries/stock-recurrence";
 import { RecurrencesPanel } from "./recurrences-panel";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { ongletsStocks } from "@/lib/chemins/stocks";
 
 export default async function StocksPage() {
   const user = await requireModule("STOCKS");
@@ -80,6 +82,8 @@ export default async function StocksPage() {
 
   return (
     <div className="space-y-5">
+      {/* LES ÉCRANS DU MODULE — la chaîne et le stock PCH central s'ouvrent à la chaîne d'approvisionnement (même règle). */}
+      <ModuleTabs tabs={ongletsStocks(canRequest)} />
       <PageHeader
         title="Stocks"
         description="États de stock datés, par produit : PCH (centrale), hôpitaux et annexes PCH. On enregistre simplement « à cette date, il reste X » — la courbe se construit au fil des relevés. Les hôpitaux sont ceux de l'annuaire des établissements : un KAM relève ceux de son secteur, pour les produits de sa BU."

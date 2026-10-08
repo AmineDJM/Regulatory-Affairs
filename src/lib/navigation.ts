@@ -5,7 +5,7 @@ import type { NavItem } from "@/lib/labels";
  *
  * Treize entrées à plat sous « Pôles », c'était la carte du CODE : un module = une ligne. Une
  * direction ne lit pas son entreprise comme ça. Elle la lit en pôles : Regulatory,
- * Administration, Marketing, Operations & Sales, Business Development, Supply Chain.
+ * Administration, Marketing, Operations & Sales (la chaîne physique comprise), Business Development.
  *
  * Ce module ne décide RIEN sur les droits : il reçoit les entrées **déjà filtrées** par le RBAC
  * (côté serveur, dans le layout) et se contente de les ranger. Une entrée interdite n'arrive
@@ -21,7 +21,8 @@ export const NAV_POLES = [
   { key: "MARKETING", label: "Marketing", icon: "Megaphone" },
   { key: "OPERATIONS_SALES", label: "Operations & Sales", icon: "TrendingUp" },
   { key: "BUSINESS_DEV", label: "Business Development", icon: "Lightbulb" },
-  { key: "SUPPLY_CHAIN", label: "Supply Chain & Logistics", icon: "Truck" },
+  // « Supply Chain & Logistics » n'est plus un pôle (Direction, 08/10 : « Stocks et Logistique rejoignent Operations &
+  // Sales ») : la chaîne physique se lit avec le reste du business, par BU.
 ] as const;
 
 export type NavPoleKey = (typeof NAV_POLES)[number]["key"];

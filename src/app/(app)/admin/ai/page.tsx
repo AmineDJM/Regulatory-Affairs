@@ -37,6 +37,7 @@ const FEATURE_LABEL: Record<AiFeature, string> = {
   site_web: "Rédaction du site web",
   lecture_pieces: "Lecture des pièces déposées",
   conseil_pieces: "Luna — rangement des pièces Ad & Pro",
+  kpi: "Luna — KPI & bilans",
 };
 const libelleFonction = (f: string): string => (FEATURE_LABEL as Record<string, string>)[f] ?? f;
 

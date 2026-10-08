@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { canEditCompanyId, companyIdForNew } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
-import { estEnveloppeMarketing } from "@/lib/budget-marketing/domaine";
+import { poleDe } from "@/lib/budget/domaines";
 
 const NOT_ALLOWED: ActionResult = { ok: false, error: "Gestion des enveloppes réservée au Super Admin (ou à un délégué)." };
 
@@ -201,8 +201,9 @@ export async function attributeTransaction(formData: FormData): Promise<ActionRe
   if (!transactionId) return { ok: false, error: "Transaction manquante." };
   const budgetCategoryId = fdStr(formData, "budgetCategoryId"); // null = retirer
   if (!(hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE"))) {
-    // BUDGET MARKETING (08/10) : la Direction Marketing impute aux catégories de SES enveloppes, et retire une
-    // imputation qui y pointe — jamais ailleurs. La catégorie visée (ou quittée) doit être dans une enveloppe marketing.
+    // BUDGETS DES PÔLES (08/10) : un pôle (Marketing, Regulatory, Operations) impute aux catégories de SES enveloppes,
+    // et retire une imputation qui y pointe — jamais ailleurs. La catégorie visée (ou quittée) doit être dans une
+    // enveloppe de pôle que la personne gère.
     const actuelle = await prisma.financeTransaction.findUnique({ where: { id: transactionId }, select: { budgetCategoryId: true } });
     if (!actuelle) return { ok: false, error: "Transaction introuvable." };
     const ids = [budgetCategoryId, actuelle.budgetCategoryId].filter((x): x is string => Boolean(x));
@@ -211,13 +212,15 @@ export async function attributeTransaction(formData: FormData): Promise<ActionRe
       : [];
     const ok = ids.length > 0 && ids.every((id) => {
       const c = cats.find((x) => x.id === id);
-      return c ? estEnveloppeMarketing(c.envelope) && canManageEnvelope(user, c.envelope) : false;
+      return c ? poleDe(c.envelope) !== null && canManageEnvelope(user, c.envelope) : false;
     });
     if (!ok) return { ok: false, error: "Allocation réservée à la Direction." };
   }
   await prisma.financeTransaction.update({ where: { id: transactionId }, data: { budgetCategoryId } });
   revalidatePath("/budgets");
   revalidatePath("/budget-marketing");
+  revalidatePath("/budget-regulatory");
+  revalidatePath("/budget-operations");
   return { ok: true };
 }
 

@@ -36,9 +36,12 @@ describe("Marketing cockpit", () => {
 
   it("par défaut, les mêmes personnes qu'hier ; la Direction Marketing y écrit en plus ses messages", () => {
     for (const [role, matrice] of Object.entries(PERMISSIONS)) {
-      if (role === "SUPER_ADMIN" || role === "PRODUCT_MANAGER" || !matrice.SALES_PLANNING) continue;
+      if (role === "SUPER_ADMIN" || role === "PRODUCT_MANAGER" || role === "OPERATIONS_DIRECTOR" || !matrice.SALES_PLANNING) continue;
       expect(matrice.MARKETING_COCKPIT, role).toEqual(matrice.SALES_PLANNING);
     }
+    // LE DIRECTEUR DES OPÉRATIONS GÈRE la Force de vente depuis le 08/10 ; le cockpit marketing, lui, lui reste en
+    // LECTURE — ce qu'il avait la veille. La gestion de la force de vente ne lui donne pas la parole marketing.
+    expect(PERMISSIONS.OPERATIONS_DIRECTOR.MARKETING_COCKPIT).toEqual(["VIEW", "EXPORT"]);
     expect(PERMISSIONS.PRODUCT_MANAGER.MARKETING_COCKPIT).toEqual(expect.arrayContaining(["VIEW", "CREATE", "UPDATE", "DELETE"]));
     expect(PERMISSIONS.PRODUCT_MANAGER.SALES_PLANNING, "rien de plus sur la Force de vente").toEqual(["VIEW", "EXPORT"]);
     expect(DEFAULT_APP_SETTINGS.promoMessageAuthorRoles).toContain("PRODUCT_MANAGER");

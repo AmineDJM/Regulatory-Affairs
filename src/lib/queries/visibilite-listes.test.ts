@@ -38,7 +38,7 @@ const CLAUSES: { fonction: string; ecrans: string[] }[] = [
   { fonction: "clauseSponsoringsVisibles", ecrans: ["src/app/(app)/sponsoring/page.tsx"] },
   { fonction: "clauseEcrituresVisibles", ecrans: ["src/lib/queries/finance.ts", "src/lib/queries/compta.ts"] },
   { fonction: "clauseSalariesVisibles", ecrans: ["src/lib/queries/hr.ts"] },
-  { fonction: "clauseVentesVisibles", ecrans: ["src/app/(app)/sales/page.tsx"] },
+  { fonction: "clauseVentesVisibles", ecrans: ["src/app/(app)/sales/historique/page.tsx"] },
   { fonction: "clauseCommandesLogistiqueVisibles", ecrans: ["src/app/(app)/logistics/page.tsx"] },
   { fonction: "clauseDemandesSecretariatVisibles", ecrans: ["src/lib/queries/admin-requests.ts"] },
   { fonction: "clauseCongresInternationauxVisibles", ecrans: ["src/lib/queries/congress.ts"] },

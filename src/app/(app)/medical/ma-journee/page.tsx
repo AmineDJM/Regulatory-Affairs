@@ -1,5 +1,8 @@
-import { CalendarCheck, CalendarRange, Users } from "lucide-react";
+import Link from "next/link";
+import { CalendarCheck, CalendarRange, Undo2, Users } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { declareDesReclamations } from "@/lib/reclamations/acces";
+import { lienNouvelleReclamation } from "@/lib/chemins/reclamations";
 import { userCan } from "@/lib/rbac";
 import { signaleDesCasPv } from "@/lib/pharmacovigilance/acces";
 import { lienSignalerPv } from "@/lib/chemins/rapports-terrain";
@@ -59,7 +62,14 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
-      <PageHeader title={`Bonjour ${user.name.split(" ")[0]}`} />
+      <PageHeader title={`Bonjour ${user.name.split(" ")[0]}`}>
+        {/* RETOURS & RÉCLAMATIONS (Direction, 08/10) : le KAM déclare depuis le terrain — un lien discret, pas un geste principal. */}
+        {declareDesReclamations(user) && (
+          <Link href={lienNouvelleReclamation()} className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius)] border border-border bg-card px-3 text-sm font-medium hover:bg-secondary">
+            <Undo2 className="h-4 w-4" /> Réclamation
+          </Link>
+        )}
+      </PageHeader>
       <ModuleTabs tabs={await visibleTabs(user, MEDICAL_TABS)} />
 
       {/* LA LIGNE DE CHIFFRES — grande, lisible d'un coup d'œil, en haut. */}

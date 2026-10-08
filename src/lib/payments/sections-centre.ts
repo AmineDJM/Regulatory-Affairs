@@ -101,6 +101,8 @@ export const SECTION_DU_TYPE: Record<EntityType, SectionCentre> = {
   //    d'approvisionnement, du business development — et les PORTEURS sans origine lisible.
   BUDGET: A,
   LOGISTICS: A,
+  RECLAMATION: A,
+  STOCK_PCH_RELEVE: A,
   BD_OPPORTUNITY: A,
   BD_PROJECT: A,
   FINANCE_TRANSACTION: A,

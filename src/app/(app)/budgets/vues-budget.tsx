@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, AlertTriangle, Download } from "lucide-react";
 import type { CurrentUser } from "@/lib/session";
-import { canManageEnvelopes, canManageEnvelope, canGovernMarketingEnvelope, hasGlobalView, peutBudgetMarketing } from "@/lib/rbac";
+import { canManageEnvelopes, canManageEnvelope, canGovernPoleEnvelope, hasGlobalView, peutBudgetDuPole } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getEnvelopes, getBudgetOverview, getEnvelopesGrandTotal } from "@/lib/queries/budget";
 import { libelleRattachement, optionsRattachement } from "@/lib/queries/budget-marketing";
@@ -11,48 +11,62 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
-import { BUDGET_TABS, BUDGET_MARKETING_TABS } from "@/lib/labels";
+import { BUDGET_TABS, BUDGET_MARKETING_TABS, BUDGET_REGULATORY_TABS, BUDGET_OPERATIONS_TABS, type NavTab } from "@/lib/labels";
 import { Donut } from "@/components/charts/donut";
 import { Trend } from "@/components/charts/trend";
 import { Bars, Meter } from "@/components/charts/bars";
 import { foldTail } from "@/components/charts/palette";
 import { formatCurrency } from "@/lib/utils";
 import { resolveBudgetEnvelope } from "@/lib/budget-scope";
-import { CHEMIN_BUDGET_MARKETING, estEnveloppeMarketing, type PorteeBudget } from "@/lib/budget-marketing/domaine";
+import { DOMAINES, poleDe, type DomainePole, type PorteeBudget } from "@/lib/budget/domaines";
+import { ecrituresDeLaForceDeVente } from "@/lib/queries/budget-operations";
 import { BudgetContextBar } from "./budget-context-bar";
 import { BudgetExpenses } from "./budget-expenses";
 import { BudgetSettings } from "./budget-settings";
 import { CreateEnvelopeButton } from "./budget-forms";
-import { NouvelleEnveloppeMarketing } from "./enveloppe-marketing-forms";
+import { NouvelleEnveloppePole } from "./enveloppe-marketing-forms";
 
 /**
- * LES ÉCRANS DES BUDGETS, POUR DEUX PORTÉES (Budget Marketing, Direction 08/10).
+ * LES ÉCRANS DES BUDGETS, POUR QUATRE PORTÉES (Budget Marketing, puis Budget Regulatory et Budget Operations & Sales,
+ * Direction 08/10).
  *
- * Budgets (`/budgets`) lit toutes les enveloppes visibles ; Budget Marketing (`/budget-marketing`) les seules
- * enveloppes `domaine = MARKETING`. Ce sont les MÊMES écrans et les MÊMES requêtes, avec une portée — jamais une copie :
- * un chiffre corrigé ici l'est là-bas. Dans Budgets, une enveloppe marketing se lit mais ne se règle plus : elle dit
- * où elle se gère.
+ * Budgets (`/budgets`) lit toutes les enveloppes visibles ; chaque module de pôle (`/budget-marketing`,
+ * `/budget-regulatory`, `/budget-operations`) les seules enveloppes de son `domaine`. Ce sont les MÊMES écrans et les
+ * MÊMES requêtes, avec une portée — jamais une copie : un chiffre corrigé ici l'est là-bas. Dans Budgets, une enveloppe
+ * de pôle se lit mais ne se règle plus : elle dit où elle se gère.
  */
 
 export type ParamsBudget = { env?: string; from?: string; to?: string };
 
 interface Config { portee: PorteeBudget; base: string; titre: string }
 
+const configDuPole = (pole: DomainePole): Config => ({ portee: pole, base: DOMAINES[pole].chemin, titre: DOMAINES[pole].titre });
+
 export const CONFIG_BUDGETS: Config = { portee: "TOUT", base: "/budgets", titre: "Budgets" };
-export const CONFIG_BUDGET_MARKETING: Config = { portee: "MARKETING", base: CHEMIN_BUDGET_MARKETING, titre: "Budget Marketing" };
+export const CONFIG_BUDGET_MARKETING: Config = configDuPole("MARKETING");
+export const CONFIG_BUDGET_REGULATORY: Config = configDuPole("REGULATORY");
+export const CONFIG_BUDGET_OPERATIONS: Config = configDuPole("OPERATIONS");
 
 const periode = (sp: ParamsBudget) => ({
   from: sp.from ? new Date(sp.from) : null,
   to: sp.to ? new Date(sp.to) : null,
 });
 
-const ongletsDe = (user: CurrentUser, c: Config) => visibleTabs(user, c.portee === "MARKETING" ? BUDGET_MARKETING_TABS : BUDGET_TABS);
+const ONGLETS: Record<PorteeBudget, NavTab[]> = {
+  TOUT: BUDGET_TABS,
+  MARKETING: BUDGET_MARKETING_TABS,
+  REGULATORY: BUDGET_REGULATORY_TABS,
+  OPERATIONS: BUDGET_OPERATIONS_TABS,
+};
+const ongletsDe = (user: CurrentUser, c: Config) => visibleTabs(user, ONGLETS[c.portee]);
+const poleDeLaConfig = (c: Config): DomainePole | null => (c.portee === "TOUT" ? null : c.portee);
 
-/** Dans Budgets : le mot qui dit qu'une enveloppe se gère dans Budget Marketing (lien si la personne y a accès). */
-export function GereParMarketing({ user }: { user: CurrentUser }) {
-  return peutBudgetMarketing(user, "VIEW")
-    ? <Link href={CHEMIN_BUDGET_MARKETING} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Géré par la Direction Marketing <ArrowRight className="h-3 w-3" /> Budget Marketing</Link>
-    : <span>Géré par la Direction Marketing</span>;
+/** Dans Budgets : le mot qui dit qu'une enveloppe se gère dans le budget de son pôle (lien si la personne y a accès). */
+export function GerePar({ user, domaine }: { user: CurrentUser; domaine: DomainePole }) {
+  const d = DOMAINES[domaine];
+  return peutBudgetDuPole(user, domaine, "VIEW")
+    ? <Link href={d.chemin} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Géré par {d.gestionnaire} <ArrowRight className="h-3 w-3" /> {d.titre}</Link>
+    : <span>Géré par {d.gestionnaire}</span>;
 }
 
 // ───────────────────────────── Vue d'ensemble ─────────────────────────────
@@ -66,8 +80,8 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
   ]);
   const { from, to } = periode(searchParams);
   const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to, opts);
-  const marketing = config.portee === "MARKETING";
-  const description = marketing ? "Ad & Pro et les enveloppes de la Direction Marketing." : "Où en est votre budget, en un coup d'œil.";
+  const pole = poleDeLaConfig(config);
+  const description = pole ? DOMAINES[pole].description : "Où en est votre budget, en un coup d'œil.";
 
   if (!overview) {
     return (
@@ -76,9 +90,9 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
         <ModuleTabs tabs={tabs} />
         <EmptyState
           icon="Wallet"
-          title={marketing ? "Aucune enveloppe marketing" : "Aucune enveloppe budgétaire"}
-          description={marketing
-            ? (canGovernMarketingEnvelope(user, "CREATE") ? "Créez-la depuis l'onglet Réglages." : "Aucune enveloppe marketing ne vous est ouverte.")
+          title={pole ? `Aucune enveloppe ${DOMAINES[pole].court}` : "Aucune enveloppe budgétaire"}
+          description={pole
+            ? (canGovernPoleEnvelope(user, pole, "CREATE") ? "Créez-la depuis l'onglet Réglages." : `Aucune enveloppe ${DOMAINES[pole].court} ne vous est ouverte.`)
             : canManageEnvelopes(user)
               ? "Créez une enveloppe depuis l'onglet Réglages : un budget total pour une période, que vous répartirez ensuite en catégories."
               : "Aucune enveloppe ne vous est ouverte pour le moment."}
@@ -102,7 +116,7 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
     ? foldTail(grandTotal.items.filter((e) => e.total > 0).map((e) => ({ label: e.name, value: e.total })))
     : [];
   const trendPoints = overview.monthly.map((m) => ({ label: m.label, value: m.cumulative, expected: m.expected }));
-  const exportHref = `/api/budgets/export?env=${overview.envelope.id}&from=${overview.period.from.slice(0, 10)}&to=${overview.period.to.slice(0, 10)}${marketing ? "&portee=marketing" : ""}`;
+  const exportHref = `/api/budgets/export?env=${overview.envelope.id}&from=${overview.period.from.slice(0, 10)}&to=${overview.period.to.slice(0, 10)}${pole ? `&portee=${pole.toLowerCase()}` : ""}`;
 
   return (
     <div className="space-y-5">
@@ -125,7 +139,7 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
           <div>
             <p className="text-sm text-muted-foreground">
-              {marketing ? "Budget marketing" : "Budget global"} — {grandTotal.count} enveloppe{grandTotal.count > 1 ? "s" : ""}
+              {pole ? `Budget ${DOMAINES[pole].court}` : "Budget global"} — {grandTotal.count} enveloppe{grandTotal.count > 1 ? "s" : ""}
             </p>
             <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">{formatCurrency(grandTotal.total)}</p>
           </div>
@@ -141,6 +155,7 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
           <ul className="mt-4 divide-y divide-border border-t border-border">
             {grandTotal.items.map((e) => {
               const pct = e.total > 0 ? Math.round((e.consumed / e.total) * 100) : 0;
+              const poleDeE = poleDe(e);
               return (
                 <li key={e.id}>
                   <Link
@@ -150,7 +165,7 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
                     <span className={`min-w-0 flex-1 truncate font-medium ${e.id === overview.envelope.id ? "text-primary" : ""}`}>
                       {e.name}
                       {!e.isActive && <span className="ml-2 text-xs font-normal text-muted-foreground">(clôturée)</span>}
-                      {!marketing && estEnveloppeMarketing(e) && <span className="ml-2 text-xs font-normal text-muted-foreground">· Marketing</span>}
+                      {!pole && poleDeE && <span className="ml-2 text-xs font-normal text-muted-foreground">· {DOMAINES[poleDeE].etiquette}</span>}
                     </span>
                     <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatCurrency(e.consumed)} / {formatCurrency(e.total)}</span>
                     <span className={`w-12 shrink-0 text-right tabular-nums ${e.remaining < 0 ? "text-destructive" : "text-muted-foreground"}`}>{pct} %</span>
@@ -164,7 +179,7 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
-        {!marketing && estEnveloppeMarketing(overview.envelope) && <span className="text-xs text-muted-foreground"><GereParMarketing user={user} /></span>}
+        {!pole && poleDe(overview.envelope) && <span className="text-xs text-muted-foreground"><GerePar user={user} domaine={poleDe(overview.envelope)!} /></span>}
       </div>
 
       {/* LE chiffre : ce qui reste. Puis la jauge, puis les montants de contexte. */}
@@ -185,13 +200,13 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
             <dt className="text-xs text-muted-foreground">Consommé</dt>
             <dd className="font-medium tabular-nums">{formatCurrency(t.consumed)}</dd>
           </div>
-          {(t.committed > 0 || marketing) && (
+          {(t.committed > 0 || pole) && (
             <div>
               <dt className="text-xs text-muted-foreground">Engagé (non encore réglé)</dt>
               <dd className="font-medium tabular-nums">{formatCurrency(t.committed)}</dd>
             </div>
           )}
-          {marketing && (
+          {pole && (
             <div>
               <dt className="text-xs text-muted-foreground">Disponible</dt>
               <dd className={`font-medium tabular-nums ${t.total - t.consumed - t.committed < 0 ? "text-destructive" : ""}`}>{formatCurrency(t.total - t.consumed - t.committed)}</dd>
@@ -279,8 +294,13 @@ export async function VueDepensesBudget({ user, searchParams, config }: { user: 
 
   const canManageContent = overview ? canManageEnvelope(user, overview.envelope) : canManageEnvelopes(user);
   const canAttribute = hasGlobalView(user.role) || canManageContent;
-  // Dans Budgets, une enveloppe marketing se lit : ses lignes budgétaires se tiennent dans Budget Marketing.
-  const tenueAilleurs = config.portee === "TOUT" && overview !== null && estEnveloppeMarketing(overview.envelope);
+  // Dans Budgets, une enveloppe de pôle se lit : ses lignes budgétaires se tiennent dans le budget de son pôle.
+  const poleTenant = config.portee === "TOUT" && overview !== null ? poleDe(overview.envelope) : null;
+  const tenueAilleurs = poleTenant !== null;
+  // Budget Operations & Sales : ce que la force de vente a demandé se signale parmi les dépenses à imputer.
+  const marques = config.portee === "OPERATIONS" && overview
+    ? Object.fromEntries([...(await ecrituresDeLaForceDeVente(overview.unattributed.transactions.map((t) => t.id)))].map((id) => [id, "Force de vente"]))
+    : undefined;
 
   return (
     <div className="space-y-5">
@@ -292,7 +312,7 @@ export async function VueDepensesBudget({ user, searchParams, config }: { user: 
         <>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
-            {tenueAilleurs && <span className="text-xs text-muted-foreground"><GereParMarketing user={user} /></span>}
+            {poleTenant && <span className="text-xs text-muted-foreground"><GerePar user={user} domaine={poleTenant} /></span>}
           </div>
           <BudgetExpenses
             overview={overview}
@@ -300,6 +320,7 @@ export async function VueDepensesBudget({ user, searchParams, config }: { user: 
             canEditLines={canAttribute && !tenueAilleurs}
             canDelete={user.role === "SUPER_ADMIN"}
             societes={societes.map((s) => ({ id: s.id, nom: s.shortName || s.name }))}
+            marques={marques}
           />
         </>
       )}
@@ -311,26 +332,27 @@ export async function VueDepensesBudget({ user, searchParams, config }: { user: 
 
 export async function VueReglagesBudget({ user, searchParams, config }: { user: CurrentUser; searchParams: ParamsBudget; config: Config }) {
   const opts = { portee: config.portee };
-  const marketing = config.portee === "MARKETING";
+  const pole = poleDeLaConfig(config);
   // GOUVERNANCE des accès (créer/modifier/supprimer une enveloppe générale, régler ses listes d'accès et le budget
-  // total) : prérogative Super Admin. Une enveloppe marketing se gouverne aussi par le module Budget Marketing.
+  // total) : prérogative Super Admin. Une enveloppe de pôle se gouverne aussi par le module de budget de son pôle.
   const canManageAccess = canManageEnvelopes(user);
 
   const [envelopes, settings, users, tabs, rattachements] = await Promise.all([
     getEnvelopes(user, opts),
     getAppSettings(),
-    canManageAccess && !marketing
+    canManageAccess && !pole
       ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([] as { id: string; name: string }[]),
     ongletsDe(user, config),
-    marketing ? optionsRattachement() : Promise.resolve(null),
+    pole ? optionsRattachement() : Promise.resolve(null),
   ]);
   const { from, to } = periode(searchParams);
   const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to, opts);
-  const tenueAilleurs = !marketing && overview !== null && estEnveloppeMarketing(overview.envelope);
+  const poleTenant = !pole && overview !== null ? poleDe(overview.envelope) : null;
+  const tenueAilleurs = poleTenant !== null;
 
-  // GESTION du CONTENU de l'enveloppe affichée : gouverneur global, délégué sur CETTE enveloppe, ou — enveloppe
-  // marketing — le droit « Modifier » de Budget Marketing. Dans Budgets, une enveloppe marketing ne se règle pas.
+  // GESTION du CONTENU de l'enveloppe affichée : gouverneur global, délégué sur CETTE enveloppe, ou — enveloppe de
+  // pôle — le droit « Modifier » du budget de ce pôle. Dans Budgets, une enveloppe de pôle ne se règle pas.
   const canManageContent = tenueAilleurs ? false : overview ? canManageEnvelope(user, overview.envelope) : canManageAccess;
 
   const flexibleTotal = envelopes.filter((e) => e.isActive).reduce((s, e) => s + e.total, 0);
@@ -339,12 +361,13 @@ export async function VueReglagesBudget({ user, searchParams, config }: { user: 
     value: settings.budgetTotalMode === "FIXED" ? settings.budgetFixedTotal : flexibleTotal,
     fixed: settings.budgetFixedTotal,
   };
-  const peutCreer = marketing ? canGovernMarketingEnvelope(user, "CREATE") : canManageAccess;
-  const variante = marketing && overview && rattachements
+  const peutCreer = pole ? canGovernPoleEnvelope(user, pole, "CREATE") : canManageAccess;
+  const variante = pole && overview && rattachements
     ? {
+        domaine: pole,
         options: rattachements,
-        canEdit: canGovernMarketingEnvelope(user, "UPDATE", overview.envelope),
-        canDelete: canGovernMarketingEnvelope(user, "DELETE", overview.envelope),
+        canEdit: canGovernPoleEnvelope(user, pole, "UPDATE", overview.envelope),
+        canDelete: canGovernPoleEnvelope(user, pole, "DELETE", overview.envelope),
         rattachement: await libelleRattachement(overview.envelope),
       }
     : undefined;
@@ -352,16 +375,16 @@ export async function VueReglagesBudget({ user, searchParams, config }: { user: 
   return (
     <div className="space-y-5">
       <PageHeader
-        title={marketing ? "Réglages du budget marketing" : "Réglages du budget"}
-        description={marketing ? "L'enveloppe et sa répartition en catégories." : "L'enveloppe, sa répartition en catégories, et le budget total au-dessus des enveloppes."}
+        title={pole ? `Réglages du budget ${DOMAINES[pole].court}` : "Réglages du budget"}
+        description={pole ? "L'enveloppe et sa répartition en catégories." : "L'enveloppe, sa répartition en catégories, et le budget total au-dessus des enveloppes."}
       >
-        {peutCreer && (marketing && rattachements ? <NouvelleEnveloppeMarketing options={rattachements} /> : <CreateEnvelopeButton users={users} />)}
+        {peutCreer && (pole && rattachements ? <NouvelleEnveloppePole domaine={pole} options={rattachements} /> : <CreateEnvelopeButton users={users} />)}
       </PageHeader>
       <ModuleTabs tabs={tabs} />
       {!overview ? (
         <EmptyState
           icon="Wallet"
-          title={marketing ? "Aucune enveloppe marketing" : "Aucune enveloppe budgétaire"}
+          title={pole ? `Aucune enveloppe ${DOMAINES[pole].court}` : "Aucune enveloppe budgétaire"}
           description={peutCreer ? "Créez une enveloppe : un budget pour une période, que vous répartirez ensuite en catégories." : "Aucune enveloppe ne vous est ouverte pour le moment."}
         />
       ) : (
@@ -374,7 +397,7 @@ export async function VueReglagesBudget({ user, searchParams, config }: { user: 
             budgetTotal={budgetTotal}
             users={users}
             marketing={variante}
-            bandeau={tenueAilleurs ? <GereParMarketing user={user} /> : undefined}
+            bandeau={poleTenant ? <GerePar user={user} domaine={poleTenant} /> : undefined}
           />
         </>
       )}

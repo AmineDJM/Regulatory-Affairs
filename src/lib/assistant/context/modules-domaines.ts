@@ -103,6 +103,9 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   BUDGETS: { domaines: ["FINANCE"] },
   // Budget Marketing (08/10) — les mêmes enveloppes que Budgets, bornées à la Direction Marketing.
   BUDGET_MARKETING: { domaines: ["FINANCE"], mots: ["budget marketing", "enveloppe marketing", "enveloppe ad pro"] },
+  // Budget Regulatory et Budget Operations & Sales (08/10) — mêmes enveloppes, bornées à leur pôle.
+  BUDGET_REGULATORY: { domaines: ["FINANCE"], mots: ["budget regulatory", "budget reglementaire", "bv 25", "bv 75", "frais enregistrement"] },
+  BUDGET_OPERATIONS: { domaines: ["FINANCE"], mots: ["budget operations", "masse salariale force de vente", "budget force de vente"] },
   FINANCES: { domaines: ["FINANCE"] },
   RH: { domaines: ["HR"] },
   RECRUITMENT: { domaines: ["HR"] },
@@ -110,6 +113,8 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   HR_REQUESTS: { domaines: ["HR"], mots: ["demandes rh", "attestation", "ordre de mission", "conge", "absence", "arret maladie"] },
   TRAINING: { domaines: ["HR"], mots: ["formation", "formations", "seminaire"] },
   PHARMACOVIGILANCE: { domaines: ["REGULATORY"], mots: ["pharmacovigilance", "effet indesirable", "cas pv", "signalement"] },
+  // Retours & réclamations (08/10) — retours, réclamations qualité, rappels de lot. Aucun outil d'Adam : gestes d'écran.
+  RETOURS_RECLAMATIONS: { domaines: ["DATA"], mots: ["retour", "retours", "reclamation", "reclamations", "rappel de lot", "lot defectueux"] },
   DOCUMENTS: { domaines: ["DRIVE"] },
   DRIVE: { domaines: ["DRIVE"] },
   ADMIN: { domaines: ["ADMIN"] },
@@ -157,6 +162,10 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // Le DROIT de forcer une lettre (Direction, 07/10) : les mêmes lectures que la segmentation, aucun geste d'Adam.
   SEGMENTATION_POTENTIEL: { domaines: ["DIRECTORY"], mots: ["potentiel force", "forcer le potentiel"] },
   CONSUMPTION: { domaines: ["DIRECTORY"], mots: ["consommation hospitaliere", "consumption intelligence", "affinite etablissement", "fichier de consommation"] },
+  // Ventes PCH (08/10) — les fichiers de la PCH (ventes des DR, réceptions centrales). Aucun outil d'Adam : gestes d'écran.
+  PCH_VENTES: { domaines: ["DATA"], mots: ["ventes pch", "vente dr", "demande non servie", "rupture pch", "receptions pch", "part de marche pch", "sell-in", "sell-out"] },
+  // Cockpit Opérations (08/10) — une lecture transverse (ventes PCH, marchés, chaîne, force de vente) : les mêmes données.
+  COCKPIT_OPERATIONS: { domaines: ["DATA"], mots: ["cockpit operations", "cockpit des operations", "execution des marches", "ruptures a 60 jours", "couverture chaine"] },
   PRODUCTS: { domaines: ["DIRECTORY"], mots: ["produit canonique", "referentiel produits", "vue 360 produit", "fiche produit"] },
   // Les demandes internes. `create_admin_request`, `support_operation`, `directive_operation`.
   ADMIN_REQUESTS: { domaines: ["ADMIN", "MISSION"], mots: ["secretariat", "demande administrative", "attestation", "ordre de mission"], outils: ["create_admin_request"] },
@@ -185,6 +194,9 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // routée » (§118.31), et le cliquet du banc la compte.
   GENERAL_MEANS: { domaines: [], mots: ["moyens generaux", "fourniture", "fournitures", "vehicule", "vehicules"] },
   FEEDBACK: { domaines: [], mots: ["feedback", "suggestion", "suggestions"] },
+  // KPI & bilans (KPI sans code, Direction 08/10) : AUCUN outil d'Adam, par décision — noter une personne, signer sa
+  // revue, valider ce qu'elle déclare sont des attestations d'un manager (§118.15), pas des gestes d'un modèle.
+  KPI: { domaines: [], mots: ["kpi", "indicateur", "indicateurs", "bilan", "revue mensuelle", "score pondere", "objectifs"] },
   // Le site public (§118.158) : aucun outil d'Adam — publier sur le site public est un geste
   // d'écran, décidé par une personne (parité EXCLUDED, raison écrite dans `action-registry.ts`).
   SITE_WEB: { domaines: [], mots: ["site web", "site internet", "blog", "article de blog", "offre d emploi", "offres d emploi"] },

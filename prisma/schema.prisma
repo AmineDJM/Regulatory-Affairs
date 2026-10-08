@@ -446,6 +446,11 @@ enum EntityType {
   TRAINING
   /// Un CAS DE PHARMACOVIGILANCE signalé par un KAM (Direction, 06/10) — ses pièces et son échange.
   PHARMACOVIGILANCE_CASE
+  /// Un RETOUR / une RÉCLAMATION qualité / un RAPPEL DE LOT (Operations & Sales) — ses pièces et son échange.
+  RECLAMATION
+  /// UN RELEVÉ DU STOCK PCH CENTRAL reçu par mail — l'identifiant est la DATE du mail (AAAA-MM-JJ) : le mail
+  /// ou le PDF de la PCH s'y joint. Aucune table : les quantités sont des `StockSnapshot` (scope PCH / ANNEX).
+  STOCK_PCH_RELEVE
 }
 
 enum DocumentCategory {
@@ -1940,11 +1945,11 @@ model RecruitmentRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  approvals    RecruitmentApproval[]
-  infoRequests RecruitmentInfoRequest[]
-  candidates   RecruitmentCandidate[]
+  approvals       RecruitmentApproval[]
+  infoRequests    RecruitmentInfoRequest[]
+  candidates      RecruitmentCandidate[]
   /// L'offre publiée sur le site public, si les RH en ont préparé une (§118.158).
-  jobPosting   JobPosting?
+  jobPosting      JobPosting?
   /// LE N+1 DE LA FUTURE RECRUE et LES PERSONNES EN CHARGE DU SUIVI — décidés par le DG quand il valide (Direction, 07/10).
   futureManagerId String?
   futureManager   User?                    @relation("RecruitmentFutureManager", fields: [futureManagerId], references: [id], onDelete: SetNull)
@@ -2691,7 +2696,8 @@ model BudgetEnvelope {
   isActive       Boolean              @default(true)
   /// BUDGET MARKETING (Direction, 08/10) : « MARKETING » = enveloppe tenue par la Direction Marketing (Ad & Pro et
   /// les siennes), « GENERAL » sinon. Budgets les lit toutes ; Budget Marketing seulement les premières. Une seule
-  /// ligne, jamais recopiée (`lib/budget-marketing/domaine.ts`).
+  /// ligne, jamais recopiée (`lib/budget-marketing/domaine.ts`). Depuis le 08/10 aussi « REGULATORY » (Budget
+  /// Regulatory) et « OPERATIONS » (Budget Operations & Sales) — `lib/budget/domaines.ts`.
   domaine        String               @default("GENERAL")
   /// Rattachement facultatif à une Business Unit / un produit (ids sans contrainte : retirer la BU n'emporte pas l'enveloppe).
   businessUnitId String?
@@ -2722,6 +2728,12 @@ model BudgetCategoryLine {
   allocated        Decimal                   @default(0) @db.Decimal(14, 2)
   color            String?
   notes            String?
+  /// BUDGETS DES PÔLES (08/10) : la clé STABLE d'une catégorie que le code reconnaît — « BV_25 » / « BV_75 » (Budget
+  /// Regulatory : les bons de versement des dossiers d'enregistrement), « MASSE_SALARIALE_FDV » (Budget Operations :
+  /// la paie de la force de vente). Nulle pour une catégorie libre. Le nom, lui, reste modifiable.
+  cle              String?
+  /// La Business Unit d'une sous-catégorie « Masse salariale de la force de vente » (id sans contrainte).
+  businessUnitId   String?
   transactions     FinanceTransaction[]
   expenseLines     BudgetExpenseLine[]
   adProItems       AdProItem[]
@@ -2733,6 +2745,7 @@ model BudgetCategoryLine {
 
   @@index([envelopeId])
   @@index([parentId])
+  @@index([cle])
 }
 
 // Ligne de dépense purement BUDGÉTAIRE, saisie depuis le module Budget (« + » : référence
@@ -3148,11 +3161,15 @@ model BudgetExpenseLine {
   amount      Decimal            @default(0) @db.Decimal(14, 2)
   date        DateTime           @default(now())
   notes       String?
+  /// BUDGET REGULATORY (08/10) : le dossier d'enregistrement (`RegulatoryProduct`) d'un BV saisi à la main — « payé le »
+  /// est alors `date`. Id sans contrainte : retirer le dossier n'efface pas la dépense.
+  regulatoryProductId String?
   createdById String?
   createdAt   DateTime           @default(now())
 
   @@index([categoryId])
   @@index([date])
+  @@index([regulatoryProductId])
 }
 
 // ───────────────────────────── Congresses ─────────────────────────────
@@ -4324,6 +4341,8 @@ model MedicalInstitution {
   demandesStocks StockCountRequestHospital[]
   /// SA CONSOMMATION (Consumption Intelligence) — les lignes normalisées des fichiers importés.
   consommations  ConsommationLigne[]
+  /// CE QUE LES DR DE LA PCH LUI ONT SERVI (Ventes PCH) — et ce qu'il a demandé sans l'obtenir.
+  ventesPch      PchVenteLigne[]             @relation("PchVenteEtablissement")
 
   @@index([type])
   @@index([wilaya])
@@ -5390,11 +5409,30 @@ model HrDocumentRequest {
   // Archivage : dossier « Dossier traité » créé dans le Drive du traitant.
   archivedNodeId String?
 
+  /// MISSION AD & PRO (Direction, 10/2026) — l'ordre de mission ou la note de frais d'une
+  /// assignation. L'ordre passe d'abord par le N+1 (`managerGate` PENDING) avant la file RH ;
+  /// nul = pas de marche N+1 (personne au-dessus, ou demande d'avant cette règle).
+  missionAssignmentId String?
+  managerGate         HrManagerGate?
+  managerUserId       String?
+  managerDecidedAt    DateTime?
+  managerNote         String?
+  /// Champs de l'ordre pré-remplis depuis la mission (objet, destination, dates) — repris par le générateur RH.
+  omPrefill           Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([employeeId])
   @@index([status])
+  @@index([missionAssignmentId])
+}
+
+/// La marche du N+1 sur un ordre de mission, avant les RH.
+enum HrManagerGate {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 /// Demande de congé / absence avec circuit de validation.
@@ -6577,6 +6615,8 @@ model PchOrder {
   expectedArrival DateTime? // date d'arrivée prévue
   arrivedDate     DateTime? // date d'arrivée réelle (marchandise reçue)
   notes           String?
+  /// BC D'AVENANT — commandé au-delà du volume attribué par l'AO (Ventes PCH › Contrats le compte à part).
+  estAvenant      Boolean        @default(false)
   /// Les LIGNES du bon — un BC réel porte plusieurs produits, chacun relié à sa ligne
   /// contractuelle (contrôle du restant) ou, à défaut, à sa ligne d'AO.
   orderLines      PchOrderLine[]
@@ -7477,10 +7517,13 @@ model PromoStockRequest {
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   transfert    PromoStockTransfer?
+  /// Demande faite depuis une mission Ad & Pro (« Mes missions › Matériel promotionnel »).
+  missionAssignmentId String?
 
   @@index([statut])
   @@index([demandeurId, statut])
   @@index([itemId])
+  @@index([missionAssignmentId])
 }
 
 /// L'ÉTAT D'UN COMPTAGE (§118.168).
@@ -8022,6 +8065,52 @@ model PharmacovigilanceParticipant {
   @@index([userId])
 }
 
+// ─────────────────────────── Retours & réclamations (Operations & Sales) ───────────────────────────
+// Un RETOUR de marchandise, une RÉCLAMATION QUALITÉ ou un RAPPEL DE LOT : le produit (catalogue des BU), le lot, la
+// quantité, l'établissement et/ou le site PCH (DR / annexe), ce qui s'est passé. Statut OUVERTE → EN_ANALYSE → CLOTUREE
+// (avec sa conclusion). Le fil d'échange est un `Comment` (entityType RECLAMATION), les pièces des `Document`. Comme la
+// pharmacovigilance : aucune relation dure — les libellés sont des instantanés, un produit renommé ne réécrit rien.
+model Reclamation {
+  id              String    @id @default(cuid())
+  /// REC-AAAA-NNN
+  reference       String    @unique
+  /// RETOUR | RECLAMATION_QUALITE | RAPPEL_LOT
+  type            String
+  /// OUVERTE | EN_ANALYSE | CLOTUREE
+  status          String    @default("OUVERTE")
+  promoProductId  String?
+  productId       String?
+  productLabel    String
+  /// La BU du produit au jour de la déclaration — le filtre « par BU ».
+  businessUnitId  String?
+  lot             String?
+  quantity        Int?
+  institutionId   String?
+  institutionName String?
+  /// Le site PCH concerné (direction régionale, annexe) — texte libre.
+  pchSite         String?
+  occurredOn      DateTime?
+  description     String
+  conclusion      String?
+  /// Le cas de pharmacovigilance lié, quand la réclamation en relève.
+  pvCaseId        String?
+  declaredById    String
+  /// LE RESPONSABLE — celui qui est prévenu et qui instruit.
+  ownerId         String?
+  analysedAt      DateTime?
+  closedAt        DateTime?
+  closedById      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@index([businessUnitId])
+  @@index([declaredById])
+  @@index([ownerId])
+  @@index([createdAt])
+}
+
 // ─────────────────────────── Module Events / Billetterie ───────────────────────────
 // Gestion de bout en bout des événements (congrès, séminaires, staffs, webinars…) :
 // inscriptions (formulaire public + lien), QR code par participant, check-in,
@@ -8186,6 +8275,15 @@ enum MissionOrderStatus {
   ISSUED // le responsable a émis l'ordre de mission
 }
 
+/// LA RÉPONSE DE LA PERSONNE ASSIGNÉE (missions reliées au profil, Direction 10/2026) : une
+/// assignation est une INVITATION — rien ne se demande avant « Je confirme ». Les assignations
+/// d'avant cette règle valent CONFIRMEE (acceptées implicitement).
+enum MissionResponse {
+  INVITEE
+  CONFIRMEE
+  DECLINEE
+}
+
 model MissionAssignment {
   id          String             @id @default(cuid())
   entityType  EntityType // CONGRESS_NATIONAL | CONGRESS_INTERNATIONAL | EVENT | SPONSORING
@@ -8201,6 +8299,28 @@ model MissionAssignment {
   createdById String?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+
+  /// Réponse à l'invitation — un refus porte son motif (l'organisateur doit pouvoir remplacer).
+  response      MissionResponse @default(INVITEE)
+  respondedAt   DateTime?
+  declineReason String?
+  /// Relances de l'organisateur (règle des tâches : quatre heures entre deux).
+  lastNudgeAt   DateTime?
+  nudgeCount    Int             @default(0)
+  /// Dates et ville PROPRES à la mission — reprises de la demande Ad & Pro, modifiables. Le
+  /// sponsoring n'a pas de dates : c'est ici qu'il en prend, pour paraître aux calendriers.
+  dateDepart    DateTime?
+  dateRetour    DateTime?
+  ville         String?
+  /// Étapes facultatives AJOUTÉES par la personne (« ⋯ › Ajouter ») : TRANSPORT, HEBERGEMENT,
+  /// MATERIEL, NOTE_FRAIS. Une étape absente ne s'affiche pas (Direction, 10/2026).
+  etapes        String[]        @default([])
+  /// Retrait SOUPLE : une assignation qui porte des pièces, un fil ou des demandes s'archive.
+  archivedAt    DateTime?
+  archivedById  String?
+  /// Frais de l'équipe intégrés au budget de la demande à la clôture (poste Ad & Pro créé à la main).
+  transportPosteId   String?
+  hebergementPosteId String?
 
   @@unique([entityType, entityId, userId])
   @@index([userId])
@@ -8250,29 +8370,29 @@ model AiSetting {
 /// Super Admin. Une seule ligne (`id = "global"`). Les détecteurs lisent ces
 /// valeurs ; en l'absence de ligne, des valeurs par défaut s'appliquent.
 model RiskSetting {
-  id                   String   @id @default("global")
-  pchCautionWarnDays   Int      @default(30)
-  congressStaleDays    Int      @default(4)
-  sponsoringStaleDays  Int      @default(4)
-  expenseStaleDays     Int      @default(7)
-  budgetWarnPct        Int      @default(85)
-  kolVisitStaleDays    Int      @default(60)
-  medicalInfoStaleDays Int      @default(5)
-  silentSupplierDays   Int      @default(14)
-  stockLowThreshold    Int      @default(10)
-  deliveryGraceDays    Int      @default(3)
-  eventHorizonDays     Int      @default(7)
-  eventMinAttendance   Int      @default(5)
+  id                         String   @id @default("global")
+  pchCautionWarnDays         Int      @default(30)
+  congressStaleDays          Int      @default(4)
+  sponsoringStaleDays        Int      @default(4)
+  expenseStaleDays           Int      @default(7)
+  budgetWarnPct              Int      @default(85)
+  kolVisitStaleDays          Int      @default(60)
+  medicalInfoStaleDays       Int      @default(5)
+  silentSupplierDays         Int      @default(14)
+  stockLowThreshold          Int      @default(10)
+  deliveryGraceDays          Int      @default(3)
+  eventHorizonDays           Int      @default(7)
+  eventMinAttendance         Int      @default(5)
   /// Détecteurs ajoutés avec la refonte d'Adventum Brain (07/10) — voir `lib/adventum/risks-plus.ts`.
-  recruitmentUnpublishedDays Int @default(3)
-  fieldCoverageMinPct        Int @default(50)
-  adproCdMaxPct              Int @default(25)
-  bcUnsignedDays             Int @default(5)
-  tourPlanLeadDays           Int @default(3)
-  aiCostDriftPct             Int @default(50)
-  processStuckDays           Int @default(14)
-  updatedAt            DateTime @updatedAt
-  updatedById          String?
+  recruitmentUnpublishedDays Int      @default(3)
+  fieldCoverageMinPct        Int      @default(50)
+  adproCdMaxPct              Int      @default(25)
+  bcUnsignedDays             Int      @default(5)
+  tourPlanLeadDays           Int      @default(3)
+  aiCostDriftPct             Int      @default(50)
+  processStuckDays           Int      @default(14)
+  updatedAt                  DateTime @updatedAt
+  updatedById                String?
 }
 
 /// Adventum Pulse — instantané périodique (au plus 1×/h) de l'état d'intelligence de la société :
@@ -10920,8 +11040,8 @@ model SalesSector {
   repId          String?
   rep            User?        @relation("SalesSectorTerritoireKam", fields: [repId], references: [id], onDelete: Cascade)
 
-  institutions SalesSectorInstitution[]
-  reps         SalesSectorRep[]
+  institutions       SalesSectorInstitution[]
+  reps               SalesSectorRep[]
   /// Les fiches de segmentation rangées À LA MAIN dans ce secteur (les autres s'y rangent par l'établissement).
   segmentationFiches SegmentationFiche[]
 
@@ -14062,6 +14182,11 @@ model Product {
   repartitionsCouts    CoutRepartitionBu[]
   /// SES PRIX SAISIS À LA MAIN (Produits 360) — ils l'emportent sur ceux de l'Explorateur produits.
   prixSaisis           ProductPrice[]
+  /// VENTES PCH — ses postes PCH, ses lignes de vente des DR, ses réceptions PCH, ses fournisseurs « à nous ».
+  postesPch            PchPoste[]                     @relation("PchPosteProduit")
+  ventesPch            PchVenteLigne[]                @relation("PchVenteProduit")
+  receptionsPch        PchReceptionLigne[]            @relation("PchReceptionProduit")
+  fournisseursPch      PchFournisseurProduit[]        @relation("PchFournisseurProduit")
 
   @@index([dci])
   @@index([companyId])
@@ -15212,13 +15337,13 @@ model CoutRepartitionBu {
 /// QUI SUIT UN RECRUTEMENT — désigné(s) par le DG à la validation (Direction, 07/10) : ils voient la demande, sont prévenus de
 /// chaque étape et participent au suivi avec les RH.
 model RecruitmentFollower {
-  id          String             @id @default(cuid())
-  requestId   String
-  request     RecruitmentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User               @relation("RecruitmentFollowerUser", fields: [userId], references: [id], onDelete: Cascade)
-  addedById   String?
-  createdAt   DateTime           @default(now())
+  id        String             @id @default(cuid())
+  requestId String
+  request   RecruitmentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User               @relation("RecruitmentFollowerUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedById String?
+  createdAt DateTime           @default(now())
 
   @@unique([requestId, userId])
   @@index([userId])
@@ -15278,4 +15403,379 @@ model SiteAnalyticsEvent {
   @@index([at])
   @@index([type, at])
   @@index([path, at])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// VENTES PCH (Operations & Sales) — les fichiers de la PCH, notre SEUL client hospitalier.
+///
+/// Deux natures, chaque mois (parfois un fichier annuel) : les VENTES de chaque direction régionale (DR) aux
+/// hôpitaux — tout le marché, molécule par molécule, demande non servie comprise — et les RÉCEPTIONS de la PCH
+/// centrale (nos livraisons = notre sell-in ; tous les fournisseurs = les parts de marché). Un fichier plus récent
+/// pour la même source (DR, ou réceptions) et le même mois REMPLACE ce mois ; le même fichier ne fait rien ; le
+/// fichier original est gardé. Lecture pure `lib/ventes-pch/lecture.ts`, écriture `lib/ventes-pch/service.ts`,
+/// requêtes `lib/ventes-pch/requetes.ts`.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model PchVenteImport {
+  id            String              @id @default(cuid())
+  /// VENTES_DR · RECEPTIONS
+  nature        String
+  nomFichier    String
+  /// SHA-256 du fichier — le même fichier importé deux fois ne fait rien.
+  empreinte     String              @unique
+  taille        Int
+  /// LE FICHIER ORIGINAL, gardé tel quel.
+  fichier       Bytes
+  /// Les sources qu'il porte : codes DR (« DRO ») pour des ventes, « RECEPTIONS » pour des réceptions.
+  sources       String[]            @default([])
+  /// Les mois couverts (« 2026-05 »).
+  mois          String[]            @default([])
+  annuel        Boolean             @default(false)
+  lignes        Int                 @default(0)
+  /// Les comptes de l'import (établissements, produits reconnus, non servis, retours…), figés à l'application.
+  rapport       Json?
+  /// REMPLACÉ par un fichier plus récent sur TOUTES ses tranches (source × mois) : gardé, il ne compte plus.
+  remplaceParId String?
+  remplaceLe    DateTime?
+  auteurId      String?
+  createdAt     DateTime            @default(now())
+  ventes        PchVenteLigne[]
+  receptions    PchReceptionLigne[]
+
+  @@index([nature, createdAt])
+}
+
+/// UNE LIGNE DE VENTE D'UNE DR À UN ÉTABLISSEMENT — servie, servie en partie, NON SERVIE (rupture) ou retour.
+model PchVenteLigne {
+  id            String              @id @default(cuid())
+  importId      String
+  import        PchVenteImport      @relation(fields: [importId], references: [id], onDelete: Cascade)
+  ligneSource   Int
+  /// Code de la direction régionale (« DRO ») — voir `PchDirectionRegionale`.
+  dr            String
+  /// Le mois (1er du mois) : celui de la facture, ou le mois du fichier pour une ligne non servie (sans facture).
+  mois          DateTime            @db.Date
+  famille       String?
+  classe        String?
+  /// Le CLIENT tel qu'écrit par la PCH, et sa clé normalisée (`cleClient`).
+  client        String
+  clientCle     String
+  institutionId String?
+  institution   MedicalInstitution? @relation("PchVenteEtablissement", fields: [institutionId], references: [id], onDelete: SetNull)
+  /// Le code produit de la PCH — le même dans toutes les DR et dans les réceptions (`CODE_PRO`).
+  poste         Int?
+  /// La désignation telle qu'écrite (DCI + dosage + forme).
+  dci           String
+  /// Radical de la molécule et clé de présentation (`normalisation.ts`) — le marché de la molécule.
+  molecule      String?
+  cle           String?
+  /// NOTRE produit, quand le poste lui est rattaché (`PchPoste`) ; null = donnée de marché.
+  productId     String?
+  product       Product?            @relation("PchVenteProduit", fields: [productId], references: [id], onDelete: SetNull)
+  uc            String?
+  lot           String?
+  ddp           String?
+  qteCommandee  Int                 @default(0)
+  qteLivree     Int                 @default(0)
+  coutAchat     Decimal?            @db.Decimal(14, 2)
+  prixVente     Decimal?            @db.Decimal(14, 2)
+  /// Quantité livrée × coût d'achat PCH (DZD).
+  valeurAchat   Decimal?            @db.Decimal(16, 2)
+  dateFacture   DateTime?           @db.Date
+  /// SERVIE · PARTIELLE · NON_SERVIE · RETOUR · NULLE
+  statut        String
+
+  @@index([importId])
+  @@index([dr, mois])
+  @@index([mois])
+  @@index([productId, mois])
+  @@index([molecule, mois])
+  @@index([institutionId, mois])
+  @@index([clientCle])
+  @@index([poste])
+}
+
+/// UNE RÉCEPTION DE LA PCH CENTRALE — FO fournisseur (notre sell-in quand c'est notre fournisseur), TR transfert
+/// entre annexes, RC retour client, CO correction de stock.
+model PchReceptionLigne {
+  id              String         @id @default(cuid())
+  importId        String
+  import          PchVenteImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  ligneSource     Int
+  mois            DateTime       @db.Date
+  dateStockage    DateTime?      @db.Date
+  gamme           String?
+  classe          String?
+  codeFour        Int?
+  /// Le fournisseur tel qu'écrit, et sa clé (`cleFournisseur`).
+  fournisseur     String
+  fournisseurCle  String
+  numBr           String?
+  /// = le POSTE des ventes.
+  codePro         Int?
+  designation     String
+  molecule        String?
+  cle             String?
+  productId       String?
+  product         Product?       @relation("PchReceptionProduit", fields: [productId], references: [id], onDelete: SetNull)
+  conditionnement String?
+  qte             Int            @default(0)
+  coutUnit        Decimal?       @db.Decimal(16, 2)
+  /// DA · USD · EUR…
+  devise          String?
+  /// FO · TR · RC · CO
+  type            String
+  avoirNo         String?
+
+  @@index([importId])
+  @@index([mois])
+  @@index([productId, mois])
+  @@index([molecule, mois])
+  @@index([codePro])
+  @@index([fournisseurCle])
+}
+
+/// UN POSTE PCH (code produit de la PCH) ET NOTRE PRODUIT — la mémoire du rattachement : un rattachement fait à la
+/// main (`manuel`) ne bouge plus ; un rattachement automatique se refait à chaque import.
+model PchPoste {
+  poste         Int      @id
+  designation   String
+  molecule      String?
+  cle           String?
+  productId     String?
+  product       Product? @relation("PchPosteProduit", fields: [productId], references: [id], onDelete: SetNull)
+  manuel        Boolean  @default(false)
+  /// MEMOIRE · IDENTITE · AMBIGU · MOLECULE · MARCHE (`correspondance.ts`).
+  statut        String   @default("MARCHE")
+  confirmeParId String?
+  updatedAt     DateTime @updatedAt
+
+  @@index([productId])
+  @@index([molecule])
+}
+
+/// « CE CLIENT DE LA PCH EST CET ÉTABLISSEMENT » — confirmé par une personne, réutilisé à chaque fichier.
+model PchEtablissementMemoire {
+  /// La clé normalisée du client (`cleClient`).
+  cle           String   @id
+  institutionId String
+  confirmeParId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([institutionId])
+}
+
+/// UNE DIRECTION RÉGIONALE DE LA PCH — son libellé et ses wilayas (déduites de ses clients, corrigeables).
+model PchDirectionRegionale {
+  code      String   @id
+  libelle   String
+  wilayas   String[] @default([])
+  updatedAt DateTime @updatedAt
+}
+
+/// LES FOURNISSEURS DE LA PCH QUI SONT « NOUS » POUR UN PRODUIT — leurs réceptions FO sont notre sell-in. Proposés
+/// d'après les laboratoires des dossiers (`origine` AUTO), corrigeables (MANUEL, `actif`).
+model PchFournisseurProduit {
+  id             String   @id @default(cuid())
+  productId      String
+  product        Product  @relation("PchFournisseurProduit", fields: [productId], references: [id], onDelete: Cascade)
+  fournisseurCle String
+  libelle        String
+  /// AUTO · MANUEL
+  origine        String   @default("AUTO")
+  actif          Boolean  @default(true)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([productId, fournisseurCle])
+  @@index([fournisseurCle])
+}
+
+// ─────────────────────────── KPI SANS CODE (Direction, 08/10) ───────────────────────────
+// Un KPI n'est plus du code : c'est une DÉFINITION enregistrée ici, qui choisit une brique de mesure écrite une fois
+// (`src/lib/kpi/briques.ts`), ses filtres, sa cible, ses seuils. Luna aide à l'écrire, la plateforme calcule. Les
+// identifiants de personnes sont des identifiants sans relation (convention des marques de renvoi) : les tables KPI
+// ne touchent pas au modèle User.
+
+/// UNE VERSION D'UNE DÉFINITION DE KPI. Modifier un KPI crée une NOUVELLE ligne (version + 1) dans la même `famille`
+/// et archive l'ancienne : une revue signée garde la version avec laquelle elle a été notée.
+model KpiDefinition {
+  id          String   @id @default(cuid())
+  /// L'identifiant STABLE du KPI, partagé par toutes ses versions — c'est lui que les affectations visent.
+  famille     String
+  version     Int      @default(1)
+  nom         String
+  description String?
+  /// CALCULE · RATIO · EVALUE · DECLARE · IMPORTE
+  nature      String
+  /// Les briques utilisées (numérateur, dénominateur) — la lecture rapide de `params`.
+  briques     String[] @default([])
+  /// `{ numerateur: { brique, lettres?, seuilN?, heures?, produitId?, buId? } | null, denominateur: … | null }`
+  params      Json     @default("{}")
+  /// POURCENT · NOMBRE · HEURES · NIVEAU
+  unite       String
+  /// PLUS_HAUT · PLUS_BAS
+  sens        String   @default("PLUS_HAUT")
+  cible       Float?
+  seuilVert   Float?
+  seuilOrange Float?
+  /// La période à laquelle la cible se rapporte : MOIS · TRIMESTRE
+  periode     String   @default("MOIS")
+  /// La grille d'un KPI ÉVALUÉ : `[{ libelle, critere }]`, du plus faible au meilleur.
+  grille      Json?
+  /// ACTIF · ARCHIVE
+  statut      String   @default("ACTIF")
+  /// CATALOGUE (Super Admin, modèles par rôle) · EQUIPE (créé par un manager pour son équipe)
+  portee      String   @default("EQUIPE")
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  values       KpiValue[]
+  evaluations  KpiEvaluation[]
+  declarations KpiDeclaration[]
+
+  @@unique([famille, version])
+  @@index([statut])
+  @@index([createdById])
+}
+
+/// À QUI S'APPLIQUE UN KPI, et avec quel POIDS : un rôle (modèle par rôle), l'équipe d'un manager, ou une personne.
+model KpiAssignment {
+  id            String   @id @default(cuid())
+  famille       String
+  /// ROLE · EQUIPE · PERSONNE
+  cible         String
+  role          String?
+  managerUserId String?
+  userId        String?
+  poids         Float    @default(10)
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([famille])
+  @@index([role])
+  @@index([managerUserId])
+  @@index([userId])
+}
+
+/// LA VALEUR CALCULÉE d'une version de KPI pour une personne et une période — le cache du calcul (« bilan en
+/// continu » : recalculée tant que la période vit). `sourceManquante` dit pourquoi la valeur est nulle.
+model KpiValue {
+  id              String        @id @default(cuid())
+  definitionId    String
+  definition      KpiDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  userId          String
+  /// « 2026-10 », « 2026-T4 », « 2026-S2 »
+  periode         String
+  valeur          Float?
+  numerateur      Float?
+  denominateur    Float?
+  detail          Json?
+  sourceManquante String?
+  /// IMPORTE : la valeur vient d'un fichier (KpiImport) et ne se recalcule pas.
+  importId        String?
+  calculeLe       DateTime      @default(now())
+
+  @@unique([definitionId, userId, periode])
+  @@index([userId, periode])
+}
+
+/// UN KPI ÉVALUÉ pour une personne et une période : la proposition de Luna (niveau + preuves citées), puis le niveau
+/// VALIDÉ par le manager — seul ce dernier compte.
+model KpiEvaluation {
+  id                 String        @id @default(cuid())
+  definitionId       String
+  definition         KpiDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  userId             String
+  periode            String
+  propositionNiveau  Int?
+  propositionPreuves Json?
+  justification      String?
+  proposeLe          DateTime?
+  niveau             Int?
+  commentaire        String?
+  valideParId        String?
+  valideLe           DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@unique([definitionId, userId, periode])
+  @@index([userId, periode])
+}
+
+/// UN KPI DÉCLARÉ : une valeur saisie par la personne avec sa pièce, validée (ou refusée) par son manager.
+model KpiDeclaration {
+  id           String        @id @default(cuid())
+  definitionId String
+  definition   KpiDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  userId       String
+  periode      String
+  libelle      String
+  valeur       Float
+  pieceBlobId  String?
+  pieceNom     String?
+  pieceMime    String?
+  /// A_VALIDER · VALIDEE · REFUSEE
+  statut       String        @default("A_VALIDER")
+  motif        String?
+  valideParId  String?
+  valideLe     DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([definitionId, userId, periode])
+  @@index([userId])
+  @@index([statut])
+}
+
+/// UN IMPORT de KPI IMPORTÉ : le fichier, les colonnes choisies (personne, période, valeur), ce qui a été écarté.
+model KpiImport {
+  id              String   @id @default(cuid())
+  famille         String
+  definitionId    String
+  nomFichier      String
+  blobId          String?
+  colonnePersonne String
+  colonnePeriode  String
+  colonneValeur   String
+  lignes          Int      @default(0)
+  rejets          Json?
+  importeParId    String?
+  createdAt       DateTime @default(now())
+
+  @@index([famille])
+}
+
+/// LA REVUE d'une personne pour une période : le score pondéré, signé par le manager. Signée, elle FIGE ses lignes
+/// (`detail` : version, valeur, note, poids de chaque KPI) — la règle du jour ne réécrit pas un mois déjà revu.
+model KpiReview {
+  id                 String    @id @default(cuid())
+  userId             String
+  periode            String
+  frequence          String    @default("MENSUELLE")
+  score              Float?
+  kpiSansDonnee      Int       @default(0)
+  detail             Json?
+  /// BROUILLON · SIGNEE
+  statut             String    @default("BROUILLON")
+  signeeParId        String?
+  signeeLe           DateTime?
+  commentaireManager String?
+  commentaireLuna    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([userId, periode])
+}
+
+/// LA FRÉQUENCE DE REVUE choisie par un manager pour son équipe (Direction, 08/10 : « revue au choix du manager »).
+model KpiReviewSetting {
+  id            String   @id @default(cuid())
+  managerUserId String   @unique
+  /// MENSUELLE · TRIMESTRIELLE · SEMESTRIELLE
+  frequence     String   @default("MENSUELLE")
+  updatedAt     DateTime @updatedAt
 }

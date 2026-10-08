@@ -916,7 +916,7 @@ export const SALES_OPS_IMPL: Record<string, OpImpl> = {
           isPch: isPch ? "1" : null,
         },
         successMessage: `Vente ${product} → ${client} enregistrée.`,
-        link: "/sales", revalidate: ["/sales"],
+        link: "/sales/historique", revalidate: ["/sales/historique"],
       };
     },
     execute: (args) => runFd2(createSale, args, "L'enregistrement de la vente a été refusé.", { revalidate: ["/sales"] }),
@@ -937,7 +937,7 @@ export const SALES_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Chaque ligne devient une VENTE réelle — les lignes sans produit ou sans client sont ignorées (le résultat le dira)."],
         args: { csv },
         successMessage: `Ventes importées (${lines.length - 1} ligne(s) traitée(s)).`,
-        link: "/sales", revalidate: ["/sales"],
+        link: "/sales/historique", revalidate: ["/sales/historique"],
       };
     },
     execute: (args) => runFd2(importSales, args, "L'import des ventes a été refusé.", { revalidate: ["/sales"] }),

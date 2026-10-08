@@ -50,8 +50,24 @@ export interface HrRequestDTO {
   meetingConfirmedAt: string | null;
   // Archive « Dossier traité » (Drive)
   archivedNodeId: string | null;
+  /** Ordre de mission d'une mission Ad & Pro : la marche du N+1 (nulle = aucune) et les champs pré-remplis. */
+  managerGate: "PENDING" | "APPROVED" | "REJECTED" | null;
+  missionPrefill: { objet: string; destination: string; datesDepart: string[]; datesRetour: string[] } | null;
   documents: DocItem[];
   comments: CommentItem[];
+}
+
+/** Les champs d'un ordre pré-remplis depuis la mission (JSON stocké), relus prudemment. */
+function lirePrefill(v: unknown): HrRequestDTO["missionPrefill"] {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const liste = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
+  return {
+    objet: typeof o.objet === "string" ? o.objet : "",
+    destination: typeof o.destination === "string" ? o.destination : "",
+    datesDepart: liste(o.datesDepart),
+    datesRetour: liste(o.datesRetour),
+  };
 }
 
 export interface MyHrDossier {
@@ -88,6 +104,8 @@ type ReqRow = {
   periodStart: Date | null; periodEnd: Date | null; periodDays: unknown; balanceAppliedAt: Date | null;
   meetingAt: Date | null; meetingProposedById: string | null; meetingConfirmedAt: Date | null;
   archivedNodeId: string | null;
+  managerGate?: "PENDING" | "APPROVED" | "REJECTED" | null;
+  omPrefill?: unknown;
 };
 
 function mapReq(r: ReqRow): HrRequestDTO {
@@ -109,6 +127,8 @@ function mapReq(r: ReqRow): HrRequestDTO {
     meetingProposedById: r.meetingProposedById,
     meetingConfirmedAt: r.meetingConfirmedAt?.toISOString() ?? null,
     archivedNodeId: r.archivedNodeId,
+    managerGate: r.managerGate ?? null,
+    missionPrefill: lirePrefill(r.omPrefill),
     documents: [], comments: [],
   };
 }
@@ -188,7 +208,9 @@ export interface HrQueueItem extends HrRequestDTO {
  */
 export async function getHrRequestQueue(perimetre: Prisma.EmployeeWhereInput = {}): Promise<HrQueueItem[]> {
   const rows = await prisma.hrDocumentRequest.findMany({
-    where: { status: { in: ["PENDING", "IN_PROGRESS"] }, employee: perimetre },
+    // UN ORDRE DE MISSION ENCORE CHEZ LE N+1 n'est pas encore aux RH (missions Ad & Pro, 10/2026). `OR` explicite :
+    // un `not` sur une colonne nullable écarterait aussi les demandes sans marche N+1.
+    where: { status: { in: ["PENDING", "IN_PROGRESS"] }, employee: perimetre, OR: [{ managerGate: null }, { managerGate: { not: "PENDING" } }] },
     orderBy: { createdAt: "asc" },
     include: { employee: { select: { id: true, fullName: true, position: true } }, fulfilment: { select: { id: true } } },
     take: 100,

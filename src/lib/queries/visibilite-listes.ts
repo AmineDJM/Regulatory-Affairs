@@ -97,9 +97,13 @@ export async function clauseSalariesVisibles(userId: string): Promise<Prisma.Emp
   return (await platformScope(userId)) as Prisma.EmployeeWhereInput;
 }
 
-/** `/sales` — la portée du module, dans l'entité (les ventes sans entité restent rattachables). */
+/**
+ * `/sales/historique` — l'ancienne saisie manuelle, dans l'entité (les ventes sans entité restent rattachables). Le module
+ * `SALES` est retiré du service : l'historique se lit désormais avec « Ventes PCH » (lecture seule, toutes les lignes de
+ * l'entité) ; la portée de `SALES` ne sert plus qu'au cas où le module serait remis en service.
+ */
 export async function clauseVentesVisibles(user: SessionUser): Promise<Prisma.SaleWhereInput> {
-  return companyScopedWhere(user.id, scopeSales(user));
+  return companyScopedWhere(user.id, userCan(user, "PCH_VENTES", "VIEW") ? {} : scopeSales(user));
 }
 
 /** `/logistics` — l'entité ; une commande sans entité reste visible pour qu'on la rattache. */

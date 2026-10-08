@@ -6,7 +6,8 @@ import { toNumber } from "@/lib/utils";
 import { canViewEnvelope, type SessionUser } from "@/lib/rbac";
 import { generalMeansConsumption } from "@/lib/queries/budget-general-means";
 import { getAppSettings } from "@/lib/settings";
-import { dansLaPortee, totaliser, type PorteeBudget } from "@/lib/budget-marketing/domaine";
+import { dansLaPortee, totaliser, type PorteeBudget } from "@/lib/budget/domaines";
+import { masseSalarialeConsumption } from "@/lib/queries/budget-operations";
 
 /**
  * LA PORTÉE D'UN ÉCRAN (Budget Marketing, 08/10) : Budgets lit toutes les enveloppes visibles, Budget Marketing les
@@ -41,6 +42,10 @@ export interface BudgetCategoryView {
   remaining: number;
   pct: number;
   health: BudgetHealth;
+  /** La clé d'une catégorie reconnue (BV_25, BV_75, MASSE_SALARIALE_FDV) — `null` pour une catégorie libre. */
+  cle?: string | null;
+  /** La BU d'une sous-catégorie de masse salariale. */
+  businessUnitId?: string | null;
 }
 
 export interface UnattributedTx {
@@ -73,7 +78,8 @@ export interface UnattributedTx {
  */
 export interface AttributedTx {
   id: string;
-  kind: "FINANCE" | "BUDGET" | "GENERAL_MEANS";
+  /** `PAIE` : la paie de la force de vente, en TOTAL par mois (Budget Operations & Sales) — elle se lit, ne se corrige pas. */
+  kind: "FINANCE" | "BUDGET" | "GENERAL_MEANS" | "PAIE";
   reference: string;
   date: string;
   label: string;
@@ -142,7 +148,7 @@ export interface BudgetMonthPoint {
 }
 
 export interface BudgetOverview {
-  envelope: { id: string; name: string; module: string | null; modules: string[]; accessRoles: string[]; accessUserIds: string[]; managerRoles: string[]; managerUserIds: string[]; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean; domaine: string; businessUnitId: string | null; productId: string | null };
+  envelope: { id: string; name: string; module: string | null; modules: string[]; accessRoles: string[]; accessUserIds: string[]; managerRoles: string[]; managerUserIds: string[]; periodStart: string; periodEnd: string; total: number; notes: string | null; isActive: boolean; domaine: string; businessUnitId: string | null; productId: string | null; companyId?: string | null };
   period: { from: string; to: string };
   categories: BudgetCategoryView[];
   totals: { total: number; allocated: number; unallocated: number; consumed: number; committed: number; remaining: number; pct: number };
@@ -216,7 +222,7 @@ export async function getEnvelopesGrandTotal(viewer: SessionUser, opts: OptionsP
   const envelopes = await prisma.budgetEnvelope.findMany({
     where: await platformScope(viewer.id),
     orderBy: [{ isActive: "desc" }, { periodStart: "desc" }],
-    include: { categories: { select: { id: true, allocated: true, parentId: true } } },
+    include: { categories: { select: { id: true, allocated: true, parentId: true, cle: true, businessUnitId: true } } },
   });
   const visible = envelopes.filter((e) => dansLaPortee(e, opts.portee) && envelopeVisible(viewer, e));
 
@@ -247,6 +253,14 @@ export async function getEnvelopesGrandTotal(viewer: SessionUser, opts: OptionsP
     consumedByCat.set(s.categoryId, (consumedByCat.get(s.categoryId) ?? 0) + toNumber(s._sum.amount));
   }
   for (const [catId, amount] of generalMeans.byCategory) {
+    consumedByCat.set(catId, (consumedByCat.get(catId) ?? 0) + amount);
+  }
+  // …et la paie de la force de vente (Budget Operations & Sales), chaque enveloppe sur SA période — en totaux.
+  const paie = await masseSalarialeConsumption(visible.flatMap((e) => e.categories.map((c) => ({
+    id: c.id, cle: c.cle, businessUnitId: c.businessUnitId,
+    envelope: { id: e.id, periodStart: e.periodStart, periodEnd: e.periodEnd, companyId: e.companyId },
+  }))));
+  for (const [catId, amount] of paie.byCategory) {
     consumedByCat.set(catId, (consumedByCat.get(catId) ?? 0) + amount);
   }
 
@@ -320,10 +334,11 @@ export async function getBudgetOverview(
   if (envelopeId) {
     envelope = await prisma.budgetEnvelope.findUnique({ where: { id: envelopeId }, include: { categories: { orderBy: { name: "asc" } } } });
   }
-  // Budget Marketing : l'enveloppe mémorisée (cookie partagé avec Budgets) peut être une enveloppe générale — on
-  // retombe alors sur la première enveloppe marketing visible, au lieu d'un écran vide.
-  if (envelope && opts.portee === "MARKETING" && !(dansLaPortee(envelope, opts.portee) && envelopeVisible(viewer, envelope))) envelope = null;
-  if (!envelopeId || (!envelope && opts.portee === "MARKETING")) {
+  // Budget d'un pôle (Marketing, Regulatory, Operations) : l'enveloppe mémorisée (cookie partagé avec Budgets) peut être
+  // une enveloppe d'une autre portée — on retombe alors sur la première enveloppe du pôle visible, au lieu d'un écran vide.
+  const dUnPole = opts.portee !== undefined && opts.portee !== "TOUT";
+  if (envelope && dUnPole && !(dansLaPortee(envelope, opts.portee) && envelopeVisible(viewer, envelope))) envelope = null;
+  if (!envelopeId || (!envelope && dUnPole)) {
     const candidates = await prisma.budgetEnvelope.findMany({
       orderBy: [{ isActive: "desc" }, { periodStart: "desc" }],
       include: { categories: { orderBy: { name: "asc" } } },
@@ -384,6 +399,15 @@ export async function getBudgetOverview(
   for (const [catId, amount] of generalMeans.byCategory) {
     consumedByCat.set(catId, (consumedByCat.get(catId) ?? 0) + amount);
   }
+  // La paie de la force de vente (Budget Operations & Sales) : des totaux par catégorie et par mois.
+  const env = envelope;
+  const paie = await masseSalarialeConsumption(
+    env.categories.map((c) => ({ id: c.id, cle: c.cle, businessUnitId: c.businessUnitId, envelope: { id: env.id, periodStart: env.periodStart, periodEnd: env.periodEnd, companyId: env.companyId } })),
+    from, to,
+  );
+  for (const [catId, amount] of paie.byCategory) {
+    consumedByCat.set(catId, (consumedByCat.get(catId) ?? 0) + amount);
+  }
 
   const categories: BudgetCategoryView[] = envelope.categories.map((c) => {
     const allocated = toNumber(c.allocated);
@@ -391,6 +415,7 @@ export async function getBudgetOverview(
     const committed = committedByCat.get(c.id) ?? 0;
     return {
       id: c.id, name: c.name, module: c.module, parentId: c.parentId, color: c.color, notes: c.notes,
+      cle: c.cle, businessUnitId: c.businessUnitId,
       allocated, consumed, committed,
       remaining: allocated - consumed,
       pct: allocated > 0 ? Math.round((consumed / allocated) * 100) : 0,
@@ -468,6 +493,7 @@ export async function getBudgetOverview(
     // La courbe doit raconter la MÊME histoire que le compteur : sans les moyens généraux,
     // elle resterait plate pendant que le consommé, lui, monte.
     ...generalMeans.rows.map((r) => ({ date: r.date, amount: r.amount })),
+    ...paie.rows.map((r) => ({ date: r.date, amount: r.amount })),
   ]);
 
   const attributedTx: AttributedTx[] = [
@@ -488,10 +514,18 @@ export async function getBudgetOverview(
       categoryId: r.categoryId, categoryName: catNameById.get(r.categoryId) ?? "—",
       lien: r.departmentId === reglages.generalMeansDepartmentId ? "/moyens-generaux" : null,
     })),
+    // La paie : UNE ligne par catégorie et par mois (un total et un effectif), jamais une ligne par personne.
+    ...paie.rows.map((r) => ({
+      id: `paie-${r.categoryId}-${r.date.toISOString().slice(0, 7)}`, kind: "PAIE" as const, reference: "Paie",
+      date: r.date.toISOString(), label: `Paie de la force de vente — ${r.effectif} personne${r.effectif > 1 ? "s" : ""}`,
+      amount: r.amount, counterparty: null, status: "SETTLED",
+      categoryId: r.categoryId, categoryName: catNameById.get(r.categoryId) ?? "—",
+      lien: "/budget-operations/masse-salariale",
+    })),
   ].sort((a, b) => b.date.localeCompare(a.date));
 
   return {
-    envelope: { id: envelope.id, name: envelope.name, module: envelope.module, modules: envelope.modules, accessRoles: envelope.accessRoles, accessUserIds: envelope.accessUserIds, managerRoles: envelope.managerRoles, managerUserIds: envelope.managerUserIds, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive, domaine: envelope.domaine, businessUnitId: envelope.businessUnitId, productId: envelope.productId },
+    envelope: { id: envelope.id, name: envelope.name, module: envelope.module, modules: envelope.modules, accessRoles: envelope.accessRoles, accessUserIds: envelope.accessUserIds, managerRoles: envelope.managerRoles, managerUserIds: envelope.managerUserIds, periodStart: envelope.periodStart.toISOString(), periodEnd: envelope.periodEnd.toISOString(), total, notes: envelope.notes, isActive: envelope.isActive, domaine: envelope.domaine, businessUnitId: envelope.businessUnitId, productId: envelope.productId, companyId: envelope.companyId },
     period: { from: from.toISOString(), to: to.toISOString() },
     categories,
     totals: {

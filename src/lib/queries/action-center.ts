@@ -387,6 +387,35 @@ export async function getActionCenter(user: SessionUser) {
     }
   }
 
+  // (e) LES MISSIONS AD & PRO (Direction, 10/2026) — les ordres de mission à valider comme N+1 (une décision), et
+  //     mes invitations à confirmer (un geste). Les deux se tranchent dans « Mon espace › Mes missions ».
+  const [omAValider, invitationsMission] = await Promise.all([
+    prisma.hrDocumentRequest.findMany({
+      where: { type: "MISSION_ORDER", status: "PENDING", managerGate: "PENDING", managerUserId: user.id },
+      select: { id: true, createdAt: true, details: true, employee: { select: { fullName: true } } },
+      orderBy: { createdAt: "asc" }, take: 30,
+    }).catch(() => []),
+    prisma.missionAssignment.findMany({
+      where: { userId: user.id, archivedAt: null, response: "INVITEE" },
+      select: { id: true, createdAt: true, dateDepart: true },
+      orderBy: { createdAt: "asc" }, take: 30,
+    }).catch(() => []),
+  ]);
+  for (const o of omAValider) {
+    items.push({
+      key: `om-n1-${o.id}`, objet: `HR_REQUEST:${o.id}`, title: `Ordre de mission — ${o.employee.fullName}`, subtitle: o.details ?? "",
+      module: "Missions", href: "/mon-espace/missions#a-valider", kind: "validation", priority: null,
+      deadline: null, depuis: o.createdAt.toISOString(), owner: "", statusLabel: "À valider (N+1)", statusTone: "warning",
+    });
+  }
+  for (const m of invitationsMission) {
+    items.push({
+      key: `mission-invit-${m.id}`, objet: `MISSION_ASSIGNMENT:${m.id}`, title: "Invitation à une mission", subtitle: "Confirmez ou déclinez",
+      module: "Missions", href: "/mon-espace/missions", kind: "request", priority: null,
+      deadline: m.dateDepart?.toISOString() ?? null, depuis: m.createdAt.toISOString(), owner: "", statusLabel: "À accepter", statusTone: "warning",
+    });
+  }
+
   // 2c. À CORRIGER — MES DEMANDES AD & PRO RENVOYÉES POUR CORRECTION (§118.186 — audit 360°, R02/R03).
   //
   // Un renvoi rend la main au DEMANDEUR : sans cette ligne, il l'apprenait par une notification qui

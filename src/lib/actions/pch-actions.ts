@@ -218,6 +218,8 @@ export async function createOrder(formData: FormData): Promise<ActionResult> {
       receivedDate: fdDate(formData, "receivedDate"),
       paymentDate: fdDate(formData, "paymentDate"),
       notes: fdStr(formData, "notes"),
+      // BC D'AVENANT : commandé au-delà du volume attribué par l'AO (Ventes PCH › Contrats le compte à part).
+      estAvenant: fdCase(formData, "estAvenant") ?? false,
       createdById: user.id,
     },
   });
@@ -247,6 +249,8 @@ export async function updateOrder(formData: FormData): Promise<ActionResult> {
       receivedDate: fdDate(formData, "receivedDate"),
       paymentDate: fdDate(formData, "paymentDate"),
       notes: fdStr(formData, "notes"),
+      // Une case décochée n'envoie rien : le témoin caché de l'écran dit « non » ; absent = inchangé.
+      estAvenant: fdCase(formData, "estAvenant"),
     },
   });
   revalidatePath(`/pch/${order.tenderId}`);

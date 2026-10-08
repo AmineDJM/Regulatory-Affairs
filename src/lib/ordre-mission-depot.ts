@@ -6,6 +6,8 @@ import { notifyUser } from "@/lib/notify";
 import { recordAudit } from "@/lib/audit";
 import { docxToPdf } from "@/lib/payslip/to-pdf";
 import { nomOrdreMission, refusOrdreMission, remplirOrdreDeMission, type ChampsOrdreMission } from "@/lib/hr/ordre-mission/modele";
+import { synchroniserOrdreEmis } from "@/lib/missions-equipe/serveur";
+import { refusTraitementRh } from "@/lib/missions-equipe/etat";
 
 /**
  * HORS DU DOMAINE RH, À DESSEIN (comme hr-drive-mirror.ts) : c'est l'orchestration qui touche au stockage (drive-storage)
@@ -33,11 +35,14 @@ export async function genererEtRemettreOrdreDeMission(
 ): Promise<{ ok: true; message: string; employeeId: string } | { ok: false; error: string }> {
   const demande = await prisma.hrDocumentRequest.findUnique({
     where: { id: requestId },
-    select: { id: true, type: true, status: true, employeeId: true, employee: { select: { fullName: true, userId: true } } },
+    select: { id: true, type: true, status: true, employeeId: true, managerGate: true, employee: { select: { fullName: true, userId: true } } },
   });
   if (!demande) return { ok: false, error: "Demande introuvable." };
   if (demande.type !== "MISSION_ORDER") return { ok: false, error: "Cette demande n'est pas un ordre de mission." };
   if (demande.status === "CANCELLED") return { ok: false, error: "Cette demande est annulée." };
+  // LA MARCHE DU N+1 PASSE AVANT LES RH (Direction, 10/2026) : un ordre encore chez le N+1, ou refusé par lui, ne se produit pas.
+  const avantRh = refusTraitementRh(demande.managerGate ?? null);
+  if (avantRh) return { ok: false, error: avantRh };
   const refus = refusOrdreMission(champs);
   if (refus) return { ok: false, error: refus };
 
@@ -64,6 +69,8 @@ export async function genererEtRemettreOrdreDeMission(
     });
   }
   await prisma.hrDocumentRequest.update({ where: { id: requestId }, data: { status: "READY", handledById: acteurId } });
+  // La mission Ad & Pro reliée passe « ordre émis » — le PDF paraît aussi dans « Mes missions ».
+  await synchroniserOrdreEmis(requestId, acteurId);
   if (demande.employee.userId) {
     await notifyUser({ userId: demande.employee.userId, type: "GENERIC", title: "Votre ordre de mission est prêt", body: `N° ${champs.reference}`, link: "/mon-dossier" }).catch(() => undefined);
   }

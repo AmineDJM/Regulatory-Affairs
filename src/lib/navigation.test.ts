@@ -87,12 +87,34 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
     const tout = groupIntoPoles(accessible([...MODULES]));
     const de = (cle: string) => tout.find((p) => p.key === cle)?.children.map((c) => c.label) ?? [];
     expect(de("MARKETING")).toEqual(expect.arrayContaining(["Marketing cockpit", "Segmentation", "Produits 360", "Ad & Pro", "Stock promotionnel", "Site web"]));
-    expect(de("OPERATIONS_SALES").slice(0, 4)).toEqual(["Promotion médicale", "Business Units", "Force de vente", "Marchés PCH"]);
-    expect(de("OPERATIONS_SALES")).toEqual(expect.arrayContaining(["Ventes", "Consommation"]));
+    // Le Cockpit Opérations ouvre le pôle (Direction, 08/10), puis le terrain.
+    expect(de("OPERATIONS_SALES").slice(0, 5)).toEqual(["Cockpit Opérations", "Promotion médicale", "Force de vente", "Business Units", "Marchés PCH"]);
+    // Les ventes restent avec le terrain (leur libellé peut évoluer : « Ventes », « Ventes PCH »).
+    expect(de("OPERATIONS_SALES").some((l) => l.startsWith("Ventes"))).toBe(true);
+    // « Consommation » n'a plus d'entrée (Direction, 08/10 : « masque-le de ma vue ») — le module reste, l'entrée part.
+    expect(de("OPERATIONS_SALES")).not.toContain("Consommation");
     expect(de("BUSINESS_DEV")).not.toContain("Marchés PCH");
     expect(de("ADMINISTRATION")).not.toContain("Site web");
     // Le rangement ne donne AUCUN droit : sans le module, l'entrée n'apparaît dans aucun pôle.
     expect(groupIntoPoles(accessible(["SALES_PLANNING"])).flatMap((p) => p.children.map((c) => c.label))).not.toContain("Business Units");
+  });
+
+  /**
+   * STOCKS ET LOGISTIQUE REJOIGNENT OPERATIONS & SALES (Direction, 08/10). Le pôle « Supply Chain » disparaît ; l'ordre
+   * du pôle suit le fil du produit : terrain, montage, marchés, ventes, puis la chaîne physique, la consommation et les
+   * retours. Seul le RANGEMENT change : chaque entrée suit toujours SON module.
+   */
+  it("Stocks et Logistique sont dans Operations & Sales, après les marchés ; plus de pôle Supply Chain", () => {
+    expect(NAV_POLES.map((p) => p.key as string)).not.toContain("SUPPLY_CHAIN");
+    const ops = groupIntoPoles(accessible([...MODULES])).find((p) => p.key === "OPERATIONS_SALES")!.children.map((c) => c.label);
+    const i = (l: string) => ops.indexOf(l);
+    for (const l of ["Stocks", "Logistique", "Retours & réclamations"]) expect(ops, l).toContain(l);
+    expect(i("Stocks")).toBeGreaterThan(i("Marchés PCH"));
+    expect(i("Logistique")).toBe(i("Stocks") + 1);
+    expect(i("Retours & réclamations")).toBe(i("Logistique") + 1);
+    // Le rangement n'ouvre rien : sans STOCKS, pas d'entrée Stocks.
+    expect(groupIntoPoles(accessible(["PCH"])).flatMap((p) => p.children.map((c) => c.label))).not.toContain("Stocks");
+    expect(NAVIGATION.find((n) => n.href === "/retours-reclamations")?.module).toBe("RETOURS_RECLAMATIONS");
   });
 
   it("le déplacement ne donne AUCUN droit : sans le module, l'entrée n'apparaît nulle part", () => {
@@ -227,7 +249,8 @@ describe("poleOfPath — le tiroir de la page courante s'ouvre tout seul", () =>
     expect(poleOfPath(poles, "/pch/abc123")).toBe("OPERATIONS_SALES");
     expect(poleOfPath(poles, "/business-units/secteurs")).toBe("OPERATIONS_SALES");
     expect(poleOfPath(poles, "/site-web")).toBe("MARKETING");
-    expect(poleOfPath(poles, "/logistics")).toBe("SUPPLY_CHAIN");
+    expect(poleOfPath(poles, "/logistics")).toBe("OPERATIONS_SALES");
+    expect(poleOfPath(poles, "/stocks/demandes")).toBe("OPERATIONS_SALES");
     expect(poleOfPath(poles, "/moyens-generaux")).toBe("ADMINISTRATION");
   });
 

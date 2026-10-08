@@ -147,7 +147,7 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
                   className={detailOf.has(ord.id) ? "cursor-pointer" : undefined}
                   onClick={() => detailOf.has(ord.id) && setExpanded(expanded === ord.id ? null : ord.id)}
                 >
-                  <TableCell className="font-mono text-xs [overflow-wrap:anywhere]">{ord.reference || "—"}</TableCell>
+                  <TableCell className="font-mono text-xs [overflow-wrap:anywhere]">{ord.reference || "—"}{ord.estAvenant && <Badge tone="warning" className="ml-1.5 font-sans">Avenant</Badge>}</TableCell>
                   <TableCell className="[overflow-wrap:anywhere]">{ord.products || "—"}</TableCell>
                   <TableCell className="text-right">{formatNumber(ord.quantity)}</TableCell>
                   <TableCell className="text-right">{ord.value !== null ? formatCurrency(ord.value) : "—"}</TableCell>
@@ -201,6 +201,12 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice
             <W label="Date de réception"><Input name="receivedDate" type="date" defaultValue={o?.receivedDate?.slice(0, 10) ?? ""} /></W>
             <W label="Date de paiement"><Input name="paymentDate" type="date" defaultValue={o?.paymentDate?.slice(0, 10) ?? ""} /></W>
             <W full label="Notes"><Textarea name="notes" defaultValue={o?.notes} /></W>
+            {/* BC D'AVENANT — au-delà du volume attribué par l'AO. Le témoin caché fait dire « non » à la case décochée. */}
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input type="hidden" name="estAvenant" value="off" />
+              <input type="checkbox" name="estAvenant" defaultChecked={o?.estAvenant ?? false} className="h-4 w-4" />
+              BC d&apos;avenant (au-delà du volume attribué)
+            </label>
           </div>
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

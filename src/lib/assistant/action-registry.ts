@@ -1107,6 +1107,14 @@ X("CONSUMPTION INTELLIGENCE : importer un fichier de consommation, trancher ce q
   "consommation-actions:ignorerLigneConso", "consommation-actions:validerImportConso", "consommation-actions:annulerImportConso",
   "consommation-actions:enregistrerAffiniteConfig",
 ]);
+X("VENTES PCH (Direction, 08/10) : importer les fichiers de la PCH (ventes des DR, réceptions de la PCH centrale) se "
+  + "décide en REGARDANT l'aperçu (nature, période, établissements et produits reconnus, mois remplacés) ; rattacher un "
+  + "client, un poste PCH, un fournisseur « à nous » ou nommer une DR se fait en lisant les listes « à rattacher » de "
+  + "l'écran `/sales/importer`. Adam est en pause de développement (Super Admin seul).", [
+  "ventes-pch-actions:apercuFichiersVentesPch", "ventes-pch-actions:appliquerFichiersVentesPch",
+  "ventes-pch-actions:rattacherEtablissementVentesPch", "ventes-pch-actions:rattacherPosteVentesPch",
+  "ventes-pch-actions:reglerFournisseurVentesPch", "ventes-pch-actions:enregistrerDrVentesPch",
+]);
 X("RATTACHEMENT AUTOMATIQUE DES PRATICIENS À LEUR ÉTABLISSEMENT (Direction, 06/10) : un geste en lot de la feuille de "
   + "l'annuaire, sur les fiches de la vue, après confirmation — la même règle s'applique d'elle-même à chaque écriture "
   + "(cellule, ajout, import). Adam est en pause de développement (Super Admin seul).", [
@@ -1133,13 +1141,18 @@ X("LES PRIX D'UN PRODUIT, À LA MAIN (Produits 360, Direction 07/10) : une saisi
   "prix-produit-actions:enregistrerPrixProduit",
   "prix-produit-actions:revenirAuPrixExplorateur",
 ]);
-X("BUDGET MARKETING (Direction, 08/10) : créer, régler et retirer une enveloppe de la Direction Marketing (Ad & Pro et "
-  + "les siennes). Un geste d'écran neuf sur /budget-marketing/reglages, décidé devant les chiffres de l'enveloppe ; le "
-  + "contenu (catégories, lignes, imputation) passe par les actions de Budgets, déjà classées. Adam est en pause de "
-  + "développement : aucun geste neuf ne lui est ouvert.", [
-  "budget-marketing-actions:createMarketingEnvelope",
-  "budget-marketing-actions:updateMarketingEnvelope",
-  "budget-marketing-actions:deleteMarketingEnvelope",
+X("BUDGETS DES PÔLES — Budget Marketing, Budget Regulatory, Budget Operations & Sales (Direction, 08/10) : créer, régler "
+  + "et retirer une enveloppe de son pôle ; compléter ses catégories d'office (BV 25 % / 75 %, masse salariale par BU) ; "
+  + "saisir un BV payé hors circuit ; ranger un BV demandé ou payé dans l'enveloppe. Des gestes d'écran neufs, sur les "
+  + "Réglages, l'onglet « BV par dossier » et l'onglet « Masse salariale » de chaque module, décidés devant les chiffres "
+  + "de l'enveloppe ; le contenu ordinaire (catégories, lignes, imputation) passe par les actions de Budgets, déjà "
+  + "classées. Adam est en pause de développement : aucun geste neuf ne lui est ouvert.", [
+  "budget-pole-actions:createPoleEnvelope",
+  "budget-pole-actions:updatePoleEnvelope",
+  "budget-pole-actions:deletePoleEnvelope",
+  "budget-pole-actions:completerCategoriesPole",
+  "budget-pole-actions:saisirBvManuel",
+  "budget-pole-actions:imputerBv",
 ]);
 X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
   + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "
@@ -1210,6 +1223,14 @@ X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable
   // LES DEMANDES DE STOCKS DO → KAM : créer, saisir par hôpital, relancer, clore, supprimer — des gestes des écrans Stocks.
   "demande-stocks-actions:creerDemandeStocks", "demande-stocks-actions:saisirStocksDemande", "demande-stocks-actions:relancerDemandeStocks",
   "demande-stocks-actions:cloreDemandeStocks", "demande-stocks-actions:supprimerDemandeStocks",
+]);
+X("OPERATIONS & SALES (Direction, 08/10) — le STOCK PCH CENTRAL saisi depuis le mail de la PCH (quantités par produit, "
+  + "collage confirmé à l'écran, mail joint) et les RETOURS & RÉCLAMATIONS (déclarer, échanger, changer le statut, "
+  + "nommer le responsable). Des gestes d'écran, devant le relevé ou la fiche : Adam est en pause de développement, "
+  + "aucun geste neuf ne lui est ouvert.", [
+  "stock-pch-actions:enregistrerStockPch",
+  "reclamation-actions:declarerReclamation", "reclamation-actions:commenterReclamation",
+  "reclamation-actions:changerStatutReclamation", "reclamation-actions:qualifierReclamation",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "
@@ -1310,6 +1331,18 @@ X("LE STOCK PROMOTIONNEL (§118.164) : chaque geste ATTESTE un fait physique —
   "promo-stock-actions:corrigerInventaire", "promo-stock-actions:annulerMouvement",
   "promo-stock-actions:demanderMateriel", "promo-stock-actions:servirDemande",
   "promo-stock-actions:refuserDemande", "promo-stock-actions:annulerDemande",
+]);
+X("LES MISSIONS AD & PRO RELIÉES AU PROFIL (Direction, 10/2026) — confirmer ou décliner une invitation, ajouter ses "
+  + "étapes, demander son transport, son hébergement, son matériel ou déposer sa note de frais depuis « Mes missions », "
+  + "valider comme N+1 l'ordre de mission d'un membre de son équipe, relancer, remplacer, modifier les dates, intégrer "
+  + "À LA MAIN les frais de l'équipe au budget de la demande. Chacun de ces gestes engage une PERSONNE (sa présence, sa "
+  + "signature de N+1, un montant exact qu'elle a lu sur une facture) : un modèle ne les pose pas à sa place, et Adam est "
+  + "en pause de développement. Un clic sur Mon espace › Mes missions, ou sur la carte « Équipe Adventum » de la demande.", [
+  "mission-actions:repondreMission", "mission-actions:relancerMission", "mission-actions:remplacerMission",
+  "mission-actions:modifierMission", "mission-actions:ajouterEtapeMission", "mission-actions:retirerEtapeMission",
+  "mission-actions:deciderOrdreMissionN1", "mission-actions:demanderLogistiqueMission",
+  "mission-actions:demanderMaterielMission", "mission-actions:deposerNoteFraisMission",
+  "mission-actions:integrerFraisEquipe",
 ]);
 X("LE CATALOGUE PROMOTIONNEL (§118.164) : la liste de RÉFÉRENCE que citent les stocks et les demandes "
   + "d'achat — ses références CAT-NNNN sont fixes, et le Super Admin choisit nommément qui la lit et qui l'écrit "
@@ -1776,6 +1809,32 @@ X("RATTACHER À UNE ENTITÉ LES SALARIÉS QUI N'EN ONT PAS, depuis l'écran de l
   + "ce qu'ils pèsent, et qu'un document lu par une étape ne doit pas pouvoir prendre. Adam est de plus en pause de "
   + "développement. Un clic sur RH › Paie.", [
   "payroll-hr-actions:rattacherSalariesAEntite",
+]);
+X("KPI & BILANS (KPI sans code, Direction 08/10) — définir un KPI, en régler le poids, noter un KPI évalué, valider une "
+  + "déclaration, signer une revue : ce sont des décisions d'un MANAGER sur des PERSONNES de son arbre, qui finissent "
+  + "dans leur bilan et leur score. Un modèle n'a rien observé : lui faire noter quelqu'un ou signer sa revue ferait "
+  + "entrer dans le dossier d'une personne une évaluation que personne n'a faite (§118.15), et un rapport lu par une "
+  + "étape pourrait dicter « mets 4 à tout le monde ». Luna y PROPOSE (définitions, niveau avec ses preuves, brouillon de "
+  + "commentaire) depuis l'écran, et le manager tranche. Les lectures (bilan, détail, aperçu, catalogue) sont des rendus "
+  + "d'écran. Adam est de plus en pause de développement. Des clics sur Mon équipe › KPI, Mon bilan et Administration › KPI.", [
+  "kpi-actions:bilanKpi",
+  "kpi-actions:origineKpi",
+  "kpi-actions:catalogueKpi",
+  "kpi-actions:proposerKpiDepuisPhrase",
+  "kpi-actions:apercuKpi",
+  "kpi-actions:creerKpi",
+  "kpi-actions:modifierKpi",
+  "kpi-actions:archiverKpi",
+  "kpi-actions:reglerAffectationKpi",
+  "kpi-actions:retirerAffectationKpi",
+  "kpi-actions:reglerFrequenceRevue",
+  "kpi-actions:proposerNiveauKpi",
+  "kpi-actions:validerEvaluationKpi",
+  "kpi-actions:declarerKpi",
+  "kpi-actions:deciderDeclarationKpi",
+  "kpi-actions:importerKpi",
+  "kpi-actions:commentaireLunaKpi",
+  "kpi-actions:signerRevueKpi",
 ]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──

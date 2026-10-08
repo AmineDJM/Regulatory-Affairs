@@ -1,35 +1,10 @@
-import { requireUser } from "@/lib/session";
-import { getMyMissions } from "@/lib/queries/missions";
-import { PageHeader } from "@/components/shared/page-header";
-import { EmptyState } from "@/components/shared/empty-state";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { WORKSPACE_TABS } from "@/lib/labels";
-import { visibleTabs } from "@/lib/nav-tabs";
-import { MissionItem } from "@/components/missions/mission-item";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function MyMissionsPage() {
-  const user = await requireUser();
-  const missions = await getMyMissions(user.id);
-
-  return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Mon dossier RH — Mes ordres de mission"
-        description="Vos missions d'accompagnement et de représentation (congrès, événements, sponsoring). Demandez ou recevez votre ordre de mission, déposez vos pièces et échangez."
-      />
-      <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
-
-      {missions.length === 0 ? (
-        <EmptyState icon="MapPin" title="Aucune mission" description="Vous n'êtes assigné à aucune mission pour le moment. Lorsqu'un responsable vous assignera comme accompagnant ou délégué de référence, votre mission apparaîtra ici." />
-      ) : (
-        <div className="space-y-2">
-          {missions.map((m) => (
-            <MissionItem key={m.id} m={m} canManage={false} currentUserId={user.id} path="/missions" showParent />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+/**
+ * L'ANCIENNE ADRESSE DES ORDRES DE MISSION — les missions vivent désormais dans « Mon espace › Mes missions »
+ * (Direction, 10/2026). Les liens et notifications d'avant pointent encore ici : on les y renvoie.
+ * (`/missions/<id>` reste la fiche d'une mission d'Adam, une autre chose.)
+ */
+export default function AncienneAdresseMissions() {
+  redirect("/mon-espace/missions");
 }

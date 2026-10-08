@@ -13,13 +13,15 @@ import { MODES_TRANSPORT_MISSION, VALEURS_DU_MODELE } from "@/lib/hr/ordre-missi
  * collaborateur et fonction (pré-remplis), objet, lieu(x), dates de départ et de retour (plusieurs jours possibles),
  * transport, signataire. La plateforme remplit le document de la Direction, à l'identique, et le remet au salarié.
  */
-export function OrdreMissionForm({ requestId, employeeName, employeePosition, details, referenceSuggeree }: {
+export function OrdreMissionForm({ requestId, employeeName, employeePosition, details, referenceSuggeree, prefill = null }: {
   requestId: string; employeeName: string; employeePosition: string | null; details: string | null; referenceSuggeree: string;
+  /** Mission Ad & Pro : objet, lieu et dates repris de la demande (modifiables). */
+  prefill?: { objet: string; destination: string; datesDepart: string[]; datesRetour: string[] } | null;
 }) {
   const { enCours, rafraichir } = useRafraichir();
   const [ouvert, setOuvert] = React.useState(false);
-  const [departs, setDeparts] = React.useState<string[]>([""]);
-  const [retours, setRetours] = React.useState<string[]>([""]);
+  const [departs, setDeparts] = React.useState<string[]>(prefill?.datesDepart.length ? prefill.datesDepart : [""]);
+  const [retours, setRetours] = React.useState<string[]>(prefill?.datesRetour.length ? prefill.datesRetour : [""]);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; texte: string } | null>(null);
   const aujourdhui = new Date().toISOString().slice(0, 10);
@@ -68,11 +70,11 @@ export function OrdreMissionForm({ requestId, employeeName, employeePosition, de
         <div className="space-y-1"><Label>Fonction</Label><Input name="fonction" defaultValue={employeePosition ?? ""} /></div>
         <div className="space-y-1 sm:col-span-2">
           <Label>Objet — « … ayant pour but … »</Label>
-          <Textarea name="objet" rows={2} required placeholder="de récupérer une commande de goodies chez Eprint à Kouba et de les apporter à l'aéroport d'Alger…" />
+          <Textarea name="objet" rows={2} required defaultValue={prefill?.objet ?? ""} placeholder="de récupérer une commande de goodies chez Eprint à Kouba et de les apporter à l'aéroport d'Alger…" />
         </div>
         <div className="space-y-1 sm:col-span-2">
           <Label>Lieu(x) de la mission — un par ligne</Label>
-          <Textarea name="destination" rows={2} required placeholder={"Ben Omar Kouba\nAéroport d'Alger"} />
+          <Textarea name="destination" rows={2} required defaultValue={prefill?.destination ?? ""} placeholder={"Ben Omar Kouba\nAéroport d'Alger"} />
         </div>
         <div className="space-y-1"><Label>Date(s) de départ</Label>{listeDates("dateDepart", departs, setDeparts)}</div>
         <div className="space-y-1"><Label>Date(s) de retour</Label>{listeDates("dateRetour", retours, setRetours)}</div>

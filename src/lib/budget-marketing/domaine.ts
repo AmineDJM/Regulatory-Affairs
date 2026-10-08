@@ -8,16 +8,23 @@
  * Budgets la lit (et l'additionne) comme avant ; Budget Marketing ne lit QUE celles-là. Rien n'est recopié, donc les
  * deux écrans ne peuvent pas diverger.
  *
- * Module PUR, sans aucun import : il est lu par les écrans clients (client-bundle-guard), par `rbac.ts` et par les
- * requêtes. La migration `20270116090000_budget_marketing` applique `domaineParDefaut` en SQL, mot pour mot.
+ * Module PUR : il n'importe que `lib/budget/domaines.ts` (pur lui aussi, les trois pôles — Marketing, Regulatory,
+ * Operations), et il est lu par les écrans clients (client-bundle-guard), par `rbac.ts` et par les requêtes. La
+ * migration `20270116090000_budget_marketing` applique `domaineParDefaut` en SQL, mot pour mot.
  */
+
+import { DOMAINES } from "../budget/domaines";
+
+export {
+  dansLaPortee, totaliser, bornesAnnee,
+  type DomaineBudget, type PorteeBudget, type LigneTotal,
+} from "../budget/domaines";
 
 export const DOMAINE_MARKETING = "MARKETING" as const;
 export const DOMAINE_GENERAL = "GENERAL" as const;
-export type DomaineBudget = typeof DOMAINE_MARKETING | typeof DOMAINE_GENERAL;
 
 /** Les écrans du module. */
-export const CHEMIN_BUDGET_MARKETING = "/budget-marketing";
+export const CHEMIN_BUDGET_MARKETING = DOMAINES.MARKETING.chemin;
 
 /** La famille Ad & Pro telle que les enveloppes la portent (modules d'enveloppe et de catégorie). */
 export const MODULES_AD_PRO_BUDGET = [
@@ -51,30 +58,10 @@ export function estEnveloppeMarketing(e: { domaine?: string | null }): boolean {
  * à la Direction Marketing lui confierait aussi des dépenses qui ne sont pas les siennes. Sans `modules`, le module
  * principal (déprécié) décide.
  */
-export function domaineParDefaut(e: { modules?: readonly string[] | null; module?: string | null }): DomaineBudget {
+export function domaineParDefaut(e: { modules?: readonly string[] | null; module?: string | null }): typeof DOMAINE_MARKETING | typeof DOMAINE_GENERAL {
   const liste = e.modules && e.modules.length > 0 ? e.modules : e.module ? [e.module] : [];
   return liste.length > 0 && liste.every((m) => AD_PRO.has(m)) ? DOMAINE_MARKETING : DOMAINE_GENERAL;
 }
 
-/** La portée d'un écran : Budgets montre tout, Budget Marketing seulement le marketing. */
-export type PorteeBudget = "TOUT" | "MARKETING";
-
-export function dansLaPortee(e: { domaine?: string | null }, portee: PorteeBudget | undefined): boolean {
-  return portee !== "MARKETING" || estEnveloppeMarketing(e);
-}
-
-export interface LigneTotal { total: number; allocated: number; consumed: number }
-
-/** Additionne des enveloppes — la même règle pour Budgets et pour Budget Marketing. */
-export function totaliser<T extends LigneTotal>(items: readonly T[]): { count: number; total: number; allocated: number; consumed: number; remaining: number } {
-  const total = items.reduce((a, i) => a + i.total, 0);
-  const allocated = items.reduce((a, i) => a + i.allocated, 0);
-  const consumed = items.reduce((a, i) => a + i.consumed, 0);
-  return { count: items.length, total, allocated, consumed, remaining: total - consumed };
-}
-
-/** Bornes d'une enveloppe annuelle (1er janvier → 31 décembre, en UTC). Année absurde → l'année en cours. */
-export function bornesAnnee(annee: number | null | undefined, maintenant: Date = new Date()): { debut: Date; fin: Date } {
-  const a = annee && Number.isInteger(annee) && annee >= 2000 && annee <= 2100 ? annee : maintenant.getUTCFullYear();
-  return { debut: new Date(Date.UTC(a, 0, 1)), fin: new Date(Date.UTC(a, 11, 31, 23, 59, 59)) };
-}
+// La portée (`dansLaPortee`), l'addition (`totaliser`) et les bornes d'une année (`bornesAnnee`) valent pour les trois
+// pôles : elles vivent dans `lib/budget/domaines.ts` et sont réexportées plus haut, sans copie.

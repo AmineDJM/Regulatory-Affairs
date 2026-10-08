@@ -934,6 +934,8 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   LEGAL_DOCUMENT: "Document légal",
   INVOICE: "Facture",
   PHARMACOVIGILANCE_CASE: "Cas de pharmacovigilance",
+  RECLAMATION: "Réclamation",
+  STOCK_PCH_RELEVE: "Relevé du stock PCH",
 };
 
 /**
@@ -1458,7 +1460,7 @@ export interface NavItem {
    * Pôle d'entreprise auquel l'entrée appartient (groupe « Pôles » uniquement). C'est ce qui
    * remplace les treize entrées à plat : l'utilisateur voit son entreprise, pas les modules.
    */
-  pole?: "REGULATORY" | "ADMINISTRATION" | "MARKETING" | "OPERATIONS_SALES" | "BUSINESS_DEV" | "SUPPLY_CHAIN";
+  pole?: "REGULATORY" | "ADMINISTRATION" | "MARKETING" | "OPERATIONS_SALES" | "BUSINESS_DEV";
   /**
    * Garde SUPPLÉMENTAIRE au droit de module, résolue côté serveur dans le layout. Sert aux
    * écrans dont l'ouverture dépend d'un réglage et pas seulement d'un rôle (l'analyse CTD est
@@ -1520,12 +1522,16 @@ export const WORKSPACE_TABS: NavTab[] = [
   // TOUTES LES TÂCHES EN UN SEUL ENDROIT (Direction, 07/10) — à accepter, à faire, demandées, partagées, terminées.
   // Le compteur de l'onglet est posé par `ongletsEspace` (`queries/mes-taches.ts`).
   { module: "WORKSPACE", label: "Tâches", href: "/mon-espace/taches" },
+  // MES MISSIONS (Direction, 10/2026) — les missions Ad & Pro reliées au profil : invitations, ordre de mission
+  // (N+1 → RH), et les étapes que la personne ajoute. `/missions` y renvoie.
+  { module: "WORKSPACE", label: "Mes missions", href: "/mon-espace/missions" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
+  // MON BILAN (KPI sans code, Direction 08/10) : ses KPI en continu, sa revue signée, ses déclarations.
+  { module: "KPI", label: "Mon bilan", href: "/mon-espace/bilan" },
   // PLUS D'ONGLET « ANNUAIRE » (Direction, 06/10 : « enlève Annuaire de Mon espace ») : les carnets vivent dans le
   // module Annuaires. La page `/mon-espace/annuaire` reste servie — liens et notifications y pointent encore.
-  // Les ordres de mission et les pièces demandées ne sont PLUS des onglets : ils s'affichent
-  // en SECTIONS dans « Mon espace » (les pages /missions et /pieces survivent — liens et
-  // notifications y pointent encore).
+  // Les pièces demandées ne sont PLUS un onglet : elles s'affichent en SECTION dans « Mon espace »
+  // (la page /pieces survit — liens et notifications y pointent encore).
   // PLUS D'ONGLET « DIRECTIVES » (Direction, 07/10) : elles restent dans « Aujourd'hui », le centre d'actions, la
   // recherche et les notifications ; /directives reste servie.
 ];
@@ -1568,6 +1574,32 @@ export const BUDGET_MARKETING_TABS: NavTab[] = [
   { module: "BUDGET_MARKETING", label: "Dépenses", href: "/budget-marketing/depenses" },
   { module: "BUDGET_MARKETING", label: "Demandes Ad & Pro", href: "/budget-marketing/ad-pro" },
   { module: "BUDGET_MARKETING", label: "Réglages", href: "/budget-marketing/reglages" },
+];
+
+// BUDGET REGULATORY et BUDGET OPERATIONS & SALES (Direction, 08/10) — la même mécanique que Budget Marketing : les écrans
+// de Budgets bornés aux enveloppes du pôle, plus l'écran propre au pôle (les BV par dossier ; la masse salariale).
+export const BUDGET_REGULATORY_TABS: NavTab[] = [
+  { module: "BUDGET_REGULATORY", label: "Vue d'ensemble", href: "/budget-regulatory" },
+  { module: "BUDGET_REGULATORY", label: "BV par dossier", href: "/budget-regulatory/bv" },
+  { module: "BUDGET_REGULATORY", label: "Dépenses", href: "/budget-regulatory/depenses" },
+  { module: "BUDGET_REGULATORY", label: "Réglages", href: "/budget-regulatory/reglages" },
+];
+export const BUDGET_OPERATIONS_TABS: NavTab[] = [
+  { module: "BUDGET_OPERATIONS", label: "Vue d'ensemble", href: "/budget-operations" },
+  { module: "BUDGET_OPERATIONS", label: "Masse salariale", href: "/budget-operations/masse-salariale" },
+  { module: "BUDGET_OPERATIONS", label: "Dépenses", href: "/budget-operations/depenses" },
+  { module: "BUDGET_OPERATIONS", label: "Réglages", href: "/budget-operations/reglages" },
+];
+
+// VENTES PCH (Direction, 08/10) — les fichiers de la PCH lus par BU. Il remplace « Ventes » (saisie manuelle, module
+// `SALES` retiré du service) : son historique reste lisible, en lecture seule, dans le dernier onglet.
+export const VENTES_PCH_TABS: NavTab[] = [
+  { module: "PCH_VENTES", label: "Synthèse", href: "/sales" },
+  { module: "PCH_VENTES", label: "Contrats", href: "/sales/contrats" },
+  { module: "PCH_VENTES", label: "Territoires", href: "/sales/territoires" },
+  { module: "PCH_VENTES", label: "Non servi", href: "/sales/non-servi" },
+  { module: "PCH_VENTES", label: "Importer", href: "/sales/importer" },
+  { module: "PCH_VENTES", label: "Historique", href: "/sales/historique" },
 ];
 // LES SOUS-MODULES RH (Direction, 06/10) — indépendants (chacun son droit, réglable dans la console) mais reliés (un même
 // groupe « Ressources humaines » dans le menu, et chaque page renvoie aux autres).
@@ -1679,6 +1711,8 @@ export const ADMIN_TABS: NavTab[] = [
   // L'arbre entité → gammes → produits : de lui découle ce que chacun voit de la plateforme.
   { module: "ADMIN", label: "Gammes & produits", href: "/admin/gammes" },
   { module: "ADMIN", label: "Contrôle de l'IA", href: "/admin/ai" },
+  // Le catalogue des KPI et les modèles par rôle (KPI sans code) — Super Admin seul.
+  { module: "ADMIN", label: "KPI & modèles", href: "/admin/kpi" },
   { module: "ADMIN", label: "Coût IA & audit Regulatory", href: "/admin/regulatory-ia" },
   { module: "ADMIN", label: "Score d'adoption", href: "/admin/adoption" },
   { module: "ADMIN", label: "Diagnostic", href: "/admin/diagnostic" },
@@ -1713,6 +1747,8 @@ export const MODULE_LABELS: Record<Module, string> = {
   SPONSORING: "Sponsoring",
   BUDGETS: "Budgets",
   BUDGET_MARKETING: "Budget Marketing",
+  BUDGET_REGULATORY: "Budget Regulatory",
+  BUDGET_OPERATIONS: "Budget Operations & Sales",
   FINANCES: "Finances",
   RH: "Ressources humaines",
   CONGRESS_INTERNATIONAL: "Prises en charge Internationales",
@@ -1780,6 +1816,10 @@ export const MODULE_LABELS: Record<Module, string> = {
   HR_REQUESTS: "Demandes RH",
   TRAINING: "Formations",
   PHARMACOVIGILANCE: "Pharmacovigilance",
+  RETOURS_RECLAMATIONS: "Retours & réclamations",
+  PCH_VENTES: "Ventes PCH",
+  KPI: "KPI & bilans",
+  COCKPIT_OPERATIONS: "Cockpit Opérations",
 };
 
 /**
@@ -1932,6 +1972,8 @@ export const NAVIGATION: NavItem[] = [
   // `pharmacovigilance` : l'entrée ne s'affiche qu'à qui reçoit les cas (portée TOUT) ; le KAM, qui ne lit que ses
   // signalements, les retrouve dans les Rapports terrain — il n'a rien à faire dans le pôle Regulatory.
   { module: "PHARMACOVIGILANCE", label: "Pharmacovigilance", href: "/regulatory/pharmacovigilance", icon: "ShieldAlert", group: "Pôles", pole: "REGULATORY", gate: "pharmacovigilance" },
+  // BUDGET REGULATORY (Direction, 08/10) — les BV 25 % / 75 % des dossiers et les frais réglementaires.
+  { module: "BUDGET_REGULATORY", label: "Budget Regulatory", href: "/budget-regulatory", icon: "PiggyBank", group: "Pôles", pole: "REGULATORY", tabs: BUDGET_REGULATORY_TABS, match: ["/budget-regulatory"] },
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
   // d'Administration, qui est celle du logiciel et vit dans « Système »).
@@ -2096,15 +2138,30 @@ export const NAVIGATION: NavItem[] = [
   // c'est l'écran quotidien du terrain (sa tournée, sa saisie de visite en trois gestes) ;
   // l'annuaire ensuite, qui est le référentiel. L'ancien « Visites & segmentation » retiré est
   // remplacé par cette journée — les visites en base n'ont jamais bougé, et elle les relit.
+  // COCKPIT OPÉRATIONS — la PREMIÈRE entrée du pôle (Direction, 08/10) : l'écran de tête du directeur des opérations.
+  { module: "COCKPIT_OPERATIONS", label: "Cockpit Opérations", href: "/operations", icon: "Gauge", group: "Pôles", pole: "OPERATIONS_SALES", match: ["/operations"] },
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "OPERATIONS_SALES", tabs: MEDICAL_TABS, match: ["/medical", "/field-reports"] },
+  { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "OPERATIONS_SALES", tabs: SALES_PLANNING_TABS, match: ["/planning"] },
   // BUSINESS UNITS — le montage de la force de vente, sorti du « ⋯ Réglages » de la Force de vente (Direction, 08/10) :
   // les BU et leurs quatre étapes, les secteurs, les paramètres. Son propre module (`BUSINESS_UNITS`).
   { module: "BUSINESS_UNITS", label: "Business Units", href: "/business-units", icon: "Building2", group: "Pôles", pole: "OPERATIONS_SALES", tabs: BUSINESS_UNITS_TABS },
-  { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "OPERATIONS_SALES", tabs: SALES_PLANNING_TABS, match: ["/planning"] },
   { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "OPERATIONS_SALES" },
-  { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "OPERATIONS_SALES" },
-  // CONSUMPTION INTELLIGENCE — la consommation hospitalière importée, normalisée, et l'affinité qu'on en tire.
-  { module: "CONSUMPTION", label: "Consommation", href: "/consommation", icon: "ChartColumn", group: "Pôles", pole: "OPERATIONS_SALES", match: ["/consommation"] },
+  // VENTES PCH — remplace « Ventes » (saisie manuelle, `SALES` retiré du service) : les fichiers de la PCH, lus par BU.
+  // L'historique de l'ancienne saisie reste lisible, en lecture seule, dans son onglet.
+  { module: "PCH_VENTES", label: "Ventes PCH", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "OPERATIONS_SALES", tabs: VENTES_PCH_TABS, match: ["/sales"] },
+  // LA CHAÎNE PHYSIQUE REJOINT LE PÔLE (Direction, 08/10 : « Stocks et Logistique rejoignent Operations & Sales ») — le
+  // pôle « Supply Chain & Logistics » disparaît. Stocks : la chaîne Adventum + PCH central + hôpitaux, par BU.
+  // Logistique : son module reste RETIRÉ du service (`modules-retired.ts`) — l'entrée est rangée ici, et ne s'affiche
+  // pour personne tant que le retrait n'est pas levé.
+  { module: "STOCKS", label: "Stocks", href: "/stocks", icon: "Boxes", group: "Pôles", pole: "OPERATIONS_SALES" },
+  { module: "LOGISTICS", label: "Logistique", href: "/logistics", icon: "Truck", group: "Pôles", pole: "OPERATIONS_SALES" },
+  // CONSUMPTION INTELLIGENCE n'a PLUS d'entrée de menu (Direction, 08/10 : « supprime ce module Consommation ou masque-le
+  // de ma vue »). Seule l'ENTRÉE part : les écrans `/consommation`, leurs données et le module `CONSUMPTION` restent — ils
+  // nourrissent l'affinité de la segmentation et la fiche Produits 360, qui y mènent encore par leurs liens.
+  // RETOURS & RÉCLAMATIONS (Direction, 08/10) — retours, réclamations qualité et rappels de lot, par BU.
+  { module: "RETOURS_RECLAMATIONS", label: "Retours & réclamations", href: "/retours-reclamations", icon: "Undo2", group: "Pôles", pole: "OPERATIONS_SALES" },
+  // BUDGET OPERATIONS & SALES (Direction, 08/10) — la masse salariale de la force de vente et les dépenses hors Ad & Pro.
+  { module: "BUDGET_OPERATIONS", label: "Budget Operations & Sales", href: "/budget-operations", icon: "PiggyBank", group: "Pôles", pole: "OPERATIONS_SALES", tabs: BUDGET_OPERATIONS_TABS, match: ["/budget-operations"] },
 
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
   // réalisées sont passées dans Operations & Sales (avec les marchés PCH, 08/10) : analyser une opportunité et constater un
@@ -2126,12 +2183,6 @@ export const NAVIGATION: NavItem[] = [
   // UNE molécule, UN laboratoire. C'était le geste le plus fréquent du pôle, et il fallait deux
   // clics et connaître le chemin pour y arriver.
   { module: "PRODUCT_EXPLORER", label: "Explorateur produits", href: "/explorateur-produits", icon: "PackageSearch", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche/produits"] },
-
-  // SUPPLY CHAIN & LOGISTICS — l'exécution physique. Les modèles existaient déjà
-  // (LogisticsOrder porte la commande de bout en bout) ; ils n'étaient simplement pas présentés
-  // comme un pôle.
-  { module: "LOGISTICS", label: "Commandes & logistique", href: "/logistics", icon: "Truck", group: "Pôles", pole: "SUPPLY_CHAIN" },
-  { module: "STOCKS", label: "Stocks", href: "/stocks", icon: "Boxes", group: "Pôles", pole: "SUPPLY_CHAIN" },
 
   // Transverse — « Demandes de validations » est le bureau de validation : chacun
   // y demande une validation professionnelle (selon l'accès accordé par le Super

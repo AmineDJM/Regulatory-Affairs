@@ -8,7 +8,7 @@ import { pipelineAccessFor } from "./regulatory/pipeline-access";
 import { carrierAccess } from "./regulatory/assignment";
 import { NAVIGATION, NAV_LEGACY_LABELS } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
 import { lireSections, peutAnnuaire as regleAnnuaire, ouvertParSection, type AnnuaireAccordable, type FaitsAnnuaire, type GesteAnnuaire } from "./annuaires/acces"; // module PUR, zéro import → aucun cycle
-import { estEnveloppeMarketing } from "./budget-marketing/domaine"; // module PUR, zéro import → aucun cycle
+import { DOMAINES, poleDe, type DomainePole } from "./budget/domaines"; // module PUR, zéro import → aucun cycle
 
 // `cache` is a React Server Components API; fall back to identity outside an
 // RSC render (e.g. unit tests) so the module loads everywhere.
@@ -142,6 +142,10 @@ export const MODULES = [
   // enveloppes (sans liste d'accès par enveloppe), Modifier = gérer leur contenu (catégories, lignes, imputation),
   // Créer / Supprimer = créer ou retirer une enveloppe marketing. Les listes d'accès restent au Super Admin.
   "BUDGET_MARKETING",
+  // BUDGET_REGULATORY / BUDGET_OPERATIONS : « Budget Regulatory » et « Budget Operations & Sales » (Direction, 08/10) —
+  // la même mécanique que Budget Marketing, pour les enveloppes `domaine = REGULATORY` (les BV 25 % / 75 % des dossiers
+  // d'enregistrement) et `domaine = OPERATIONS` (masse salariale de la force de vente, dépenses hors Ad & Pro).
+  "BUDGET_REGULATORY", "BUDGET_OPERATIONS",
   // LES SOUS-MODULES DES RESSOURCES HUMAINES (Direction, 06/10 : « transformer les onglets de RH en sous-modules
   // indépendants mais reliés ») : EMPLOYEES — « Employés » (l'équipe, les consultants, les départements) ;
   // HR_REQUESTS — « Demandes RH » (attestations, ordres de mission, notes de frais, congés et absences) ;
@@ -151,6 +155,24 @@ export const MODULES = [
   // Voir en portée TOUT = la boîte de Regulatory ; en portée « ses lignes » = ses propres signalements et les cas
   // où l'on a été ajouté. Créer = signaler un cas ; Modifier/Valider = instruire (statut, enquête, participants).
   "PHARMACOVIGILANCE",
+  // RETOURS_RECLAMATIONS (Operations & Sales, Direction 08/10) : retours de marchandise, réclamations qualité et rappels
+  // de lot. Voir en portée TOUT = toutes les réclamations ; « ses lignes » = celles qu'on a déclarées ou dont on est
+  // responsable. Créer = déclarer (le KAM, depuis le terrain) ; Modifier = instruire (statut, responsable, conclusion).
+  "RETOURS_RECLAMATIONS",
+  // KPI : « KPI & bilans » (Direction, 08/10 — KPI sans code). Voir = son bilan et celui de son arbre ; Créer = déclarer,
+  // proposer un KPI, en créer pour son équipe ; Valider = noter un KPI évalué, valider une déclaration, signer une revue.
+  // Le PÉRIMÈTRE suit l'organigramme (l'arbre de Mon équipe), jamais le rôle : `src/lib/kpi/droits.ts`.
+  "KPI",
+  // PCH_VENTES : « Ventes PCH » (Operations & Sales, Direction 08/10) — les fichiers de la PCH (ventes des directions
+  // régionales aux hôpitaux, réceptions de la PCH centrale) importés, rattachés, lus par BU : sell-in, distribution aux
+  // hôpitaux, demande non servie, part de marché, chaîne AO → BC. Il REMPLACE l'ancien « Ventes » (saisie manuelle), dont
+  // l'historique reste lisible sous `SALES`. Voir = lire ; Téléverser = importer un fichier ; Modifier = rattacher
+  // (établissement, poste, fournisseur, direction régionale).
+  "PCH_VENTES",
+  // COCKPIT_OPERATIONS : « Cockpit Opérations » (Operations & Sales, Direction 08/10) — l'écran de tête du directeur des
+  // opérations : livré à la PCH, exécution des marchés, demande non servie, ruptures de la chaîne, couverture terrain, et
+  // « À traiter ». Lecture seule : chaque geste se fait dans l'écran du module visé. Voir = l'ouvrir.
+  "COCKPIT_OPERATIONS",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -301,7 +323,15 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, SALES: MANAGE,
     GENERAL_MEANS: MANAGE, ADMIN_REQUESTS: MANAGE, LEGAL: CONTRIBUTE, MAIL_REGISTER: READ,
     REGULATORY: READ, BUDGETS: READ, FINANCES: READ, RH: READ, MEDICAL: READ, FIELD_REPORTS: READ,
-    SALES_PLANNING: READ, DOCUMENTS: CONTRIBUTE,
+    DOCUMENTS: CONTRIBUTE,
+    // LA FORCE DE VENTE ET LES BUSINESS UNITS (Direction, 08/10 : « Droits du Directeur des opérations : gestion de la
+    // Force de vente et des Business Units … → oui ») : il les GÈRE, en portée TOUT (`resolveRepScope` → « all »). Le
+    // Marketing cockpit, lui, reste en LECTURE : il se recopiait de la Force de vente (plus bas) et n'est pas son métier.
+    SALES_PLANNING: MANAGE, BUSINESS_UNITS: MANAGE, MARKETING_COCKPIT: READ,
+    // ADVENTUM BRAIN LIMITÉ À SON PÉRIMÈTRE (même décision) : il lit les risques de SON domaine (PCH, stocks,
+    // logistique, ventes, force de vente, terrain) et agit dessus (prendre en charge, relancer, ignorer, résoudre) —
+    // la règle est `adventum/perimetre.ts`. Le briefing, la question libre et les seuils restent au Super Admin.
+    ADVENTUM_BRAIN: ["VIEW", "UPDATE"],
     DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
     // LE STOCK PROMOTIONNEL (décision de la Direction, 01/10/2026) : « la vue globale du stock
     // promotionnel, mais aussi la gestion du matériel de ses équipes — les superviseurs en dessous
@@ -547,6 +577,21 @@ for (const [role, actions] of Object.entries(CONSUMPTION_PAR_DEFAUT) as [UserRol
   if (!PERMISSIONS[role].CONSUMPTION) PERMISSIONS[role].CONSUMPTION = [...actions];
 }
 
+/** « VENTES PCH » PAR DÉFAUT (Direction, 08/10) — le directeur des opérations et la Direction importent et rattachent ;
+ *  la direction commerciale, la promotion et le marketing lisent. Personne d'autre : la console l'ouvre ensuite. */
+const PCH_VENTES_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  OPERATIONS_DIRECTOR: MANAGE,
+  NATIONAL_SALES: READ,
+  HEAD_OF_SALES: READ,
+  MEDICAL_PROMOTION_MANAGER: READ,
+  PRODUCT_MANAGER: READ,
+};
+for (const [role, actions] of Object.entries(PCH_VENTES_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].PCH_VENTES) PERMISSIONS[role].PCH_VENTES = [...actions];
+}
+
 /**
  * « BUDGET MARKETING » PAR DÉFAUT (Direction, 08/10) — la Direction Marketing (rôle PRODUCT_MANAGER) tient ses
  * enveloppes : elle les crée, les répartit, les consomme. La Direction et le Directeur Général aussi ; les Finances
@@ -560,6 +605,31 @@ const BUDGET_MARKETING_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
 };
 for (const [role, actions] of Object.entries(BUDGET_MARKETING_PAR_DEFAUT) as [UserRole, Action[]][]) {
   if (!PERMISSIONS[role].BUDGET_MARKETING) PERMISSIONS[role].BUDGET_MARKETING = [...actions];
+}
+
+/**
+ * « BUDGET REGULATORY » et « BUDGET OPERATIONS & SALES » PAR DÉFAUT (Direction, 08/10) — chaque pôle tient ses
+ * enveloppes (le Head of Regulatory, le Directeur des Opérations) ; la Direction et le Directeur Général aussi ; les
+ * Finances lisent ; l'assistante réglementaire lit les BV. Personne d'autre : la console ouvre ensuite au cas par cas.
+ */
+const BUDGET_REGULATORY_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  HEAD_OF_REGULATORY: MANAGE,
+  FINANCE_BUDGET_MANAGER: READ,
+  REGULATORY_ASSISTANT: READ,
+};
+const BUDGET_OPERATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  OPERATIONS_DIRECTOR: MANAGE,
+  FINANCE_BUDGET_MANAGER: READ,
+};
+for (const [role, actions] of Object.entries(BUDGET_REGULATORY_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].BUDGET_REGULATORY) PERMISSIONS[role].BUDGET_REGULATORY = [...actions];
+}
+for (const [role, actions] of Object.entries(BUDGET_OPERATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].BUDGET_OPERATIONS) PERMISSIONS[role].BUDGET_OPERATIONS = [...actions];
 }
 
 /**
@@ -612,6 +682,48 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
   if (matrice.PHARMACOVIGILANCE) continue;
   if (matrice.REGULATORY?.includes("VIEW")) matrice.PHARMACOVIGILANCE = [...matrice.REGULATORY];
   else if (matrice.FIELD_REPORTS?.includes("CREATE")) matrice.PHARMACOVIGILANCE = [...GESTES_DECLARANT_PV];
+}
+
+/**
+ * « RETOURS & RÉCLAMATIONS » PAR DÉFAUT (Direction, 08/10) — les opérations, la Direction et le Directeur Général
+ * gèrent ; ceux qui reçoivent la pharmacovigilance (Regulatory) et le pharmacien responsable LISENT ; le KAM DÉCLARE
+ * depuis le terrain (portée « ses lignes », `defaultScope`). Personne d'autre : la console l'ouvre ensuite personne par
+ * personne. ÉCRIT, pas dérivé (§118.130).
+ */
+const RECLAMATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  OPERATIONS_DIRECTOR: MANAGE,
+  HEAD_OF_REGULATORY: READ,
+  REGULATORY_ASSISTANT: READ,
+  MEDICAL_INFO_PHARMACIST: READ,
+  MEDICAL_DELEGATE: ["VIEW", "CREATE", "UPLOAD"],
+};
+for (const [role, actions] of Object.entries(RECLAMATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].RETOURS_RECLAMATIONS) PERMISSIONS[role].RETOURS_RECLAMATIONS = [...actions];
+}
+
+/**
+ * « KPI & BILANS » PAR DÉFAUT (Direction, 08/10) — comme Mon équipe, une PORTE accordée à tous : chacun voit son bilan
+ * et y déclare ; qui encadre crée des KPI pour son équipe, note, valide et signe — mais seulement sur SON arbre (la
+ * règle est dans `kpi/droits.ts`, l'arbre est celui de Mon équipe). Sans équipe, Créer/Valider ne donnent prise sur
+ * personne. Le Super Admin (tous les modules) tient le catalogue et les modèles par rôle. La console peut retirer un
+ * geste personne par personne. ÉCRIT, pas dérivé (§118.130).
+ */
+const KPI_PAR_DEFAUT: Action[] = ["VIEW", "CREATE", "UPDATE", "VALIDATE", "EXPORT"];
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (!PERMISSIONS[role].KPI) PERMISSIONS[role].KPI = [...KPI_PAR_DEFAUT];
+}
+
+/** « COCKPIT OPÉRATIONS » PAR DÉFAUT (Direction, 08/10) — le directeur des opérations, la Direction et le Directeur
+ *  Général le lisent (le Super Admin a tous les modules). Personne d'autre : la console l'ouvre au cas par cas. */
+const COCKPIT_OPERATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  OPERATIONS_DIRECTOR: ["VIEW"],
+  DIRECTION: ["VIEW"],
+  GENERAL_MANAGER: ["VIEW"],
+};
+for (const [role, actions] of Object.entries(COCKPIT_OPERATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].COCKPIT_OPERATIONS) PERMISSIONS[role].COCKPIT_OPERATIONS = [...actions];
 }
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
@@ -769,13 +881,24 @@ export interface EnvelopeAccessBearer {
   accessUserIds?: string[];
   managerRoles?: string[];
   managerUserIds?: string[];
-  /** « MARKETING » = enveloppe du Budget Marketing (`lib/budget-marketing/domaine.ts`). Absent = générale. */
+  /** « MARKETING » / « REGULATORY » / « OPERATIONS » = enveloppe d'un pôle (`lib/budget/domaines.ts`). Absent = générale. */
   domaine?: string | null;
 }
 
-/** Le droit du module Budget Marketing — lu sans lever d'erreur sur un utilisateur de test sans accès résolu. */
+/** Le droit du module de budget d'un pôle — lu sans lever d'erreur sur un utilisateur de test sans accès résolu. */
+export function peutBudgetDuPole(user: SessionUser, pole: DomainePole, action: Action): boolean {
+  return user.access?.modules?.get(DOMAINES[pole].module)?.actions.has(action) ?? false;
+}
+
+/** Le droit du module Budget Marketing (`peutBudgetDuPole` pour le pôle Marketing). */
 export function peutBudgetMarketing(user: SessionUser, action: Action): boolean {
-  return user.access?.modules?.get("BUDGET_MARKETING")?.actions.has(action) ?? false;
+  return peutBudgetDuPole(user, "MARKETING", action);
+}
+
+/** L'enveloppe est tenue par un pôle, et la personne porte le geste demandé sur le module de budget de CE pôle. */
+function droitDuPole(user: SessionUser, env: EnvelopeAccessBearer, action: Action): boolean {
+  const pole = poleDe(env);
+  return pole !== null && peutBudgetDuPole(user, pole, action);
 }
 
 /**
@@ -784,33 +907,39 @@ export function peutBudgetMarketing(user: SessionUser, action: Action): boolean 
  * enveloppe. Ne confère PAS le droit de modifier l'enveloppe elle-même (montant, période, accès) —
  * cela reste réservé à `canManageEnvelopes`.
  *
- * BUDGET MARKETING (08/10) : une enveloppe MARKETING se gère aussi par le droit « Modifier » du module
- * Budget Marketing — la Direction Marketing n'a pas à être listée enveloppe par enveloppe.
+ * BUDGETS DES PÔLES (08/10) : une enveloppe MARKETING, REGULATORY ou OPERATIONS se gère aussi par le droit « Modifier »
+ * du module de budget de SON pôle — le pôle n'a pas à être listé enveloppe par enveloppe, et le droit d'un pôle ne
+ * touche jamais l'enveloppe d'un autre.
  */
 export function canManageEnvelope(user: SessionUser, env: EnvelopeAccessBearer): boolean {
   return canManageEnvelopes(user) || (env.managerRoles ?? []).includes(user.role) || (env.managerUserIds ?? []).includes(user.id)
-    || (estEnveloppeMarketing(env) && peutBudgetMarketing(user, "UPDATE"));
+    || droitDuPole(user, env, "UPDATE");
 }
 
 /**
  * VISUALISATION d'une enveloppe : quiconque peut la gérer (global ou délégué) OU à qui l'admin
  * a ouvert la consultation (par rôle ou nommément). Défaut = invisible (encadrement strict).
- * Une enveloppe MARKETING se lit aussi par le droit « Voir » du module Budget Marketing.
+ * Une enveloppe de pôle se lit aussi par le droit « Voir » du module de budget de son pôle.
  */
 export function canViewEnvelope(user: SessionUser, env: EnvelopeAccessBearer): boolean {
   return canManageEnvelope(user, env) || (env.accessRoles ?? []).includes(user.role) || (env.accessUserIds ?? []).includes(user.id)
-    || (estEnveloppeMarketing(env) && peutBudgetMarketing(user, "VIEW"));
+    || droitDuPole(user, env, "VIEW");
 }
 
 /**
- * GOUVERNANCE d'une enveloppe MARKETING (la créer, régler son montant / sa période, la retirer) : le Super Admin, ou
- * le titulaire du geste correspondant sur Budget Marketing (Créer, Modifier, Supprimer). Une enveloppe générale reste
- * au seul Super Admin (`canManageEnvelopes`). Les LISTES D'ACCÈS ne sont jamais concernées : Super Admin seulement.
+ * GOUVERNANCE d'une enveloppe de PÔLE (la créer, régler son montant / sa période, la retirer) : le Super Admin, ou le
+ * titulaire du geste correspondant sur le module de budget du pôle (Créer, Modifier, Supprimer). Une enveloppe générale
+ * — ou celle d'un autre pôle — reste hors de portée. Les LISTES D'ACCÈS ne sont jamais concernées : Super Admin seulement.
  */
-export function canGovernMarketingEnvelope(user: SessionUser, action: "CREATE" | "UPDATE" | "DELETE", env?: EnvelopeAccessBearer): boolean {
+export function canGovernPoleEnvelope(user: SessionUser, pole: DomainePole, action: "CREATE" | "UPDATE" | "DELETE", env?: EnvelopeAccessBearer): boolean {
   if (canManageEnvelopes(user)) return true;
-  if (env && !estEnveloppeMarketing(env)) return false;
-  return peutBudgetMarketing(user, action);
+  if (env && poleDe(env) !== pole) return false;
+  return peutBudgetDuPole(user, pole, action);
+}
+
+/** `canGovernPoleEnvelope` pour le pôle Marketing. */
+export function canGovernMarketingEnvelope(user: SessionUser, action: "CREATE" | "UPDATE" | "DELETE", env?: EnvelopeAccessBearer): boolean {
+  return canGovernPoleEnvelope(user, "MARKETING", action, env);
 }
 
 // ─────────── Catégories (espaces partagés) du Drive ───────────
@@ -958,6 +1087,8 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     SPONSORING: ["MEDICAL_DELEGATE"],
     // Segmentation Studio : le KAM ne voit et ne renseigne que SON panel (secteur ∪ rattachement).
     SEGMENTATION: ["MEDICAL_DELEGATE"],
+    // Retours & réclamations : le KAM ne lit que ce qu'il a déclaré (ou ce dont on l'a fait responsable).
+    RETOURS_RECLAMATIONS: ["MEDICAL_DELEGATE"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }

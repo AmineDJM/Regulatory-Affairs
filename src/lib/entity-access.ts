@@ -21,6 +21,8 @@ import { isManagerOfUser, getManagementChain } from "@/lib/departments";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { canViewDeclaration } from "@/lib/queries/medical-info";
 import { accesAuCasPv } from "@/lib/pharmacovigilance/acces";
+import { accesALaReclamation } from "@/lib/reclamations/acces";
+import { accesAuReleveStockPch } from "@/lib/queries/stock-pch";
 import {
   userCan, hasGlobalView, isTopManagement, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring,
@@ -108,6 +110,10 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   // Un cas de pharmacovigilance : l'accès réel est nominatif (déclarant, participants, qui reçoit les cas), résolu
   // plus bas par `accesAuCasPv`.
   PHARMACOVIGILANCE_CASE: "PHARMACOVIGILANCE",
+  // Une réclamation : l'accès réel est nominatif (déclarant, responsable, qui voit tout), résolu par `accesALaReclamation`.
+  RECLAMATION: "RETOURS_RECLAMATIONS",
+  // Un relevé du stock PCH central (identifié par la date du mail) : la chaîne d'approvisionnement, `accesAuReleveStockPch`.
+  STOCK_PCH_RELEVE: "STOCKS",
 };
 
 /**
@@ -545,6 +551,10 @@ export async function canAccessEntity(
   // UN CAS DE PHARMACOVIGILANCE (Direction, 06/10) : la règle de SA FICHE, avant le droit de module — une personne
   // ajoutée à l'échange n'a pas forcément le module, et un KAM qui l'a ne lit que SES signalements.
   if (entityType === "PHARMACOVIGILANCE_CASE") return accesAuCasPv(user, entityId, action);
+  // UNE RÉCLAMATION (Operations & Sales, 08/10) : la règle de SA FICHE — le KAM qui l'a déclarée n'en lit pas d'autres.
+  if (entityType === "RECLAMATION") return accesALaReclamation(user, entityId, action);
+  // UN RELEVÉ DU STOCK PCH CENTRAL : la chaîne d'approvisionnement seule (un KAM ne lit pas la position de la PCH).
+  if (entityType === "STOCK_PCH_RELEVE") return accesAuReleveStockPch(user, entityId, action);
 
   // POSTE DE DÉPENSE : l'accès ne vient PAS d'un module, il vient de SON OPÉRATION.
   //

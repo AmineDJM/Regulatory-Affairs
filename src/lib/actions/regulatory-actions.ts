@@ -27,6 +27,7 @@ import { ensureProduitDuDossier, synchroniserCycleDeVie } from "@/lib/products/c
 import { phraseProduitDuDossier } from "@/lib/products/produit-du-dossier";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { categorieBvPourOrdre } from "@/lib/queries/budget-regulatory";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS, VARIATION_TARGETS, MANUFACTURING_STATUS } from "@/lib/labels";
@@ -1202,8 +1203,9 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
 
   // L'ORDRE NAÎT EN ATTENTE DU CENTRE DE PAIEMENT (`initialCentralStatus`, aucune exemption de
   // module) ; les Finances ne le voient qu'une fois autorisé. Son entité est celle du DOSSIER.
+  const label = `${bvType} — ${product.reference} ${product.dci}`;
   const order = await createExpenseOrder({
-    label: `${bvType} — ${product.reference} ${product.dci}`,
+    label,
     amount,
     category: "IMPOT",
     beneficiary: "ANPP",
@@ -1212,6 +1214,9 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
     requestedById: user.id,
     notes: note,
     dueDate: dueRaw ? new Date(dueRaw) : null,
+    // BUDGET REGULATORY (08/10) : le BV naît rangé dans la catégorie de SA part (25 % ou 75 %) de l'enveloppe
+    // Regulatory active — il s'y imputera à son règlement. Aucune enveloppe → le chemin ordinaire.
+    budgetCategoryId: await categorieBvPourOrdre(label),
   });
 
   // JUSTIFICATIFS — UNE OU PLUSIEURS PIÈCES. Un BV arrive rarement seul : proforma, courrier

@@ -99,7 +99,7 @@ export interface ChevauchementDeConge {
 
 export interface TeamPending {
   id: string;
-  kind: "LEAVE" | "PURCHASE" | "TRAINING" | "RECRUITMENT" | "TOUR_PLAN";
+  kind: "LEAVE" | "PURCHASE" | "TRAINING" | "RECRUITMENT" | "TOUR_PLAN" | "MISSION_ORDER";
   /** La fiche concernée — c'est elle qui porte le « N à décider » de sa carte. */
   employeeId: string | null;
   who: string;
@@ -419,8 +419,35 @@ export async function getMyTeam(user: SessionUser, opts: { maintenant?: Date } =
     }];
   });
 
+  // LES ORDRES DE MISSION À VALIDER (missions Ad & Pro, 10/2026) — la marche du N+1 avant les RH, adressée à MOI.
+  // Ils se tranchent dans « Mon espace › Mes missions », où la ligne porte les boutons.
+  const ordresOm = await prisma.hrDocumentRequest.findMany({
+    where: { type: "MISSION_ORDER", status: "PENDING", managerGate: "PENDING", managerUserId: user.id },
+    select: { id: true, employeeId: true, details: true, createdAt: true, omPrefill: true, employee: { select: { fullName: true } } },
+    orderBy: { createdAt: "asc" },
+    take: 50,
+  });
+  const lienOm = lien("WORKSPACE", "/mon-espace/missions#a-valider");
+  const lignesOm: TeamPending[] = lienOm === null ? [] : ordresOm.map((o) => {
+    const depart = (o.omPrefill as { datesDepart?: unknown } | null)?.datesDepart;
+    const premier = Array.isArray(depart) && typeof depart[0] === "string" ? new Date(depart[0]).toISOString() : null;
+    return {
+      id: `mission-order-${o.id}`,
+      kind: "MISSION_ORDER" as const,
+      employeeId: o.employeeId,
+      who: o.employee.fullName,
+      title: "Ordre de mission",
+      detail: o.details,
+      amount: null,
+      createdAt: o.createdAt.toISOString(),
+      deadline: premier,
+      ...lienOm,
+      chevauchements: [],
+    };
+  });
+
   // La plus ANCIENNE en tête : c'est elle qui fait attendre quelqu'un depuis le plus longtemps.
-  const pending = [...lignesConges, ...lignesAchats, ...lignesFormations, ...lignesRecrutement, ...lignesPlans]
+  const pending = [...lignesConges, ...lignesAchats, ...lignesFormations, ...lignesRecrutement, ...lignesPlans, ...lignesOm]
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   // LA CARTE COMPTE LES LIGNES DE LA FILE, et rien d'autre (§118.51) : un congé, un achat, une formation ne

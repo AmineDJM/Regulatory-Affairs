@@ -19,8 +19,10 @@ import { BarreSuppressionAImputer } from "./suppression-a-imputer";
  * imputées viennent donc EN PREMIER — elles faussent tous les chiffres tant qu'elles
  * traînent — et le reste (l'historique de ce qui est déjà imputé) vient après.
  */
-export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [], canEditLines = canAttribute }: {
+export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [], canEditLines = canAttribute, marques }: {
   overview: BudgetOverview;
+  /** Une étiquette par dépense à imputer (Budget Operations : « Force de vente » sur ce qu'un commercial a demandé). */
+  marques?: Record<string, string>;
   canAttribute: boolean;
   /** Saisir / corriger les lignes purement budgétaires. Faux dans Budgets sur une enveloppe tenue par Budget Marketing. */
   canEditLines?: boolean;
@@ -106,6 +108,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                   </p>
                   <p className="text-xs text-muted-foreground">{tx.paiement}</p>
                 </div>
+                {marques?.[tx.id] && <Badge tone="info" dot={false}>{marques[tx.id]}</Badge>}
                 <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">{formatCurrency(tx.amount)}</span>
                 <button
                   type="button" onClick={() => setOuverte(ouverte === tx.id ? null : tx.id)} aria-expanded={ouverte === tx.id}
@@ -193,8 +196,9 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                 </div>
                 {tx.kind === "BUDGET" && <Badge tone="neutral" dot={false}>Budgétaire</Badge>}
                 {tx.kind === "GENERAL_MEANS" && <Badge tone="info" dot={false}>Moyens généraux</Badge>}
+                {tx.kind === "PAIE" && <Badge tone="info" dot={false}>Paie</Badge>}
                 <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">{formatCurrency(tx.amount)}</span>
-                {tx.kind === "GENERAL_MEANS" ? (
+                {tx.kind === "GENERAL_MEANS" || tx.kind === "PAIE" ? (
                   // Un achat des moyens généraux se corrige LÀ-BAS, avec son justificatif. Le
                   // modifier depuis le budget donnerait deux endroits pour changer un même
                   // montant — donc, tôt ou tard, deux montants différents. Le lien n'est offert que

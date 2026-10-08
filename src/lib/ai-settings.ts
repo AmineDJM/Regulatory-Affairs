@@ -33,7 +33,12 @@ export type AiFeature =
    * LUNA CONSEILLE OÙ RANGER UNE PIÈCE déposée sur une demande Ad & Pro (`conseil-pieces-ia.ts`) :
    * consultatif, sans aucune écriture — ALLUMÉ par défaut.
    */
-  | "conseil_pieces";
+  | "conseil_pieces"
+  /**
+   * LUNA ET LES KPI (KPI sans code, Direction 08/10) : traduire une phrase en définitions, pré-noter un KPI évalué avec
+   * ses preuves, rédiger le commentaire d'une revue. Jamais le chiffre. Suit la bascule de l'assistant.
+   */
+  | "kpi";
 
 export interface AiSettingsView {
   masterEnabled: boolean;
@@ -80,6 +85,7 @@ const FEATURE_KEY: Record<AiFeature, keyof AiSettingsView> = {
   site_web: "siteWebAiEnabled",
   lecture_pieces: "lecturePiecesEnabled",
   conseil_pieces: "conseilPiecesEnabled",
+  kpi: "assistantEnabled",
 };
 
 /**
