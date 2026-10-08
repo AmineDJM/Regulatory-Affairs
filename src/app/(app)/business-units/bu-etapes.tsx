@@ -9,6 +9,7 @@ import {
 import { ChoixSpecialites, type ChoixSpecialitesValeur } from "./choix-specialites";
 import { CHANNELS, CHANNEL_LABELS, channelCovers, channelLabel, type Channel, type BuStep } from "@/lib/sfe-setup";
 import { TerritoireKam, type TerritoireRow } from "./territoire-kam";
+import { WilayaPivotKam } from "./wilaya-pivot";
 import type { EtabOpt } from "./choix-etablissements";
 import type { BuRow, KamRow, Opt, ProductRow, ReferentRow } from "./bu-manager";
 
@@ -228,7 +229,7 @@ export function EtapeSecteurs({ bu, steps, kamsInside, hospitaliere, territoireD
     <section className="space-y-2">
       <Titre icone={<MapPin className="h-3.5 w-3.5" aria-hidden />}>Secteurs des KAM</Titre>
       {kamsInside.length === 0 ? <p className="text-xs text-muted-foreground">Rattachez d&apos;abord un KAM à la BU (étape KAM).</p>
-        : !hospitaliere ? <p className="text-xs text-muted-foreground">BU de ville : le secteur de chaque KAM se saisit en texte sur sa ligne (étape KAM).</p>
+        : !hospitaliere ? <p className="text-xs text-muted-foreground">BU de ville : le secteur de chaque KAM se saisit en texte sur sa ligne (étape KAM) ; sa wilaya pivot se choisit ici.</p>
         : (
           <>
             {etape && !etape.done && <p className="text-xs text-muted-foreground">{etape.why}</p>}
@@ -243,6 +244,18 @@ export function EtapeSecteurs({ bu, steps, kamsInside, hospitaliere, territoireD
             </div>
           </>
         )}
+      {/* BU de ville : pas de territoire à cocher — seulement la wilaya pivot de chaque KAM (Direction, 08/10). */}
+      {!hospitaliere && kamsInside.length > 0 && (
+        <div className="space-y-1.5">
+          {kamsInside.map((k) => (
+            <div key={k.repId} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border p-1.5 text-sm">
+              <UserCog className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="min-w-28 flex-1 font-medium [overflow-wrap:anywhere]">{k.name}</span>
+              <WilayaPivotKam buId={bu.id} repId={k.repId} nom={k.name} valeur={territoireDe(k.repId)?.wilayaPivot ?? null} busy={busy} run={run} />
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

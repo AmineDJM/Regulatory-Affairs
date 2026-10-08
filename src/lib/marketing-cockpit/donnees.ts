@@ -6,6 +6,7 @@ import { porteeSegmentation } from "@/lib/segmentation/droits";
 import type { Instantane } from "@/lib/segmentation/cycle-service";
 import type { EtatProduit, Lettre, Statut } from "@/lib/segmentation/regles";
 import { splitMulti } from "@/lib/ad-pro/pickers";
+import { chargerLiensAdPro, medecinsParDemande } from "@/lib/queries/ad-pro-medecins";
 import { getBudgetOverview, getEnvelopes } from "@/lib/queries/budget";
 import {
   aSesDeuxReponses, dansFenetre, lettreFigee, lettrePourProduit, moisDe, moisGlissants, partDeLAnnee, partImputee,
@@ -269,13 +270,25 @@ export async function chargerLeaders(base: BaseCockpit, maintenant: Date): Promi
     ]),
     noms.length ? prisma.sponsoringRequest.findMany({
       where: { requestDate: { gte: depuis }, status: { notIn: ["REFUSED", "CANCELLED"] }, OR: noms.map((n) => ({ doctor: { contains: n } })) },
-      select: { doctor: true, type: true, amountGranted: true },
+      select: { id: true, doctor: true, type: true, amountGranted: true },
     }) : Promise.resolve([]),
     noms.length ? prisma.event.findMany({
       where: { createdAt: { gte: depuis }, status: { not: "CANCELLED" }, OR: noms.map((n) => ({ doctor: { contains: n } })) },
-      select: { name: true, doctor: true },
+      select: { id: true, name: true, doctor: true },
     }) : Promise.resolve([]),
   ]);
+  // LE LIEN AVEC L'ANNUAIRE (Direction, 08/10) : les médecins concernés choisis sur chaque demande Ad & Pro, et ceux que
+  // les congrès portent déjà. Le rapprochement par NOM (plus bas) ne sert plus qu'aux demandes sans aucun médecin relié.
+  const liensAdPro = await chargerLiensAdPro(ids, depuis);
+  const reliees = new Set(
+    sponsorings.length + evenements.length === 0 ? [] : (await prisma.adProMedecin.findMany({
+      where: { OR: [
+        { entityType: "SPONSORING", entityId: { in: sponsorings.map((x) => x.id) } },
+        { entityType: "EVENT", entityId: { in: evenements.map((x) => x.id) } },
+      ] },
+      select: { entityType: true, entityId: true },
+    })).map((x) => `${x.entityType}:${x.entityId}`),
+  );
   const derniere = new Map(dernieres.map((d) => [d.doctorId, d._max.date]));
   return leaders.map((l): LigneLeader => {
     const adPro: string[] = [];
@@ -287,14 +300,20 @@ export async function chargerLeaders(base: BaseCockpit, maintenant: Date): Promi
     }
     for (const c of [...invitations[0], ...invitations[1]]) if (c.invitedDoctorIds.includes(l.doctorId) && !adPro.includes(`Congrès ${c.name}`)) adPro.push(`Congrès ${c.name}`);
     const moi = nomNorme(l.nom);
+    for (const lien of liensAdPro.filter((x) => x.doctorId === l.doctorId)) {
+      adPro.push(lien.nom);
+      // Les congrès ont leur argent dans les prises en charge (ci-dessus) : on ne le compte pas deux fois.
+      if (lien.investi !== null && lien.nature !== "CONGRESS_NATIONAL" && lien.nature !== "CONGRESS_INTERNATIONAL") investi += lien.investi;
+    }
     for (const s of sponsorings) {
+      if (reliees.has(`SPONSORING:${s.id}`)) continue;
       const nommes = splitMulti(s.doctor).map(nomNorme);
       if (!nommes.includes(moi)) continue;
       adPro.push(`Sponsoring ${s.type}`.trim());
       // Attribuable seulement quand le sponsoring ne nomme QUE lui : sinon on ne sait pas le partager.
       if (nommes.length === 1 && s.amountGranted !== null) investi += Number(s.amountGranted);
     }
-    for (const e of evenements) if (splitMulti(e.doctor).map(nomNorme).includes(moi)) adPro.push(e.name);
+    for (const e of evenements) if (!reliees.has(`EVENT:${e.id}`) && splitMulti(e.doctor).map(nomNorme).includes(moi)) adPro.push(e.name);
     return {
       doctorId: l.doctorId, nom: l.nom, etablissement: l.etablissement, specialite: l.specialite, specialiteId: l.specialiteId,
       statut: l.statut as Statut, lettre: base.lettreDe.get(l.doctorId) ?? "NA",
@@ -322,7 +341,7 @@ export async function chargerDepenses(base: BaseCockpit, bu: BuCockpit, produit:
     { sponsoring: { businessUnitId: bu.id } }, { congressNational: { businessUnitId: bu.id } },
     { congressInternational: { businessUnitId: bu.id } }, { event: { businessUnitId: bu.id } },
   ];
-  const congres = { select: { businessUnitId: true, invitedDoctorIds: true, careBeneficiaries: { select: { doctorId: true, status: true } } } } as const;
+  const congres = { select: { id: true, businessUnitId: true, invitedDoctorIds: true, careBeneficiaries: { select: { doctorId: true, status: true } } } } as const;
   const [items, repartitions, materiels] = await Promise.all([
     prisma.adProItem.findMany({
       where: {
@@ -335,9 +354,9 @@ export async function chargerDepenses(base: BaseCockpit, bu: BuCockpit, produit:
       select: {
         amountGranted: true, decidedAt: true, createdAt: true,
         productAllocations: { select: { productId: true, sharePct: true, amountAllocated: true } },
-        sponsoring: { select: { businessUnitId: true, doctor: true } },
+        sponsoring: { select: { id: true, businessUnitId: true, doctor: true } },
         congressNational: congres, congressInternational: congres,
-        event: { select: { businessUnitId: true, doctor: true } },
+        event: { select: { id: true, businessUnitId: true, doctor: true } },
       },
     }),
     productId ? prisma.coutRepartitionBu.findMany({ where: { businessUnitId: bu.id, productId }, select: { annee: true, pct: true } }) : Promise.resolve([]),
@@ -346,8 +365,19 @@ export async function chargerDepenses(base: BaseCockpit, bu: BuCockpit, produit:
         createdAt: { gte: depuis }, status: { not: "CANCELLED" }, OR: [{ chosenAmount: { not: null } }, { amount: { not: null } }],
         ...(productId ? { articlesDemandes: { some: { produits: { some: { productId } } } } } : { businessUnitId: bu.id }),
       },
-      select: { chosenAmount: true, amount: true, articlesDemandes: { select: { produits: { select: { productId: true } } } } },
+      select: { id: true, chosenAmount: true, amount: true, articlesDemandes: { select: { produits: { select: { productId: true } } } } },
     }),
+  ]);
+  // LES MÉDECINS RELIÉS À L'ANNUAIRE sur chaque demande (Direction, 08/10) : ce sont eux qui donnent la lettre H·A·B de la
+  // dépense ; le nom écrit à la main ne sert qu'aux demandes sans médecin relié.
+  const reliesParDemande = await medecinsParDemande([
+    ...items.flatMap((i) => [
+      ...(i.sponsoring ? [{ nature: "SPONSORING" as const, id: i.sponsoring.id }] : []),
+      ...(i.event ? [{ nature: "EVENT" as const, id: i.event.id }] : []),
+      ...(i.congressNational ? [{ nature: "CONGRESS_NATIONAL" as const, id: i.congressNational.id }] : []),
+      ...(i.congressInternational ? [{ nature: "CONGRESS_INTERNATIONAL" as const, id: i.congressInternational.id }] : []),
+    ]),
+    ...materiels.map((m) => ({ nature: "PROMO_MATERIAL" as const, id: m.id })),
   ]);
   const pctAnnee = new Map(repartitions.map((r) => [r.annee, Number(r.pct)]));
   const docParNom = new Map<string, string>();
@@ -374,9 +404,13 @@ export async function chargerDepenses(base: BaseCockpit, bu: BuCockpit, produit:
     if (part === null || !(part > 0)) continue;
     let lettres: (Lettre | null)[] = [];
     if (c) {
-      const nommes = new Set([...c.careBeneficiaries.filter((b) => b.doctorId && b.status !== "REJECTED" && b.status !== "WITHDRAWN").map((b) => b.doctorId!), ...c.invitedDoctorIds]);
+      const reliesCongres = reliesParDemande.get(`${i.congressNational ? "CONGRESS_NATIONAL" : "CONGRESS_INTERNATIONAL"}:${c.id}`) ?? [];
+      const nommes = new Set([...c.careBeneficiaries.filter((b) => b.doctorId && b.status !== "REJECTED" && b.status !== "WITHDRAWN").map((b) => b.doctorId!), ...c.invitedDoctorIds, ...reliesCongres]);
       lettres = [...nommes].map(lettreDuDoc);
-    } else lettres = lettresDesNoms(i.sponsoring?.doctor ?? i.event?.doctor ?? null);
+    } else {
+      const reliesIci = reliesParDemande.get(i.sponsoring ? `SPONSORING:${i.sponsoring.id}` : `EVENT:${i.event?.id ?? ""}`) ?? [];
+      lettres = reliesIci.length ? reliesIci.map(lettreDuDoc) : lettresDesNoms(i.sponsoring?.doctor ?? i.event?.doctor ?? null);
+    }
     out.push({ nature, montant: part, lettres });
   }
   for (const m of materiels) {
@@ -388,7 +422,7 @@ export async function chargerDepenses(base: BaseCockpit, bu: BuCockpit, produit:
       const avec = m.articlesDemandes.filter((a) => a.produits.some((x) => x.productId === productId)).length;
       part = total ? montant * (avec / total) : 0;
     }
-    if (part > 0) out.push({ nature: "MATERIEL", montant: part, lettres: [] });
+    if (part > 0) out.push({ nature: "MATERIEL", montant: part, lettres: (reliesParDemande.get(`PROMO_MATERIAL:${m.id}`) ?? []).map(lettreDuDoc) });
   }
   return out;
 }

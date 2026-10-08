@@ -4096,6 +4096,8 @@ model MedicalDoctor {
   specialty             String? // libellé libre hérité (fallback si non rattaché)
   specialtyId           String?
   specialtyRef          MedicalSpecialty?          @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  /// Les demandes Ad & Pro qui désignent CE praticien (médecins concernés — Direction, 08/10).
+  adProMedecins         AdProMedecin[]
   sector                MedicalSector              @default(LIBERAL)
   institution           String? // hôpital / clinique (libellé dénormalisé, hérité)
   institutionId         String?
@@ -11025,6 +11027,9 @@ model SalesSector {
   /// je suis à Oran ») : ceci ouvre son secteur sur la bonne ville sans qu'il ait à la chercher.
   /// Nul = secteur multi-villes, la ville se lit alors sur chaque hôpital.
   city           String?
+  /// LA WILAYA PIVOT (Direction, 08/10) — choisie dans la liste fermée des 58 wilayas, sur la ligne du KAM. Une visite dans
+  /// cette wilaya = IN, ailleurs = OUT (segmentation). Nul = on lit encore la ville pivot (`city`).
+  wilayaPivot    String?
   color          String?
   isActive       Boolean      @default(true)
   createdById    String?
@@ -15778,4 +15783,26 @@ model KpiReviewSetting {
   /// MENSUELLE · TRIMESTRIELLE · SEMESTRIELLE
   frequence     String   @default("MENSUELLE")
   updatedAt     DateTime @updatedAt
+}
+
+/// LES MÉDECINS CONCERNÉS PAR UNE DEMANDE AD & PRO (Direction, 08/10) — le lien générique demande ↔ annuaire.
+/// « Produits – médecins – dépenses connectés » : le cockpit marketing (Leaders d'opinion, Investissements) et la
+/// fiche du praticien lisent ce lien ; le texte libre `doctor` des anciennes demandes ne sert plus que de repli.
+/// `entityType` : SPONSORING, EVENT, CONGRESS_NATIONAL, CONGRESS_INTERNATIONAL, PROMO_MATERIAL, AD_PRO_OTHER.
+model AdProMedecin {
+  id          String        @id @default(cuid())
+  entityType  String
+  entityId    String
+  doctorId    String
+  doctor      MedicalDoctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  /// BENEFICIAIRE | ORATEUR | INVITE | AUTRE
+  role        String        @default("BENEFICIAIRE")
+  /// Montant attribuable à CE praticien (DZD), quand la demande le dit.
+  montant     Decimal?      @db.Decimal(14, 2)
+  createdById String
+  createdAt   DateTime      @default(now())
+
+  @@unique([entityType, entityId, doctorId])
+  @@index([entityType, entityId])
+  @@index([doctorId])
 }

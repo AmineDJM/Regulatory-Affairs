@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { anyRoleFilter } from "@/lib/rbac";
+import { chargerLiensAdPro } from "@/lib/queries/ad-pro-medecins";
 import { getSfeConfig, type RepScope } from "@/lib/sfe";
 import { panelsDesKams, kamsQuiCouvrent } from "@/lib/queries/panel-kam";
 import { loadTourneeDirection } from "@/lib/queries/tour-schedule";
@@ -357,7 +358,7 @@ export interface FdvDuPraticien {
  */
 export async function chargerFdvDuPraticien(doctorId: string, maintenant = new Date()): Promise<FdvDuPraticien> {
   const ilYA12Mois = new Date(maintenant.getFullYear() - 1, maintenant.getMonth(), maintenant.getDate());
-  const [segmentations, doc, couverts, visites, beneficiaires] = await Promise.all([
+  const [segmentations, doc, couverts, visites, beneficiaires, liens] = await Promise.all([
     chargerSegmentations({ doctorIds: [doctorId] }),
     prisma.medicalDoctor.findUnique({ where: { id: doctorId }, select: { delegate: { select: { id: true, name: true, isActive: true } } } }),
     kamsQuiCouvrent([doctorId]),
@@ -372,6 +373,8 @@ export async function chargerFdvDuPraticien(doctorId: string, maintenant = new D
       },
       select: { congressNational: { select: { id: true, name: true, date: true } }, congressInternational: { select: { id: true, name: true, startDate: true } } },
     }),
+    // LES MÉDECINS CONCERNÉS reliés à l'annuaire (Direction, 08/10) : sponsoring, événement, matériel, autres demandes — et les congrès.
+    chargerLiensAdPro([doctorId], ilYA12Mois),
   ]);
   const kams = new Map<string, string>();
   if (doc?.delegate?.isActive) kams.set(doc.delegate.id, doc.delegate.name);
@@ -383,11 +386,17 @@ export async function chargerFdvDuPraticien(doctorId: string, maintenant = new D
     kams: [...kams].map(([id, nom]) => ({ id, nom })),
     derniereVisite: visites[0] ? { date: visites[0].date, delegue: visites[0].delegate?.name ?? null } : null,
     messages: [...new Set(visites.flatMap((v) => v.messageLinks.map((m) => m.message.title)))],
-    adPro: beneficiaires.flatMap((b) => {
-      if (b.congressNational) return [{ id: b.congressNational.id, nom: b.congressNational.name, nature: "Congrès national", date: b.congressNational.date }];
-      if (b.congressInternational) return [{ id: b.congressInternational.id, nom: b.congressInternational.name, nature: "Congrès international", date: b.congressInternational.startDate }];
-      return [];
-    }),
+    adPro: [
+      ...beneficiaires.flatMap((b) => {
+        if (b.congressNational) return [{ id: b.congressNational.id, nom: b.congressNational.name, nature: "Congrès national", date: b.congressNational.date }];
+        if (b.congressInternational) return [{ id: b.congressInternational.id, nom: b.congressInternational.name, nature: "Congrès international", date: b.congressInternational.startDate }];
+        return [];
+      }),
+      // Une demande déjà lue par les prises en charge n'est pas comptée deux fois.
+      ...liens
+        .filter((l) => !beneficiaires.some((b) => (l.nature === "CONGRESS_NATIONAL" ? b.congressNational?.id : l.nature === "CONGRESS_INTERNATIONAL" ? b.congressInternational?.id : null) === l.entityId))
+        .map((l) => ({ id: l.entityId, nom: l.nom, nature: l.natureLibelle, date: l.date as Date | null })),
+    ],
   };
 }
 

@@ -38,6 +38,7 @@ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import { MedecinsConcernes } from "@/components/ad-pro/medecins-concernes";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import {
   bilanCloture, etatPostesSponsoring, peutCloturer, quiCloture as quiClotureDe, LIBELLE_QUI_CLOTURE,
@@ -347,6 +348,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
       {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
       <PiecesLegalDeLaDemande spectateur={user} entityType="SPONSORING" entityId={req.id} />
+
+      {/* LES MÉDECINS CONCERNÉS (Direction, 08/10) — choisis dans l'annuaire : le lien que lisent le cockpit marketing et la fiche du praticien. */}
+      <MedecinsConcernes user={user} entityType="SPONSORING" entityId={req.id} />
 
       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et, dessous, les échanges avec les
           personnes impliquées : un seul espace. */}

@@ -33,6 +33,7 @@ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import { MedecinsConcernes } from "@/components/ad-pro/medecins-concernes";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
@@ -173,6 +174,9 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
 
       {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
       <PiecesLegalDeLaDemande spectateur={user} entityType="CONGRESS_NATIONAL" entityId={detail.id} />
+
+      {/* LES MÉDECINS CONCERNÉS (Direction, 08/10) — choisis dans l'annuaire : le lien que lisent le cockpit marketing et la fiche du praticien. */}
+      <MedecinsConcernes user={user} entityType="CONGRESS_NATIONAL" entityId={detail.id} />
 
       <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_NATIONAL" entityId={detail.id} missionUsers={missionUsers} />
       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes

@@ -18,6 +18,7 @@ import { ensureProduitDuDossier } from "@/lib/products/canonique";
 import { enSerie } from "@/lib/refs";
 import { specialitesDemandees, ecrireSpecialitesBu, resumeSpecialitesBu } from "@/lib/sfe/specialites-bu";
 import { estBuHospitaliere, nomDuTerritoire } from "@/lib/sfe/territoire-kam";
+import { canonicalWilaya } from "@/lib/medical/wilaya";
 
 const MODULE = "SALES_PLANNING" as const;
 /**
@@ -714,6 +715,7 @@ async function ecrireSecteur(
   const data = {
     name,
     ...(formData.has("city") ? { city: fdStr(formData, "city") } : {}),
+    ...(formData.has("wilayaPivot") ? { wilayaPivot: canonicalWilaya(fdStr(formData, "wilayaPivot")) } : {}),
     ...(formData.has("color") ? { color: fdStr(formData, "color") } : {}),
     ...(actif !== undefined ? { isActive: actif } : {}),
   };
@@ -879,6 +881,72 @@ export async function enregistrerTerritoireKam(formData: FormData): Promise<Acti
       }
       return ecrireSecteur(user.id, existant?.id ?? null, businessUnitId, nom, formData, repId);
     });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return { ok: false, error: "Le territoire de ce KAM vient d'être enregistré par ailleurs — rechargez l'écran, puis recommencez." };
+    }
+    throw e;
+  }
+}
+
+/**
+ * LA WILAYA PIVOT D'UN KAM (Direction, 08/10) : « pour chaque KAM, mettre la wilaya pivot avec un menu déroulant, utilisée
+ * pour le In/Out de la segmentation : une visite dans la wilaya pivot = In, en dehors = Out ».
+ *
+ * Un geste À PART du territoire : il n'écrit QUE la wilaya (vide = on la retire), jamais la couverture — passer par
+ * `enregistrerTerritoireKam` sans cocher d'établissements viderait le panel du KAM. Le territoire propre du KAM est créé
+ * (vide, au nom habituel) quand il n'existe pas encore : on peut désigner la wilaya avant de choisir les établissements.
+ */
+export async function definirWilayaPivotKam(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const businessUnitId = fdStr(formData, "businessUnitId");
+  const repId = fdStr(formData, "repId");
+  const brute = fdStr(formData, "wilayaPivot");
+  if (!businessUnitId) return { ok: false, error: "Le territoire doit appartenir à une Business Unit." };
+  if (!repId) return { ok: false, error: "KAM introuvable." };
+  // LA LISTE FERMÉE : une wilaya du référentiel, ou rien. Jamais un texte deviné.
+  const wilaya = brute ? canonicalWilaya(brute) : null;
+  if (brute && !wilaya) return { ok: false, error: `« ${brute} » n'est pas une wilaya du référentiel — choisissez-la dans le menu.` };
+  const [profil, kam] = await Promise.all([
+    prisma.salesRepProfile.findFirst({ where: { repId, businessUnitId }, select: { repId: true } }),
+    prisma.user.findUnique({ where: { id: repId }, select: { name: true } }),
+  ]);
+  if (!profil || !kam) {
+    return { ok: false, error: "Ce KAM n'est pas (ou plus) rattaché à cette BU — rattachez-le d'abord, ou rechargez l'écran." };
+  }
+  try {
+    const id = await enSerie(`territoire-kam:${businessUnitId}:${repId}`, async () => {
+      const existant = await prisma.salesSector.findUnique({
+        where: { businessUnitId_repId: { businessUnitId, repId } },
+        select: { id: true, wilayaPivot: true },
+      });
+      if (existant) {
+        if (existant.wilayaPivot !== wilaya) await prisma.salesSector.update({ where: { id: existant.id }, data: { wilayaPivot: wilaya } });
+        return existant.id;
+      }
+      if (!wilaya) return null;
+      const base = nomDuTerritoire(kam.name, repId, false);
+      const pris = await prisma.salesSector.findFirst({
+        where: { businessUnitId, name: { equals: base, mode: "insensitive" } },
+        select: { id: true },
+      });
+      const cree = await prisma.salesSector.create({
+        data: { businessUnitId, name: nomDuTerritoire(kam.name, repId, Boolean(pris)), repId, wilayaPivot: wilaya, createdById: user.id },
+        select: { id: true },
+      });
+      await prisma.salesSectorRep.createMany({ data: [{ sectorId: cree.id, repId }], skipDuplicates: true });
+      return cree.id;
+    });
+    if (id) {
+      await recordAudit({
+        actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: id,
+        summary: `Wilaya pivot de ${kam.name} : ${wilaya ?? "retirée"} (In / Out de la segmentation)`,
+      });
+    }
+    revalidatePath(BU_PATH, "layout");
+    revalidatePath("/segmentation");
+    return { ok: true, id: id ?? undefined };
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return { ok: false, error: "Le territoire de ce KAM vient d'être enregistré par ailleurs — rechargez l'écran, puis recommencez." };
