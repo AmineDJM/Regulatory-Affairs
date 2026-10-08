@@ -8,7 +8,7 @@ import { ADVENTUM_COMPANY_ID } from "@/lib/company-defaut";
 import { lireClasseur, proposerRegles, methodeDuFichier, reglesDuTexte, type LectureClasseur, type LigneClasseur } from "./lecture-classeur";
 import { rapprocher, type Rapprochement } from "./rapprochement";
 import { lireRegles, STATUTS, METHODE_LABELS, pct, type Lettre, type Regles, type Statut } from "./regles";
-import { segmenterPraticien, derniere, type ContexteSegmentation, type Derogation, type FaitsPraticien, type Observation } from "./moteur";
+import { segmenterPraticien, derniere, effaceDeSource, type ContexteSegmentation, type Derogation, type FaitsPraticien, type Observation } from "./moteur";
 import { secteurDuPraticien } from "./secteurs";
 import { chargerContexte, chargerSecteurs, chargerStrategie, type StrategieChargee } from "./service";
 import { lireFeuilles } from "./feuilles";
@@ -223,10 +223,10 @@ async function preparer(buffer: Buffer, nomFichier: string, businessUnitId: stri
   const ficheDe = new Map(fiches.map((f) => [f.doctorId, f]));
   const obs = ids.length ? await prisma.hcpObservation.findMany({
     where: { doctorId: { in: ids }, OR: [{ strategieId: strategie?.id ?? "__aucune" }, { strategieId: null }] },
-    select: { doctorId: true, productId: true, potentiel: true, prescriptionsSur10: true, observeLe: true },
+    select: { doctorId: true, productId: true, potentiel: true, prescriptionsSur10: true, observeLe: true, source: true },
   }) : [];
   const obsParDoc = new Map<string, Observation[]>();
-  for (const o of obs) obsParDoc.set(o.doctorId, [...(obsParDoc.get(o.doctorId) ?? []), { productId: o.productId, potentiel: o.potentiel === null ? null : Number(o.potentiel), prescriptionsSur10: o.prescriptionsSur10 === null ? null : Number(o.prescriptionsSur10), observeLe: o.observeLe }]);
+  for (const o of obs) obsParDoc.set(o.doctorId, [...(obsParDoc.get(o.doctorId) ?? []), { productId: o.productId, potentiel: o.potentiel === null ? null : Number(o.potentiel), prescriptionsSur10: o.prescriptionsSur10 === null ? null : Number(o.prescriptionsSur10), observeLe: o.observeLe, efface: effaceDeSource(o.source) }]);
   const decs = strategie && ids.length ? await prisma.segmentationDerogation.findMany({
     where: { strategieId: strategie.id, doctorId: { in: ids }, leveeLe: null, OR: [{ nature: "CIBLAGE" }, { nature: "SEGMENT", productId }] },
     select: { id: true, doctorId: true, nature: true, valeur: true, motif: true, expireLe: true, productId: true },

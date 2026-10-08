@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
-import { resolveRepScope } from "@/lib/sfe";
+import { resolveRepScope, peutConfigurerBu } from "@/lib/sfe";
 import { cn } from "@/lib/utils";
 import { STATUT_LABELS } from "@/lib/segmentation/regles";
 import { busDuPerimetre, chargerTerritoires } from "@/lib/queries/force-de-vente";
@@ -9,6 +9,7 @@ import { InfoBulle } from "@/components/ui/info-bulle";
 import { LettreBadge } from "@/app/(app)/segmentation/lettre-badge";
 import { EnteteFdv, lireParametres } from "../entete";
 import { HorsPanel } from "./hors-panel";
+import { NomTerritoire } from "@/app/(app)/business-units/nom-territoire";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,8 @@ export default async function TerritoiresPage({ searchParams }: { searchParams?:
   const { year, month, buId } = lireParametres(searchParams, bus);
   const territoires = await chargerTerritoires(scope, user.id, buId);
   const peutAffecter = !scope.lectureSeule && (scope.canConfigure || scope.mode === "team");
+  // NOMMER UN TERRITOIRE (Direction, 08/10) : le droit qui règle les secteurs — le module « Business Units ».
+  const peutRenommer = peutConfigurerBu(user);
 
   return (
     <div className="space-y-4">
@@ -35,8 +38,8 @@ export default async function TerritoiresPage({ searchParams }: { searchParams?:
         <section key={t.buId} className="surface min-w-0 rounded-xl">
           <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
             <h2 className="text-[15px] font-semibold">Secteurs de la BU {t.buNom}</h2>
-            {scope.canConfigure && (
-              <Link href={`/planning/business-units?bu=${t.buId}&etape=secteurs`} className="inline-flex h-8 items-center rounded-[var(--radius)] border border-border bg-card px-2.5 text-xs font-medium hover:bg-secondary">Nouveau secteur</Link>
+            {peutRenommer && (
+              <Link href={`/business-units/secteurs?bu=${t.buId}`} className="inline-flex h-8 items-center rounded-[var(--radius)] border border-border bg-card px-2.5 text-xs font-medium hover:bg-secondary">Nouveau secteur</Link>
             )}
           </header>
           {!t.segmentee && <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">Segmentation non publiée pour cette BU : panel et charge s&apos;afficheront à la première version des règles.</p>}
@@ -60,7 +63,7 @@ export default async function TerritoiresPage({ searchParams }: { searchParams?:
                 <tbody>
                   {t.secteurs.map((s) => (
                     <tr key={s.id} className="border-t border-border">
-                      <td className="sticky left-0 z-[1] bg-card px-3 py-2 font-medium [overflow-wrap:anywhere]">{s.nom}</td>
+                      <td className="sticky left-0 z-[1] bg-card px-3 py-2 font-medium [overflow-wrap:anywhere]"><NomTerritoire id={s.id} nom={s.nom} peutRenommer={peutRenommer} /></td>
                       <td className="px-3 py-2">
                         {s.delegues.length ? s.delegues.map((d) => d.nom).join(", ") : <span className="inline-flex rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">vacant</span>}
                       </td>

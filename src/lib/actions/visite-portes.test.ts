@@ -127,7 +127,7 @@ suite("Visite faite — la fenêtre de 48 h et la gamme tiennent à TOUTES les p
     expect(gamme.rattache).toBe(false);
     const r = await logVisit(undefined, form({ doctorId: docSansBu, productId: [dansGamme] }));
     expect(r.ok ? null : r.error).toBe(refusProduitsHorsBu(1, gamme, "vous"));
-    expect(r.ok ? null : r.error).toMatch(/Force de vente › Business Units/);
+    expect(r.ok ? null : r.error).toMatch(/Business Units/);
   });
 
   it("le témoin : dans la fenêtre et dans la gamme, la visite part, terminée, avec son produit lié", async () => {

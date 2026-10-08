@@ -1458,7 +1458,7 @@ export interface NavItem {
    * Pôle d'entreprise auquel l'entrée appartient (groupe « Pôles » uniquement). C'est ce qui
    * remplace les treize entrées à plat : l'utilisateur voit son entreprise, pas les modules.
    */
-  pole?: "REGULATORY" | "ADMINISTRATION" | "SALES_MARKETING" | "BUSINESS_DEV" | "SUPPLY_CHAIN";
+  pole?: "REGULATORY" | "ADMINISTRATION" | "MARKETING" | "OPERATIONS_SALES" | "BUSINESS_DEV" | "SUPPLY_CHAIN";
   /**
    * Garde SUPPLÉMENTAIRE au droit de module, résolue côté serveur dans le layout. Sert aux
    * écrans dont l'ouverture dépend d'un réglage et pas seulement d'un rôle (l'analyse CTD est
@@ -1560,6 +1560,15 @@ export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Business Units", href: "/budgets/business-units" },
   { module: "BUDGETS", label: "Réglages", href: "/budgets/reglages" },
 ];
+
+// BUDGET MARKETING (Direction, 08/10) — les écrans de Budgets, bornés aux enveloppes de la Direction Marketing, plus
+// la liste des demandes Ad & Pro qui consomment l'enveloppe. Mêmes lignes en base : Budgets les lit aussi.
+export const BUDGET_MARKETING_TABS: NavTab[] = [
+  { module: "BUDGET_MARKETING", label: "Vue d'ensemble", href: "/budget-marketing" },
+  { module: "BUDGET_MARKETING", label: "Dépenses", href: "/budget-marketing/depenses" },
+  { module: "BUDGET_MARKETING", label: "Demandes Ad & Pro", href: "/budget-marketing/ad-pro" },
+  { module: "BUDGET_MARKETING", label: "Réglages", href: "/budget-marketing/reglages" },
+];
 // LES SOUS-MODULES RH (Direction, 06/10) — indépendants (chacun son droit, réglable dans la console) mais reliés (un même
 // groupe « Ressources humaines » dans le menu, et chaque page renvoie aux autres).
 // « Employés » : l'équipe, les consultants suivis par les RH (§118.150), la structure (départements).
@@ -1635,12 +1644,21 @@ export const MARKETING_COCKPIT_TABS: NavTab[] = [
 /**
  * FORCE DE VENTE — l'outil du superviseur et de la Direction (Direction, 07/10 — maquette validée). Trois vues :
  * « Pilotage » (l'ouverture), « Territoires » (secteurs, panel par lettre, charge, cibles hors panel), « Produits »
- * (P1/P2/P3 par délégué). Business units, secteurs et paramètres passent dans « ⋯ Réglages » de la page.
+ * (P1/P2/P3 par délégué). Business units, secteurs et paramètres sont un module à part : « Business Units » (08/10).
  */
 export const SALES_PLANNING_TABS: NavTab[] = [
   { module: "SALES_PLANNING", label: "Pilotage", href: "/planning" },
   { module: "SALES_PLANNING", label: "Territoires", href: "/planning/territoires" },
   { module: "SALES_PLANNING", label: "Produits", href: "/planning/produits" },
+];
+/**
+ * BUSINESS UNITS — le montage de la force de vente (Direction, 08/10 : « tu crées dans le menu un module "Business Units"
+ * et tu y mets BU et secteurs et paramètres »). Il vivait dans le « ⋯ Réglages » de la Force de vente.
+ */
+export const BUSINESS_UNITS_TABS: NavTab[] = [
+  { module: "BUSINESS_UNITS", label: "Business units", href: "/business-units" },
+  { module: "BUSINESS_UNITS", label: "Secteurs", href: "/business-units/secteurs" },
+  { module: "BUSINESS_UNITS", label: "Paramètres", href: "/business-units/parametres" },
 ];
 // Module « Drive » (Drive personnel). L'onglet « Documents » a été retiré (tout est consolidé
 // dans le Drive + les catégories partagées ; on y glisse des dossiers à la souris).
@@ -1691,8 +1709,10 @@ export const MODULE_LABELS: Record<Module, string> = {
   WORKSPACE: "Espace de travail",
   MESSAGING: "Messagerie",
   REGULATORY: "Regulatory",
+  REGULATORY_PIPELINE: "Pipeline réglementaire",
   SPONSORING: "Sponsoring",
   BUDGETS: "Budgets",
+  BUDGET_MARKETING: "Budget Marketing",
   FINANCES: "Finances",
   RH: "Ressources humaines",
   CONGRESS_INTERNATIONAL: "Prises en charge Internationales",
@@ -1708,6 +1728,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   MEDICAL: "Promotion médicale",
   FIELD_REPORTS: "Rapports terrain",
   SALES_PLANNING: "Prévisions & Force de vente",
+  BUSINESS_UNITS: "Business Units",
   // LES TROIS ÉCRANS DU PÔLE SE NOMMENT ICI COMME DANS LE MENU, et se règlent séparément.
   // « Business Development » couvrait DEUX entrées de menu (Market Intelligence et
   // l'Explorateur produits) sous un seul droit : on ne pouvait ni ouvrir l'un sans l'autre,
@@ -1894,7 +1915,9 @@ export const NAVIGATION: NavItem[] = [
   // GARDE `pipeline` : l'entrée ne s'affiche que pour qui voit RÉELLEMENT des dossiers
   // verrouillés (accès réglé en Administration). Sans elle, tout le pôle Regulatory voyait un
   // menu menant à un écran vide — et se demandait ce qu'il avait manqué.
-  { module: "REGULATORY", label: "Pipeline", href: "/regulatory/pipeline", icon: "GitBranch", group: "Pôles", pole: "REGULATORY", gate: "pipeline" },
+  // SON PROPRE MODULE (Direction, 08/10 : « sépare Pipeline et Suivi de dossiers dans les accès ») : la console
+  // l'ouvre ou le ferme personne par personne, indépendamment du suivi des dossiers.
+  { module: "REGULATORY_PIPELINE", label: "Pipeline", href: "/regulatory/pipeline", icon: "GitBranch", group: "Pôles", pole: "REGULATORY", gate: "pipeline" },
   { module: "REGULATORY", label: "Analyse CTD", href: "/regulatory/enregistrement", icon: "ScanSearch", group: "Pôles", pole: "REGULATORY", gate: "regEnrollment" },
   // INFORMATION MÉDICALE — décision de la Direction (09/2026) : elle passe de Sales & Marketing
   // au pôle REGULATORY. Une déclaration d'information médicale est un acte réglementaire, pas
@@ -2028,8 +2051,6 @@ export const NAVIGATION: NavItem[] = [
   },
   // COURRIERS — le carnet entrant/sortant de l'assistante de direction.
   { module: "MAIL_REGISTER", label: "Courriers", href: "/courriers", icon: "Mails", group: "Pôles", pole: "ADMINISTRATION" },
-  // LE SITE PUBLIC (§118.158) — l'ERP y publie les offres d'emploi et les articles de blog.
-  { module: "SITE_WEB", label: "Site web", href: "/site-web", icon: "Globe", group: "Pôles", pole: "ADMINISTRATION", tabs: SITE_WEB_TABS, match: ["/site-web"] },
   // ANNUAIRES — tous les annuaires de l'entreprise en un seul sous-module (décision de la
   // Direction, 09/2026). L'entrée est visible dès qu'UN onglet l'est, et mène au premier
   // onglet autorisé : chaque onglet porte le module de son référentiel.
@@ -2043,34 +2064,50 @@ export const NAVIGATION: NavItem[] = [
   { module: "MY_TEAM", label: "Mon Équipe", href: "/mon-equipe", icon: "Users", group: "Pilotage", gate: "myTeam" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/business-units", "/budgets/reglages"] },
 
-  // SALES & MARKETING — tout ce qui touche au terrain et au business réalisé. L'annuaire des
-  // praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on
-  // le consulte en préparant une visite.
-  { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "SALES_MARKETING" },
+  // MARKETING — séparé de « Operations & Sales » (Direction, 08/10 : « sépare Marketing et Sales »). Ce que la
+  // Direction Marketing tient : son cockpit, la segmentation, les produits, Ad & Pro, le stock promotionnel et le site
+  // public (« le module du site web passe également au département marketing »). Les droits ne bougent pas : seul le
+  // rangement du menu change.
+  // MARKETING COCKPIT — le tableau de la Direction Marketing (07/10) : une page, ses vues par `?vue=` (barre rendue par la
+  // page, `MARKETING_COCKPIT_TABS`) — d'où l'absence de `tabs` ici.
+  { module: "MARKETING_COCKPIT", label: "Marketing cockpit", href: "/marketing-cockpit", icon: "Megaphone", group: "Pôles", pole: "MARKETING", match: ["/marketing-cockpit"] },
+  // SEGMENTATION STUDIO — la segmentation native : stratégie par BU, règles versionnées, panel calculé et expliqué.
+  { module: "SEGMENTATION", label: "Segmentation", href: "/segmentation", icon: "Layers", group: "Pôles", pole: "MARKETING", match: ["/segmentation"] },
+  // PRODUITS — chaque produit canonique et sa vue 360° (réglementaire, AO, ventes, segmentation, consommation, coûts).
+  // Un MODULE À PART (Direction, 06/10) : ses accès se règlent dans la console, comme les autres.
+  { module: "PRODUCTS", label: "Produits 360", href: "/produits", icon: "Pill", group: "Pôles", pole: "MARKETING", match: ["/produits"] },
+  // « RAPPORTS TERRAIN » N'EST PLUS UNE ENTRÉE (Direction, 07/10) : c'est l'onglet « Rapports » de la Promotion médicale
+  // (`MEDICAL_TABS`, module `FIELD_REPORTS`). `/field-reports` redirige ; l'entrée médicale le couvre par `match`.
+  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/consulting"] },
+  // BUDGET MARKETING (Direction, 08/10) — les enveloppes Ad & Pro et celles de la Direction Marketing. Les mêmes lignes
+  // que Budgets (pôle Administration), qui les montre en lecture seule.
+  { module: "BUDGET_MARKETING", label: "Budget Marketing", href: "/budget-marketing", icon: "PiggyBank", group: "Pôles", pole: "MARKETING", tabs: BUDGET_MARKETING_TABS, match: ["/budget-marketing"] },
+  // LE STOCK PROMOTIONNEL — son propre sous-module (§118.173), et plus un onglet d'Ad & Pro.
+  { module: "PROMO_STOCK", label: "Stock promotionnel", href: CHEMIN_STOCK_PROMO, icon: "Warehouse", group: "Pôles", pole: "MARKETING", tabs: STOCK_PROMO_TABS, match: [CHEMIN_STOCK_PROMO] },
+  // LE SITE PUBLIC (§118.158) — l'ERP y publie les offres d'emploi et les articles de blog. Rangé sous Marketing
+  // (Direction, 08/10) ; ses accès restent les siens (module `SITE_WEB`, onglets `SITE_WEB_TABS`).
+  { module: "SITE_WEB", label: "Site web", href: "/site-web", icon: "Globe", group: "Pôles", pole: "MARKETING", tabs: SITE_WEB_TABS, match: ["/site-web"] },
+
+  // OPERATIONS & SALES — le terrain et le business réalisé (Direction, 08/10) : la promotion médicale, le montage des
+  // BU, la force de vente, les marchés PCH — puis les ventes et la consommation, qui étaient dans le même pôle. L'annuaire
+  // des praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on le consulte en
+  // préparant une visite.
   // PROMOTION MÉDICALE — deux onglets, et l'ordre compte : « Ma journée » d'abord, parce que
   // c'est l'écran quotidien du terrain (sa tournée, sa saisie de visite en trois gestes) ;
   // l'annuaire ensuite, qui est le référentiel. L'ancien « Visites & segmentation » retiré est
   // remplacé par cette journée — les visites en base n'ont jamais bougé, et elle les relit.
-  { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical", "/field-reports"] },
-  { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING", tabs: SALES_PLANNING_TABS, match: ["/planning"] },
-  // MARKETING COCKPIT — le tableau de la Direction Marketing (07/10) : une page, ses vues par `?vue=` (barre rendue par la
-  // page, `MARKETING_COCKPIT_TABS`) — d'où l'absence de `tabs` ici.
-  { module: "MARKETING_COCKPIT", label: "Marketing cockpit", href: "/marketing-cockpit", icon: "Megaphone", group: "Pôles", pole: "SALES_MARKETING", match: ["/marketing-cockpit"] },
-  // SEGMENTATION STUDIO — la segmentation native : stratégie par BU, règles versionnées, panel calculé et expliqué.
-  { module: "SEGMENTATION", label: "Segmentation", href: "/segmentation", icon: "Layers", group: "Pôles", pole: "SALES_MARKETING", match: ["/segmentation"] },
-  // PRODUITS — chaque produit canonique et sa vue 360° (réglementaire, AO, ventes, segmentation, consommation, coûts).
-  // Un MODULE À PART (Direction, 06/10) : ses accès se règlent dans la console, comme les autres.
-  { module: "PRODUCTS", label: "Produits 360", href: "/produits", icon: "Pill", group: "Pôles", pole: "SALES_MARKETING", match: ["/produits"] },
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "OPERATIONS_SALES", tabs: MEDICAL_TABS, match: ["/medical", "/field-reports"] },
+  // BUSINESS UNITS — le montage de la force de vente, sorti du « ⋯ Réglages » de la Force de vente (Direction, 08/10) :
+  // les BU et leurs quatre étapes, les secteurs, les paramètres. Son propre module (`BUSINESS_UNITS`).
+  { module: "BUSINESS_UNITS", label: "Business Units", href: "/business-units", icon: "Building2", group: "Pôles", pole: "OPERATIONS_SALES", tabs: BUSINESS_UNITS_TABS },
+  { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "OPERATIONS_SALES", tabs: SALES_PLANNING_TABS, match: ["/planning"] },
+  { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "OPERATIONS_SALES" },
+  { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "OPERATIONS_SALES" },
   // CONSUMPTION INTELLIGENCE — la consommation hospitalière importée, normalisée, et l'affinité qu'on en tire.
-  { module: "CONSUMPTION", label: "Consommation", href: "/consommation", icon: "ChartColumn", group: "Pôles", pole: "SALES_MARKETING", match: ["/consommation"] },
-  // « RAPPORTS TERRAIN » N'EST PLUS UNE ENTRÉE (Direction, 07/10) : c'est l'onglet « Rapports » de la Promotion médicale
-  // (`MEDICAL_TABS`, module `FIELD_REPORTS`). `/field-reports` redirige ; l'entrée médicale le couvre par `match`.
-  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/consulting"] },
-  // LE STOCK PROMOTIONNEL — son propre sous-module (§118.173), et plus un onglet d'Ad & Pro.
-  { module: "PROMO_STOCK", label: "Stock promotionnel", href: CHEMIN_STOCK_PROMO, icon: "Warehouse", group: "Pôles", pole: "SALES_MARKETING", tabs: STOCK_PROMO_TABS, match: [CHEMIN_STOCK_PROMO] },
+  { module: "CONSUMPTION", label: "Consommation", href: "/consommation", icon: "ChartColumn", group: "Pôles", pole: "OPERATIONS_SALES", match: ["/consommation"] },
 
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
-  // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un
+  // réalisées sont passées dans Operations & Sales (avec les marchés PCH, 08/10) : analyser une opportunité et constater un
   // chiffre d'affaires ne sont pas le même métier.
   // BUSINESS DEVELOPMENT — « Projets » est un SOUS-MODULE, pas un onglet : c'est son propre
   // écran, avec sa propre question. Le tableau stratégique demande « où en est ce projet ? » ;
@@ -2089,7 +2126,6 @@ export const NAVIGATION: NavItem[] = [
   // UNE molécule, UN laboratoire. C'était le geste le plus fréquent du pôle, et il fallait deux
   // clics et connaître le chemin pour y arriver.
   { module: "PRODUCT_EXPLORER", label: "Explorateur produits", href: "/explorateur-produits", icon: "PackageSearch", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche/produits"] },
-  { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "BUSINESS_DEV" },
 
   // SUPPLY CHAIN & LOGISTICS — l'exécution physique. Les modèles existaient déjà
   // (LogisticsOrder porte la commande de bout en bout) ; ils n'étaient simplement pas présentés

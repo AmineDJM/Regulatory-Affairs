@@ -67,7 +67,8 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
     adminReqs, congressIntl, congressNat, events, directives, conversations, messages,
     tenders, pchOrders, legalDocs, mailEntries,
   ] = await Promise.all([
-    userCan(user, "REGULATORY", "VIEW")
+    // Le suivi OU le pipeline (Direction, 08/10) : la clause ne rend que la moitié que chaque module ouvre.
+    userCan(user, "REGULATORY", "VIEW") || userCan(user, "REGULATORY_PIPELINE", "VIEW")
       ? prisma.regulatoryProduct.findMany({ where: { AND: [await regulatoryVisibleWhere(user) as Prisma.RegulatoryProductWhereInput, ...(match(["dci", "reference", "brandName", "partnerLab", "manufacturer"]) as Prisma.RegulatoryProductWhereInput[])] }, take, select: { id: true, dci: true, reference: true, brandName: true } })
       : [],
     ctdCompanyId

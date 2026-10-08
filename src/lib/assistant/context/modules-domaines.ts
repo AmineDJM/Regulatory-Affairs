@@ -98,7 +98,11 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   MAIL_REGISTER: { domaines: ["LEGAL"], mots: ["courrier entrant", "courrier sortant"] },
   MESSAGING: { domaines: ["MAIL"] },
   REGULATORY: { domaines: ["REGULATORY"] },
+  // Le pipeline (dossiers verrouillés) — module à part de Regulatory depuis le 08/10, même service.
+  REGULATORY_PIPELINE: { domaines: ["REGULATORY"] },
   BUDGETS: { domaines: ["FINANCE"] },
+  // Budget Marketing (08/10) — les mêmes enveloppes que Budgets, bornées à la Direction Marketing.
+  BUDGET_MARKETING: { domaines: ["FINANCE"], mots: ["budget marketing", "enveloppe marketing", "enveloppe ad pro"] },
   FINANCES: { domaines: ["FINANCE"] },
   RH: { domaines: ["HR"] },
   RECRUITMENT: { domaines: ["HR"] },
@@ -117,6 +121,8 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // lisent des personnes et des médecins) ; `planning_operation` dans CALENDAR.
   FIELD_REPORTS: { domaines: ["DIRECTORY", "CALENDAR"], mots: ["visite", "visites", "tournee", "tournees", "compte rendu de visite"], outils: ["field_report_operation"] },
   SALES_PLANNING: { domaines: ["DIRECTORY", "CALENDAR", "DATA"], mots: ["force de vente", "kam", "secteur", "secteurs", "plan de tournee"], outils: ["sales_operation", "planning_operation"] },
+  // Le montage de la force de vente (Direction, 08/10) : BU, territoires, paramètres SFE — les ops de `planning_operation`.
+  BUSINESS_UNITS: { domaines: ["DIRECTORY", "DATA"], mots: ["business unit", "business units", "territoire", "territoires", "parametres sfe"], outils: ["planning_operation"] },
   SALES: { domaines: ["DIRECTORY", "FINANCE", "DATA"], mots: ["vente", "ventes", "chiffre d affaires", "ca de ville", "vente de ville"], outils: ["sales_operation"] },
   MEDICAL: { domaines: ["DIRECTORY", "REGULATORY"], mots: ["medecin", "medecins", "praticien", "praticiens", "promotion medicale", "specialite", "specialites"], outils: ["medical_operation", "search_doctors"] },
   MEDICAL_INFO: { domaines: ["REGULATORY"], mots: ["information medicale", "declaration medicale", "pharmacovigilance"], outils: ["medical_info_operation"] },

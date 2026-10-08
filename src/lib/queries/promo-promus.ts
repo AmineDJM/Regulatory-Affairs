@@ -9,7 +9,7 @@ import {
  * POURQUOI LA LISTE ÉTAIT VIDE : elle lisait `Product` (le produit CANONIQUE, `isActive`), une table que
  * rien ne remplit encore en production — le rattachement du catalogue reste un geste du Super Admin
  * (§118.178). Les produits que la force de vente promeut vivent dans les Business Units (`PromoProduct`,
- * « Force de vente › Business Units ») : c'est eux qu'on propose, SANS nommer la BU (un produit porté par
+ * « Business Units ») : c'est eux qu'on propose, SANS nommer la BU (un produit porté par
  * deux BU n'apparaît qu'une fois), avec « Société en général » et chaque gamme.
  *
  * Aucune garde de module : la liste ne révèle que des noms de produits COMMERCIALISÉS et de gammes — la

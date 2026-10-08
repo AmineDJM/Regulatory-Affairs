@@ -25,6 +25,17 @@ export interface Observation {
   potentiel: number | null;
   prescriptionsSur10: number | null;
   observeLe: Date;
+  /** Une réponse EFFACÉE (Direction, 08/10) : à partir de cette date, le champ n'a plus de valeur — NA. */
+  efface?: ChampObservation | null;
+}
+
+export type ChampObservation = "potentiel" | "prescriptionsSur10";
+
+/** L'effacement s'écrit comme une observation (l'historique garde la trace) : sa SOURCE dit quel champ il vide. */
+export const SOURCE_EFFACEMENT: Record<ChampObservation, string> = { potentiel: "EFFACE_Q1", prescriptionsSur10: "EFFACE_Q2" };
+
+export function effaceDeSource(source: string | null | undefined): ChampObservation | null {
+  return source === SOURCE_EFFACEMENT.potentiel ? "potentiel" : source === SOURCE_EFFACEMENT.prescriptionsSur10 ? "prescriptionsSur10" : null;
 }
 
 export interface Derogation {
@@ -100,16 +111,17 @@ export interface ResultatPraticien {
 const actif = (d: Derogation, maintenant: Date) => !d.expireLe || d.expireLe.getTime() > maintenant.getTime();
 
 /** La valeur la plus récente d'un champ, pour un produit (ou, pour le potentiel, toute observation de la pathologie). */
-export function derniere(obs: readonly Observation[], champ: "potentiel" | "prescriptionsSur10", productId: string): { valeur: number; le: Date } | null {
+export function derniere(obs: readonly Observation[], champ: ChampObservation, productId: string): { valeur: number; le: Date } | null {
   let best: Observation | null = null;
   for (const o of obs) {
     const v = o[champ];
-    if (v === null || v === undefined || !Number.isFinite(v)) continue;
+    // Un effacement compte comme la réponse la plus récente — sans valeur.
+    if (o.efface !== champ && (v === null || v === undefined || !Number.isFinite(v))) continue;
     // Le potentiel mesure la pathologie : une observation sans produit vaut pour tous ; l'affinité est propre au produit.
     if (champ === "prescriptionsSur10" ? o.productId !== productId : o.productId !== null && o.productId !== productId) continue;
     if (!best || o.observeLe.getTime() > best.observeLe.getTime()) best = o;
   }
-  return best ? { valeur: best[champ] as number, le: best.observeLe } : null;
+  return best && best.efface !== champ ? { valeur: best[champ] as number, le: best.observeLe } : null;
 }
 
 /** L'affinité selon la méthode de la règle — null si elle ne se calcule pas. */

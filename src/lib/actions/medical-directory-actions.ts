@@ -484,7 +484,7 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
 
   const before = await prisma.medicalDoctor.findUnique({
     where: { id },
-    select: { firstName: true, lastName: true, institutionId: true, serviceId: true },
+    select: { firstName: true, lastName: true, institutionId: true, serviceId: true, wilaya: true },
   });
   if (!before) return { ok: false, error: "Fiche introuvable." };
 
@@ -497,7 +497,7 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
         data.institutionId = null; data.institution = null; data.serviceId = null;
         break;
       }
-      const etab = await prisma.medicalInstitution.findUnique({ where: { id: v }, select: { id: true, name: true, isActive: true } });
+      const etab = await prisma.medicalInstitution.findUnique({ where: { id: v }, select: { id: true, name: true, isActive: true, wilaya: true } });
       if (!etab) return { ok: false, error: "Cet établissement n'existe pas (ou plus) dans l'annuaire des établissements — rechargez la feuille." };
       if (etab.id === before.institutionId) return { ok: true };
       // ON NE RATTACHE PAS À UN HÔPITAL FERMÉ. Une fiche déjà rattachée à un établissement
@@ -510,6 +510,8 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
       data.institution = etab.name;
       // LE SERVICE SUIT SON ÉTABLISSEMENT : celui de l'ancien hôpital n'existe pas dans le nouveau.
       data.serviceId = null;
+      // Une fiche SANS wilaya prend celle de son établissement (In / Out, secteur) ; une wilaya posée n'est pas écrasée.
+      if (!before.wilaya?.trim() && etab.wilaya?.trim()) data.wilaya = etab.wilaya;
       break;
     }
     case "service": {

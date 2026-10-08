@@ -10,12 +10,13 @@ import { ADVENTUM_COMPANY_ID } from "@/lib/company-defaut";
 import { lireClasseur, proposerRegles, type Feuilles, type LectureClasseur, type PropositionRegles } from "./lecture-classeur";
 import { rapprocher, typeDEtablissement, type Rapprochement } from "./rapprochement";
 import { lireRegles, STATUTS, type InOut, type Regles, type Statut } from "./regles";
-import { inOutDe, wilayaPivot } from "./in-out";
+import { inOutDe, wilayaPivot, wilayaDuPraticien } from "./in-out";
+import { gradeBrutDe } from "./tableau-praticiens";
 import { secteurDuPraticien, type SecteurBu } from "./secteurs";
 
 export { secteurDuPraticien, type SecteurBu };
 import { clausePanelDuKam } from "@/lib/rbac";
-import { segmenterPraticien, derniere, type ContexteSegmentation, type FaitsPraticien, type ResultatPraticien } from "./moteur";
+import { segmenterPraticien, derniere, effaceDeSource, type ContexteSegmentation, type FaitsPraticien, type ResultatPraticien } from "./moteur";
 import { affinitesEtablissements } from "@/lib/consommation/affinite-service";
 
 /**
@@ -93,6 +94,12 @@ export interface LignePanel {
   nomFamille: string;
   prenom: string | null;
   grade: string;
+  /** Le grade tel que le fichier l'écrivait quand la liste ne le connaît pas (« KOL »), sinon null. */
+  gradeBrut: string | null;
+  /** L'établissement RATTACHÉ (annuaire des établissements) ; null = aucun, ou un texte « à rattacher ». */
+  institutionId: string | null;
+  /** Sa wilaya (la sienne, sinon celle de son établissement) — null = inconnue. */
+  wilaya: string | null;
   /** Son secteur dans la BU ; `secteurPose` = rangé à la main (sinon déduit de l'établissement). */
   secteurId: string | null;
   secteurNom: string | null;
@@ -129,11 +136,11 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
       doctor: {
         select: {
           id: true, name: true, lastName: true, firstName: true, title: true, specialtyId: true, institutionId: true, serviceId: true, delegateId: true, wilaya: true,
-          institutionRef: { select: { name: true, wilaya: true } }, institution: true,
+          institutionRef: { select: { name: true, wilaya: true } }, institution: true, comments: true,
           specialtyRef: { select: { name: true } }, specialty: true,
           segmentationObservations: {
             where: { OR: [{ strategieId }, { strategieId: null }] },
-            select: { productId: true, potentiel: true, prescriptionsSur10: true, observeLe: true },
+            select: { productId: true, potentiel: true, prescriptionsSur10: true, observeLe: true, source: true },
             orderBy: { observeLe: "desc" }, take: 20,
           },
           segmentationDerogations: {
@@ -153,7 +160,7 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
   }
   // IN / OUT : la wilaya du praticien (sinon celle de son établissement) face à la wilaya de la ville pivot de SON
   // secteur ; sans ville pivot de secteur, l'ancienne lecture par les KAM qui le couvrent.
-  const wilayaDe = (d: (typeof fiches)[number]["doctor"]) => d.wilaya ?? d.institutionRef?.wilaya ?? null;
+  const wilayaDe = (d: (typeof fiches)[number]["doctor"]) => wilayaDuPraticien({ wilaya: d.wilaya, wilayaEtablissement: d.institutionRef?.wilaya, etablissement: d.institutionRef?.name ?? d.institution });
   const sansPivot = fiches.filter((f) => !secteurDe.get(f.doctor.id)?.pivot);
   const parKam = await inOutDesPraticiens(strategieId, sansPivot.map((f) => ({ id: f.doctor.id, wilaya: wilayaDe(f.doctor) })));
   const inOutDuPraticien = (d: (typeof fiches)[number]["doctor"]): InOut | null => {
@@ -166,7 +173,7 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
     const d = f.doctor;
     const secteur = secteurDe.get(d.id) ?? null;
     const io = inOutDuPraticien(d);
-    const observations = d.segmentationObservations.map((o) => ({ productId: o.productId, potentiel: num(o.potentiel), prescriptionsSur10: num(o.prescriptionsSur10), observeLe: o.observeLe }));
+    const observations = d.segmentationObservations.map((o) => ({ productId: o.productId, potentiel: num(o.potentiel), prescriptionsSur10: num(o.prescriptionsSur10), observeLe: o.observeLe, efface: effaceDeSource(o.source) }));
     faits.push({
       doctorId: d.id, statut: estStatut(f.statut) ? f.statut : null, zone: f.zone,
       specialiteId: d.specialtyId, institutionId: d.institutionId, inOut: io,
@@ -179,6 +186,9 @@ export async function chargerFaits(strategieId: string, portee: Prisma.MedicalDo
       nomFamille: d.lastName?.trim() || d.name,
       prenom: d.lastName?.trim() ? d.firstName?.trim() || null : null,
       grade: d.title,
+      gradeBrut: d.title === "AUTRE" ? gradeBrutDe(d.comments) : null,
+      institutionId: d.institutionRef ? d.institutionId : null,
+      wilaya: wilayaDe(d),
       etablissement: d.institutionRef?.name ?? d.institution ?? null,
       specialite: d.specialtyRef?.name ?? d.specialty ?? null,
       specialiteId: d.specialtyId,

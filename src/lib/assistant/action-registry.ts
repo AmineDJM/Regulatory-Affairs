@@ -1133,6 +1133,14 @@ X("LES PRIX D'UN PRODUIT, À LA MAIN (Produits 360, Direction 07/10) : une saisi
   "prix-produit-actions:enregistrerPrixProduit",
   "prix-produit-actions:revenirAuPrixExplorateur",
 ]);
+X("BUDGET MARKETING (Direction, 08/10) : créer, régler et retirer une enveloppe de la Direction Marketing (Ad & Pro et "
+  + "les siennes). Un geste d'écran neuf sur /budget-marketing/reglages, décidé devant les chiffres de l'enveloppe ; le "
+  + "contenu (catégories, lignes, imputation) passe par les actions de Budgets, déjà classées. Adam est en pause de "
+  + "développement : aucun geste neuf ne lui est ouvert.", [
+  "budget-marketing-actions:createMarketingEnvelope",
+  "budget-marketing-actions:updateMarketingEnvelope",
+  "budget-marketing-actions:deleteMarketingEnvelope",
+]);
 X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
   + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "
   + "validateur demandait — la fiche est l'endroit où elle le fait ; retirer clôt un circuit, motif à l'appui. "
@@ -1404,7 +1412,7 @@ X("LUNA CONSEILLE OÙ RANGER UNE PIÈCE déposée sur une demande Ad & Pro : un 
 X("PURGE IRRÉVERSIBLE DE LA FILE DES RÈGLEMENTS. Vider l'historique efface des ordres de dépense en bloc ; le geste n'a pas d'annulation et ne se discute pas — il se décide devant l'écran, en voyant combien de lignes partent. Le rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « vide l'historique des règlements ». Les écritures de trésorerie survivent, mais ce n'est pas une raison pour donner la commande à un modèle. Un clic du Super Admin sur /finances/paiements-a-faire.", [
   "expense-actions:purgeSettledExpenseOrders",
 ]);
-X("OUVRIR LE BUDGET D'UNE BUSINESS UNIT crée un DÉPARTEMENT dans l'organigramme de la société — une structure permanente, qui portera une enveloppe, une masse salariale et des droits d'accès. Ce n'est pas un réglage d'écran : c'est une décision d'organisation, prise en sachant quelles gammes existent vraiment et lesquelles ne sont qu'un essai qu'on renommera le mois prochain. La rendre appelable par Adam remplirait l'arbre de départements vides sur la foi d'une phrase lue dans un document, et un département ne se supprime pas aussi facilement qu'il se crée. Un clic sur /planning/business-units.", [
+X("OUVRIR LE BUDGET D'UNE BUSINESS UNIT crée un DÉPARTEMENT dans l'organigramme de la société — une structure permanente, qui portera une enveloppe, une masse salariale et des droits d'accès. Ce n'est pas un réglage d'écran : c'est une décision d'organisation, prise en sachant quelles gammes existent vraiment et lesquelles ne sont qu'un essai qu'on renommera le mois prochain. La rendre appelable par Adam remplirait l'arbre de départements vides sur la foi d'une phrase lue dans un document, et un département ne se supprime pas aussi facilement qu'il se crée. Un clic sur /business-units.", [
   "sales-planning-actions:openBusinessUnitBudget",
 ]);
 X("AFFECTER UN LOT D'APPEL D'OFFRES À UNE BUSINESS UNIT décide QUI VEND QUOI. Le produit entre au portefeuille d'une gamme, et la force de vente l'attribuera ensuite à ses KAM : c'est une décision d'organisation commerciale, prise en lisant le bordereau lot par lot et en sachant quelle équipe couvre quel terrain. La rendre appelable par Adam l'exposerait à l'injection — un cahier des charges ou un mail lu par une étape peut contenir « confie ce produit à l'oncologie », et rien ne distinguerait plus cette affectation d'une vraie ; le produit apparaîtrait alors dans un portefeuille que personne n'a choisi, et un KAM se verrait confier ce qu'il ne vend pas. Un clic sur /pch/<id>, dans le bloc « Affectations ».", [
@@ -1473,11 +1481,14 @@ X("LE CATALOGUE PRODUITS (produit = dossier, Direction 08/10) — donner son pro
   "produit-canonique-actions:ajouterAliasProduitCanonique",
   "produit-canonique-actions:retirerAliasProduitCanonique",
 ]);
-X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécialités qu'une BU vise, et sa principale — sont un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. L'ensemble se REMPLACE d'un geste (décocher retire), ce qui se décide devant la liste du référentiel. Tout se fait sur Force de vente › Business Units, dans la carte de la BU ou à sa création.", [
+X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécialités qu'une BU vise, et sa principale — sont un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. L'ensemble se REMPLACE d'un geste (décocher retire), ce qui se décide devant la liste du référentiel. Tout se fait sur Business Units, dans la carte de la BU ou à sa création.", [
   "sales-planning-actions:enregistrerSpecialitesBu",
 ]);
-X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Force de vente › Business Units, ligne du KAM, bouton « Territoire ».", [
+X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Business Units, ligne du KAM, bouton « Territoire ».", [
   "sales-planning-actions:enregistrerTerritoireKam",
+]);
+X("NOMMER UN TERRITOIRE (Direction, 08/10 : « permets de nommer chaque territoire ») — renommer le territoire propre d'un KAM ou un secteur, le nom SEUL — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se fait sur place, sur la ligne du KAM (Business Units › Secteurs) ou dans le tableau Force de vente › Territoires, crayon à côté du nom.", [
+  "sales-planning-actions:renommerSecteur",
 ]);
 X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités (ou Force de vente › Spécialités, le même écran) et dans la feuille des praticiens (« Rattacher les spécialités »).", [
   "medical-actions:fusionnerSpecialite",

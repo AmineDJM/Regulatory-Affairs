@@ -19,9 +19,11 @@ import { BarreSuppressionAImputer } from "./suppression-a-imputer";
  * imputées viennent donc EN PREMIER — elles faussent tous les chiffres tant qu'elles
  * traînent — et le reste (l'historique de ce qui est déjà imputé) vient après.
  */
-export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [] }: {
+export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [], canEditLines = canAttribute }: {
   overview: BudgetOverview;
   canAttribute: boolean;
+  /** Saisir / corriger les lignes purement budgétaires. Faux dans Budgets sur une enveloppe tenue par Budget Marketing. */
+  canEditLines?: boolean;
   /** Les sociétés que la personne engage — pour rattacher une dépense à la bonne (Direction, 06/10). */
   societes?: { id: string; nom: string }[];
   /** Le Super Admin supprime une ou plusieurs écritures « à imputer » (§118.176) — le serveur revérifie. */
@@ -167,7 +169,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
       </section>
 
       {/* 2. Saisir une dépense purement budgétaire (sans impact trésorerie). */}
-      {canAttribute && cats.length > 0 && (
+      {canEditLines && cats.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Ajouter une dépense</h2>
           <AddExpenseRow categories={cats} />
@@ -209,7 +211,7 @@ export function BudgetExpenses({ overview, canAttribute, canDelete, societes = [
                     <option value="">— Retirer l&apos;imputation —</option>
                     {cats.map((c) => <option key={c.id} value={c.id}>{c.parentId ? `↳ ${c.name}` : c.name}</option>)}
                   </Select>
-                ) : (
+                ) : !canEditLines ? null : (
                   <div className="flex items-center gap-0.5">
                     <button
                       title="Modifier cette ligne budgétaire" onClick={() => setEditExpense(tx)}

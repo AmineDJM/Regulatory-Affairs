@@ -15,7 +15,7 @@ describe("Marketing cockpit", () => {
   const entree = NAVIGATION.find((n) => n.label === "Marketing cockpit");
 
   it("est une entrée du pôle Sales & Marketing qui mène à la vue d'ensemble — la page rend elle-même ses vues", () => {
-    expect(entree?.pole).toBe("SALES_MARKETING");
+    expect(entree?.pole).toBe("MARKETING");
     expect(entree?.href).toBe("/marketing-cockpit");
     expect(entree?.match).toContain("/marketing-cockpit");
     // L'onglet actif est un paramètre (`?vue=`), pas un chemin : la barre du menu ne saurait pas l'allumer.

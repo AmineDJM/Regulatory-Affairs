@@ -462,7 +462,7 @@ test("le territoire d'un KAM, sur SA ligne : le CHU pour la seule Cardiologie, l
   // 04/10/2026 : « Secteurs de la BU » a quitté l'écran ; le territoire se choisit sur la ligne du KAM
   // (BU hospitalière — la BU du banc est « les deux », le défaut).
   await login(page, DIR_EMAIL);
-  await aller(page, "/planning/business-units");
+  await aller(page, "/business-units");
   await page.getByRole("button", { name: new RegExp(BU) }).first().click();
   await expect(page.getByText(/Secteurs de la BU/)).toHaveCount(0);
   await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
@@ -504,7 +504,7 @@ test("le territoire d'un KAM, sur SA ligne : le CHU pour la seule Cardiologie, l
 
 test("rouvrir un territoire JUSTE après l'avoir enregistré montre ce qu'on vient d'enregistrer — pas l'état d'avant", async ({ page }) => {
   await login(page, DIR_EMAIL);
-  await aller(page, "/planning/business-units");
+  await aller(page, "/business-units");
   await ralentirRafraichissements(page);
   await page.getByRole("button", { name: new RegExp(BU) }).first().click();
   const lireTous = async () => (await prisma.salesSectorInstitution.findFirstOrThrow({

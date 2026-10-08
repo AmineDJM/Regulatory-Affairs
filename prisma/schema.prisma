@@ -2689,6 +2689,13 @@ model BudgetEnvelope {
   totalAmount    Decimal              @default(0) @db.Decimal(14, 2)
   notes          String?
   isActive       Boolean              @default(true)
+  /// BUDGET MARKETING (Direction, 08/10) : « MARKETING » = enveloppe tenue par la Direction Marketing (Ad & Pro et
+  /// les siennes), « GENERAL » sinon. Budgets les lit toutes ; Budget Marketing seulement les premières. Une seule
+  /// ligne, jamais recopiée (`lib/budget-marketing/domaine.ts`).
+  domaine        String               @default("GENERAL")
+  /// Rattachement facultatif à une Business Unit / un produit (ids sans contrainte : retirer la BU n'emporte pas l'enveloppe).
+  businessUnitId String?
+  productId      String?
   categories     BudgetCategoryLine[]
   createdById    String?
   createdAt      DateTime             @default(now())
@@ -2697,6 +2704,7 @@ model BudgetEnvelope {
   @@index([isActive])
   @@index([periodStart])
   @@index([companyId])
+  @@index([domaine])
 }
 
 // Catégorie créée par la Direction au sein d'une enveloppe, avec son allocation.

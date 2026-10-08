@@ -149,7 +149,7 @@ export function developperDemande(e: EntreeDeveloppement): Developpement {
   }
   const destinataires = unique(lignes.flatMap((l) => l.kamIds));
   if (destinataires.length === 0) {
-    return { ok: false, error: "Aucun KAM ne porte ces établissements et ces produits : la demande ne partirait vers personne. Vérifiez les secteurs (Force de vente › Business Units › Secteurs)." };
+    return { ok: false, error: "Aucun KAM ne porte ces établissements et ces produits : la demande ne partirait vers personne. Vérifiez les secteurs (Business Units › Secteurs)." };
   }
   return { ok: true, toutHopitaux, hopitaux, lignes, destinataires };
 }

@@ -80,7 +80,7 @@ export function AllocationsPanel({
         {/* AUCUNE BU N'EXISTE : on le DIT et l'on nomme l'écran qui en crée. Une liste vide sans
             explication se lit comme une panne, et l'on cherche le défaut ailleurs. */}
         <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-          Aucune Business Unit active. Créez-en dans Force de vente → Business Units : c&apos;est là
+          Aucune Business Unit active. Créez-en dans Business Units : c&apos;est là
           que se décide qui porte quelle gamme.
         </p>
       </div>

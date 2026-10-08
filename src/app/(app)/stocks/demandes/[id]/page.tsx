@@ -110,7 +110,7 @@ export default async function DemandeStocksPage({ params }: { params: { id: stri
               <h2 className="text-sm font-semibold uppercase tracking-wide text-warning">Sans KAM ({sansKam.length})</h2>
               <p className="text-xs text-muted-foreground">
                 Aucun secteur actif ne couvre ces établissements : la demande n&apos;a été adressée à personne pour eux.
-                Les rattacher à un secteur se fait dans Force de vente › Business Units › Secteurs.
+                Les rattacher à un secteur se fait dans Business Units › Secteurs.
               </p>
               <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">{sansKam.map((h) => h.name).join(", ")}</p>
             </section>

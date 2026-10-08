@@ -213,7 +213,7 @@ export async function planifierVisites(formData: FormData): Promise<ActionResult
     if (hors.length > 0) {
       return {
         ok: false,
-        error: `${hors.length} praticien(s) hors du panel de ce KAM — ni rattachés à lui, ni couverts par l'un de ses secteurs. La couverture se règle dans Force de vente › Business Units.`,
+        error: `${hors.length} praticien(s) hors du panel de ce KAM — ni rattachés à lui, ni couverts par l'un de ses secteurs. La couverture se règle dans Business Units.`,
       };
     }
   }
@@ -321,7 +321,7 @@ export async function soumettrePlanTournee(formData: FormData): Promise<ActionRe
     return {
       ok: false,
       error: "Aucun validateur : ce KAM n'a ni superviseur sur sa BU ni N+1 à l'organigramme. "
-        + "Désignez le superviseur de sa Business Unit (Force de vente › Business Units) — c'est lui qui valide un plan de tournée.",
+        + "Désignez le superviseur de sa Business Unit (Business Units) — c'est lui qui valide un plan de tournée.",
     };
   }
 

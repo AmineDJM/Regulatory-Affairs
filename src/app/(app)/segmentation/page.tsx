@@ -19,6 +19,9 @@ import { SyntheseVue, type CarteSecteur, type Tuiles } from "./synthese-vue";
 import { PraticiensTable, type LignePraticien, type RegleEcran } from "./praticiens-table";
 import { ReglesVue } from "./regles-vue";
 import { chargerCycle } from "@/lib/segmentation/cycle-service";
+import { lireEtat, casseNom, nomCourtProduit } from "@/lib/segmentation/tableau-praticiens";
+import { peutAnnuaire } from "@/lib/rbac";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Segmentation — AMD Internal OS" };
@@ -47,7 +50,7 @@ function exceptionDuSecteur(p: RegleProduit | undefined, s: { id: string; nom: s
  * lettre (H, A, B, C, D, NA, non ciblé) se CALCULE depuis Q1, Q2, le statut et les règles, secteur par secteur de la
  * BU. Forcer une lettre est un droit que le Super Admin accorde personne par personne (motif obligatoire, historisé).
  */
-export default async function SegmentationPage({ searchParams }: { searchParams?: { s?: string; vue?: string; spe?: string; cycle?: string; bu?: string } }) {
+export default async function SegmentationPage({ searchParams }: { searchParams?: { s?: string; vue?: string; spe?: string; cycle?: string; bu?: string } & Record<string, string | string[] | undefined> }) {
   const user = await requireModule("SEGMENTATION");
   const droits = droitsSegmentation(user);
   const portee = porteeSegmentation(user);
@@ -139,7 +142,31 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
   const publication = strategie.regle
     ? `règles v${strategie.regle.version} publiées le ${strategie.regle.publieeLe.toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "Africa/Algiers" })}${auteur?.name ? ` par ${auteur.name}` : ""}`
     : "règles à publier";
-  const sousTitre = `${strategie.produits.map((p) => p.nom).join(" · ") || "aucun produit classé"} · ${publication}`;
+  // Le produit #1 en court ; les autres derrière « +N produits » (la liste complète dans l'ⓘ).
+  const autres = strategie.produits.slice(1);
+  const sousTitre = (
+    <>
+      {p1 ? nomCourtProduit(p1.nom) : "aucun produit classé"}
+      {autres.length > 0 && (
+        <span className="inline-flex items-center gap-1 align-middle">
+          {" "}+{autres.length} produit{autres.length > 1 ? "s" : ""}
+          <InfoBulle label="Produits classés" align="left">
+            <ol className="list-decimal space-y-0.5 pl-4">{strategie.produits.map((p) => <li key={p.productId}>{p.nom}</li>)}</ol>
+          </InfoBulle>
+        </span>
+      )}
+      {` · ${publication}`}
+    </>
+  );
+
+  // LE TABLEAU ÉDITABLE (Direction, 08/10) : l'identité est celle de l'ANNUAIRE — mêmes droits que sa feuille.
+  const annuaire = { modifier: peutAnnuaire(user, "MEDECINS", "UPDATE"), supprimer: peutAnnuaire(user, "MEDECINS", "DELETE") };
+  const [etablissementsChoix, specialitesChoix] = vue === "praticiens" && annuaire.modifier
+    ? await Promise.all([
+      prisma.medicalInstitution.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, wilaya: true } }),
+      prisma.medicalSpecialty.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    ])
+    : [[], []];
 
   const secteursActifs = secteursBu.filter((s) => s.actif);
   const secteursChoix = secteursActifs.map((s) => ({ id: s.id, nom: s.nom }));
@@ -180,7 +207,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
           <div className="flex flex-wrap gap-1 pb-1.5 text-xs">
             <Link href={`/segmentation?s=${strategie.id}${vue === "synthese" ? "" : `&vue=${vue}`}`} className={cn("rounded-full border px-2.5 py-1", !spe ? "border-primary text-primary" : "border-border text-muted-foreground")}>Toutes spécialités</Link>
             {specialitesBu.map((x) => (
-              <Link key={x.specialtyId} href={`/segmentation?s=${strategie.id}${vue === "synthese" ? "" : `&vue=${vue}`}&spe=${x.specialtyId}`} className={cn("rounded-full border px-2.5 py-1", spe === x.specialtyId ? "border-primary text-primary" : "border-border text-muted-foreground")}>{x.specialty.name}</Link>
+              <Link key={x.specialtyId} href={`/segmentation?s=${strategie.id}${vue === "synthese" ? "" : `&vue=${vue}`}&spe=${x.specialtyId}`} className={cn("rounded-full border px-2.5 py-1", spe === x.specialtyId ? "border-primary text-primary" : "border-border text-muted-foreground")}>{casseNom(x.specialty.name)}</Link>
             ))}
           </div>
         )}
@@ -194,14 +221,21 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
 
       {vue === "praticiens" && (
         <PraticiensTable
+          key={`${strategie.id}:${spe ?? ""}`}
           strategieId={strategie.id}
           produitNom={p1?.nom ?? null}
+          produitCourt={p1 ? nomCourtProduit(p1.nom) : null}
           metrique={regleP1?.metrique ?? null}
           methode={regleP1?.methodeAffinite ?? "SUR_10"}
           lignes={panel.map(versLigne)}
           secteurs={secteursChoix}
           droits={{ saisir: droits.saisir, panel: droits.panel, valider: droits.valider, forcer: droits.forcer }}
+          annuaire={annuaire}
+          etablissements={etablissementsChoix.map((e) => ({ id: e.id, nom: e.name, wilaya: e.wilaya }))}
+          specialites={specialitesChoix.map((s) => ({ id: s.id, nom: s.name }))}
+          grades={Object.entries(DOCTOR_TITLE).map(([valeur, libelle]) => ({ valeur, libelle }))}
           regle={regleEcran(regles, regleP1, secteursActifs)}
+          etatInitial={lireEtat(searchParams)}
         />
       )}
 
@@ -253,8 +287,11 @@ function versLigne(l: LignePanel): LignePraticien {
   ] : [];
   return {
     doctorId: l.doctorId, secteurId: l.secteurId, secteurNom: l.secteurNom, secteurPose: l.secteurPose,
-    etablissement: l.etablissement, inOut: l.inOut, specialite: l.specialite,
-    nomFamille: l.nomFamille, prenom: l.prenom, grade: DOCTOR_TITLE[l.grade] ?? l.grade, statut: l.statut,
+    institutionId: l.institutionId, etablissement: l.etablissement,
+    // In / Out n'a de sens que dans un secteur (sa ville pivot) : sans secteur, rien n'est affiché.
+    inOut: l.secteurId ? l.inOut : null,
+    specialiteId: l.specialiteId, specialite: l.specialite,
+    nomFamille: l.nomFamille, prenom: l.prenom, titre: l.grade, grade: DOCTOR_TITLE[l.grade] ?? l.grade, gradeBrut: l.gradeBrut, statut: l.statut,
     q1: l.q1, q2: l.q2,
     lettre: r?.lettre ?? null, lettreCalculee: r?.lettreCalculee ?? null, forcee: r?.lettreForcee ?? null, pourquoi,
   };

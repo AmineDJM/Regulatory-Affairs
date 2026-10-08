@@ -608,7 +608,7 @@ function FormulaireRapport({
             <span className="min-w-0 flex-1">Aucune gamme rattachée — chez votre superviseur</span>
             <InfoBulle label="Pourquoi">
               Sans Business Unit, la liste de vos produits est vide et le rapport sera refusé. Votre superviseur vous
-              rattache à une gamme depuis Force de vente › Business Units.
+              rattache à une gamme depuis Business Units.
             </InfoBulle>
           </p>
         ) : produits.length === 0 ? (

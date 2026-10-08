@@ -83,7 +83,7 @@ export function BusinessUnitsManager({
   referentsEligibles: Opt[];
   /** Le référentiel des spécialités, à cocher (§118.183). */
   specialitesReferentiel: Opt[];
-  /** L'étape ouverte d'arrivée (« ⋯ › Secteurs », « Affecter » d'un secteur vacant). */
+  /** L'étape ouverte d'arrivée (onglet « Secteurs » du module Business Units, « Affecter » d'un secteur vacant). */
   etapeInitiale?: Etape | null;
   /** La BU dépliée d'arrivée ; sans elle et avec une étape, toutes les BU s'ouvrent sur cette étape. */
   buInitiale?: string | null;

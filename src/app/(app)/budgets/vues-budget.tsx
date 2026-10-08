@@ -1,0 +1,383 @@
+import Link from "next/link";
+import { ArrowRight, AlertTriangle, Download } from "lucide-react";
+import type { CurrentUser } from "@/lib/session";
+import { canManageEnvelopes, canManageEnvelope, canGovernMarketingEnvelope, hasGlobalView, peutBudgetMarketing } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { getEnvelopes, getBudgetOverview, getEnvelopesGrandTotal } from "@/lib/queries/budget";
+import { libelleRattachement, optionsRattachement } from "@/lib/queries/budget-marketing";
+import { getAppSettings } from "@/lib/settings";
+import { getMyCompanies } from "@/lib/company";
+import { PageHeader } from "@/components/shared/page-header";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
+import { BUDGET_TABS, BUDGET_MARKETING_TABS } from "@/lib/labels";
+import { Donut } from "@/components/charts/donut";
+import { Trend } from "@/components/charts/trend";
+import { Bars, Meter } from "@/components/charts/bars";
+import { foldTail } from "@/components/charts/palette";
+import { formatCurrency } from "@/lib/utils";
+import { resolveBudgetEnvelope } from "@/lib/budget-scope";
+import { CHEMIN_BUDGET_MARKETING, estEnveloppeMarketing, type PorteeBudget } from "@/lib/budget-marketing/domaine";
+import { BudgetContextBar } from "./budget-context-bar";
+import { BudgetExpenses } from "./budget-expenses";
+import { BudgetSettings } from "./budget-settings";
+import { CreateEnvelopeButton } from "./budget-forms";
+import { NouvelleEnveloppeMarketing } from "./enveloppe-marketing-forms";
+
+/**
+ * LES ÉCRANS DES BUDGETS, POUR DEUX PORTÉES (Budget Marketing, Direction 08/10).
+ *
+ * Budgets (`/budgets`) lit toutes les enveloppes visibles ; Budget Marketing (`/budget-marketing`) les seules
+ * enveloppes `domaine = MARKETING`. Ce sont les MÊMES écrans et les MÊMES requêtes, avec une portée — jamais une copie :
+ * un chiffre corrigé ici l'est là-bas. Dans Budgets, une enveloppe marketing se lit mais ne se règle plus : elle dit
+ * où elle se gère.
+ */
+
+export type ParamsBudget = { env?: string; from?: string; to?: string };
+
+interface Config { portee: PorteeBudget; base: string; titre: string }
+
+export const CONFIG_BUDGETS: Config = { portee: "TOUT", base: "/budgets", titre: "Budgets" };
+export const CONFIG_BUDGET_MARKETING: Config = { portee: "MARKETING", base: CHEMIN_BUDGET_MARKETING, titre: "Budget Marketing" };
+
+const periode = (sp: ParamsBudget) => ({
+  from: sp.from ? new Date(sp.from) : null,
+  to: sp.to ? new Date(sp.to) : null,
+});
+
+const ongletsDe = (user: CurrentUser, c: Config) => visibleTabs(user, c.portee === "MARKETING" ? BUDGET_MARKETING_TABS : BUDGET_TABS);
+
+/** Dans Budgets : le mot qui dit qu'une enveloppe se gère dans Budget Marketing (lien si la personne y a accès). */
+export function GereParMarketing({ user }: { user: CurrentUser }) {
+  return peutBudgetMarketing(user, "VIEW")
+    ? <Link href={CHEMIN_BUDGET_MARKETING} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Géré par la Direction Marketing <ArrowRight className="h-3 w-3" /> Budget Marketing</Link>
+    : <span>Géré par la Direction Marketing</span>;
+}
+
+// ───────────────────────────── Vue d'ensemble ─────────────────────────────
+
+export async function VueEnsembleBudget({ user, searchParams, config }: { user: CurrentUser; searchParams: ParamsBudget; config: Config }) {
+  const opts = { portee: config.portee };
+  const [envelopes, grandTotal, tabs] = await Promise.all([
+    getEnvelopes(user, opts),
+    getEnvelopesGrandTotal(user, opts),
+    ongletsDe(user, config),
+  ]);
+  const { from, to } = periode(searchParams);
+  const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to, opts);
+  const marketing = config.portee === "MARKETING";
+  const description = marketing ? "Ad & Pro et les enveloppes de la Direction Marketing." : "Où en est votre budget, en un coup d'œil.";
+
+  if (!overview) {
+    return (
+      <div className="space-y-5">
+        <PageHeader title={config.titre} description={description} />
+        <ModuleTabs tabs={tabs} />
+        <EmptyState
+          icon="Wallet"
+          title={marketing ? "Aucune enveloppe marketing" : "Aucune enveloppe budgétaire"}
+          description={marketing
+            ? (canGovernMarketingEnvelope(user, "CREATE") ? "Créez-la depuis l'onglet Réglages." : "Aucune enveloppe marketing ne vous est ouverte.")
+            : canManageEnvelopes(user)
+              ? "Créez une enveloppe depuis l'onglet Réglages : un budget total pour une période, que vous répartirez ensuite en catégories."
+              : "Aucune enveloppe ne vous est ouverte pour le moment."}
+        />
+      </div>
+    );
+  }
+
+  const t = overview.totals;
+  const topCats = overview.categories.filter((c) => c.parentId === null);
+  const gPct = grandTotal.total > 0 ? Math.round((grandTotal.consumed / grandTotal.total) * 100) : 0;
+  // Camembert : comment le budget est RÉPARTI (au plus 6 parts — au-delà, l'œil ne compare plus).
+  const allocSlices = foldTail(topCats.map((c) => ({ label: c.name, value: c.allocated })));
+  // Barres : où en est CHAQUE catégorie (statut, pas identité).
+  const barRows = topCats
+    .filter((c) => c.allocated > 0 || c.consumed > 0)
+    .sort((a, b) => b.consumed - a.consumed)
+    .map((c) => ({ label: c.name, budget: c.allocated, consumed: c.consumed }));
+  // Camembert de tête : plusieurs enveloppes → comment le budget global se répartit entre elles.
+  const envSlices = grandTotal.count > 1
+    ? foldTail(grandTotal.items.filter((e) => e.total > 0).map((e) => ({ label: e.name, value: e.total })))
+    : [];
+  const trendPoints = overview.monthly.map((m) => ({ label: m.label, value: m.cumulative, expected: m.expected }));
+  const exportHref = `/api/budgets/export?env=${overview.envelope.id}&from=${overview.period.from.slice(0, 10)}&to=${overview.period.to.slice(0, 10)}${marketing ? "&portee=marketing" : ""}`;
+
+  return (
+    <div className="space-y-5">
+      <PageHeader title={config.titre} description={description}>
+        <a
+          href={exportHref}
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-secondary sm:min-h-0 sm:px-2.5"
+          title="Exporter en Excel"
+        >
+          <Download className="h-4 w-4" /> Excel
+        </a>
+      </PageHeader>
+      <ModuleTabs tabs={tabs} />
+
+      {/*
+        LA VUE GLOBALE, TOUJOURS EN TÊTE — toutes enveloppes (de la portée) confondues. Elle reste affichée même
+        lorsqu'il n'y a qu'une seule enveloppe — le jour où une deuxième apparaît, le total change tout seul.
+      */}
+      <section className="surface p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+          <div>
+            <p className="text-sm text-muted-foreground">
+              {marketing ? "Budget marketing" : "Budget global"} — {grandTotal.count} enveloppe{grandTotal.count > 1 ? "s" : ""}
+            </p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">{formatCurrency(grandTotal.total)}</p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Consommé <strong className="text-foreground tabular-nums">{formatCurrency(grandTotal.consumed)}</strong> ({gPct} %) ·
+            reste <strong className={`tabular-nums ${grandTotal.remaining < 0 ? "text-destructive" : "text-success"}`}>{formatCurrency(grandTotal.remaining)}</strong>
+          </p>
+        </div>
+        <div className="mt-4">
+          <Meter value={grandTotal.consumed} limit={grandTotal.total} format={formatCurrency} />
+        </div>
+        {grandTotal.items.length > 0 && (
+          <ul className="mt-4 divide-y divide-border border-t border-border">
+            {grandTotal.items.map((e) => {
+              const pct = e.total > 0 ? Math.round((e.consumed / e.total) * 100) : 0;
+              return (
+                <li key={e.id}>
+                  <Link
+                    href={`${config.base}?env=${e.id}`}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 py-2.5 text-sm transition-colors hover:bg-secondary/60"
+                  >
+                    <span className={`min-w-0 flex-1 truncate font-medium ${e.id === overview.envelope.id ? "text-primary" : ""}`}>
+                      {e.name}
+                      {!e.isActive && <span className="ml-2 text-xs font-normal text-muted-foreground">(clôturée)</span>}
+                      {!marketing && estEnveloppeMarketing(e) && <span className="ml-2 text-xs font-normal text-muted-foreground">· Marketing</span>}
+                    </span>
+                    <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatCurrency(e.consumed)} / {formatCurrency(e.total)}</span>
+                    <span className={`w-12 shrink-0 text-right tabular-nums ${e.remaining < 0 ? "text-destructive" : "text-muted-foreground"}`}>{pct} %</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
+        {!marketing && estEnveloppeMarketing(overview.envelope) && <span className="text-xs text-muted-foreground"><GereParMarketing user={user} /></span>}
+      </div>
+
+      {/* LE chiffre : ce qui reste. Puis la jauge, puis les montants de contexte. */}
+      <section className="surface p-4 sm:p-5">
+        <p className="text-sm text-muted-foreground">Il vous reste</p>
+        <p className={`mt-1 text-3xl font-semibold tracking-tight tabular-nums [overflow-wrap:anywhere] sm:text-5xl ${t.remaining < 0 ? "text-destructive" : ""}`}>
+          {formatCurrency(t.remaining)}
+        </p>
+        <div className="mt-4 max-w-xl">
+          <Meter value={t.consumed} limit={t.total} format={formatCurrency} />
+        </div>
+        <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t sm:gap-x-8 border-border pt-3 text-sm">
+          <div>
+            <dt className="text-xs text-muted-foreground">Budget de l&apos;enveloppe</dt>
+            <dd className="font-medium tabular-nums">{formatCurrency(t.total)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Consommé</dt>
+            <dd className="font-medium tabular-nums">{formatCurrency(t.consumed)}</dd>
+          </div>
+          {(t.committed > 0 || marketing) && (
+            <div>
+              <dt className="text-xs text-muted-foreground">Engagé (non encore réglé)</dt>
+              <dd className="font-medium tabular-nums">{formatCurrency(t.committed)}</dd>
+            </div>
+          )}
+          {marketing && (
+            <div>
+              <dt className="text-xs text-muted-foreground">Disponible</dt>
+              <dd className={`font-medium tabular-nums ${t.total - t.consumed - t.committed < 0 ? "text-destructive" : ""}`}>{formatCurrency(t.total - t.consumed - t.committed)}</dd>
+            </div>
+          )}
+          {t.unallocated !== 0 && (
+            <div>
+              <dt className="text-xs text-muted-foreground">Non réparti en catégories</dt>
+              <dd className={`font-medium tabular-nums ${t.unallocated < 0 ? "text-destructive" : ""}`}>{formatCurrency(t.unallocated)}</dd>
+            </div>
+          )}
+        </dl>
+      </section>
+
+      {/* Une seule alerte, actionnable, plutôt qu'une section de liste dépliée. */}
+      {overview.unattributed.total > 0 && (
+        <Link
+          href={`${config.base}/depenses?env=${overview.envelope.id}`}
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-3 text-sm transition hover:bg-warning/10 sm:px-4"
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+          <span className="min-w-0 flex-1 basis-[14rem]">
+            <strong className="tabular-nums">{formatCurrency(overview.unattributed.total)}</strong> de dépenses ne sont rattachées à aucune catégorie —
+            elles faussent la lecture ci-dessus.
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 font-medium text-primary">Les imputer <ArrowRight className="h-3.5 w-3.5" /></span>
+        </Link>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="surface space-y-3 p-3 sm:p-4">
+          <h2 className="text-sm font-semibold">Comment le budget est réparti</h2>
+          {allocSlices.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Le budget n&apos;est pas encore réparti en catégories.
+            </p>
+          ) : (
+            <Donut
+              slices={allocSlices}
+              total={t.total}
+              centerLabel="réparti"
+              centerValue={formatCurrency(t.allocated)}
+              format={formatCurrency}
+            />
+          )}
+        </section>
+
+        <section className="surface space-y-3 p-3 sm:p-4">
+          <h2 className="text-sm font-semibold">Consommation dans le temps</h2>
+          <Trend points={trendPoints} format={formatCurrency} />
+        </section>
+      </div>
+
+      {barRows.length > 0 && (
+        <section className="surface space-y-4 p-3 sm:p-4">
+          <h2 className="text-sm font-semibold">Où en est chaque catégorie</h2>
+          <Bars rows={barRows} format={formatCurrency} />
+        </section>
+      )}
+
+      {/* Le poids relatif des enveloppes — les chiffres sont déjà en tête, ici c'est la forme. */}
+      {envSlices.length > 0 && (
+        <section className="surface space-y-3 p-3 sm:p-4">
+          <h2 className="text-sm font-semibold">Répartition entre les enveloppes</h2>
+          <Donut
+            slices={envSlices}
+            total={grandTotal.total}
+            centerLabel="budget cumulé"
+            centerValue={formatCurrency(grandTotal.total)}
+            format={formatCurrency}
+          />
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────── Dépenses ─────────────────────────────
+
+export async function VueDepensesBudget({ user, searchParams, config }: { user: CurrentUser; searchParams: ParamsBudget; config: Config }) {
+  const opts = { portee: config.portee };
+  const [envelopes, tabs, societes] = await Promise.all([getEnvelopes(user, opts), ongletsDe(user, config), getMyCompanies(user.id)]);
+  const { from, to } = periode(searchParams);
+  const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to, opts);
+
+  const canManageContent = overview ? canManageEnvelope(user, overview.envelope) : canManageEnvelopes(user);
+  const canAttribute = hasGlobalView(user.role) || canManageContent;
+  // Dans Budgets, une enveloppe marketing se lit : ses lignes budgétaires se tiennent dans Budget Marketing.
+  const tenueAilleurs = config.portee === "TOUT" && overview !== null && estEnveloppeMarketing(overview.envelope);
+
+  return (
+    <div className="space-y-5">
+      <PageHeader title="Dépenses" description="Rattachez chaque dépense à une catégorie — c'est ce qui rend la vue d'ensemble juste." />
+      <ModuleTabs tabs={tabs} />
+      {!overview ? (
+        <EmptyState icon="Wallet" title="Aucune enveloppe budgétaire" description="Aucune enveloppe ne vous est ouverte pour le moment." />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
+            {tenueAilleurs && <span className="text-xs text-muted-foreground"><GereParMarketing user={user} /></span>}
+          </div>
+          <BudgetExpenses
+            overview={overview}
+            canAttribute={canAttribute}
+            canEditLines={canAttribute && !tenueAilleurs}
+            canDelete={user.role === "SUPER_ADMIN"}
+            societes={societes.map((s) => ({ id: s.id, nom: s.shortName || s.name }))}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────── Réglages ─────────────────────────────
+
+export async function VueReglagesBudget({ user, searchParams, config }: { user: CurrentUser; searchParams: ParamsBudget; config: Config }) {
+  const opts = { portee: config.portee };
+  const marketing = config.portee === "MARKETING";
+  // GOUVERNANCE des accès (créer/modifier/supprimer une enveloppe générale, régler ses listes d'accès et le budget
+  // total) : prérogative Super Admin. Une enveloppe marketing se gouverne aussi par le module Budget Marketing.
+  const canManageAccess = canManageEnvelopes(user);
+
+  const [envelopes, settings, users, tabs, rattachements] = await Promise.all([
+    getEnvelopes(user, opts),
+    getAppSettings(),
+    canManageAccess && !marketing
+      ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+      : Promise.resolve([] as { id: string; name: string }[]),
+    ongletsDe(user, config),
+    marketing ? optionsRattachement() : Promise.resolve(null),
+  ]);
+  const { from, to } = periode(searchParams);
+  const overview = await getBudgetOverview(user, resolveBudgetEnvelope(searchParams.env), from, to, opts);
+  const tenueAilleurs = !marketing && overview !== null && estEnveloppeMarketing(overview.envelope);
+
+  // GESTION du CONTENU de l'enveloppe affichée : gouverneur global, délégué sur CETTE enveloppe, ou — enveloppe
+  // marketing — le droit « Modifier » de Budget Marketing. Dans Budgets, une enveloppe marketing ne se règle pas.
+  const canManageContent = tenueAilleurs ? false : overview ? canManageEnvelope(user, overview.envelope) : canManageAccess;
+
+  const flexibleTotal = envelopes.filter((e) => e.isActive).reduce((s, e) => s + e.total, 0);
+  const budgetTotal = {
+    mode: settings.budgetTotalMode,
+    value: settings.budgetTotalMode === "FIXED" ? settings.budgetFixedTotal : flexibleTotal,
+    fixed: settings.budgetFixedTotal,
+  };
+  const peutCreer = marketing ? canGovernMarketingEnvelope(user, "CREATE") : canManageAccess;
+  const variante = marketing && overview && rattachements
+    ? {
+        options: rattachements,
+        canEdit: canGovernMarketingEnvelope(user, "UPDATE", overview.envelope),
+        canDelete: canGovernMarketingEnvelope(user, "DELETE", overview.envelope),
+        rattachement: await libelleRattachement(overview.envelope),
+      }
+    : undefined;
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title={marketing ? "Réglages du budget marketing" : "Réglages du budget"}
+        description={marketing ? "L'enveloppe et sa répartition en catégories." : "L'enveloppe, sa répartition en catégories, et le budget total au-dessus des enveloppes."}
+      >
+        {peutCreer && (marketing && rattachements ? <NouvelleEnveloppeMarketing options={rattachements} /> : <CreateEnvelopeButton users={users} />)}
+      </PageHeader>
+      <ModuleTabs tabs={tabs} />
+      {!overview ? (
+        <EmptyState
+          icon="Wallet"
+          title={marketing ? "Aucune enveloppe marketing" : "Aucune enveloppe budgétaire"}
+          description={peutCreer ? "Créez une enveloppe : un budget pour une période, que vous répartirez ensuite en catégories." : "Aucune enveloppe ne vous est ouverte pour le moment."}
+        />
+      ) : (
+        <>
+          <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
+          <BudgetSettings
+            overview={overview}
+            canManage={canManageContent}
+            canManageAccess={canManageAccess}
+            budgetTotal={budgetTotal}
+            users={users}
+            marketing={variante}
+            bandeau={tenueAilleurs ? <GereParMarketing user={user} /> : undefined}
+          />
+        </>
+      )}
+    </div>
+  );
+}

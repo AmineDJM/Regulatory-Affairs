@@ -24,6 +24,7 @@ import { accesAuCasPv } from "@/lib/pharmacovigilance/acces";
 import {
   userCan, hasGlobalView, isTopManagement, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring,
+  moduleDuDossierRegulatory,
 } from "@/lib/rbac";
 
 /** Maps a polymorphic entity type to its owning module. */
@@ -574,6 +575,20 @@ export async function canAccessEntity(
   // Administration › Accès. Market Intelligence, dont il vient, reste retiré. La ligne se lit dans
   // la MÊME clause que la liste (`projetsBdVisibles` : portée du module ∧ entité), sans quoi une
   // fiche s'ouvrirait sur un projet que la liste cache — ou l'inverse.
+  // UN DOSSIER RÉGLEMENTAIRE : le geste se lit sur le module de SON écran (Direction, 08/10) — « Pipeline
+  // réglementaire » s'il est verrouillé, Regulatory (suivi des dossiers) sinon —, puis la ligne dans LA MÊME RÈGLE
+  // QUE LA LISTE (§118.184) : portée métier, gamme, ET entité, pour toutes les sociétés auxquelles la personne a
+  // droit. (Le module de la ligne ne sert qu'à la garde : l'imputation budgétaire d'un BV reste sur Regulatory.)
+  if (entityType === "REGULATORY_PRODUCT") {
+    const dossier = await prisma.regulatoryProduct.findUnique({ where: { id: entityId }, select: { isLocked: true } });
+    if (!dossier || !userCan(user, moduleDuDossierRegulatory(dossier), action)) return false;
+    const found = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ id: entityId }, await clauseRegulatoryVisible(user, "fiche")] },
+      select: { id: true },
+    });
+    return Boolean(found);
+  }
+
   if (entityType === "BD_PROJECT") {
     if (!userCan(user, "BD_PROJECTS", action)) return false;
     const found = await prisma.bdProject.findFirst({
@@ -834,16 +849,7 @@ export async function canAccessEntity(
   }
 
   switch (entityType) {
-    case "REGULATORY_PRODUCT": {
-      // LA MÊME RÈGLE QUE LA LISTE (§118.184) : portée métier, gamme, ET entité — pour toutes les sociétés
-      // auxquelles la personne a droit. Elle ne composait que `scopeRegulatory` : un responsable à portée
-      // « toutes les lignes » lisait et modifiait le dossier d'une société qui n'était pas la sienne.
-      const found = await prisma.regulatoryProduct.findFirst({
-        where: { AND: [{ id: entityId }, await clauseRegulatoryVisible(user, "fiche")] },
-        select: { id: true },
-      });
-      return Boolean(found);
-    }
+    // REGULATORY_PRODUCT : traité plus haut, avant le droit de module — il dépend du verrou de la ligne.
     case "PRODUCT": {
       // La clause du CATALOGUE, pas une seconde écriture : un produit se voit par ses dossiers.
       const found = await prisma.product.findFirst({

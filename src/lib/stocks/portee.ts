@@ -187,7 +187,7 @@ const PHRASES: Record<RaisonPorteeVide, string> = {
   SANS_BU:
     "Aucune Business Unit ne vous est rattachée : votre fiche force de vente n'en porte pas, et aucun secteur ne vous est affecté.",
   SANS_SECTEUR:
-    "Aucun secteur de votre BU ne vous est affecté : les stocks d'hôpitaux se lisent par secteur (Force de vente › Business Units › Secteurs).",
+    "Aucun secteur de votre BU ne vous est affecté : les stocks d'hôpitaux se lisent par secteur (Business Units › Secteurs).",
   SECTEURS_HORS_BU:
     "Vous êtes affecté à des secteurs d'une autre BU que celle de votre fiche : ils ne comptent pas ici.",
   SECTEURS_SANS_ETABLISSEMENT:

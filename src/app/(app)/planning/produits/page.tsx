@@ -116,7 +116,7 @@ async function Previsions({ cycleId, year, month }: { cycleId: string; year: num
       </summary>
       <div className="border-t border-border">
         {rows.length === 0
-          ? <p className="p-5 text-sm text-muted-foreground">Aucun produit actif : ils s&apos;ajoutent dans Réglages › Business units.</p>
+          ? <p className="p-5 text-sm text-muted-foreground">Aucun produit actif : ils s&apos;ajoutent dans Business Units.</p>
           : <ForecastGrid cycleId={cycleId} rows={rows} canEdit />}
       </div>
     </details>

@@ -8,7 +8,7 @@ import { peutEcrireMessagesPromo } from "@/lib/sfe/tournee";
  *   • LE MARCHÉ (IQVIA, PCH, Nomenclature) : à qui l'a DÉJÀ — la porte de Business Development › Intelligence marché
  *     (`requireModule("BUSINESS_DEVELOPMENT")`). Décision de la Direction (07/10) : on n'élargit pas l'accès au marché ;
  *     les autres ne voient ni l'onglet ni la tuile (pas d'aguiche).
- *   • L'ARGENT (engagé Ad & Pro, enveloppe) : à qui lit les Budgets ou Ad & Pro — les montants ne s'ouvrent pas par le
+ *   • L'ARGENT (engagé Ad & Pro, enveloppe) : à qui lit Budget Marketing, les Budgets ou Ad & Pro — les montants ne s'ouvrent pas par le
  *     seul cockpit, que la Force de vente reçoit aussi par défaut.
  */
 export function peutVoirMarcheCockpit(user: SessionUser): boolean {
@@ -16,7 +16,7 @@ export function peutVoirMarcheCockpit(user: SessionUser): boolean {
 }
 
 export function peutVoirArgentCockpit(user: SessionUser): boolean {
-  return userCan(user, "BUDGETS", "VIEW") || userCan(user, "SPONSORING", "VIEW");
+  return userCan(user, "BUDGET_MARKETING", "VIEW") || userCan(user, "BUDGETS", "VIEW") || userCan(user, "SPONSORING", "VIEW");
 }
 
 /**

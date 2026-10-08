@@ -33,7 +33,7 @@ import { cleDeService, lireNomsDeServices, nomDeService, LONGUEUR_MAX_SERVICE, S
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-const CHEMINS = ["/annuaires/etablissements", "/annuaires/medecins", "/annuaires/pharmaciens", "/medical", "/planning/business-units"];
+const CHEMINS = ["/annuaires/etablissements", "/annuaires/medecins", "/annuaires/pharmaciens", "/medical", "/business-units"];
 const rafraichir = () => { for (const c of CHEMINS) revalidatePath(c); };
 
 const estDoublon = (e: unknown): boolean => e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";

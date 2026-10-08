@@ -20,9 +20,16 @@ import { specialitesDemandees, ecrireSpecialitesBu, resumeSpecialitesBu } from "
 import { estBuHospitaliere, nomDuTerritoire } from "@/lib/sfe/territoire-kam";
 
 const MODULE = "SALES_PLANNING" as const;
+/**
+ * LE MONTAGE (BU, KAM, produits, secteurs, paramètres) est le module « Business Units » (Direction, 08/10) : ses gestes
+ * se gardent par CE droit. Les prévisions et les affectations restent à la Force de vente (`MODULE`).
+ */
+const BU_MODULE = "BUSINESS_UNITS" as const;
 const PATH = "/planning";
 /** L'écran où se monte une force de vente : une BU, son superviseur, ses KAM, ses produits. */
-const BU_PATH = "/planning/business-units";
+const BU_PATH = "/business-units";
+/** Les paramètres SFE et la maille des plans de tournée — l'onglet « Paramètres » du module Business Units. */
+const PARAMETRES_PATH = "/business-units/parametres";
 
 function num(fd: FormData, key: string): number | null {
   const v = fd.get(key);
@@ -47,7 +54,7 @@ export async function ensureCycle(year: number, month: number): Promise<{ id: st
 // ─────────────────────────── Business Units (franchises) ───────────────────────────
 export async function createBusinessUnit(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de la BU est obligatoire." };
   // LES SPÉCIALITÉS se vérifient AVANT d'écrire quoi que ce soit (§118.183) : une BU créée puis refusée
@@ -77,14 +84,14 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
     actorId: user.id, action: "CREATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: created.id,
     summary: `BU « ${name} »${specialites ? ` — spécialités : ${specialites}` : ""}`,
   });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   if (voulues.ids.length) for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   return { ok: true, id: created.id };
 }
 
 export async function updateBusinessUnit(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "BU introuvable." };
   // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c, §118.183) : l'écran envoie tout, mais
@@ -110,7 +117,7 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
   // L'HISTOIRE D'UNE BU (§118.181) : sa modification n'était pas auditée — un superviseur changé,
   // un canal réglé, une gamme désactivée ne laissaient aucune trace.
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: id, summary: "BU modifiée" });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }
 
@@ -126,7 +133,7 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
  */
 export async function enregistrerSpecialitesBu(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const businessUnitId = fdStr(formData, "businessUnitId");
   if (!businessUnitId) return { ok: false, error: "BU introuvable." };
   const bu = await prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { id: true, name: true } });
@@ -142,7 +149,7 @@ export async function enregistrerSpecialitesBu(formData: FormData): Promise<Acti
       summary: `Spécialités de la BU « ${bu.name} » — ${resume}`,
     });
   }
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   return { ok: true, message: resume ? undefined : "Rien n'a changé." };
 }
@@ -169,7 +176,7 @@ export async function enregistrerSpecialitesBu(formData: FormData): Promise<Acti
  */
 export async function openBusinessUnitBudget(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Business Unit introuvable." };
   const bu = await prisma.businessUnit.findUnique({
@@ -218,14 +225,14 @@ export async function openBusinessUnitBudget(formData: FormData): Promise<Action
     actorId: user.id, action: "CREATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: bu.id,
     summary: `Budget ouvert pour la BU « ${bu.name} » — sous-département ${buDepartmentName(bu.name)}`,
   });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   revalidatePath("/budgets");
   return { ok: true, id: dep.id, message: `Budget ouvert. La gamme « ${bu.name} » a désormais son enveloppe et sa masse salariale dans Budgets.` };
 }
 
 export async function deleteBusinessUnit(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "DELETE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "BU introuvable." };
   const bu = await prisma.businessUnit.findUnique({
@@ -245,14 +252,14 @@ export async function deleteBusinessUnit(formData: FormData): Promise<ActionResu
   }
   await prisma.businessUnit.delete({ where: { id } });
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: id, summary: `BU « ${bu.name} » supprimée` });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }
 
 // ─────────────────────────── Produits promus ───────────────────────────
 export async function createPromoProduct(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
   const businessUnitId = fdStr(formData, "businessUnitId") || null;
 
   // LE PRODUIT PROMU VIENT DU DOSSIER RÉGLEMENTAIRE. Le saisir au clavier créait un second
@@ -301,13 +308,13 @@ export async function createPromoProduct(formData: FormData): Promise<ActionResu
     },
   });
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Produit « ${name} »${regulatoryProductId ? " (depuis son dossier Regulatory)" : ""}` });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }
 
 export async function updatePromoProduct(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Produit introuvable." };
   // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c, §118.178). « Rattacher un produit
@@ -328,18 +335,18 @@ export async function updatePromoProduct(formData: FormData): Promise<ActionResu
       isActive: fdCase(formData, "isActive"),
     },
   });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }
 
 export async function deletePromoProduct(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "DELETE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Produit introuvable." };
   await prisma.promoProduct.delete({ where: { id } });
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", summary: "Produit supprimé" });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }
 
@@ -370,7 +377,7 @@ export async function saveForecast(formData: FormData): Promise<ActionResult> {
 // ─────────────────────────── Paramètres SFE (100% configurables) ───────────────────────────
 export async function saveSfeSettings(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const positionWeights: Record<string, number> = {
     "1": num(formData, "p1") ?? 1, "2": num(formData, "p2") ?? 0.5, "3": num(formData, "p3") ?? 0.25,
   };
@@ -392,7 +399,7 @@ export async function saveSfeSettings(formData: FormData): Promise<ActionResult>
     update: { positionWeights, capacity, frequencyByTier, updatedById: user.id },
   });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Force de vente", summary: "Paramètres SFE mis à jour" });
-  revalidatePath(`${PATH}/parametres`);
+  revalidatePath(PARAMETRES_PATH);
   return { ok: true };
 }
 
@@ -417,7 +424,7 @@ export async function saveSfeSettings(formData: FormData): Promise<ActionResult>
 export async function saveTourPlanningSettings(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (user.role !== "SUPER_ADMIN") {
-    return { ok: false, error: "La maille de planification est réservée au Super Admin — demandez-lui de la régler (Force de vente › Paramètres)." };
+    return { ok: false, error: "La maille de planification est réservée au Super Admin — demandez-lui de la régler (Business Units › Paramètres)." };
   }
   const granularity = fdStr(formData, "granularity") ?? "";
   if (!estGranularite(granularity)) {
@@ -445,7 +452,7 @@ export async function saveTourPlanningSettings(formData: FormData): Promise<Acti
     actorId: user.id, action: "UPDATE", module: "Force de vente",
     summary: `Planification de tournée : maille ${GRANULARITE_LABELS[granularity].toLowerCase()}, échéance ${jours} j avant la fin du mois précédent`,
   });
-  revalidatePath(`${PATH}/parametres`);
+  revalidatePath(PARAMETRES_PATH);
   // Les plans à venir se préparent à la nouvelle maille : l'écran du KAM l'annonce.
   revalidatePath("/medical/plan-de-tournee");
   return { ok: true };
@@ -454,7 +461,7 @@ export async function saveTourPlanningSettings(formData: FormData): Promise<Acti
 // ─────────────────────────── Profil KAM (configuration individuelle) ───────────────────────────
 export async function saveRepProfile(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const repId = fdStr(formData, "repId");
   if (!repId) return { ok: false, error: "KAM introuvable." };
   // CE QUE LE FORMULAIRE NE PORTE PAS NE CHANGE PAS (§118.172, §118.152c). L'upsert réécrivait
@@ -504,7 +511,7 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult> 
     }
     return { retires: r.count, rendu };
   });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   const phrases = [
     retires > 0 ? `${retires} affectation(s) à un secteur de son ancienne BU lui sont retirées : son panel suit sa nouvelle BU.` : null,
     rendu ? "Son territoire dans cette BU lui est rendu, tel qu'il était." : null,
@@ -514,7 +521,7 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult> 
 
 export async function deleteRepProfile(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const repId = fdStr(formData, "repId");
   if (!repId) return { ok: false, error: "KAM introuvable." };
   // Retiré de la force de vente, il quitte aussi ses secteurs (§118.184 — S15), dans la même transaction.
@@ -522,7 +529,7 @@ export async function deleteRepProfile(formData: FormData): Promise<ActionResult
     prisma.salesSectorRep.deleteMany({ where: { repId } }),
     prisma.salesRepProfile.deleteMany({ where: { repId } }),
   ]);
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }
 
@@ -554,7 +561,7 @@ export async function deleteRepProfile(formData: FormData): Promise<ActionResult
  */
 export async function createSector(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const businessUnitId = fdStr(formData, "businessUnitId");
   const name = fdStr(formData, "name");
   if (!businessUnitId) return { ok: false, error: "Le secteur doit appartenir à une Business Unit." };
@@ -566,7 +573,7 @@ export async function createSector(formData: FormData): Promise<ActionResult> {
 
 export async function updateSector(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id) return { ok: false, error: "Identifiant du secteur manquant." };
@@ -744,7 +751,7 @@ async function ecrireSecteur(
     actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: ecrit,
     summary: `${territoireDe ? "Territoire" : "Secteur"} « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
   });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   return { ok: true, id: ecrit };
 }
 
@@ -754,7 +761,7 @@ async function ecrireSecteur(
  */
 export async function deleteSector(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const secteur = await prisma.salesSector.findUnique({
@@ -772,7 +779,7 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
     // la conséquence, pas la ligne supprimée.
     summary: `Secteur « ${secteur.name} » supprimé — ${secteur._count.reps} KAM sans territoire`,
   });
-  revalidatePath(BU_PATH);
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }
 
@@ -804,7 +811,7 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
  */
 export async function enregistrerTerritoireKam(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const businessUnitId = fdStr(formData, "businessUnitId");
   const repId = fdStr(formData, "repId");
   if (!businessUnitId) return { ok: false, error: "Le territoire doit appartenir à une Business Unit." };
@@ -827,9 +834,13 @@ export async function enregistrerTerritoireKam(formData: FormData): Promise<Acti
         where: { businessUnitId_repId: { businessUnitId, repId } },
         select: { id: true, name: true },
       });
-      // LE NOM : celui du territoire s'il existe déjà ; sinon « Territoire — <KAM> », suffixé quand
-      // ce nom est pris dans la BU (un ancien secteur, un homonyme) — la règle de la migration.
-      let nom = existant?.name;
+      // LE NOM : celui que le panneau envoie (Direction, 08/10 : « permets de nommer chaque territoire ») ; sinon celui
+      // du territoire s'il existe déjà ; sinon « Territoire — <KAM> », suffixé quand ce nom est pris dans la BU (un
+      // ancien secteur, un homonyme) — la règle de la migration. Un nom choisi déjà pris dans la BU est REFUSÉ par le
+      // corps commun (`ecrireSecteur`), en le nommant.
+      const choisi = nomDeSecteur(formData);
+      if (choisi && !choisi.ok) return { ok: false as const, error: choisi.error };
+      let nom = choisi?.nom ?? existant?.name;
       if (!nom) {
         const base = nomDuTerritoire(kam.name, repId, false);
         const pris = await prisma.salesSector.findFirst({
@@ -852,6 +863,66 @@ export async function enregistrerTerritoireKam(formData: FormData): Promise<Acti
 const REFUS_BU_DE_VILLE =
   "Cette BU est une gamme de ville : il n'y a pas d'établissement à choisir — le secteur du KAM se saisit en texte sur sa ligne. "
   + "Passez la BU en terrain « Hospitalière » ou « les deux » pour choisir des établissements.";
+
+/** La longueur d'un nom de secteur : il s'affiche dans une cellule de tableau et sur une carte. */
+const NOM_SECTEUR_MAX = 80;
+
+/**
+ * LE NOM DE SECTEUR QU'UN FORMULAIRE ENVOIE — `null` s'il n'en dit rien (le nom ne change pas), sinon le nom nettoyé
+ * (espaces repliés) ou le refus qui dit pourquoi. Non exportée : un fichier `"use server"` n'exporte que des actions.
+ */
+function nomDeSecteur(formData: FormData): { ok: true; nom: string } | { ok: false; error: string } | null {
+  if (!formData.has("name")) return null;
+  const nom = String(formData.get("name") ?? "").replace(/\s+/g, " ").trim();
+  if (!nom) return null;
+  if (nom.length > NOM_SECTEUR_MAX) return { ok: false, error: `Le nom du territoire tient en ${NOM_SECTEUR_MAX} caractères au plus.` };
+  return { ok: true, nom };
+}
+
+/**
+ * NOMMER UN TERRITOIRE (Direction, 08/10 : « permets de nommer chaque territoire ») — le territoire propre d'un KAM naît
+ * « Territoire — <KAM> » ; on le renomme ici, sur sa ligne (Business Units › Secteurs) ou dans le tableau de la Force de
+ * vente › Territoires. Le NOM SEUL change : ni ses établissements, ni ses services, ni son KAM — l'action d'écriture du
+ * territoire REMPLACE la sélection, et un renommage qui passerait par elle viderait le panel.
+ *
+ * Le droit est celui qui règle les secteurs (module « Business Units », Modifier). Un seul nom par BU (insensible à la
+ * casse, comme la contrainte d'unicité) : un homonyme est refusé en le nommant, et une course entre deux renommages est
+ * dite au lieu d'une erreur de base. Audité : le nom d'avant et le nouveau.
+ */
+export async function renommerSecteur(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant du territoire manquant." };
+  const choisi = nomDeSecteur(formData);
+  if (!choisi) return { ok: false, error: "Le nom du territoire est obligatoire." };
+  if (!choisi.ok) return { ok: false, error: choisi.error };
+  const nom = choisi.nom;
+  const secteur = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, name: true, businessUnitId: true, repId: true } });
+  if (!secteur) return { ok: false, error: "Territoire introuvable — rechargez l'écran." };
+  if (secteur.name === nom) return { ok: true, id: secteur.id };
+  const homonyme = await prisma.salesSector.findFirst({
+    where: { businessUnitId: secteur.businessUnitId, name: { equals: nom, mode: "insensitive" }, id: { not: secteur.id } },
+    select: { id: true },
+  });
+  if (homonyme) return { ok: false, error: `Un territoire « ${nom} » existe déjà dans cette BU : choisissez un autre nom.` };
+  try {
+    await prisma.salesSector.update({ where: { id: secteur.id }, data: { name: nom } });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return { ok: false, error: `Un territoire « ${nom} » vient d'être créé dans cette BU : choisissez un autre nom.` };
+    }
+    throw e;
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Business Units", entityType: "SALES_SECTOR", entityId: secteur.id,
+    summary: `${secteur.repId ? "Territoire" : "Secteur"} renommé : « ${secteur.name} » → « ${nom} »`,
+  });
+  revalidatePath(BU_PATH, "layout");
+  revalidatePath(`${PATH}/territoires`);
+  revalidatePath("/segmentation", "layout");
+  return { ok: true, id: secteur.id };
+}
 
 // ─────────────────────────── Affectations (matrice KAM × produit) ───────────────────────────
 export async function saveAssignment(formData: FormData): Promise<ActionResult> {
@@ -937,7 +1008,7 @@ export async function carryForwardAssignments(formData: FormData): Promise<Actio
 
 export async function addBuMarketingReferent(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const businessUnitId = fdStr(formData, "businessUnitId");
   const userId = fdStr(formData, "userId");
   if (!businessUnitId) return { ok: false, error: "Le référent appartient à une Business Unit." };
@@ -969,13 +1040,13 @@ export async function addBuMarketingReferent(formData: FormData): Promise<Action
     actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: businessUnitId,
     summary: `Référent Direction Marketing ajouté — ${cible.name} sur la gamme ${bu.name}`,
   });
-  revalidatePath("/planning/business-units");
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }
 
 export async function removeBuMarketingReferent(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, BU_MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant de la désignation manquant." };
   const ligne = await prisma.businessUnitMarketingReferent.findUnique({
@@ -988,6 +1059,6 @@ export async function removeBuMarketingReferent(formData: FormData): Promise<Act
     actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: ligne.businessUnitId,
     summary: `Référent Direction Marketing retiré — ${ligne.user.name} de la gamme ${ligne.businessUnit.name}`,
   });
-  revalidatePath("/planning/business-units");
+  revalidatePath(BU_PATH, "layout");
   return { ok: true };
 }

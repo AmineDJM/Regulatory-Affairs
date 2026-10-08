@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { requireModule } from "@/lib/session";
-import { userCan, isRegulatorySupervisor } from "@/lib/rbac";
+import { requireModule, requireUser } from "@/lib/session";
+import { userCan, isRegulatorySupervisor, moduleDuDossierRegulatory } from "@/lib/rbac";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { getAppSettings } from "@/lib/settings";
 import { manquesIdentite } from "@/lib/products/identity";
@@ -59,7 +59,14 @@ const REG_DOC_CATEGORIES = [
 const REG_RESERVE_CATEGORIES = ["QUERY_RECEIVED", "QUERY_RESPONSE"];
 
 export default async function RegulatoryDetailPage({ params, searchParams }: { params: { id: string }; searchParams: { dossier?: string; ctd?: string } }) {
-  const user = await requireModule("REGULATORY");
+  // LA PORTE DE LA FICHE EST CELLE DE SON ÉCRAN (Direction, 08/10) : un dossier verrouillé s'ouvre depuis le
+  // pipeline (module « Pipeline réglementaire »), un dossier ouvert depuis le suivi des dossiers (Regulatory). Qui n'a
+  // que l'autre module passe la porte puis tombe sur la règle du dossier (`canAccessEntity`) : un 404, jamais un
+  // « accès refusé » qui trahirait qu'un dossier verrouillé porte cet identifiant.
+  const visiteur = await requireUser();
+  const moduleFiche = userCan(visiteur, "REGULATORY", "VIEW") || !userCan(visiteur, "REGULATORY_PIPELINE", "VIEW")
+    ? "REGULATORY" : "REGULATORY_PIPELINE";
+  const user = await requireModule(moduleFiche);
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", params.id, "VIEW"))) {
     notFound();
   }
@@ -85,9 +92,11 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
   // déclaré sur la fiche (voir `lib/regulatory/manufacturing-stage.ts`).
   const stage = effectiveStage(product.manufacturingStatus, product.variations);
 
-  const canUpdate = userCan(user, "REGULATORY", "UPDATE");
-  const canUpload = userCan(user, "REGULATORY", "UPLOAD");
-  const canDelete = userCan(user, "REGULATORY", "DELETE");
+  // Les gestes se lisent sur le module de SON écran : le pipeline pour un dossier verrouillé (Direction, 08/10).
+  const moduleDuDossier = moduleDuDossierRegulatory(product);
+  const canUpdate = userCan(user, moduleDuDossier, "UPDATE");
+  const canUpload = userCan(user, moduleDuDossier, "UPLOAD");
+  const canDelete = userCan(user, moduleDuDossier, "DELETE");
   // Supervision (Super Admin + rôles configurés) : dates cibles + demande de MàJ de statut.
   const canSupervise = isRegulatorySupervisor(user, (await getAppSettings()).regulatorySupervisorRoles);
 
@@ -217,11 +226,12 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
 
   return (
     <div className="space-y-5">
+      {/* Le retour mène à l'écran d'où vient le dossier : le pipeline pour un dossier verrouillé. */}
       <Link
-        href="/regulatory"
+        href={product.isLocked ? "/regulatory/pipeline" : "/regulatory"}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="h-4 w-4" /> Retour aux dossiers
+        <ArrowLeft className="h-4 w-4" /> {product.isLocked ? "Retour au pipeline" : "Retour aux dossiers"}
       </Link>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

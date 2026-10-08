@@ -15,7 +15,7 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
     // Les Rapports terrain sont un ONGLET de la Promotion médicale (Direction, 07/10) : le seul droit FIELD_REPORTS
     // ouvre l'entrée « Promotion médicale », qui mène à cet onglet — et à rien d'autre (les autres onglets restent fermés).
     const poles = groupIntoPoles(accessible(["FIELD_REPORTS"]));
-    expect(poles.map((p) => p.key)).toEqual(["SALES_MARKETING"]);
+    expect(poles.map((p) => p.key)).toEqual(["OPERATIONS_SALES"]);
     expect(poles[0].children.map((c) => c.label)).toEqual(["Promotion médicale"]);
   });
 
@@ -64,12 +64,35 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
    * déplacement d'une entrée de menu ait ouvert ou fermé un écran. `pole` ne sert qu'au
    * regroupement ; la garde est le module, et elle n'a pas bougé.
    */
-  it("« Information médicale » est au pôle REGULATORY, et plus à Sales & Marketing", () => {
+  it("« Information médicale » est au pôle REGULATORY, et plus dans les pôles commerciaux", () => {
     const poles = groupIntoPoles(accessible(["MEDICAL_INFO"]));
     const reg = poles.find((p) => p.key === "REGULATORY");
     expect(reg?.children.map((c) => c.label)).toContain("Information médicale");
     // Et elle a QUITTÉ l'autre pôle : sans cette moitié, une entrée dupliquée passerait.
-    expect(poles.find((p) => p.key === "SALES_MARKETING")).toBeUndefined();
+    expect(poles.find((p) => p.key === "MARKETING" || p.key === "OPERATIONS_SALES")).toBeUndefined();
+  });
+
+  /**
+   * MARKETING ET OPERATIONS & SALES (Direction, 08/10 : « sépare Marketing et Sales »). « Sales & Marketing » est coupé
+   * en deux pôles, à sa place dans l'ordre ; la Direction a nommé le contenu de chacun — le site web rejoint le Marketing.
+   * Les entrées qu'elle n'a pas citées (Ventes, Consommation) restent avec le terrain. Seul le RANGEMENT change.
+   */
+  it("Marketing puis Operations & Sales, à la place de Sales & Marketing, avec les entrées nommées par la Direction", () => {
+    const cles = NAV_POLES.map((p) => p.key);
+    expect(cles).not.toContain("SALES_MARKETING");
+    expect(cles.indexOf("OPERATIONS_SALES")).toBe(cles.indexOf("MARKETING") + 1);
+    expect(cles.indexOf("MARKETING")).toBe(cles.indexOf("ADMINISTRATION") + 1);
+    expect(NAV_POLES.find((p) => p.key === "MARKETING")?.label).toBe("Marketing");
+    expect(NAV_POLES.find((p) => p.key === "OPERATIONS_SALES")?.label).toBe("Operations & Sales");
+    const tout = groupIntoPoles(accessible([...MODULES]));
+    const de = (cle: string) => tout.find((p) => p.key === cle)?.children.map((c) => c.label) ?? [];
+    expect(de("MARKETING")).toEqual(expect.arrayContaining(["Marketing cockpit", "Segmentation", "Produits 360", "Ad & Pro", "Stock promotionnel", "Site web"]));
+    expect(de("OPERATIONS_SALES").slice(0, 4)).toEqual(["Promotion médicale", "Business Units", "Force de vente", "Marchés PCH"]);
+    expect(de("OPERATIONS_SALES")).toEqual(expect.arrayContaining(["Ventes", "Consommation"]));
+    expect(de("BUSINESS_DEV")).not.toContain("Marchés PCH");
+    expect(de("ADMINISTRATION")).not.toContain("Site web");
+    // Le rangement ne donne AUCUN droit : sans le module, l'entrée n'apparaît dans aucun pôle.
+    expect(groupIntoPoles(accessible(["SALES_PLANNING"])).flatMap((p) => p.children.map((c) => c.label))).not.toContain("Business Units");
   });
 
   it("le déplacement ne donne AUCUN droit : sans le module, l'entrée n'apparaît nulle part", () => {
@@ -85,16 +108,30 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
     // Replier pour deux lignes n'aurait aucun sens. (MEDICAL n'a qu'UNE entrée de menu —
     // « Promotion médicale » — qui porte ses deux onglets : Ma journée et l'Annuaire.)
     // (Les Rapports terrain sont un onglet de la Promotion médicale depuis le 07/10 : FIELD_REPORTS n'ajoute pas d'entrée.)
-    const sm = groupIntoPoles(accessible(["FIELD_REPORTS", "MEDICAL", "PRODUCTS"])).find((p) => p.key === "SALES_MARKETING");
-    expect(sm?.children.map((c) => c.label)).toEqual(["Promotion médicale", "Produits 360"]);
+    const sm = groupIntoPoles(accessible(["FIELD_REPORTS", "MEDICAL", "PCH"])).find((p) => p.key === "OPERATIONS_SALES");
+    expect(sm?.children.map((c) => c.label)).toEqual(["Promotion médicale", "Marchés PCH"]);
     expect(sm?.defaultOpen).toBe(true);
   });
 
   it("le PIPELINE est un module du pôle Regulatory — on le trouve en dépliant sa flèche", () => {
-    const poles = groupIntoPoles(accessible(["REGULATORY"]));
+    const poles = groupIntoPoles(accessible(["REGULATORY", "REGULATORY_PIPELINE"]));
     const reg = poles.find((p) => p.key === "REGULATORY");
     expect(reg?.children.map((c) => c.label)).toEqual(expect.arrayContaining(["Suivi des dossiers", "Pipeline"]));
     expect(poleOfPath(poles, "/regulatory/pipeline")).toBe("REGULATORY");
+  });
+
+  it("Pipeline et Suivi des dossiers se règlent À PART (Direction, 08/10) — chacun suit SON module", () => {
+    const entree = NAVIGATION.find((n) => n.href === "/regulatory/pipeline");
+    expect(entree?.module).toBe("REGULATORY_PIPELINE");
+    // La confidence du pipeline reste une seconde clé : la garde `pipeline` est conservée.
+    expect(entree?.gate).toBe("pipeline");
+    const seulSuivi = groupIntoPoles(accessible(["REGULATORY"])).find((p) => p.key === "REGULATORY");
+    expect(seulSuivi?.children.map((c) => c.label)).toContain("Suivi des dossiers");
+    expect(seulSuivi?.children.map((c) => c.label)).not.toContain("Pipeline");
+    const seulPipeline = groupIntoPoles(accessible(["REGULATORY_PIPELINE"]));
+    const reg = seulPipeline.find((p) => p.key === "REGULATORY");
+    expect(reg?.children.map((c) => c.label)).toEqual(["Pipeline"]);
+    expect(poleOfPath(seulPipeline, "/regulatory/pipeline")).toBe("REGULATORY");
   });
 
   it("un SOUS-MODULE (capacité `children`) ouvre le pôle de son parent — Employés, Demandes RH, Recrutement, Formations et Paie sous les RH", () => {
@@ -187,7 +224,9 @@ describe("poleOfPath — le tiroir de la page courante s'ouvre tout seul", () =>
 
   it("retrouve le pôle d'une route, y compris sur une sous-page", () => {
     expect(poleOfPath(poles, "/regulatory")).toBe("REGULATORY");
-    expect(poleOfPath(poles, "/pch/abc123")).toBe("BUSINESS_DEV");
+    expect(poleOfPath(poles, "/pch/abc123")).toBe("OPERATIONS_SALES");
+    expect(poleOfPath(poles, "/business-units/secteurs")).toBe("OPERATIONS_SALES");
+    expect(poleOfPath(poles, "/site-web")).toBe("MARKETING");
     expect(poleOfPath(poles, "/logistics")).toBe("SUPPLY_CHAIN");
     expect(poleOfPath(poles, "/moyens-generaux")).toBe("ADMINISTRATION");
   });
