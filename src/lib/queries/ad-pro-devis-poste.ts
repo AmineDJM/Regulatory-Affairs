@@ -3,11 +3,13 @@ import { toNumber } from "@/lib/utils";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import type { EtapeBC } from "@/lib/bons-de-commande/regle";
 import {
-  decisionBcDuDevis, ecartAvecLeTotalImprime, refusValidationLigne, totauxDuDevisLu, totauxValides, lignesValidees, reservesEncoreVraies,
+  decisionBcDuDevis, ecartAvecLeTotalImprime, refusValidationLigne, totauxDuDevisLu, totauxValides, lignesValidees, reservesEncoreVraies, lignesDuBon,
   type BcActifDuDevis, type EnteteDevisPoste, type EtatBcDuDevis, type LigneDevisPoste,
 } from "@/lib/ad-pro/devis-poste";
 import { IDENTITE_VIDE, identiteUtilisable, type IdentiteEmetteur } from "@/lib/pieces-lues/emetteur";
 import { montantLu } from "@/lib/pieces-lues/montants";
+import { brouillonPerime, lireBrouillon, lignesEffectives, type BrouillonBc } from "@/lib/ad-pro/bc-brouillon";
+import type { LigneCommerciale } from "@/lib/artifact/factory/commercial";
 
 /** L'identité gardée en base (JSON) → sa forme typée, ou `null` si elle ne nomme personne. */
 function identiteGardee(brut: unknown): IdentiteEmetteur | null {
@@ -80,6 +82,11 @@ export interface DevisDePosteVue {
   nbAjoutees: number;
   nbRetirees: number;
   refus: string | null;
+  /**
+   * LE BROUILLON DU BC (« à vérifier par le demandeur ») de CE poste, s'il y en a un : aucun numéro n'est encore attribué. Ses lignes
+   * sont celles qu'il imprimera (corrigées, ou celles des lignes validées).
+   */
+  brouillon: (BrouillonBc & { perime: boolean; lignesBc: LigneCommerciale[] }) | null;
 }
 
 /** Une ligne en base → la forme que le module pur lit. */
@@ -111,7 +118,7 @@ export async function devisDesPostes(itemIds: readonly string[]): Promise<Map<st
             id: true, title: true, reference: true, counterparty: true, status: true, cancelledAt: true,
             devisPoste: {
               select: {
-                supplierId: true, tvaRate: true, extraTaxLabel: true, extraTaxRate: true, announcedTotal: true, fournisseurLu: true,
+                supplierId: true, tvaRate: true, extraTaxLabel: true, extraTaxRate: true, announcedTotal: true, fournisseurLu: true, bcBrouillon: true,
                 quoteDate: true, lectureId: true, lectureNote: true,
                 lignes: {
                   orderBy: { position: "asc" },
@@ -200,7 +207,13 @@ export async function devisDesPostes(itemIds: readonly string[]): Promise<Map<st
       totalDevisHt: lue.ht,
       nbValidees: gardees.length, totalValideHt: t.ht, totalValideTtc: t.ttc,
       bc, etat: decision.etat, nbAjoutees: decision.ajoutees.length, nbRetirees: decision.retirees.length, refus: decision.refus,
+      brouillon: null,
     };
+    const brut = lireBrouillon(entreeBase?.bcBrouillon);
+    if (brut && brut.itemId === lien.itemId && (decision.etat === "A_GENERER" || decision.etat === "A_REGENERER")) {
+      const lignesBc = lignesDuBon(entete, lignes, lien.itemId);
+      vue.brouillon = { ...brut, perime: brouillonPerime(brut, lignesBc), lignesBc: lignesEffectives(brut, lignesBc) };
+    }
     res.get(lien.itemId)?.push(vue);
   }
   return res;

@@ -483,7 +483,7 @@ export interface DemandeDocument {
   contact?: { nom?: string | null; telephone?: string | null } | null;
   /** Taxes additionnelles sur le HT, hors base de TVA (« Taxe Pub » 2 %). */
   taxes?: TaxeAdditionnelle[] | null;
-  livraison?: { adresse?: string | null; delai?: string | null } | null;
+  livraison?: { adresse?: string | null; delai?: string | null; date?: string | null } | null;
   notes?: string | null;
   /** Un papier en-tête Word précis de la société, à la place de celui du profil. */
   letterheadId?: string | null;
@@ -1039,16 +1039,27 @@ export interface ApercuDocument {
  * qui bloquerait. Deux compositions (une pour l'aperçu, une pour l'émission) finiraient par
  * diverger sur un arrondi (§118.5) ; il n'y en a qu'une.
  */
-export async function previsualiserDocument(user: CurrentUser, demande: DemandeDocument, opts: { avecPdf?: boolean } = {}): Promise<ApercuDocument | EchecFabrique> {
+export async function previsualiserDocument(
+  user: CurrentUser, demande: DemandeDocument,
+  /**
+   * `delegation` : l'aperçu d'un dossier qui autorise l'émission (comme `OptionsEmission.delegation`) — le demandeur d'un poste
+   * relit SON bon de commande sans droit d'écriture Legal. `numeroAffiche` : ce que la pièce imprime à la place du numéro
+   * prévu (« À attribuer à la validation ») — le numéro n'est attribué qu'à l'émission ; le prévu reste dit dans `numeroProchain`.
+   */
+  opts: { avecPdf?: boolean; delegation?: string | null; numeroAffiche?: string | null } = {},
+): Promise<ApercuDocument | EchecFabrique> {
   const type = demande.type;
   if (!TYPES_DOCUMENT.includes(type)) return echec("MISSING_INPUT", `Type de document inconnu : « ${String(type)} » (${TYPES_DOCUMENT.join(", ")}).`);
-  if (!peutEcrire(user, "CREATE", type)) {
+  if (!opts.delegation && !peutEcrire(user, "CREATE", type)) {
     return echec("MISSING_PERMISSION", phraseDroitDEmettre(type));
+  }
+  if (opts.delegation && !(demande.societe ?? "").trim()) {
+    return echec("MISSING_INPUT", "Cet aperçu est autorisé par un dossier qui ne nomme aucune société : rattachez le dossier à la société qui commande, puis relancez.");
   }
   const p = await profilDocumentaire(user, demande.societe, { papierEnTeteId: demande.letterheadId ?? null });
   if (!p.ok) return p;
   const { profil, habillage } = p;
-  if (!(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
+  if (!opts.delegation && !(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
   // L'aperçu d'un avoir lit sa facture comme l'émission : sinon il montrerait un client que l'émission remplacera.
   let facture: { numero: string; ttc: number; avoirs: number[] } | null = null;
   if (type === "AVOIR") {
@@ -1068,7 +1079,7 @@ export async function previsualiserDocument(user: CurrentUser, demande: DemandeD
   const anneeSure = Number.isFinite(annee) ? annee : new Date().getUTCFullYear();
   const seq = await prisma.documentSequence.findUnique({ where: { companyId_kind_year: { companyId: profil.societe.id, kind, year: anneeSure } }, select: { last: true } });
   const numeroProchain = formaterNumero(prefixe, anneeSure, prochaineSequence(seq?.last ?? 0, departDe(profil.reglages.numerotationDepart, type, anneeSure)), motif);
-  const spec: SpecDocumentCommercial = { ...base, numero: numeroProchain };
+  const spec: SpecDocumentCommercial = { ...base, numero: opts.numeroAffiche?.trim() || numeroProchain };
   const commun = { ok: true as const, societe: { id: profil.societe.id, nom: profil.societe.nom }, numeroProchain, motif, papierEnTete: profil.papierEnTete, identiteIncomplete: profil.identiteIncomplete, spec, pdfParEditeur: convertConfigured() };
   // LA PIÈCE AMONT SE JUGE DÈS L'APERÇU (lot D1c — F1) : l'écran ne propose pas d'émettre ce que l'émission refusera.
   const amontId = (demande.chainFromId ?? "").trim() || null;

@@ -210,6 +210,8 @@ export interface ContexteDesPostes {
   userId: string;
   /** La demande vient de la Direction Marketing : le second temps revient à la Direction des opérations. */
   secondTempsParOperations: boolean;
+  /** Valider l'aperçu du BC et l'envoyer aux Finances : le demandeur de la demande, ou le Super Admin. */
+  peutValiderBc: boolean;
 }
 
 type Run = (key: string, fn: () => Promise<{ ok: boolean; error?: string; message?: string }>, okText: string) => Promise<void>;
@@ -301,6 +303,7 @@ export function AdProItemsPanel({
         secondTempsParOperations: contexte.secondTempsParOperations,
         // C'est celle qui a DEMANDÉ le BC qui vérifie la pièce que l'assistante a déposée.
         verifieLeBC: Boolean(it.demandeBC) && it.demandeBC?.askedById === contexte.userId,
+        peutValiderBc: contexte.peutValiderBc,
       }}
       freres={items.filter((x) => x.id !== it.id && !estPosteStock(x) && x.status !== "REJECTED").map((x) => ({ id: x.id, label: x.label, kind: x.kind }))}
       assistantes={contexte.assistantes}
@@ -540,7 +543,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
     }
     if (cle === "SOUMETTRE") void run(`submit:${item.id}`, () => submitAdProItem(undefined, fdOf()), "Poste soumis pour validation.");
     // « Générer le BC » : un BC par devis, d'après les lignes validées (§118.206) — la même action que le CTA de la case.
-    if (cle === "GENERER_BC") void run(`gen:tous:${item.id}`, () => genererBonDeCommandePoste(fdOf()), "Bon de commande généré.");
+    if (cle === "GENERER_BC") void run(`gen:tous:${item.id}`, () => genererBonDeCommandePoste(fdOf()), "Aperçu du bon de commande prêt — à vérifier par le demandeur.");
   };
 
   // ── LE MENU « ⋯ » — ce qui ne crie pas, mais reste là. Chaque entrée n'apparaît que si
@@ -1145,6 +1148,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
                   accorde={item.amountGranted}
                   refusGeneration={refusGeneration}
                   peutGenerer={peutGenerer}
+                  peutValider={regard.peutValiderBc === true && !stock && !direct && item.orderStage !== "ISSUED" && !item.expenseOrderId}
                   peutJoindre={peutJoindreBC}
                   peutModifier={regard.canEdit && !regard.fige && !item.expenseOrderId}
                   busy={busy}

@@ -46,6 +46,8 @@ export interface DevisAffiche extends DevisLu {
   quoteDate: string | null;
   note: string | null;
   documentName: string | null;
+  /** Le fichier du devis (un `Document`) : le nom devient un lien qui l'ouvre — `/api/documents/<id>`, comme les autres pièces. */
+  documentId: string | null;
 }
 
 interface Props {
@@ -475,7 +477,11 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                 <p className="truncate font-medium">{q.supplierName}</p>
                 <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {q.reference ? `Devis n° ${q.reference}` : "Devis sans numéro"}{q.quoteDate ? ` · ${new Date(q.quoteDate).toLocaleDateString("fr-FR")}` : ""} · TVA {q.tvaRate} %{q.extraTaxRate ? ` · ${q.extraTaxLabel ?? "Taxe"} ${q.extraTaxRate} %` : ""}
-                  {q.documentName ? <> · <FileText className="inline h-3 w-3" /> {q.documentName}</> : <> · <span className="text-amber-600">scan manquant</span></>}
+                  {q.documentName
+                    ? <> · <FileText className="inline h-3 w-3" /> {q.documentId
+                      ? <a href={`/api/documents/${q.documentId}`} target="_blank" rel="noreferrer" className="text-primary hover:underline" aria-label={`Ouvrir le fichier du devis ${q.documentName}`}>{q.documentName}</a>
+                      : q.documentName}</>
+                    : <> · <span className="text-amber-600">scan manquant</span></>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">

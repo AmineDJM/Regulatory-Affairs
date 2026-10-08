@@ -270,6 +270,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   const devis: DevisAffiche[] = devisBruts.map((d) => ({
     ...devisLu(d), quoteDate: d.quoteDate ? d.quoteDate.toISOString() : null, note: d.note,
     documentName: d.documentId ? nomsScans.get(d.documentId) ?? null : null,
+    documentId: d.documentId ?? null,
   }));
   const canTranscribe = v2 && circuitState === "QUOTE_REQUESTED" && retranscritLesDevis(acteur, pm);
   // LES FICHIERS « DEVIS » DÉPOSÉS SANS FICHE (§118.204) — ceux qu'aucun devis du circuit ne désigne. Ils se

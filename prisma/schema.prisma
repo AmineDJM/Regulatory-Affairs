@@ -2553,6 +2553,9 @@ model AdProDevis {
   /// L'IDENTITÉ DU FOURNISSEUR RECOPIÉE DU DEVIS (raison sociale, adresse, NIF, RC, RIB, téléphone, e-mail) quand il n'a
   /// pas de fiche dans l'annuaire : c'est elle que porte le bon de commande. Jamais devinée (étiquettes imprimées).
   fournisseurLu   Json?
+  /// LE BROUILLON DU BON DE COMMANDE (« à vérifier par le demandeur », Direction 10/2026) : ce que le demandeur relit et corrige AVANT que le
+  /// numéro NNN/DG/AAAA soit attribué et que le BC parte aux Finances. `null` : pas de brouillon. Forme : `lib/ad-pro/bc-brouillon.ts`.
+  bcBrouillon     Json?
   quoteDate       DateTime?
   /// La lecture (`LecturePiece`) dont viennent les lignes proposées, et d'où elles viennent, dit à la personne.
   lectureId       String?

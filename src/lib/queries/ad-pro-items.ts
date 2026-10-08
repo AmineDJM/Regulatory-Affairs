@@ -20,6 +20,7 @@ import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
 import type { HebergementVue } from "@/components/ad-pro/hebergements-bloc";
 import { porteDesHebergements } from "@/lib/ad-pro/hebergements";
 import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
+import { peutValiderLeBrouillon } from "@/lib/ad-pro/bc-brouillon";
 import { pieceEmise, specRevisable } from "@/lib/legal/piece-emise";
 import { devisDesPostes } from "@/lib/queries/ad-pro-devis-poste";
 import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";
@@ -483,6 +484,8 @@ export interface ContextePostes {
   userId: string;
   /** La demande vient de la Direction Marketing : le second temps revient à la Direction des opérations. */
   secondTempsParOperations: boolean;
+  /** Valider l'aperçu du bon de commande et l'envoyer aux Finances : le demandeur de la demande, ou le Super Admin (`peutValiderLeBrouillon`). */
+  peutValiderBc: boolean;
 }
 
 const DEMANDEUR_DE: Record<AdProParent, (id: string) => Promise<string | null>> = {
@@ -501,5 +504,6 @@ export async function contextePostes(user: SessionUser, parent: AdProParent, par
     assistantes: await assistantesDeDirection(),
     userId: user.id,
     secondTempsParOperations: estDirectionMarketingPoste(demandeur),
+    peutValiderBc: peutValiderLeBrouillon({ userId: user.id, role: user.role, demandeurId: requesterId }),
   };
 }

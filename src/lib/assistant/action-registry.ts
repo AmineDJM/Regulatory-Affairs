@@ -1193,6 +1193,11 @@ X("LES LIGNES DES DEVIS D'UN POSTE ET LES BC QU'ELLES FONT GÉNÉRER (§118.206)
   + "case « Bon de commande » et panneau « Lignes » du devis.", [
   "ad-pro-item-actions:validerLignesDuDevis", "ad-pro-item-actions:enregistrerLignesDuDevis",
   "ad-pro-item-actions:lireLesLignesDuDevis", "ad-pro-item-actions:genererBonDeCommandePoste",
+  // L'APERÇU DU BC À VALIDER PAR LE DEMANDEUR (Direction, 10/2026) : « Générer le BC » dépose un brouillon (aucun numéro) ; le demandeur le
+  // relit (`apercuBcPoste`), le corrige (`modifierApercuBcPoste`), le retire (`annulerApercuBcPoste`) ou le valide — et seule la validation
+  // attribue le numéro NNN/DG/AAAA et envoie aux Finances (`validerEtEnvoyerBcPoste`). Des gestes d'écran, jamais des appels d'Adam.
+  "ad-pro-item-actions:apercuBcPoste", "ad-pro-item-actions:modifierApercuBcPoste", "ad-pro-item-actions:annulerApercuBcPoste",
+  "ad-pro-item-actions:validerEtEnvoyerBcPoste",
   // LE BC MODIFIÉ EN NATIF ET LA FACTURE CONTRÔLÉE PAR LUNA (Direction, 06/10) : une révision du Word et du PDF, et un
   // fichier de facture lu puis comparé au(x) BC signé(s) — des gestes devant la carte du poste, pas des appels d'Adam.
   "ad-pro-item-actions:modifierBcDuPoste", "ad-pro-item-actions:deposerFacturePoste",
