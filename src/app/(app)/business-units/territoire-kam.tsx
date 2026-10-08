@@ -11,6 +11,7 @@ import {
   type ChoixEtab, type EtabOpt,
 } from "./choix-etablissements";
 import { NomTerritoire } from "./nom-territoire";
+import { WilayaPivotKam } from "./wilaya-pivot";
 
 /**
  * LE TERRITOIRE D'UN KAM, SUR SA LIGNE (04/10/2026) — dans une BU hospitalière.
@@ -26,7 +27,7 @@ import { NomTerritoire } from "./nom-territoire";
  */
 
 /** Le territoire tel que l'écran le reçoit : ses établissements, et ce qu'il couvre de chacun. */
-export interface TerritoireRow { id: string; name: string; repId: string; liens: LienCouverture[] }
+export interface TerritoireRow { id: string; name: string; repId: string; liens: LienCouverture[]; wilayaPivot: string | null }
 
 type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 const btnCls = "inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60";
@@ -57,6 +58,8 @@ export function TerritoireKam({ buId, kam, territoire, etablissements, busy, run
     <div className="flex w-full flex-wrap items-center gap-2 pl-6 text-xs text-muted-foreground">
       {/* LE NOM DU TERRITOIRE (Direction, 08/10) — « Territoire — <KAM> » à sa naissance, renommable ici sur place. */}
       {territoire && <NomTerritoire id={territoire.id} nom={territoire.name} peutRenommer className="text-sm font-medium text-foreground" />}
+      {/* LA WILAYA PIVOT (Direction, 08/10) — menu des 58 wilayas ; une visite dans cette wilaya = In, ailleurs = Out. */}
+      <WilayaPivotKam buId={buId} repId={kam.repId} nom={kam.name} valeur={territoire?.wilayaPivot ?? null} busy={busy} run={run} />
       {liens.length === 0 ? (
         <>
           <Badge tone="warning" dot={false}>Sans territoire — panel vide</Badge>

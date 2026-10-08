@@ -43,6 +43,7 @@ import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import type { DocItem } from "@/components/documents/document-list";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import { MedecinsConcernes } from "@/components/ad-pro/medecins-concernes";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 
 export const dynamic = "force-dynamic";
@@ -280,6 +281,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
       {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
       <PiecesLegalDeLaDemande spectateur={user} entityType="EVENT" entityId={e.id} />
+
+      {/* LES MÉDECINS CONCERNÉS (Direction, 08/10) — choisis dans l'annuaire : le lien que lisent le cockpit marketing et la fiche du praticien. */}
+      <MedecinsConcernes user={user} entityType="EVENT" entityId={e.id} />
 
       {e.stats.bySpecialty.length > 0 && (
         <Card>

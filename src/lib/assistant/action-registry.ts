@@ -1520,6 +1520,15 @@ X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécial
 X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Business Units, ligne du KAM, bouton « Territoire ».", [
   "sales-planning-actions:enregistrerTerritoireKam",
 ]);
+X("LES MÉDECINS CONCERNÉS PAR UNE DEMANDE AD & PRO (Direction, 08/10 : « mettre les médecins concernés avec l'annuaire ») — relier un praticien de l'annuaire à un sponsoring, un événement, un congrès, un matériel promotionnel ou une autre demande, avec son rôle (bénéficiaire, orateur, invité) et, si on le sait, son montant, ou l'en retirer — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide devant l'annuaire (nom, spécialité, établissement sous les yeux) : un homonyme se choisit à l'écran, pas par un nom lu. Un clic sur la fiche de la demande, carte « Médecins concernés ».", [
+  "ad-pro-medecins-actions:ajouterMedecinConcerne", "ad-pro-medecins-actions:retirerMedecinConcerne",
+]);
+X("sélecteur de la carte « Médecins concernés » d'une demande Ad & Pro (recherche dans l'annuaire : nom, spécialité, établissement) — une lecture de liste de choix, pas un geste métier (précédent : careDirectoryOptions) ; côté Chief, la résolution d'un praticien se fait par NOM dans les opérations d'annuaire", [
+  "ad-pro-medecins-actions:chercherMedecinsAnnuaire",
+]);
+X("LA WILAYA PIVOT D'UN KAM (Direction, 08/10 : « pour chaque KAM, la wilaya pivot avec un menu déroulant ») — la wilaya, parmi les 58 du référentiel, qui sert au In / Out de la segmentation (une visite dans la wilaya pivot = In, ailleurs = Out) — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Elle se choisit dans un menu déroulant, sur la ligne du KAM (Business Units › Secteurs).", [
+  "sales-planning-actions:definirWilayaPivotKam",
+]);
 X("NOMMER UN TERRITOIRE (Direction, 08/10 : « permets de nommer chaque territoire ») — renommer le territoire propre d'un KAM ou un secteur, le nom SEUL — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se fait sur place, sur la ligne du KAM (Business Units › Secteurs) ou dans le tableau Force de vente › Territoires, crayon à côté du nom.", [
   "sales-planning-actions:renommerSecteur",
 ]);

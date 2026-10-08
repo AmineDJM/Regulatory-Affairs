@@ -4,8 +4,9 @@ import type { InOut } from "./regles";
 /**
  * IN / OUT (Direction, 06/10) — « In veut dire dans sa wilaya pivot désignée, et Out veut dire le reste des wilayas ».
  *
- * La wilaya PIVOT d'un KAM est celle de la VILLE PIVOT de son territoire propre (Force de vente › Business Units, son
- * secteur) — la même donnée que le plan de tournée, jamais un second champ. Un praticien est IN si sa wilaya est la
+ * La wilaya PIVOT d'un KAM est celle qu'on choisit sur la ligne de son territoire propre (Business Units › Secteurs,
+ * menu des 58 wilayas — `SalesSector.wilayaPivot`) ; à défaut, celle de sa VILLE PIVOT (`city`, la donnée du plan de
+ * tournée). Un praticien est IN si sa wilaya est la
  * wilaya pivot d'un KAM qui le couvre ; OUT si les KAM qui le couvrent ont une wilaya pivot, et qu'aucune n'est la
  * sienne ; INCONNU (null) sinon — et rien n'est deviné : la fréquence générale s'applique.
  *
@@ -16,6 +17,14 @@ import type { InOut } from "./regles";
 export function wilayaPivot(ville: string | null | undefined): string | null {
   if (!ville?.trim()) return null;
   return canonicalWilaya(ville) ?? wilayaInText(ville);
+}
+
+/**
+ * LA WILAYA PIVOT D'UN SECTEUR (Direction, 08/10 : « la wilaya pivot avec un menu déroulant ») : celle qui a été CHOISIE dans
+ * la liste des 58 wilayas sur la ligne du KAM ; à défaut, celle que la ville pivot (`city`) nomme — la lecture d'avant.
+ */
+export function pivotDuSecteur(s: { wilayaPivot?: string | null; city?: string | null }): string | null {
+  return canonicalWilaya(s.wilayaPivot) ?? wilayaPivot(s.city);
 }
 
 /**

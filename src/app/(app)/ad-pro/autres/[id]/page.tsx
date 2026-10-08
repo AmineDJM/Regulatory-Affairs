@@ -20,6 +20,7 @@ import type { DocItem } from "@/components/documents/document-list";
 import { AD_PRO_OTHER_STATUS } from "@/lib/labels";
 import { OtherDecisionPanel } from "./decision-panel";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import { MedecinsConcernes } from "@/components/ad-pro/medecins-concernes";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
@@ -146,6 +147,8 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
         />
       </div>
           {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
+      {/* LES MÉDECINS CONCERNÉS (Direction, 08/10) — choisis dans l'annuaire : le lien que lisent le cockpit marketing et la fiche du praticien. */}
+      <MedecinsConcernes user={user} entityType="AD_PRO_OTHER" entityId={req.id} />
       <AdProDiscussionCard entityType="AD_PRO_OTHER" entityId={req.id} user={user} />
 </div>
   );

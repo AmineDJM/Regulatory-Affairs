@@ -10,7 +10,7 @@ import { ADVENTUM_COMPANY_ID } from "@/lib/company-defaut";
 import { lireClasseur, proposerRegles, type Feuilles, type LectureClasseur, type PropositionRegles } from "./lecture-classeur";
 import { rapprocher, typeDEtablissement, type Rapprochement } from "./rapprochement";
 import { lireRegles, STATUTS, type InOut, type Regles, type Statut } from "./regles";
-import { inOutDe, wilayaPivot, wilayaDuPraticien } from "./in-out";
+import { inOutDe, pivotDuSecteur, wilayaDuPraticien } from "./in-out";
 import { gradeBrutDe } from "./tableau-praticiens";
 import { secteurDuPraticien, type SecteurBu } from "./secteurs";
 
@@ -208,7 +208,7 @@ export async function chargerSecteurs(businessUnitId: string): Promise<SecteurBu
     where: { businessUnitId },
     orderBy: [{ isActive: "desc" }, { name: "asc" }],
     select: {
-      id: true, name: true, city: true, isActive: true,
+      id: true, name: true, city: true, wilayaPivot: true, isActive: true,
       rep: { select: { id: true, name: true } },
       reps: { select: { rep: { select: { id: true, name: true } } } },
       institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } },
@@ -219,7 +219,7 @@ export async function chargerSecteurs(businessUnitId: string): Promise<SecteurBu
     if (x.rep) kams.set(x.rep.id, x.rep.name);
     for (const r of x.reps) kams.set(r.rep.id, r.rep.name);
     return {
-      id: x.id, nom: x.name, actif: x.isActive, ville: x.city, pivot: wilayaPivot(x.city),
+      id: x.id, nom: x.name, actif: x.isActive, ville: x.city, pivot: pivotDuSecteur(x),
       kams: [...kams].map(([id, nom]) => ({ id, nom })),
       etablissements: x.institutions.map((i) => ({ institutionId: i.institutionId, tous: i.tousLesServices, services: i.services.map((v) => v.serviceId) })),
     };
@@ -236,9 +236,9 @@ async function inOutDesPraticiens(strategieId: string, praticiens: { id: string;
   const s = await prisma.segmentationStrategie.findUnique({ where: { id: strategieId }, select: { businessUnitId: true } });
   if (!s) return out;
   const reps = await prisma.salesRepProfile.findMany({ where: { businessUnitId: s.businessUnitId, isActive: true }, select: { repId: true } });
-  const secteurs = await prisma.salesSector.findMany({ where: { businessUnitId: s.businessUnitId, isActive: true, repId: { in: reps.map((r) => r.repId) } }, select: { repId: true, city: true } });
+  const secteurs = await prisma.salesSector.findMany({ where: { businessUnitId: s.businessUnitId, isActive: true, repId: { in: reps.map((r) => r.repId) } }, select: { repId: true, city: true, wilayaPivot: true } });
   const pivots = new Map<string, string | null>();
-  for (const x of secteurs) if (x.repId) pivots.set(x.repId, wilayaPivot(x.city));
+  for (const x of secteurs) if (x.repId) pivots.set(x.repId, pivotDuSecteur(x));
   const ids = praticiens.map((p) => p.id);
   const pivotsParPraticien = new Map<string, (string | null)[]>();
   for (const r of reps) {

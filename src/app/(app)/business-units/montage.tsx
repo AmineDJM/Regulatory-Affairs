@@ -71,7 +71,7 @@ export async function MontageBu({ user, etape, bu }: { user: SessionUser; etape:
       where: { repId: { not: null }, isActive: true },
       orderBy: [{ name: "asc" }],
       select: {
-        id: true, name: true, businessUnitId: true, repId: true,
+        id: true, name: true, businessUnitId: true, repId: true, wilayaPivot: true,
         institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } },
       },
     }),
@@ -170,7 +170,7 @@ export async function MontageBu({ user, etape, bu }: { user: SessionUser; etape:
           label: `${d.reference} — ${d.brandName ? `${d.brandName} (${d.dci})` : d.dci}`,
         }))}
         territoires={secteurs.flatMap((x) => (x.repId ? [{
-          id: x.id, name: x.name, businessUnitId: x.businessUnitId, repId: x.repId,
+          id: x.id, name: x.name, businessUnitId: x.businessUnitId, repId: x.repId, wilayaPivot: x.wilayaPivot,
           liens: x.institutions.map((i) => ({
             institutionId: i.institutionId, tousLesServices: i.tousLesServices, serviceIds: i.services.map((sv) => sv.serviceId),
           })),

@@ -34,6 +34,7 @@ import { chargerPiecesLiees } from "@/lib/queries/chaine-des-pieces";
 import { ETAPE_DEMANDE_DEVIS } from "@/lib/ad-pro/demande-devis-lettre";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import { MedecinsConcernes } from "@/components/ad-pro/medecins-concernes";
 import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -592,6 +593,9 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               l'écran qu'on ne relit pas qui aurait pris du retard (§118.5). Le composant
               partagé charge le fil, compose la carte, et garde sur `canModerateEntity` — donc
               par ENREGISTREMENT, là où la version d'ici lisait deux drapeaux de rôle. */}
+          {/* LES MÉDECINS CONCERNÉS (Direction, 08/10) — choisis dans l'annuaire : le lien que lisent le cockpit marketing et la fiche du praticien. */}
+          <MedecinsConcernes user={user} entityType="PROMO_MATERIAL" entityId={pm.id} />
+
           <AdProDiscussionCard entityType="PROMO_MATERIAL" entityId={pm.id} user={user} />
         </div>
 

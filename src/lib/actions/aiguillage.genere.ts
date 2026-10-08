@@ -1,7 +1,7 @@
 // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
 //
 // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
-// chargé avant l'appel. `executer.test.ts` résout les 1025 actions et échoue en
+// chargé avant l'appel. `executer.test.ts` résout les 1029 actions et échoue en
 // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
 
 export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
@@ -11,6 +11,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
   "ad-pro-discussion-actions": () => import("./ad-pro-discussion-actions") as unknown as Promise<Record<string, unknown>>,
   "ad-pro-edit-actions": () => import("./ad-pro-edit-actions") as unknown as Promise<Record<string, unknown>>,
   "ad-pro-item-actions": () => import("./ad-pro-item-actions") as unknown as Promise<Record<string, unknown>>,
+  "ad-pro-medecins-actions": () => import("./ad-pro-medecins-actions") as unknown as Promise<Record<string, unknown>>,
   "ad-pro-other-actions": () => import("./ad-pro-other-actions") as unknown as Promise<Record<string, unknown>>,
   "ad-pro-pieces-actions": () => import("./ad-pro-pieces-actions") as unknown as Promise<Record<string, unknown>>,
   "ad-pro-rattacher-legal": () => import("./ad-pro-rattacher-legal") as unknown as Promise<Record<string, unknown>>,
