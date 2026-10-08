@@ -18,6 +18,7 @@ const KIND_LABEL: Record<TeamPending["kind"], string> = {
   TRAINING: "Formation",
   RECRUITMENT: "Recrutement",
   TOUR_PLAN: "Plan de tournée",
+  MISSION_ORDER: "Ordre de mission",
 };
 
 /** Ce que dit l'échéance d'une ligne — un `Record` : une nature ajoutée sans sa phrase ne compile pas. */
@@ -27,6 +28,7 @@ const ECHEANCE: Record<TeamPending["kind"], string> = {
   TRAINING: "le ",
   RECRUITMENT: "prise de poste souhaitée le ",
   TOUR_PLAN: "le ",
+  MISSION_ORDER: "départ le ",
 };
 
 const periode = (debut: string, fin: string) => (debut === fin ? `le ${jourCourt(debut)}` : `du ${jourCourt(debut)} au ${jourCourt(fin)}`);

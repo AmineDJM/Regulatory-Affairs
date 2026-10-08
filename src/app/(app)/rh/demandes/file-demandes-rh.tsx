@@ -384,7 +384,7 @@ function PanneauTraitement({ r, nature, referenceOrdreMission, currentUserId }: 
         <>
           {r.type === "MISSION_ORDER" && !termine && (
             <div>
-              <OrdreMissionForm requestId={r.id} employeeName={r.employeeName} employeePosition={r.employeePosition} details={r.details} referenceSuggeree={referenceOrdreMission} />
+              <OrdreMissionForm requestId={r.id} employeeName={r.employeeName} employeePosition={r.employeePosition} details={r.details} referenceSuggeree={referenceOrdreMission} prefill={r.missionPrefill} />
             </div>
           )}
           {r.fulfilmentDocId && (

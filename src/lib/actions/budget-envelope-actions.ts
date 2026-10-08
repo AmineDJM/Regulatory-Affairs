@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { canEditCompanyId, companyIdForNew } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
+import { poleDe } from "@/lib/budget/domaines";
 
 const NOT_ALLOWED: ActionResult = { ok: false, error: "Gestion des enveloppes réservée au Super Admin (ou à un délégué)." };
 
@@ -19,14 +20,14 @@ const readModules = (formData: FormData) => [...new Set(formData.getAll("modules
 /** GESTION du CONTENU d'une enveloppe (catégories, dépenses budgétaires) : gestionnaire global
  *  OU délégué désigné par l'admin sur CETTE enveloppe. Charge les listes d'accès puis vérifie. */
 async function ensureCanManageEnvelope(user: Awaited<ReturnType<typeof requireUser>>, envelopeId: string): Promise<ActionResult | null> {
-  const env = await prisma.budgetEnvelope.findUnique({ where: { id: envelopeId }, select: { managerRoles: true, managerUserIds: true } });
+  const env = await prisma.budgetEnvelope.findUnique({ where: { id: envelopeId }, select: { managerRoles: true, managerUserIds: true, domaine: true } });
   if (!env) return { ok: false, error: "Enveloppe introuvable." };
   return canManageEnvelope(user, env) ? null : NOT_ALLOWED;
 }
 
 /** Idem via l'id d'une (sous-)catégorie : on remonte à son enveloppe pour vérifier la gestion. */
 async function ensureCanManageCategory(user: Awaited<ReturnType<typeof requireUser>>, categoryId: string): Promise<ActionResult | null> {
-  const cat = await prisma.budgetCategoryLine.findUnique({ where: { id: categoryId }, select: { envelope: { select: { managerRoles: true, managerUserIds: true } } } });
+  const cat = await prisma.budgetCategoryLine.findUnique({ where: { id: categoryId }, select: { envelope: { select: { managerRoles: true, managerUserIds: true, domaine: true } } } });
   if (!cat) return { ok: false, error: "Catégorie introuvable." };
   return canManageEnvelope(user, cat.envelope) ? null : NOT_ALLOWED;
 }
@@ -196,12 +197,30 @@ export async function deleteBudgetCategory(formData: FormData): Promise<ActionRe
 /** Attribue (ou retire) une dépense à une catégorie budgétaire. */
 export async function attributeTransaction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!(hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE"))) return { ok: false, error: "Allocation réservée à la Direction." };
   const transactionId = fdStr(formData, "transactionId");
   if (!transactionId) return { ok: false, error: "Transaction manquante." };
   const budgetCategoryId = fdStr(formData, "budgetCategoryId"); // null = retirer
+  if (!(hasGlobalView(user.role) || userCan(user, "BUDGETS", "UPDATE"))) {
+    // BUDGETS DES PÔLES (08/10) : un pôle (Marketing, Regulatory, Operations) impute aux catégories de SES enveloppes,
+    // et retire une imputation qui y pointe — jamais ailleurs. La catégorie visée (ou quittée) doit être dans une
+    // enveloppe de pôle que la personne gère.
+    const actuelle = await prisma.financeTransaction.findUnique({ where: { id: transactionId }, select: { budgetCategoryId: true } });
+    if (!actuelle) return { ok: false, error: "Transaction introuvable." };
+    const ids = [budgetCategoryId, actuelle.budgetCategoryId].filter((x): x is string => Boolean(x));
+    const cats = ids.length
+      ? await prisma.budgetCategoryLine.findMany({ where: { id: { in: ids } }, select: { id: true, envelope: { select: { managerRoles: true, managerUserIds: true, domaine: true } } } })
+      : [];
+    const ok = ids.length > 0 && ids.every((id) => {
+      const c = cats.find((x) => x.id === id);
+      return c ? poleDe(c.envelope) !== null && canManageEnvelope(user, c.envelope) : false;
+    });
+    if (!ok) return { ok: false, error: "Allocation réservée à la Direction." };
+  }
   await prisma.financeTransaction.update({ where: { id: transactionId }, data: { budgetCategoryId } });
   revalidatePath("/budgets");
+  revalidatePath("/budget-marketing");
+  revalidatePath("/budget-regulatory");
+  revalidatePath("/budget-operations");
   return { ok: true };
 }
 
@@ -240,7 +259,7 @@ export async function changerSocieteEcriture(formData: FormData): Promise<Action
 async function resolveExpenseCategory(user: Awaited<ReturnType<typeof requireUser>>, budgetCategoryId: string) {
   const cat = await prisma.budgetCategoryLine.findUnique({
     where: { id: budgetCategoryId },
-    select: { id: true, name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true } } },
+    select: { id: true, name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true, domaine: true } } },
   });
   if (!cat) return { error: "Catégorie introuvable." as const };
   // Peut imputer : un GESTIONNAIRE de l'enveloppe (global ou délégué par l'admin), OU la
@@ -296,7 +315,7 @@ export async function updateBudgetExpense(formData: FormData): Promise<ActionRes
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const line = await prisma.budgetExpenseLine.findUnique({
     where: { id },
-    select: { id: true, reference: true, categoryId: true, category: { select: { name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true } } } } },
+    select: { id: true, reference: true, categoryId: true, category: { select: { name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true, domaine: true } } } } },
   });
   if (!line) return { ok: false, error: "Ligne introuvable." };
   // Droit sur l'enveloppe ACTUELLE de la ligne.
@@ -339,7 +358,7 @@ export async function deleteBudgetExpense(formData: FormData): Promise<ActionRes
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const line = await prisma.budgetExpenseLine.findUnique({
     where: { id },
-    select: { id: true, reference: true, categoryId: true, category: { select: { name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true } } } } },
+    select: { id: true, reference: true, categoryId: true, category: { select: { name: true, envelope: { select: { accessRoles: true, accessUserIds: true, managerRoles: true, managerUserIds: true, domaine: true } } } } },
   });
   if (!line) return { ok: false, error: "Ligne introuvable." };
   const env = line.category.envelope;

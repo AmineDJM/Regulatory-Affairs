@@ -14,6 +14,7 @@ import {
   STATUTS_LEADERS, type BaseCockpit, type BuCockpit, type LigneMessage, type ProduitCockpit,
 } from "@/lib/marketing-cockpit/donnees";
 import { libelleMois, marcheDuProduit, type MarcheProduit } from "@/lib/marketing-cockpit/marche";
+import { CHEMIN_BUDGET_MARKETING } from "@/lib/budget-marketing/domaine";
 import {
   couvertureFrequence, entonnoir, estCible, messagePeuPorte, montantDzd, passesEnA, pourcent, prescripteursAvecAffinite,
   repartitionDepenses,
@@ -196,9 +197,10 @@ async function VueEnsemble({ base, bu, produit, lien, voitMarche, voitArgent, us
     tuiles.push({
       label: "Budget consommé",
       valeur: pourcent(taux),
-      note: enveloppe ? `à ${pourcent(enveloppe.tempsEcoule)} de ${enveloppe.annee}` : "aucune enveloppe Ad & Pro ouverte",
+      note: enveloppe ? `à ${pourcent(enveloppe.tempsEcoule)} de ${enveloppe.annee}` : "aucune enveloppe marketing ouverte",
       ton: "muet",
-      info: enveloppe ? <>Enveloppe « {enveloppe.nom} » : {montantDzd(enveloppe.consomme)} réglés sur {montantDzd(enveloppe.total)} DZD.</> : undefined,
+      info: enveloppe ? <>Budget Marketing, enveloppe « {enveloppe.nom} » : {montantDzd(enveloppe.consomme)} réglés sur {montantDzd(enveloppe.total)} DZD.</> : undefined,
+      href: userCan(user, "BUDGET_MARKETING", "VIEW") ? `${CHEMIN_BUDGET_MARKETING}${enveloppe ? `?env=${enveloppe.id}` : ""}` : undefined,
     });
   }
   const leaders = base.panel.filter((l) => l.statut && STATUTS_LEADERS.includes(l.statut));
@@ -329,7 +331,7 @@ async function VueInvestissements({ base, bu, produit, user, maintenant }: {
   return (
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <CarteOuVaLArgent lignes={r.lignes} total={r.total} />
-      <CarteEnveloppe e={enveloppe} />
+      <CarteEnveloppe e={enveloppe} lien={userCan(user, "BUDGET_MARKETING", "VIEW") ? CHEMIN_BUDGET_MARKETING : null} />
     </div>
   );
 }

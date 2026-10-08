@@ -210,11 +210,16 @@ export async function compteTachesQuiMAttendent(userId: string): Promise<number>
 
 /** Les onglets de « Mon espace », l'onglet « Tâches » portant son compteur. */
 export async function ongletsEspace(user: SessionUser, compte?: number): Promise<ModuleTab[]> {
-  const [tabs, n] = await Promise.all([
+  const [tabs, n, missions] = await Promise.all([
     visibleTabs(user, WORKSPACE_TABS),
     compte ?? compteTachesQuiMAttendent(user.id).catch(() => 0),
+    // « Mes missions » compte ce qui attend un geste : mes invitations et les ordres de mission à valider (N+1).
+    Promise.all([
+      prisma.missionAssignment.count({ where: { userId: user.id, archivedAt: null, response: "INVITEE" } }),
+      prisma.hrDocumentRequest.count({ where: { type: "MISSION_ORDER", status: "PENDING", managerGate: "PENDING", managerUserId: user.id } }),
+    ]).then(([a, b]) => a + b).catch(() => 0),
   ]);
-  return tabs.map((t) => (t.href === ONGLET_TACHES_HREF ? { ...t, compte: n } : t));
+  return tabs.map((t) => (t.href === ONGLET_TACHES_HREF ? { ...t, compte: n } : t.href === "/mon-espace/missions" && missions > 0 ? { ...t, compte: missions } : t));
 }
 
 /** Les tâches terminées de la personne : faites, ou annulées, depuis 30 jours — hors « à vérifier ». */

@@ -21,9 +21,12 @@ import { isManagerOfUser, getManagementChain } from "@/lib/departments";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { canViewDeclaration } from "@/lib/queries/medical-info";
 import { accesAuCasPv } from "@/lib/pharmacovigilance/acces";
+import { accesALaReclamation } from "@/lib/reclamations/acces";
+import { accesAuReleveStockPch } from "@/lib/queries/stock-pch";
 import {
   userCan, hasGlobalView, isTopManagement, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring,
+  moduleDuDossierRegulatory,
 } from "@/lib/rbac";
 
 /** Maps a polymorphic entity type to its owning module. */
@@ -107,6 +110,10 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   // Un cas de pharmacovigilance : l'accès réel est nominatif (déclarant, participants, qui reçoit les cas), résolu
   // plus bas par `accesAuCasPv`.
   PHARMACOVIGILANCE_CASE: "PHARMACOVIGILANCE",
+  // Une réclamation : l'accès réel est nominatif (déclarant, responsable, qui voit tout), résolu par `accesALaReclamation`.
+  RECLAMATION: "RETOURS_RECLAMATIONS",
+  // Un relevé du stock PCH central (identifié par la date du mail) : la chaîne d'approvisionnement, `accesAuReleveStockPch`.
+  STOCK_PCH_RELEVE: "STOCKS",
 };
 
 /**
@@ -544,6 +551,10 @@ export async function canAccessEntity(
   // UN CAS DE PHARMACOVIGILANCE (Direction, 06/10) : la règle de SA FICHE, avant le droit de module — une personne
   // ajoutée à l'échange n'a pas forcément le module, et un KAM qui l'a ne lit que SES signalements.
   if (entityType === "PHARMACOVIGILANCE_CASE") return accesAuCasPv(user, entityId, action);
+  // UNE RÉCLAMATION (Operations & Sales, 08/10) : la règle de SA FICHE — le KAM qui l'a déclarée n'en lit pas d'autres.
+  if (entityType === "RECLAMATION") return accesALaReclamation(user, entityId, action);
+  // UN RELEVÉ DU STOCK PCH CENTRAL : la chaîne d'approvisionnement seule (un KAM ne lit pas la position de la PCH).
+  if (entityType === "STOCK_PCH_RELEVE") return accesAuReleveStockPch(user, entityId, action);
 
   // POSTE DE DÉPENSE : l'accès ne vient PAS d'un module, il vient de SON OPÉRATION.
   //
@@ -574,6 +585,20 @@ export async function canAccessEntity(
   // Administration › Accès. Market Intelligence, dont il vient, reste retiré. La ligne se lit dans
   // la MÊME clause que la liste (`projetsBdVisibles` : portée du module ∧ entité), sans quoi une
   // fiche s'ouvrirait sur un projet que la liste cache — ou l'inverse.
+  // UN DOSSIER RÉGLEMENTAIRE : le geste se lit sur le module de SON écran (Direction, 08/10) — « Pipeline
+  // réglementaire » s'il est verrouillé, Regulatory (suivi des dossiers) sinon —, puis la ligne dans LA MÊME RÈGLE
+  // QUE LA LISTE (§118.184) : portée métier, gamme, ET entité, pour toutes les sociétés auxquelles la personne a
+  // droit. (Le module de la ligne ne sert qu'à la garde : l'imputation budgétaire d'un BV reste sur Regulatory.)
+  if (entityType === "REGULATORY_PRODUCT") {
+    const dossier = await prisma.regulatoryProduct.findUnique({ where: { id: entityId }, select: { isLocked: true } });
+    if (!dossier || !userCan(user, moduleDuDossierRegulatory(dossier), action)) return false;
+    const found = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ id: entityId }, await clauseRegulatoryVisible(user, "fiche")] },
+      select: { id: true },
+    });
+    return Boolean(found);
+  }
+
   if (entityType === "BD_PROJECT") {
     if (!userCan(user, "BD_PROJECTS", action)) return false;
     const found = await prisma.bdProject.findFirst({
@@ -834,16 +859,7 @@ export async function canAccessEntity(
   }
 
   switch (entityType) {
-    case "REGULATORY_PRODUCT": {
-      // LA MÊME RÈGLE QUE LA LISTE (§118.184) : portée métier, gamme, ET entité — pour toutes les sociétés
-      // auxquelles la personne a droit. Elle ne composait que `scopeRegulatory` : un responsable à portée
-      // « toutes les lignes » lisait et modifiait le dossier d'une société qui n'était pas la sienne.
-      const found = await prisma.regulatoryProduct.findFirst({
-        where: { AND: [{ id: entityId }, await clauseRegulatoryVisible(user, "fiche")] },
-        select: { id: true },
-      });
-      return Boolean(found);
-    }
+    // REGULATORY_PRODUCT : traité plus haut, avant le droit de module — il dépend du verrou de la ligne.
     case "PRODUCT": {
       // La clause du CATALOGUE, pas une seconde écriture : un produit se voit par ses dossiers.
       const found = await prisma.product.findFirst({

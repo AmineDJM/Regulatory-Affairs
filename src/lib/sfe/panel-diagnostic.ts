@@ -43,7 +43,7 @@ export interface FaitsPanel {
   praticiensEnTexte: number;
 }
 
-const BU_ECRAN = "Force de vente › Business Units";
+const BU_ECRAN = "Business Units";
 const ANNUAIRE = "Annuaires › Médecins (« Rattacher les établissements »)";
 
 export function diagnosticPanelVide(f: FaitsPanel): { cause: CausePanelVide; phrase: string } {

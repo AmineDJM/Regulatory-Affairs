@@ -19,10 +19,9 @@ import {
   createSpecialty, updateSpecialty, deleteSpecialty, fusionnerSpecialite, rattacherLibelleSpecialite,
 } from "@/lib/actions/medical-actions";
 import { OPS_BY_TOOL } from "@/lib/assistant/ops/catalog";
-import { EnteteReglages } from "@/app/(app)/planning/reglages";
 import { EcranSpecialites } from "@/components/directory/ecran-specialites";
 import PlanningSpecialitesPage from "@/app/(app)/annuaires/specialites/page";
-import { ANNUAIRES_TABS, SALES_PLANNING_TABS } from "@/lib/labels";
+import { ANNUAIRES_TABS, BUSINESS_UNITS_TABS, SALES_PLANNING_TABS } from "@/lib/labels";
 import { CHEMINS_SPECIALITES } from "@/lib/annuaires/specialites";
 
 /**
@@ -56,17 +55,6 @@ async function acteur(id: string, role: string, secondaryRole: string | null = n
 // Les composants se lisent en JSX « classique » sous vitest : on appelle leurs fonctions, on ne les monte pas.
 (globalThis as { React?: unknown }).React = React;
 const code = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
-
-/** Les `href` des liens d'un arbre d'éléments React — sans rendre : on lit ce que le composant ÉMET. */
-function liens(noeud: unknown, trouves: string[] = []): string[] {
-  if (Array.isArray(noeud)) { for (const n of noeud) liens(n, trouves); return trouves; }
-  if (noeud && typeof noeud === "object" && "props" in noeud) {
-    const props = (noeud as { props: { href?: unknown; children?: unknown } }).props;
-    if (typeof props.href === "string") trouves.push(props.href);
-    liens(props.children, trouves);
-  }
-  return trouves;
-}
 
 describe("les points d'appel — une règle, un écran, une liste de chemins", () => {
   it("UNE porte (Annuaires, 07/10) monte le composant, qui lit la règle ; l'ancienne adresse du Marketing cockpit y mène", () => {
@@ -194,15 +182,17 @@ suite("la Direction Marketing gère le référentiel depuis la Force de vente �
     const tab = ANNUAIRES_TABS.find((t) => t.href === "/annuaires/specialites");
     expect(tab?.regle, "l'onglet suit peutGererSpecialites, pas le seul module").toBe("specialites");
     // La Direction Marketing ne gagne aucun onglet de configuration de la Force de vente.
-    // Ses onglets sont ceux de tout lecteur ; la configuration est dans « ⋯ Réglages », rendu à qui configure SEULEMENT.
+    // Ses onglets sont ceux de tout lecteur ; la configuration est le module « Business Units » (Direction, 08/10), qu'elle
+    // n'a pas : le « ⋯ Réglages » de la Force de vente n'existe plus, ses écrans ont leur propre droit.
     const dmVoit = SALES_PLANNING_TABS.map((t) => t.href);
     expect(dmVoit).not.toContain("/planning/specialites");
     expect(dmVoit).not.toContain("/planning/messages");
     expect(dmVoit).not.toContain("/planning/business-units");
     expect(dmVoit).not.toContain("/planning/parametres");
-    expect(code("src/app/(app)/planning/entete.tsx")).toMatch(/\{scope\.canConfigure && \(\s*<MenuDossier>/);
-    const reglages = liens(EnteteReglages({ actif: "parametres" }));
-    expect(reglages).toEqual(expect.arrayContaining(["/planning/business-units", "/planning/parametres"]));
+    expect(code("src/app/(app)/planning/entete.tsx")).not.toMatch(/MenuDossier|\/planning\/business-units|\/planning\/parametres/);
+    expect(BUSINESS_UNITS_TABS.map((t) => t.href)).toEqual(["/business-units", "/business-units/secteurs", "/business-units/parametres"]);
+    expect(BUSINESS_UNITS_TABS.every((t) => t.module === "BUSINESS_UNITS")).toBe(true);
+    expect(userCan(DM, "BUSINESS_UNITS", "VIEW"), "la Direction Marketing n'a pas le montage des BU").toBe(false);
     expect(peutGererSpecialites(DM, "VIEW"), "…et garde la règle du référentiel").toBe(true);
   });
 

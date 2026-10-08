@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { UserPlus } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { getMyTeam } from "@/lib/queries/my-team";
 import { getMyTeamOverview } from "@/lib/queries/my-team-overview";
+import { chargerTableauKpi } from "@/lib/kpi/service";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { EquipeEcran, type VueMonEquipe } from "./equipe-ecran";
@@ -41,7 +43,7 @@ export const metadata = { title: "Mon Équipe — AMD Internal OS" };
  *
  * Le RECRUTEMENT n'est plus ici : c'est un module à part sous « Ressources humaines » (Direction, 07/10).
  */
-export default async function MonEquipePage({ searchParams }: { searchParams?: { vue?: string; mois?: string } }) {
+export default async function MonEquipePage({ searchParams }: { searchParams?: { vue?: string; mois?: string; periode?: string } }) {
   const user = await requireModule("MY_TEAM");
   const team = await getMyTeam(user);
   const { selfEmployeeId, members, directCount, pending, chevauchements, chevauchementsNonMontres } = team;
@@ -60,7 +62,10 @@ export default async function MonEquipePage({ searchParams }: { searchParams?: {
   }
 
   const apercu = await getMyTeamOverview(user, team, { mois: searchParams?.mois ?? null });
-  const vue: VueMonEquipe = searchParams?.vue === "equipe" || searchParams?.vue === "calendrier" ? searchParams.vue : "ensemble";
+  // L'onglet KPI (KPI sans code, Direction 08/10) : à qui a le module « KPI & bilans » ; le tableau n'est lu que sur lui.
+  const ongletKpi = userCan(user, "KPI", "VIEW");
+  const vue: VueMonEquipe = searchParams?.vue === "equipe" || searchParams?.vue === "calendrier" || (searchParams?.vue === "kpi" && ongletKpi) ? searchParams.vue : "ensemble";
+  const kpi = vue === "kpi" ? await chargerTableauKpi(user, searchParams?.periode ?? null) : null;
 
   // « N personnes · X en direct, Y via Untel » — ceux de mes N-1 qui encadrent à leur tour.
   const indirects = members.length - directCount;
@@ -99,6 +104,8 @@ export default async function MonEquipePage({ searchParams }: { searchParams?: {
           plusAncienJours={plusAncienJours}
           chevauchements={chevauchements}
           chevauchementsNonMontres={chevauchementsNonMontres}
+          kpi={kpi}
+          ongletKpi={ongletKpi}
         />
       )}
     </div>

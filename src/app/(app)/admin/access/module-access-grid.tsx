@@ -71,7 +71,9 @@ export interface PipelineConfig {
   managerRoles: string[];
 }
 
-const PIPELINE_MODULE = "REGULATORY";
+// Les colonnes « Voit le pipeline » / « Tient le cadenas » vivent sur la ligne du module « Pipeline réglementaire »,
+// devenu module à part (Direction, 08/10) : la confidence se règle à côté du module qu'elle complète.
+const PIPELINE_MODULE = "REGULATORY_PIPELINE";
 /** Le module dont un accès personnalisé se découpe PAR ANNUAIRE (§118.147). */
 const MODULE_ANNUAIRES = "DIRECTORIES";
 
@@ -215,6 +217,7 @@ export function ModuleAccessGrid({
             l&apos;étude, invisible de toute la plateforme (tableau, recherche, sélecteurs de produits,
             assistant). <strong>Voir</strong> est une confidence ; <strong>tenir le cadenas</strong> est
             le pouvoir de publier un dossier à toute l&apos;entreprise — et cela ne se reprend pas.
+            Il faut <strong>les deux clés</strong> : le module (gestes ci-contre) et la confidence.
             Les accès donnés par <strong>rôle</strong> apparaissent cochés et verrouillés : ils se
             retirent dans{" "}
             <a href="/admin/settings" className="font-medium text-primary hover:underline">Réglages › Pipeline réglementaire</a>.

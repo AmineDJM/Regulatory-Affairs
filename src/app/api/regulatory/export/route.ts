@@ -25,7 +25,11 @@ import { contentDisposition } from "@/lib/http/content-disposition";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
-  if (!userCan(user, "REGULATORY", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+  // Le suivi des dossiers OU le pipeline (Direction, 08/10) : chacun exporte ce que SON écran montre — la clause
+  // ci-dessous ne rend que les dossiers ouverts à qui a le suivi, que les verrouillés à qui a le pipeline.
+  if (!userCan(user, "REGULATORY", "VIEW") && !userCan(user, "REGULATORY_PIPELINE", "VIEW")) {
+    return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+  }
 
   // Liste facultative : sans elle, on exporte tout ce que la personne a le droit de voir.
   let ids: string[] | null = null;

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { BriefingContent, BriefingRef } from "./briefing";
 import type { BrainStatus, HistoryEntry } from "./lifecycle-rules";
 import type { RiskAction } from "./risks";
+import type { RisqueClasse } from "./perimetre";
 
 /**
  * ADVENTUM BRAIN — les LECTURES de l'écran. Tout vient de ce que la passe horaire et le briefing ont GARDÉ :
@@ -38,13 +39,20 @@ export interface LigneRisque {
 
 const DAY = 86_400_000;
 
-/** Les risques ouverts (nouveaux, pris en charge, ignorés) et ceux résolus ces 14 derniers jours. */
-export async function lireRisques(now: Date = new Date()): Promise<LigneRisque[]> {
-  const rows = await prisma.brainRisk.findMany({
+/**
+ * Les risques ouverts (nouveaux, pris en charge, ignorés) et ceux résolus ces 14 derniers jours.
+ *
+ * `dansLePerimetre` borne la lecture (Direction, 08/10) : hors Super Admin, seuls les risques du périmètre de la
+ * personne quittent le serveur (`adventum/perimetre.ts`) — un filtre d'écran par-dessus une donnée envoyée ne serait
+ * qu'une décoration.
+ */
+export async function lireRisques(now: Date = new Date(), dansLePerimetre: (r: RisqueClasse) => boolean = () => true): Promise<LigneRisque[]> {
+  const toutes = await prisma.brainRisk.findMany({
     where: { OR: [{ status: { in: ["NOUVEAU", "PRIS_EN_CHARGE", "IGNORE"] } }, { resolvedAt: { gte: new Date(now.getTime() - 14 * DAY) } }] },
     orderBy: { lastSeenAt: "desc" },
     take: 500,
   });
+  const rows = toutes.filter((r) => dansLePerimetre({ category: r.category, module: r.module }));
   const ids = [...new Set(rows.map((r) => r.assigneeId).filter((x): x is string => !!x))];
   const noms = new Map((ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []).map((u) => [u.id, u.name]));
   return rows.map((r) => {

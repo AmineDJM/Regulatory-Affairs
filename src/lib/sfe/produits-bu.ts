@@ -75,9 +75,9 @@ export function refusProduitsHorsBu(
   if (!p.rattache) {
     return sujet === "vous"
       ? "Vous n'êtes rattaché à aucune Business Unit : une visite ne porte que les produits de sa gamme. "
-        + "Le rattachement se fait dans Force de vente › Business Units."
+        + "Le rattachement se fait dans Business Units."
       : "Ce KAM n'est rattaché à aucune Business Unit : une visite ne porte que les produits de sa gamme. "
-        + "Le rattachement se fait dans Force de vente › Business Units.";
+        + "Le rattachement se fait dans Business Units.";
   }
   const base = sujet === "vous"
     ? `${horsBu} produit(s) hors de votre gamme — une visite ne porte que les produits de votre Business Unit.`

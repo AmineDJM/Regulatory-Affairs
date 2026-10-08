@@ -108,7 +108,7 @@ export default async function BusinessUnitBudgetsPage({ searchParams }: { search
       {notice && (
         <p className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm text-muted-foreground">
           {notice} Le budget d&apos;une gamme s&apos;ouvre depuis{" "}
-          <Link href="/planning/business-units" className="font-medium text-primary hover:underline">Force de vente → Business Units</Link>.
+          <Link href="/business-units" className="font-medium text-primary hover:underline">Business Units</Link>.
         </p>
       )}
 
@@ -116,7 +116,7 @@ export default async function BusinessUnitBudgetsPage({ searchParams }: { search
         <EmptyState
           icon="Layers"
           title="Aucune Business Unit"
-          description="Créez vos gammes dans Force de vente → Business Units : chacune deviendra un sous-département de la Direction commerciale, avec son budget Ad & Pro et sa masse salariale."
+          description="Créez vos gammes dans Business Units : chacune deviendra un sous-département de la Direction commerciale, avec son budget Ad & Pro et sa masse salariale."
         />
       ) : (
         // Une ligne par gamme : au téléphone, chaque gamme devient une carte (intitulés repris de l'en-tête),

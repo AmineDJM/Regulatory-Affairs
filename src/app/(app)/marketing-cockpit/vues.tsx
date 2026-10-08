@@ -43,7 +43,7 @@ export function Vide({ children }: { children: React.ReactNode }) {
 
 // ───────────────────────────── Vue d'ensemble ─────────────────────────────
 
-export interface TuileCockpit { label: string; valeur: string; note?: string | null; ton?: "ok" | "ko" | "muet"; info?: React.ReactNode }
+export interface TuileCockpit { label: string; valeur: string; note?: string | null; ton?: "ok" | "ko" | "muet"; info?: React.ReactNode; /** La valeur mène à l'écran d'où elle vient. */ href?: string }
 
 export function Tuiles({ tuiles }: { tuiles: TuileCockpit[] }) {
   return (
@@ -54,7 +54,9 @@ export function Tuiles({ tuiles }: { tuiles: TuileCockpit[] }) {
             <span className="min-w-0 [overflow-wrap:anywhere]">{t.label}</span>
             {t.info && <InfoBulle label={`À propos : ${t.label}`}>{t.info}</InfoBulle>}
           </span>
-          <strong className="text-[22px] font-semibold tabular-nums">{t.valeur}</strong>
+          {t.href
+            ? <Link href={t.href} className="text-[22px] font-semibold tabular-nums hover:text-primary hover:underline">{t.valeur}</Link>
+            : <strong className="text-[22px] font-semibold tabular-nums">{t.valeur}</strong>}
           {t.note && <span className={cn("text-xs", t.ton === "ok" ? "text-success" : t.ton === "ko" ? "text-destructive" : "text-muted-foreground")}>{t.note}</span>}
         </div>
       ))}
@@ -273,13 +275,22 @@ export function CarteOuVaLArgent({ lignes, total }: { lignes: LigneNature[]; tot
   );
 }
 
-export function CarteEnveloppe({ e }: { e: EnveloppeCockpit | null }) {
+export function CarteEnveloppe({ e, lien }: { e: EnveloppeCockpit | null; /** Budget Marketing, si la personne y a accès. */ lien?: string | null }) {
   if (!e) {
-    return <Carte titre="Enveloppe"><Vide>Aucune enveloppe Ad &amp; Pro en cours ne vous est ouverte.</Vide></Carte>;
+    return (
+      <Carte titre="Enveloppe" action={lien ? <Link href={lien} className="text-[13px] font-medium text-primary hover:underline">Budget Marketing</Link> : undefined}>
+        <Vide>Aucune enveloppe marketing en cours ne vous est ouverte.</Vide>
+      </Carte>
+    );
   }
   const taux = e.total > 0 ? e.consomme / e.total : null;
   return (
-    <Carte titre={`Enveloppe ${e.annee}`} sousTitre={e.nom} info={<>Les chiffres de l&apos;écran Budgets : consommé = dépenses réglées, engagé = en attente de paiement, disponible = total − consommé − engagé.</>}>
+    <Carte
+      titre={`Enveloppe ${e.annee}`}
+      sousTitre={e.nom}
+      action={lien ? <Link href={`${lien}?env=${e.id}`} className="text-[13px] font-medium text-primary hover:underline">{e.nom}</Link> : undefined}
+      info={<>Les chiffres de Budget Marketing : consommé = dépenses réglées, engagé = en attente de paiement, disponible = total − consommé − engagé.</>}
+    >
       <div className="flex flex-col gap-2.5 px-4 py-3.5 text-sm">
         <div className="flex flex-wrap justify-between gap-2"><span className="text-muted-foreground">Consommé</span><b className="tabular-nums">{montantDzd(e.consomme)} / {montantDzd(e.total)}</b></div>
         <div className="h-2.5 overflow-hidden rounded-full bg-muted">

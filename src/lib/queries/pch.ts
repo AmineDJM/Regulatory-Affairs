@@ -19,6 +19,8 @@ export interface PchOrderDTO {
   expectedArrival: string | null;
   arrivedDate: string | null;
   notes: string;
+  /** BC d'avenant — au-delà du volume attribué par l'AO. */
+  estAvenant: boolean;
 }
 
 export interface PchTenderLineDTO {
@@ -102,13 +104,14 @@ export interface PchTenderDTO {
   lines: PchTenderLineDTO[];
 }
 
-function toOrderDTO(o: { id: string; lineId: string | null; reference: string | null; products: string | null; quantity: number; value: unknown; status: string; receivedDate: Date | null; paymentDate: Date | null; expectedArrival: Date | null; arrivedDate: Date | null; notes: string | null }): PchOrderDTO {
+function toOrderDTO(o: { id: string; lineId: string | null; reference: string | null; products: string | null; quantity: number; value: unknown; status: string; receivedDate: Date | null; paymentDate: Date | null; expectedArrival: Date | null; arrivedDate: Date | null; notes: string | null; estAvenant?: boolean }): PchOrderDTO {
   return {
     id: o.id, lineId: o.lineId ?? null, reference: o.reference ?? "", products: o.products ?? "", quantity: o.quantity,
     value: dec(o.value), status: o.status,
     receivedDate: o.receivedDate?.toISOString() ?? null, paymentDate: o.paymentDate?.toISOString() ?? null,
     expectedArrival: o.expectedArrival?.toISOString() ?? null, arrivedDate: o.arrivedDate?.toISOString() ?? null,
     notes: o.notes ?? "",
+    estAvenant: o.estAvenant ?? false,
   };
 }
 

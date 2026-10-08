@@ -7,8 +7,7 @@ import type { Priority, ProductChannel, ProductType, RegulatoryCategory, Regulat
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { enLecture } from "@/lib/vue-lecture";
-import { userCan, isRegulatorySupervisor, holdsRegulatoryLock, type SessionUser } from "@/lib/rbac";
-import { pipelineAccessFor } from "@/lib/regulatory/pipeline-access";
+import { userCan, isRegulatorySupervisor, holdsRegulatoryLock, seesLockedRegulatory, getAccess, type SessionUser } from "@/lib/rbac";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import {
   dciKey, duplicateNotice, needsAccessRequest,
@@ -28,6 +27,7 @@ import { ensureProduitDuDossier, synchroniserCycleDeVie } from "@/lib/products/c
 import { phraseProduitDuDossier } from "@/lib/products/produit-du-dossier";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { categorieBvPourOrdre } from "@/lib/queries/budget-regulatory";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { REGULATORY_STEP_ORDER, LOCAL_MANUFACTURING_VARIATIONS, VARIATION_TARGETS, MANUFACTURING_STATUS } from "@/lib/labels";
@@ -134,8 +134,10 @@ export interface ExistantDeLaMolecule {
 export async function checkDciDuplicate(dci: string): Promise<{ notice: string | null; canRequestAccess: boolean; existants: ExistantDeLaMolecule[] }> {
   const user = await enLecture(requireUser);
   // Le même droit que la création : ce que cette réponse révèle (« cette DCI est déjà suivie »)
-  // n'a pas à sortir pour qui n'ouvre pas de dossier.
-  if (!userCan(user, "REGULATORY", "CREATE")) return { notice: null, canRequestAccess: false, existants: [] };
+  // n'a pas à sortir pour qui n'ouvre pas de dossier. Au suivi OU au pipeline (Direction, 08/10) : on y crée aussi.
+  if (!userCan(user, "REGULATORY", "CREATE") && !userCan(user, "REGULATORY_PIPELINE", "CREATE")) {
+    return { notice: null, canRequestAccess: false, existants: [] };
+  }
   const propre = normalizeDci(dci ?? "");
   if (propre.length < 3) return { notice: null, canRequestAccess: false, existants: [] };
   const doublons = await dciDuplicatesFor(user, propre);
@@ -262,7 +264,14 @@ export async function createRegulatoryProduct(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "REGULATORY", "CREATE")) {
+  // CRÉÉ DIRECTEMENT DANS LE PIPELINE. Le formulaire du pipeline envoie `lock=1` : le dossier
+  // naît verrouillé, donc à l'étude, invisible de l'équipe tant que le cadenas n'est pas ouvert.
+  // Le droit reste celui du cadenas — le Super Admin, et lui seul : sans cette garde, n'importe
+  // qui pourrait créer un dossier que personne d'autre ne verrait.
+  const lockOnCreate = str(formData, "lock") === "1" && user.role === "SUPER_ADMIN";
+  // LE GESTE SE LIT SUR L'ÉCRAN OÙ NAÎT LE DOSSIER (Direction, 08/10) : « Créer » du pipeline pour un dossier verrouillé,
+  // « Créer » de Regulatory (suivi des dossiers) pour un dossier ouvert.
+  if (!(lockOnCreate ? userCan(user, "REGULATORY_PIPELINE", "CREATE") : userCan(user, "REGULATORY", "CREATE"))) {
     return { ok: false, error: "Création non autorisée." };
   }
 
@@ -312,12 +321,6 @@ export async function createRegulatoryProduct(
 
   // Connect responsible + assistant as assigned users so row-level scope works.
   const assignIds = Array.from(new Set([responsibleId, assistantId].filter(Boolean))) as string[];
-
-  // CRÉÉ DIRECTEMENT DANS LE PIPELINE. Le formulaire du pipeline envoie `lock=1` : le dossier
-  // naît verrouillé, donc à l'étude, invisible de l'équipe tant que le cadenas n'est pas ouvert.
-  // Le droit reste celui du cadenas — le Super Admin, et lui seul : sans cette garde, n'importe
-  // qui pourrait créer un dossier que personne d'autre ne verrait.
-  const lockOnCreate = str(formData, "lock") === "1" && user.role === "SUPER_ADMIN";
 
   // LA CTD INITIALE EST OBLIGATOIRE dans le suivi de dossiers (Direction, 06/10) — pas au pipeline, où un dossier
   // naît à l'étude, avant d'avoir sa CTD. Les fichiers partent APRÈS la création (envoi en arrière-plan vers
@@ -834,8 +837,12 @@ export async function setRegulatoryResponsible(formData: FormData): Promise<Acti
   // envoyer pour autant un lien qui s'ouvre sur un 404 ne l'est pas. On dit donc les deux : à la
   // personne, que le dossier n'apparaîtra qu'à l'ouverture du cadenas ; et à celui qui vient de
   // le confier, la même chose, tout de suite.
+  // Les DEUX clés du pipeline (Direction, 08/10) : la confidence ET le module « Pipeline réglementaire » de la console.
   const seesLocked = target
-    ? pipelineAccessFor({ id: responsibleId as string, role: target.role, secondaryRole: target.secondaryRole }, await getAppSettings()).view
+    ? seesLockedRegulatory({
+        id: responsibleId as string, role: target.role, secondaryRole: target.secondaryRole,
+        access: await getAccess(responsibleId as string, target.role),
+      })
     : false;
 
   if (responsibleId && responsibleId !== user.id) {
@@ -1196,8 +1203,9 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
 
   // L'ORDRE NAÎT EN ATTENTE DU CENTRE DE PAIEMENT (`initialCentralStatus`, aucune exemption de
   // module) ; les Finances ne le voient qu'une fois autorisé. Son entité est celle du DOSSIER.
+  const label = `${bvType} — ${product.reference} ${product.dci}`;
   const order = await createExpenseOrder({
-    label: `${bvType} — ${product.reference} ${product.dci}`,
+    label,
     amount,
     category: "IMPOT",
     beneficiary: "ANPP",
@@ -1206,6 +1214,9 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
     requestedById: user.id,
     notes: note,
     dueDate: dueRaw ? new Date(dueRaw) : null,
+    // BUDGET REGULATORY (08/10) : le BV naît rangé dans la catégorie de SA part (25 % ou 75 %) de l'enveloppe
+    // Regulatory active — il s'y imputera à son règlement. Aucune enveloppe → le chemin ordinaire.
+    budgetCategoryId: await categorieBvPourOrdre(label),
   });
 
   // JUSTIFICATIFS — UNE OU PLUSIEURS PIÈCES. Un BV arrive rarement seul : proforma, courrier

@@ -9,26 +9,34 @@ import { VueEnsemble } from "./vue-ensemble";
 import { VueEquipe } from "./vue-equipe";
 import { VueCalendrier } from "./vue-calendrier";
 import { FichePersonne } from "./fiche-personne";
+import { VueKpi } from "./vue-kpi";
+import type { TableauKpi } from "@/lib/kpi/types";
 
-export type VueMonEquipe = "ensemble" | "equipe" | "calendrier";
+export type VueMonEquipe = "ensemble" | "equipe" | "calendrier" | "kpi";
 
 const ONGLETS: { vue: VueMonEquipe; label: string }[] = [
   { vue: "ensemble", label: "Vue d'ensemble" },
   { vue: "equipe", label: "L'équipe" },
   { vue: "calendrier", label: "Calendrier" },
+  // KPI sans code (Direction, 08/10) : une ligne par personne, une colonne par KPI, le score pondéré, la revue.
+  { vue: "kpi", label: "KPI" },
 ];
 
 /**
  * L'ÉCRAN DE MON ÉQUIPE — trois onglets (`?vue=`), et UN panneau : un clic sur une personne, où qu'elle soit, l'ouvre
  * sur le côté sans quitter la vue.
  */
-export function EquipeEcran({ vue, apercu, pending, plusAncienJours, chevauchements, chevauchementsNonMontres }: {
+export function EquipeEcran({ vue, apercu, pending, plusAncienJours, chevauchements, chevauchementsNonMontres, kpi, ongletKpi }: {
   vue: VueMonEquipe;
   apercu: ApercuEquipe;
   pending: TeamPending[];
   plusAncienJours: number | null;
   chevauchements: ChevauchementDEquipe[];
   chevauchementsNonMontres: number;
+  /** Le tableau des KPI — chargé seulement sur l'onglet « KPI ». */
+  kpi?: TableauKpi | null;
+  /** L'onglet « KPI » s'affiche à qui a le module « KPI & bilans ». */
+  ongletKpi?: boolean;
 }) {
   const [ouverte, setOuverte] = React.useState<string | null>(null);
   const ligne = ouverte ? apercu.lignes.find((l) => l.employeeId === ouverte) ?? null : null;
@@ -39,7 +47,7 @@ export function EquipeEcran({ vue, apercu, pending, plusAncienJours, chevaucheme
   return (
     <div className="space-y-4">
       <nav className="no-scrollbar -mx-3 flex items-center gap-1 overflow-x-auto border-b border-border px-3 sm:mx-0 sm:px-0" aria-label="Vues de Mon équipe">
-        {ONGLETS.map((o) => (
+        {ONGLETS.filter((o) => o.vue !== "kpi" || ongletKpi).map((o) => (
           <Link
             key={o.vue} href={lienOnglet(o.vue)} aria-current={vue === o.vue ? "page" : undefined}
             className={cn(
@@ -57,6 +65,7 @@ export function EquipeEcran({ vue, apercu, pending, plusAncienJours, chevaucheme
       {vue === "calendrier" && (
         <VueCalendrier apercu={apercu} chevauchements={chevauchements} chevauchementsNonMontres={chevauchementsNonMontres} onOuvrir={setOuverte} />
       )}
+      {vue === "kpi" && kpi && <VueKpi kpi={kpi} />}
 
       <FichePersonne ligne={ligne} droits={apercu.droits} onClose={fermer} />
     </div>

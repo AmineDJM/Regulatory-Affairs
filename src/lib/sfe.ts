@@ -149,6 +149,16 @@ export async function resolveRepScope(user: SessionUser): Promise<RepScope> {
   return { mode: "self", canConfigure: false, isSupervisor: false, buIds: [], repIds: [user.id] };
 }
 
+/**
+ * PEUT-IL MONTER LA FORCE DE VENTE ? — les BU, leurs KAM, produits et secteurs, les paramètres : le module « Business
+ * Units » (Direction, 08/10). La règle d'avant, transposée : le droit de MODIFIER le module, ou la vue globale. Les pages
+ * du module et les liens qui y mènent (« Affecter », « Nouveau secteur ») lisent CETTE fonction ; les actions serveur
+ * lisent le même droit de module (`BUSINESS_UNITS`).
+ */
+export function peutConfigurerBu(user: SessionUser): boolean {
+  return userCan(user, "BUSINESS_UNITS", "UPDATE") || hasGlobalView(user);
+}
+
 /** Le user peut-il éditer les affectations de ce KAM ? Configurateur, superviseur du KAM, ou lui-même. */
 export async function canEditRep(user: SessionUser, repId: string): Promise<boolean> {
   if (userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user)) return true;

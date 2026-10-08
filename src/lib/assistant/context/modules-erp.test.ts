@@ -46,7 +46,8 @@ describe("les modules de l'ERP sont atteignables", () => {
     // STOCK et le CATALOGUE promotionnels non plus (§118.164) : chaque geste de stock atteste un
     // fait PHYSIQUE (« je l'ai reçu », « je l'ai compté ») qu'un modèle ne voit pas, les anciennes
     // ops de stock d'Adam ont été retirées avec l'ancien registre, et Adam est en pause.
-    expect(sansOutil.sort()).toEqual(["FEEDBACK", "GENERAL_MEANS", "PROMO_CATALOG", "PROMO_STOCK", "SITE_WEB"]);
+    // Les KPI & bilans non plus (Direction, 08/10) : noter, valider, signer sont des attestations d'un manager (§118.15).
+    expect(sansOutil.sort()).toEqual(["FEEDBACK", "GENERAL_MEANS", "KPI", "PROMO_CATALOG", "PROMO_STOCK", "SITE_WEB"]);
   });
 
   /**

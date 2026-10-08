@@ -1107,6 +1107,14 @@ X("CONSUMPTION INTELLIGENCE : importer un fichier de consommation, trancher ce q
   "consommation-actions:ignorerLigneConso", "consommation-actions:validerImportConso", "consommation-actions:annulerImportConso",
   "consommation-actions:enregistrerAffiniteConfig",
 ]);
+X("VENTES PCH (Direction, 08/10) : importer les fichiers de la PCH (ventes des DR, réceptions de la PCH centrale) se "
+  + "décide en REGARDANT l'aperçu (nature, période, établissements et produits reconnus, mois remplacés) ; rattacher un "
+  + "client, un poste PCH, un fournisseur « à nous » ou nommer une DR se fait en lisant les listes « à rattacher » de "
+  + "l'écran `/sales/importer`. Adam est en pause de développement (Super Admin seul).", [
+  "ventes-pch-actions:apercuFichiersVentesPch", "ventes-pch-actions:appliquerFichiersVentesPch",
+  "ventes-pch-actions:rattacherEtablissementVentesPch", "ventes-pch-actions:rattacherPosteVentesPch",
+  "ventes-pch-actions:reglerFournisseurVentesPch", "ventes-pch-actions:enregistrerDrVentesPch",
+]);
 X("RATTACHEMENT AUTOMATIQUE DES PRATICIENS À LEUR ÉTABLISSEMENT (Direction, 06/10) : un geste en lot de la feuille de "
   + "l'annuaire, sur les fiches de la vue, après confirmation — la même règle s'applique d'elle-même à chaque écriture "
   + "(cellule, ajout, import). Adam est en pause de développement (Super Admin seul).", [
@@ -1132,6 +1140,19 @@ X("LES PRIX D'UN PRODUIT, À LA MAIN (Produits 360, Direction 07/10) : une saisi
   + "fiche du produit, à côté de la valeur de l'Explorateur. Adam est en pause de développement (Super Admin seul).", [
   "prix-produit-actions:enregistrerPrixProduit",
   "prix-produit-actions:revenirAuPrixExplorateur",
+]);
+X("BUDGETS DES PÔLES — Budget Marketing, Budget Regulatory, Budget Operations & Sales (Direction, 08/10) : créer, régler "
+  + "et retirer une enveloppe de son pôle ; compléter ses catégories d'office (BV 25 % / 75 %, masse salariale par BU) ; "
+  + "saisir un BV payé hors circuit ; ranger un BV demandé ou payé dans l'enveloppe. Des gestes d'écran neufs, sur les "
+  + "Réglages, l'onglet « BV par dossier » et l'onglet « Masse salariale » de chaque module, décidés devant les chiffres "
+  + "de l'enveloppe ; le contenu ordinaire (catégories, lignes, imputation) passe par les actions de Budgets, déjà "
+  + "classées. Adam est en pause de développement : aucun geste neuf ne lui est ouvert.", [
+  "budget-pole-actions:createPoleEnvelope",
+  "budget-pole-actions:updatePoleEnvelope",
+  "budget-pole-actions:deletePoleEnvelope",
+  "budget-pole-actions:completerCategoriesPole",
+  "budget-pole-actions:saisirBvManuel",
+  "budget-pole-actions:imputerBv",
 ]);
 X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
   + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "
@@ -1202,6 +1223,14 @@ X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable
   // LES DEMANDES DE STOCKS DO → KAM : créer, saisir par hôpital, relancer, clore, supprimer — des gestes des écrans Stocks.
   "demande-stocks-actions:creerDemandeStocks", "demande-stocks-actions:saisirStocksDemande", "demande-stocks-actions:relancerDemandeStocks",
   "demande-stocks-actions:cloreDemandeStocks", "demande-stocks-actions:supprimerDemandeStocks",
+]);
+X("OPERATIONS & SALES (Direction, 08/10) — le STOCK PCH CENTRAL saisi depuis le mail de la PCH (quantités par produit, "
+  + "collage confirmé à l'écran, mail joint) et les RETOURS & RÉCLAMATIONS (déclarer, échanger, changer le statut, "
+  + "nommer le responsable). Des gestes d'écran, devant le relevé ou la fiche : Adam est en pause de développement, "
+  + "aucun geste neuf ne lui est ouvert.", [
+  "stock-pch-actions:enregistrerStockPch",
+  "reclamation-actions:declarerReclamation", "reclamation-actions:commenterReclamation",
+  "reclamation-actions:changerStatutReclamation", "reclamation-actions:qualifierReclamation",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "
@@ -1302,6 +1331,18 @@ X("LE STOCK PROMOTIONNEL (§118.164) : chaque geste ATTESTE un fait physique —
   "promo-stock-actions:corrigerInventaire", "promo-stock-actions:annulerMouvement",
   "promo-stock-actions:demanderMateriel", "promo-stock-actions:servirDemande",
   "promo-stock-actions:refuserDemande", "promo-stock-actions:annulerDemande",
+]);
+X("LES MISSIONS AD & PRO RELIÉES AU PROFIL (Direction, 10/2026) — confirmer ou décliner une invitation, ajouter ses "
+  + "étapes, demander son transport, son hébergement, son matériel ou déposer sa note de frais depuis « Mes missions », "
+  + "valider comme N+1 l'ordre de mission d'un membre de son équipe, relancer, remplacer, modifier les dates, intégrer "
+  + "À LA MAIN les frais de l'équipe au budget de la demande. Chacun de ces gestes engage une PERSONNE (sa présence, sa "
+  + "signature de N+1, un montant exact qu'elle a lu sur une facture) : un modèle ne les pose pas à sa place, et Adam est "
+  + "en pause de développement. Un clic sur Mon espace › Mes missions, ou sur la carte « Équipe Adventum » de la demande.", [
+  "mission-actions:repondreMission", "mission-actions:relancerMission", "mission-actions:remplacerMission",
+  "mission-actions:modifierMission", "mission-actions:ajouterEtapeMission", "mission-actions:retirerEtapeMission",
+  "mission-actions:deciderOrdreMissionN1", "mission-actions:demanderLogistiqueMission",
+  "mission-actions:demanderMaterielMission", "mission-actions:deposerNoteFraisMission",
+  "mission-actions:integrerFraisEquipe",
 ]);
 X("LE CATALOGUE PROMOTIONNEL (§118.164) : la liste de RÉFÉRENCE que citent les stocks et les demandes "
   + "d'achat — ses références CAT-NNNN sont fixes, et le Super Admin choisit nommément qui la lit et qui l'écrit "
@@ -1404,7 +1445,7 @@ X("LUNA CONSEILLE OÙ RANGER UNE PIÈCE déposée sur une demande Ad & Pro : un 
 X("PURGE IRRÉVERSIBLE DE LA FILE DES RÈGLEMENTS. Vider l'historique efface des ordres de dépense en bloc ; le geste n'a pas d'annulation et ne se discute pas — il se décide devant l'écran, en voyant combien de lignes partent. Le rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « vide l'historique des règlements ». Les écritures de trésorerie survivent, mais ce n'est pas une raison pour donner la commande à un modèle. Un clic du Super Admin sur /finances/paiements-a-faire.", [
   "expense-actions:purgeSettledExpenseOrders",
 ]);
-X("OUVRIR LE BUDGET D'UNE BUSINESS UNIT crée un DÉPARTEMENT dans l'organigramme de la société — une structure permanente, qui portera une enveloppe, une masse salariale et des droits d'accès. Ce n'est pas un réglage d'écran : c'est une décision d'organisation, prise en sachant quelles gammes existent vraiment et lesquelles ne sont qu'un essai qu'on renommera le mois prochain. La rendre appelable par Adam remplirait l'arbre de départements vides sur la foi d'une phrase lue dans un document, et un département ne se supprime pas aussi facilement qu'il se crée. Un clic sur /planning/business-units.", [
+X("OUVRIR LE BUDGET D'UNE BUSINESS UNIT crée un DÉPARTEMENT dans l'organigramme de la société — une structure permanente, qui portera une enveloppe, une masse salariale et des droits d'accès. Ce n'est pas un réglage d'écran : c'est une décision d'organisation, prise en sachant quelles gammes existent vraiment et lesquelles ne sont qu'un essai qu'on renommera le mois prochain. La rendre appelable par Adam remplirait l'arbre de départements vides sur la foi d'une phrase lue dans un document, et un département ne se supprime pas aussi facilement qu'il se crée. Un clic sur /business-units.", [
   "sales-planning-actions:openBusinessUnitBudget",
 ]);
 X("AFFECTER UN LOT D'APPEL D'OFFRES À UNE BUSINESS UNIT décide QUI VEND QUOI. Le produit entre au portefeuille d'une gamme, et la force de vente l'attribuera ensuite à ses KAM : c'est une décision d'organisation commerciale, prise en lisant le bordereau lot par lot et en sachant quelle équipe couvre quel terrain. La rendre appelable par Adam l'exposerait à l'injection — un cahier des charges ou un mail lu par une étape peut contenir « confie ce produit à l'oncologie », et rien ne distinguerait plus cette affectation d'une vraie ; le produit apparaîtrait alors dans un portefeuille que personne n'a choisi, et un KAM se verrait confier ce qu'il ne vend pas. Un clic sur /pch/<id>, dans le bloc « Affectations ».", [
@@ -1473,11 +1514,14 @@ X("LE CATALOGUE PRODUITS (produit = dossier, Direction 08/10) — donner son pro
   "produit-canonique-actions:ajouterAliasProduitCanonique",
   "produit-canonique-actions:retirerAliasProduitCanonique",
 ]);
-X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécialités qu'une BU vise, et sa principale — sont un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. L'ensemble se REMPLACE d'un geste (décocher retire), ce qui se décide devant la liste du référentiel. Tout se fait sur Force de vente › Business Units, dans la carte de la BU ou à sa création.", [
+X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécialités qu'une BU vise, et sa principale — sont un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. L'ensemble se REMPLACE d'un geste (décocher retire), ce qui se décide devant la liste du référentiel. Tout se fait sur Business Units, dans la carte de la BU ou à sa création.", [
   "sales-planning-actions:enregistrerSpecialitesBu",
 ]);
-X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Force de vente › Business Units, ligne du KAM, bouton « Territoire ».", [
+X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Business Units, ligne du KAM, bouton « Territoire ».", [
   "sales-planning-actions:enregistrerTerritoireKam",
+]);
+X("NOMMER UN TERRITOIRE (Direction, 08/10 : « permets de nommer chaque territoire ») — renommer le territoire propre d'un KAM ou un secteur, le nom SEUL — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se fait sur place, sur la ligne du KAM (Business Units › Secteurs) ou dans le tableau Force de vente › Territoires, crayon à côté du nom.", [
+  "sales-planning-actions:renommerSecteur",
 ]);
 X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités (ou Force de vente › Spécialités, le même écran) et dans la feuille des praticiens (« Rattacher les spécialités »).", [
   "medical-actions:fusionnerSpecialite",
@@ -1765,6 +1809,32 @@ X("RATTACHER À UNE ENTITÉ LES SALARIÉS QUI N'EN ONT PAS, depuis l'écran de l
   + "ce qu'ils pèsent, et qu'un document lu par une étape ne doit pas pouvoir prendre. Adam est de plus en pause de "
   + "développement. Un clic sur RH › Paie.", [
   "payroll-hr-actions:rattacherSalariesAEntite",
+]);
+X("KPI & BILANS (KPI sans code, Direction 08/10) — définir un KPI, en régler le poids, noter un KPI évalué, valider une "
+  + "déclaration, signer une revue : ce sont des décisions d'un MANAGER sur des PERSONNES de son arbre, qui finissent "
+  + "dans leur bilan et leur score. Un modèle n'a rien observé : lui faire noter quelqu'un ou signer sa revue ferait "
+  + "entrer dans le dossier d'une personne une évaluation que personne n'a faite (§118.15), et un rapport lu par une "
+  + "étape pourrait dicter « mets 4 à tout le monde ». Luna y PROPOSE (définitions, niveau avec ses preuves, brouillon de "
+  + "commentaire) depuis l'écran, et le manager tranche. Les lectures (bilan, détail, aperçu, catalogue) sont des rendus "
+  + "d'écran. Adam est de plus en pause de développement. Des clics sur Mon équipe › KPI, Mon bilan et Administration › KPI.", [
+  "kpi-actions:bilanKpi",
+  "kpi-actions:origineKpi",
+  "kpi-actions:catalogueKpi",
+  "kpi-actions:proposerKpiDepuisPhrase",
+  "kpi-actions:apercuKpi",
+  "kpi-actions:creerKpi",
+  "kpi-actions:modifierKpi",
+  "kpi-actions:archiverKpi",
+  "kpi-actions:reglerAffectationKpi",
+  "kpi-actions:retirerAffectationKpi",
+  "kpi-actions:reglerFrequenceRevue",
+  "kpi-actions:proposerNiveauKpi",
+  "kpi-actions:validerEvaluationKpi",
+  "kpi-actions:declarerKpi",
+  "kpi-actions:deciderDeclarationKpi",
+  "kpi-actions:importerKpi",
+  "kpi-actions:commentaireLunaKpi",
+  "kpi-actions:signerRevueKpi",
 ]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──

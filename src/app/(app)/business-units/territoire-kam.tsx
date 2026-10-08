@@ -10,6 +10,7 @@ import {
   ChoixEtablissements, choixDepuisLiens, etablissementsSansService, remplirFormulaire,
   type ChoixEtab, type EtabOpt,
 } from "./choix-etablissements";
+import { NomTerritoire } from "./nom-territoire";
 
 /**
  * LE TERRITOIRE D'UN KAM, SUR SA LIGNE (04/10/2026) — dans une BU hospitalière.
@@ -54,6 +55,8 @@ export function TerritoireKam({ buId, kam, territoire, etablissements, busy, run
 
   return (
     <div className="flex w-full flex-wrap items-center gap-2 pl-6 text-xs text-muted-foreground">
+      {/* LE NOM DU TERRITOIRE (Direction, 08/10) — « Territoire — <KAM> » à sa naissance, renommable ici sur place. */}
+      {territoire && <NomTerritoire id={territoire.id} nom={territoire.name} peutRenommer className="text-sm font-medium text-foreground" />}
       {liens.length === 0 ? (
         <>
           <Badge tone="warning" dot={false}>Sans territoire — panel vide</Badge>
@@ -96,6 +99,12 @@ export function TerritoireKam({ buId, kam, territoire, etablissements, busy, run
             if (await run(enregistrerTerritoireKam, fd)) setOuvert(false);
           }}
         >
+          {/* LE NOM se choisit aussi ici, à la création : vide, le territoire prend « Territoire — <KAM> ». */}
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">Nom du territoire</span>
+            <input name="name" defaultValue={territoire?.name ?? ""} maxLength={80} placeholder={`Territoire — ${kam.name}`}
+              className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm" />
+          </label>
           <ChoixEtablissements etablissements={etablissements} choix={choix} onChange={setChoix} />
           <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setOuvert(false)} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary">

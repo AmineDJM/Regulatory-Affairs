@@ -8,6 +8,7 @@ import { pipelineAccessFor } from "./regulatory/pipeline-access";
 import { carrierAccess } from "./regulatory/assignment";
 import { NAVIGATION, NAV_LEGACY_LABELS } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
 import { lireSections, peutAnnuaire as regleAnnuaire, ouvertParSection, type AnnuaireAccordable, type FaitsAnnuaire, type GesteAnnuaire } from "./annuaires/acces"; // module PUR, zéro import → aucun cycle
+import { DOMAINES, poleDe, type DomainePole } from "./budget/domaines"; // module PUR, zéro import → aucun cycle
 
 // `cache` is a React Server Components API; fall back to identity outside an
 // RSC render (e.g. unit tests) so the module loads everywhere.
@@ -26,7 +27,15 @@ const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
  */
 
 export const MODULES = [
-  "WORKSPACE", "FEEDBACK", "MESSAGING", "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "RH",
+  "WORKSPACE", "FEEDBACK", "MESSAGING", "REGULATORY",
+  // REGULATORY_PIPELINE : « Pipeline réglementaire » — les dossiers VERROUILLÉS (à l'étude), un module À PART du
+  // suivi des dossiers (Direction, 08/10 : « sépare Pipeline et Suivi de dossiers dans les accès … pour que je
+  // contrôle »). Rangé juste après Regulatory pour que la console les montre côte à côte. Il gouverne l'écran
+  // /regulatory/pipeline ET les dossiers verrouillés partout (portée, fiche, gestes) ; la confidence nommée
+  // (« voit le pipeline » / « tient le cadenas », Réglages) reste une SECONDE clé, indépendante (`seesLockedRegulatory`).
+  // Par défaut, chaque rôle y a exactement ses gestes de Regulatory : personne ne perd le pipeline le jour de la scission.
+  "REGULATORY_PIPELINE",
+  "SPONSORING", "BUDGETS", "FINANCES", "RH",
   "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENTS", "SALES", "LOGISTICS", "MEDICAL", "FIELD_REPORTS", "SALES_PLANNING",
   "BUSINESS_DEVELOPMENT", "PRODUCT_EXPLORER", "PCH", "STOCKS", "MEDICAL_INFO", "PROMO_MATERIAL", "CONSULTING", "AD_PRO_OTHER", "GENERAL_MEANS", "VALIDATIONS", "VALIDATION_CENTRE", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
   // LEGAL : les engagements de la société (contrats, bons de commande, assurances).
@@ -122,6 +131,21 @@ export const MODULES = [
   // module à part, je n'arrive pas à gérer ses accès depuis la console »). Voir = la liste et la fiche 360° ; chaque
   // section de la fiche reste gardée par SON module (Regulatory, PCH, Ventes, Segmentation, Consommation, Finances).
   "PRODUCTS",
+  // BUSINESS_UNITS : « Business Units » — le MONTAGE de la force de vente (Direction, 08/10 : « tu crées dans le menu un
+  // module "Business Units" et tu y mets BU et secteurs et paramètres »). Les BU (identité, superviseur, spécialités,
+  // produits, KAM), les secteurs et territoires des KAM, les paramètres SFE. Il sort du « ⋯ Réglages » de la Force de
+  // vente, qui garde le pilotage, les territoires et les produits (`SALES_PLANNING`). Par défaut : exactement ceux qui
+  // configuraient la Force de vente (voir plus bas).
+  "BUSINESS_UNITS",
+  // BUDGET_MARKETING : « Budget Marketing » (Direction, 08/10) — les enveloppes Ad & Pro et celles que la Direction
+  // Marketing crée (`domaine = MARKETING`). Les MÊMES lignes que Budgets, qui les lit en lecture seule : Voir = lire ces
+  // enveloppes (sans liste d'accès par enveloppe), Modifier = gérer leur contenu (catégories, lignes, imputation),
+  // Créer / Supprimer = créer ou retirer une enveloppe marketing. Les listes d'accès restent au Super Admin.
+  "BUDGET_MARKETING",
+  // BUDGET_REGULATORY / BUDGET_OPERATIONS : « Budget Regulatory » et « Budget Operations & Sales » (Direction, 08/10) —
+  // la même mécanique que Budget Marketing, pour les enveloppes `domaine = REGULATORY` (les BV 25 % / 75 % des dossiers
+  // d'enregistrement) et `domaine = OPERATIONS` (masse salariale de la force de vente, dépenses hors Ad & Pro).
+  "BUDGET_REGULATORY", "BUDGET_OPERATIONS",
   // LES SOUS-MODULES DES RESSOURCES HUMAINES (Direction, 06/10 : « transformer les onglets de RH en sous-modules
   // indépendants mais reliés ») : EMPLOYEES — « Employés » (l'équipe, les consultants, les départements) ;
   // HR_REQUESTS — « Demandes RH » (attestations, ordres de mission, notes de frais, congés et absences) ;
@@ -131,6 +155,24 @@ export const MODULES = [
   // Voir en portée TOUT = la boîte de Regulatory ; en portée « ses lignes » = ses propres signalements et les cas
   // où l'on a été ajouté. Créer = signaler un cas ; Modifier/Valider = instruire (statut, enquête, participants).
   "PHARMACOVIGILANCE",
+  // RETOURS_RECLAMATIONS (Operations & Sales, Direction 08/10) : retours de marchandise, réclamations qualité et rappels
+  // de lot. Voir en portée TOUT = toutes les réclamations ; « ses lignes » = celles qu'on a déclarées ou dont on est
+  // responsable. Créer = déclarer (le KAM, depuis le terrain) ; Modifier = instruire (statut, responsable, conclusion).
+  "RETOURS_RECLAMATIONS",
+  // KPI : « KPI & bilans » (Direction, 08/10 — KPI sans code). Voir = son bilan et celui de son arbre ; Créer = déclarer,
+  // proposer un KPI, en créer pour son équipe ; Valider = noter un KPI évalué, valider une déclaration, signer une revue.
+  // Le PÉRIMÈTRE suit l'organigramme (l'arbre de Mon équipe), jamais le rôle : `src/lib/kpi/droits.ts`.
+  "KPI",
+  // PCH_VENTES : « Ventes PCH » (Operations & Sales, Direction 08/10) — les fichiers de la PCH (ventes des directions
+  // régionales aux hôpitaux, réceptions de la PCH centrale) importés, rattachés, lus par BU : sell-in, distribution aux
+  // hôpitaux, demande non servie, part de marché, chaîne AO → BC. Il REMPLACE l'ancien « Ventes » (saisie manuelle), dont
+  // l'historique reste lisible sous `SALES`. Voir = lire ; Téléverser = importer un fichier ; Modifier = rattacher
+  // (établissement, poste, fournisseur, direction régionale).
+  "PCH_VENTES",
+  // COCKPIT_OPERATIONS : « Cockpit Opérations » (Operations & Sales, Direction 08/10) — l'écran de tête du directeur des
+  // opérations : livré à la PCH, exécution des marchés, demande non servie, ruptures de la chaîne, couverture terrain, et
+  // « À traiter ». Lecture seule : chaque geste se fait dans l'écran du module visé. Voir = l'ouvrir.
+  "COCKPIT_OPERATIONS",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -281,7 +323,15 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, SALES: MANAGE,
     GENERAL_MEANS: MANAGE, ADMIN_REQUESTS: MANAGE, LEGAL: CONTRIBUTE, MAIL_REGISTER: READ,
     REGULATORY: READ, BUDGETS: READ, FINANCES: READ, RH: READ, MEDICAL: READ, FIELD_REPORTS: READ,
-    SALES_PLANNING: READ, DOCUMENTS: CONTRIBUTE,
+    DOCUMENTS: CONTRIBUTE,
+    // LA FORCE DE VENTE ET LES BUSINESS UNITS (Direction, 08/10 : « Droits du Directeur des opérations : gestion de la
+    // Force de vente et des Business Units … → oui ») : il les GÈRE, en portée TOUT (`resolveRepScope` → « all »). Le
+    // Marketing cockpit, lui, reste en LECTURE : il se recopiait de la Force de vente (plus bas) et n'est pas son métier.
+    SALES_PLANNING: MANAGE, BUSINESS_UNITS: MANAGE, MARKETING_COCKPIT: READ,
+    // ADVENTUM BRAIN LIMITÉ À SON PÉRIMÈTRE (même décision) : il lit les risques de SON domaine (PCH, stocks,
+    // logistique, ventes, force de vente, terrain) et agit dessus (prendre en charge, relancer, ignorer, résoudre) —
+    // la règle est `adventum/perimetre.ts`. Le briefing, la question libre et les seuils restent au Super Admin.
+    ADVENTUM_BRAIN: ["VIEW", "UPDATE"],
     DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
     // LE STOCK PROMOTIONNEL (décision de la Direction, 01/10/2026) : « la vue globale du stock
     // promotionnel, mais aussi la gestion du matériel de ses équipes — les superviseurs en dessous
@@ -479,6 +529,20 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
 }
 
 /**
+ * « BUSINESS UNITS » PAR DÉFAUT — les mêmes personnes qu'hier (Direction, 08/10). Le montage (BU, secteurs, paramètres)
+ * vivait dans le « ⋯ Réglages » de la Force de vente, réservé à qui la CONFIGURAIT (`SALES_PLANNING:UPDATE`, ou la vue
+ * globale) : chaque rôle qui la modifiait reçoit, par défaut, ses gestes sur le nouveau module ; un rôle qui ne faisait
+ * que la LIRE n'y gagne rien (il n'ouvrait pas ces écrans). Les accès personnalisés déjà posés sur la Force de vente
+ * sont recopiés par la migration `module_business_units`. Ce n'est qu'un DÉFAUT : la console le règle ensuite personne
+ * par personne, indépendamment de la Force de vente.
+ */
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (role === "SUPER_ADMIN") continue;
+  const matrice = PERMISSIONS[role];
+  if (matrice.SALES_PLANNING?.includes("UPDATE") && !matrice.BUSINESS_UNITS) matrice.BUSINESS_UNITS = [...matrice.SALES_PLANNING];
+}
+
+/**
  * « SEGMENTATION STUDIO » PAR DÉFAUT — le cahier des charges (§69, §86) : la Direction et le directeur des opérations
  * tiennent la stratégie et les règles ; la Direction de la promotion lit, renseigne et pose des dérogations motivées ;
  * le KAM lit SON panel et met à jour le potentiel terrain — sans jamais toucher aux règles, à la BU ni aux
@@ -513,6 +577,61 @@ for (const [role, actions] of Object.entries(CONSUMPTION_PAR_DEFAUT) as [UserRol
   if (!PERMISSIONS[role].CONSUMPTION) PERMISSIONS[role].CONSUMPTION = [...actions];
 }
 
+/** « VENTES PCH » PAR DÉFAUT (Direction, 08/10) — le directeur des opérations et la Direction importent et rattachent ;
+ *  la direction commerciale, la promotion et le marketing lisent. Personne d'autre : la console l'ouvre ensuite. */
+const PCH_VENTES_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  OPERATIONS_DIRECTOR: MANAGE,
+  NATIONAL_SALES: READ,
+  HEAD_OF_SALES: READ,
+  MEDICAL_PROMOTION_MANAGER: READ,
+  PRODUCT_MANAGER: READ,
+};
+for (const [role, actions] of Object.entries(PCH_VENTES_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].PCH_VENTES) PERMISSIONS[role].PCH_VENTES = [...actions];
+}
+
+/**
+ * « BUDGET MARKETING » PAR DÉFAUT (Direction, 08/10) — la Direction Marketing (rôle PRODUCT_MANAGER) tient ses
+ * enveloppes : elle les crée, les répartit, les consomme. La Direction et le Directeur Général aussi ; les Finances
+ * lisent. Personne d'autre par défaut — la console l'ouvre ensuite personne par personne.
+ */
+const BUDGET_MARKETING_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  PRODUCT_MANAGER: MANAGE,
+  FINANCE_BUDGET_MANAGER: READ,
+};
+for (const [role, actions] of Object.entries(BUDGET_MARKETING_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].BUDGET_MARKETING) PERMISSIONS[role].BUDGET_MARKETING = [...actions];
+}
+
+/**
+ * « BUDGET REGULATORY » et « BUDGET OPERATIONS & SALES » PAR DÉFAUT (Direction, 08/10) — chaque pôle tient ses
+ * enveloppes (le Head of Regulatory, le Directeur des Opérations) ; la Direction et le Directeur Général aussi ; les
+ * Finances lisent ; l'assistante réglementaire lit les BV. Personne d'autre : la console ouvre ensuite au cas par cas.
+ */
+const BUDGET_REGULATORY_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  HEAD_OF_REGULATORY: MANAGE,
+  FINANCE_BUDGET_MANAGER: READ,
+  REGULATORY_ASSISTANT: READ,
+};
+const BUDGET_OPERATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  OPERATIONS_DIRECTOR: MANAGE,
+  FINANCE_BUDGET_MANAGER: READ,
+};
+for (const [role, actions] of Object.entries(BUDGET_REGULATORY_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].BUDGET_REGULATORY) PERMISSIONS[role].BUDGET_REGULATORY = [...actions];
+}
+for (const [role, actions] of Object.entries(BUDGET_OPERATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].BUDGET_OPERATIONS) PERMISSIONS[role].BUDGET_OPERATIONS = [...actions];
+}
+
 /**
  * « PRODUITS » PAR DÉFAUT — les mêmes personnes qu'hier : chaque rôle qui voyait au moins une facette d'un produit
  * (Regulatory, AO, ventes, Force de vente, segmentation, consommation, finances) garde la LECTURE. Ce n'est qu'un
@@ -544,6 +663,18 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
  * de Regulatory ; qui rédige des rapports terrain (Créer) peut SIGNALER un cas — Voir + Créer + Téléverser, en portée
  * « ses lignes » (`defaultScope`) : il ne lit que ses signalements. Un défaut, réglable ensuite dans la console.
  */
+/**
+ * LE PIPELINE RÉGLEMENTAIRE PAR DÉFAUT (Direction, 08/10) — les mêmes personnes qu'hier, avec les mêmes gestes : chaque
+ * rôle qui tenait Regulatory reçoit, sur le pipeline, EXACTEMENT ses gestes de Regulatory (le pipeline vivait sous ce
+ * module). Un DÉFAUT, lisible dans la console : le pipeline s'ouvre ou se ferme ensuite personne par personne,
+ * indépendamment du suivi des dossiers. La confidence « voit les dossiers verrouillés » (Réglages) reste requise en plus.
+ */
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (role === "SUPER_ADMIN") continue;
+  const matrice = PERMISSIONS[role];
+  if (matrice.REGULATORY && !matrice.REGULATORY_PIPELINE) matrice.REGULATORY_PIPELINE = [...matrice.REGULATORY];
+}
+
 const GESTES_DECLARANT_PV: Action[] = ["VIEW", "CREATE", "UPLOAD"];
 for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
   if (role === "SUPER_ADMIN") continue;
@@ -551,6 +682,48 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
   if (matrice.PHARMACOVIGILANCE) continue;
   if (matrice.REGULATORY?.includes("VIEW")) matrice.PHARMACOVIGILANCE = [...matrice.REGULATORY];
   else if (matrice.FIELD_REPORTS?.includes("CREATE")) matrice.PHARMACOVIGILANCE = [...GESTES_DECLARANT_PV];
+}
+
+/**
+ * « RETOURS & RÉCLAMATIONS » PAR DÉFAUT (Direction, 08/10) — les opérations, la Direction et le Directeur Général
+ * gèrent ; ceux qui reçoivent la pharmacovigilance (Regulatory) et le pharmacien responsable LISENT ; le KAM DÉCLARE
+ * depuis le terrain (portée « ses lignes », `defaultScope`). Personne d'autre : la console l'ouvre ensuite personne par
+ * personne. ÉCRIT, pas dérivé (§118.130).
+ */
+const RECLAMATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  OPERATIONS_DIRECTOR: MANAGE,
+  HEAD_OF_REGULATORY: READ,
+  REGULATORY_ASSISTANT: READ,
+  MEDICAL_INFO_PHARMACIST: READ,
+  MEDICAL_DELEGATE: ["VIEW", "CREATE", "UPLOAD"],
+};
+for (const [role, actions] of Object.entries(RECLAMATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].RETOURS_RECLAMATIONS) PERMISSIONS[role].RETOURS_RECLAMATIONS = [...actions];
+}
+
+/**
+ * « KPI & BILANS » PAR DÉFAUT (Direction, 08/10) — comme Mon équipe, une PORTE accordée à tous : chacun voit son bilan
+ * et y déclare ; qui encadre crée des KPI pour son équipe, note, valide et signe — mais seulement sur SON arbre (la
+ * règle est dans `kpi/droits.ts`, l'arbre est celui de Mon équipe). Sans équipe, Créer/Valider ne donnent prise sur
+ * personne. Le Super Admin (tous les modules) tient le catalogue et les modèles par rôle. La console peut retirer un
+ * geste personne par personne. ÉCRIT, pas dérivé (§118.130).
+ */
+const KPI_PAR_DEFAUT: Action[] = ["VIEW", "CREATE", "UPDATE", "VALIDATE", "EXPORT"];
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (!PERMISSIONS[role].KPI) PERMISSIONS[role].KPI = [...KPI_PAR_DEFAUT];
+}
+
+/** « COCKPIT OPÉRATIONS » PAR DÉFAUT (Direction, 08/10) — le directeur des opérations, la Direction et le Directeur
+ *  Général le lisent (le Super Admin a tous les modules). Personne d'autre : la console l'ouvre au cas par cas. */
+const COCKPIT_OPERATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  OPERATIONS_DIRECTOR: ["VIEW"],
+  DIRECTION: ["VIEW"],
+  GENERAL_MANAGER: ["VIEW"],
+};
+for (const [role, actions] of Object.entries(COCKPIT_OPERATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].COCKPIT_OPERATIONS) PERMISSIONS[role].COCKPIT_OPERATIONS = [...actions];
 }
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
@@ -708,6 +881,24 @@ export interface EnvelopeAccessBearer {
   accessUserIds?: string[];
   managerRoles?: string[];
   managerUserIds?: string[];
+  /** « MARKETING » / « REGULATORY » / « OPERATIONS » = enveloppe d'un pôle (`lib/budget/domaines.ts`). Absent = générale. */
+  domaine?: string | null;
+}
+
+/** Le droit du module de budget d'un pôle — lu sans lever d'erreur sur un utilisateur de test sans accès résolu. */
+export function peutBudgetDuPole(user: SessionUser, pole: DomainePole, action: Action): boolean {
+  return user.access?.modules?.get(DOMAINES[pole].module)?.actions.has(action) ?? false;
+}
+
+/** Le droit du module Budget Marketing (`peutBudgetDuPole` pour le pôle Marketing). */
+export function peutBudgetMarketing(user: SessionUser, action: Action): boolean {
+  return peutBudgetDuPole(user, "MARKETING", action);
+}
+
+/** L'enveloppe est tenue par un pôle, et la personne porte le geste demandé sur le module de budget de CE pôle. */
+function droitDuPole(user: SessionUser, env: EnvelopeAccessBearer, action: Action): boolean {
+  const pole = poleDe(env);
+  return pole !== null && peutBudgetDuPole(user, pole, action);
 }
 
 /**
@@ -715,17 +906,40 @@ export interface EnvelopeAccessBearer {
  * un gestionnaire global OU une personne/rôle que l'admin a explicitement désigné(e) sur CETTE
  * enveloppe. Ne confère PAS le droit de modifier l'enveloppe elle-même (montant, période, accès) —
  * cela reste réservé à `canManageEnvelopes`.
+ *
+ * BUDGETS DES PÔLES (08/10) : une enveloppe MARKETING, REGULATORY ou OPERATIONS se gère aussi par le droit « Modifier »
+ * du module de budget de SON pôle — le pôle n'a pas à être listé enveloppe par enveloppe, et le droit d'un pôle ne
+ * touche jamais l'enveloppe d'un autre.
  */
 export function canManageEnvelope(user: SessionUser, env: EnvelopeAccessBearer): boolean {
-  return canManageEnvelopes(user) || (env.managerRoles ?? []).includes(user.role) || (env.managerUserIds ?? []).includes(user.id);
+  return canManageEnvelopes(user) || (env.managerRoles ?? []).includes(user.role) || (env.managerUserIds ?? []).includes(user.id)
+    || droitDuPole(user, env, "UPDATE");
 }
 
 /**
  * VISUALISATION d'une enveloppe : quiconque peut la gérer (global ou délégué) OU à qui l'admin
  * a ouvert la consultation (par rôle ou nommément). Défaut = invisible (encadrement strict).
+ * Une enveloppe de pôle se lit aussi par le droit « Voir » du module de budget de son pôle.
  */
 export function canViewEnvelope(user: SessionUser, env: EnvelopeAccessBearer): boolean {
-  return canManageEnvelope(user, env) || (env.accessRoles ?? []).includes(user.role) || (env.accessUserIds ?? []).includes(user.id);
+  return canManageEnvelope(user, env) || (env.accessRoles ?? []).includes(user.role) || (env.accessUserIds ?? []).includes(user.id)
+    || droitDuPole(user, env, "VIEW");
+}
+
+/**
+ * GOUVERNANCE d'une enveloppe de PÔLE (la créer, régler son montant / sa période, la retirer) : le Super Admin, ou le
+ * titulaire du geste correspondant sur le module de budget du pôle (Créer, Modifier, Supprimer). Une enveloppe générale
+ * — ou celle d'un autre pôle — reste hors de portée. Les LISTES D'ACCÈS ne sont jamais concernées : Super Admin seulement.
+ */
+export function canGovernPoleEnvelope(user: SessionUser, pole: DomainePole, action: "CREATE" | "UPDATE" | "DELETE", env?: EnvelopeAccessBearer): boolean {
+  if (canManageEnvelopes(user)) return true;
+  if (env && poleDe(env) !== pole) return false;
+  return peutBudgetDuPole(user, pole, action);
+}
+
+/** `canGovernPoleEnvelope` pour le pôle Marketing. */
+export function canGovernMarketingEnvelope(user: SessionUser, action: "CREATE" | "UPDATE" | "DELETE", env?: EnvelopeAccessBearer): boolean {
+  return canGovernPoleEnvelope(user, "MARKETING", action, env);
 }
 
 // ─────────── Catégories (espaces partagés) du Drive ───────────
@@ -852,6 +1066,8 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
   if (module === "PHARMACOVIGILANCE") return PERMISSIONS[role]?.REGULATORY?.includes("VIEW") ? "ALL" : "ASSIGNED";
   const assigned: Partial<Record<Module, UserRole[]>> = {
     REGULATORY: ["REGULATORY_ASSISTANT"],
+    // Le pipeline suit la portée de Regulatory (Direction, 08/10) : l'assistante n'y voit que les dossiers où elle est nommée.
+    REGULATORY_PIPELINE: ["REGULATORY_ASSISTANT"],
     SALES: ["SALES_USER"],
     MEDICAL: ["MEDICAL_DELEGATE"],
     // Rapports terrain : le délégué ne voit QUE les siens ; le National Sales (superviseur
@@ -871,6 +1087,8 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     SPONSORING: ["MEDICAL_DELEGATE"],
     // Segmentation Studio : le KAM ne voit et ne renseigne que SON panel (secteur ∪ rattachement).
     SEGMENTATION: ["MEDICAL_DELEGATE"],
+    // Retours & réclamations : le KAM ne lit que ce qu'il a déclaré (ou ce dont on l'a fait responsable).
+    RETOURS_RECLAMATIONS: ["MEDICAL_DELEGATE"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }
@@ -1379,6 +1597,32 @@ export const getAccess = perRequest(
       });
       if (grant) grantImplicit("REGULATORY", grant.actions, grant.scope, "replace");
     }
+    // …ET PORTER UN DOSSIER VERROUILLÉ OUVRE LE PIPELINE (Direction, 08/10), à la même portée nommée : le pipeline
+    // était sous Regulatory, et ce porteur-là y voyait son dossier (s'il a aussi la confidence du pipeline). La
+    // scission ne le lui retire pas — un BLOCAGE de la console sur le pipeline prime, comme partout. Sans la
+    // confidence, il ne voyait rien du pipeline : on ne lit alors même pas la base.
+    const pipeline = pipelineAccessFor({ id: userId, role, secondaryRole }, appSettings);
+    if (pipeline.view && !modules.has("REGULATORY_PIPELINE")) {
+      const carriedLocked = await prisma.regulatoryProduct
+        .findFirst({
+          where: {
+            isLocked: true,
+            OR: [
+              { responsibleId: userId },
+              { assistantId: userId },
+              { assignedUsers: { some: { id: userId } } },
+            ],
+          },
+          select: { id: true },
+        })
+        .catch(() => null);
+      const grant = carrierAccess({
+        carries: Boolean(carriedLocked),
+        blocked: blockedModules.has("REGULATORY_PIPELINE"),
+        hasModule: modules.has("REGULATORY_PIPELINE"),
+      });
+      if (grant) grantImplicit("REGULATORY_PIPELINE", grant.actions, grant.scope, "replace");
+    }
 
     // ── Accès IMPLICITE au module Budget quand une enveloppe est PARTAGÉE avec ce compte ──
     // Partager une enveloppe (par personne OU par rôle, en visualisation ou en gestion) doit
@@ -1436,7 +1680,7 @@ export const getAccess = perRequest(
     // Résolu ICI et non au moment de la lecture : `scopeRegulatory` et `regulatoryLockWhere`
     // sont synchrones et servent partout (tableau, recherche, sélecteurs de produits,
     // assistant). Un droit qui exigerait une requête à chaque appel ne pourrait pas y vivre.
-    const pipeline = pipelineAccessFor({ id: userId, role, secondaryRole }, appSettings);
+    // (`pipeline` est résolu plus haut : le porteur d'un dossier verrouillé en dépend.)
 
     return {
       modules, rowGrants, secondaryRole, role,
@@ -1583,12 +1827,16 @@ function grantsFor(user: SessionUser, entityType: EntityType): string[] {
  * résolu par `getAccess` (voir `lib/regulatory/pipeline-access.ts`).
  */
 export function seesLockedRegulatory(user: SessionUser): boolean {
-  return user.role === "SUPER_ADMIN" || user.access.pipelineView === true;
+  // DEUX CLÉS (Direction, 08/10) : la confidence (réglage nommé ou par rôle) ET le module « Pipeline réglementaire »
+  // de la console. Fermer le module à quelqu'un ferme le pipeline PARTOUT — l'écran, la recherche, les sélecteurs,
+  // l'assistant —, pas seulement l'entrée de menu : sinon la console mentirait.
+  return user.role === "SUPER_ADMIN" || (user.access.pipelineView === true && user.access.modules.has("REGULATORY_PIPELINE"));
 }
 
-/** Qui tient le CADENAS : ouvrir un dossier, c'est le publier à toute l'entreprise. */
+/** Qui tient le CADENAS : ouvrir un dossier, c'est le publier à toute l'entreprise. On n'ouvre pas ce qu'on ne voit
+ *  pas : le module « Pipeline réglementaire » est requis aussi (Direction, 08/10). */
 export function holdsRegulatoryLock(user: SessionUser): boolean {
-  return user.role === "SUPER_ADMIN" || user.access.pipelineManage === true;
+  return user.role === "SUPER_ADMIN" || (user.access.pipelineManage === true && user.access.modules.has("REGULATORY_PIPELINE"));
 }
 
 /**
@@ -1604,11 +1852,19 @@ function lockGate(user: SessionUser): Prisma.RegulatoryProductWhereInput | null 
   return seesLockedRegulatory(user) ? null : { isLocked: false };
 }
 
-export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWhereInput {
-  const m = user.access.modules.get("REGULATORY");
-  if (!m) return { id: "__none__" };
-  const gate = lockGate(user);
-  if (m.scope === "ALL") return gate ?? {};
+/**
+ * LE MODULE QUI GOUVERNE UN DOSSIER (Direction, 08/10) : un dossier VERROUILLÉ est au pipeline, un dossier ouvert au
+ * suivi. Pur — la fiche, les gestes et la portée lisent la même règle (`modulesDesEntites`, `scopeRegulatory`).
+ */
+export function moduleDuDossierRegulatory(dossier: { isLocked: boolean }): "REGULATORY" | "REGULATORY_PIPELINE" {
+  return dossier.isLocked ? "REGULATORY_PIPELINE" : "REGULATORY";
+}
+
+/** La portée NOMMÉE d'un module sur les dossiers — « ses lignes » : créés, portés, partagés, accordés. */
+function porteeDossiers(user: SessionUser, module: "REGULATORY" | "REGULATORY_PIPELINE"): Prisma.RegulatoryProductWhereInput | null {
+  const m = user.access.modules.get(module);
+  if (!m) return null;
+  if (m.scope === "ALL") return {};
   const ors: Prisma.RegulatoryProductWhereInput[] = [
     { createdById: user.id }, // le créateur voit toujours son propre dossier (sinon 404 après création)
     { responsibleId: user.id },
@@ -1617,7 +1873,25 @@ export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWher
   ];
   const ids = grantsFor(user, "REGULATORY_PRODUCT");
   if (ids.length) ors.push({ id: { in: ids } });
-  return gate ? { AND: [{ OR: ors }, gate] } : { OR: ors };
+  return { OR: ors };
+}
+
+/**
+ * LES DOSSIERS QU'UNE PERSONNE VOIT — deux moitiés depuis la scission (Direction, 08/10) : les dossiers OUVERTS par
+ * le module Regulatory (suivi des dossiers), les dossiers VERROUILLÉS par le module « Pipeline réglementaire » ET la
+ * confidence du pipeline (`lockGate`). Chaque moitié garde sa propre portée (« tout » ou « ses lignes »).
+ */
+export function scopeRegulatory(user: SessionUser): Prisma.RegulatoryProductWhereInput {
+  const suivi = porteeDossiers(user, "REGULATORY");
+  const pipeline = lockGate(user) ? null : porteeDossiers(user, "REGULATORY_PIPELINE");
+  if (!suivi && !pipeline) return { id: "__none__" };
+  // Les deux moitiés en « tout » : tout le portefeuille, sans clause (le cas du Super Admin et de la Direction).
+  if (suivi && pipeline && Object.keys(suivi).length === 0 && Object.keys(pipeline).length === 0) return {};
+  const moitie = (portee: Prisma.RegulatoryProductWhereInput, isLocked: boolean): Prisma.RegulatoryProductWhereInput =>
+    Object.keys(portee).length === 0 ? { isLocked } : { AND: [portee, { isLocked }] };
+  if (suivi && !pipeline) return moitie(suivi, false);
+  if (pipeline && !suivi) return moitie(pipeline, true);
+  return { OR: [moitie(suivi!, false), moitie(pipeline!, true)] };
 }
 
 /**

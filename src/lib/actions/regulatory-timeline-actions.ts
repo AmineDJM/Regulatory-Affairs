@@ -30,7 +30,9 @@ async function guard(productId: string, action: "UPDATE" | "VIEW" = "UPDATE") {
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, action))) {
     return { user: null, error: "Dossier introuvable ou hors de votre périmètre." } as const;
   }
-  if (action === "UPDATE" && !userCan(user, "REGULATORY", "UPDATE")) {
+  // Le geste exact se lit sur le module de l'écran du dossier (suivi ou pipeline, Direction 08/10) — `canAccessEntity`
+  // l'a déjà vérifié sur la ligne ; ceci n'en est que le garde-fou lisible.
+  if (action === "UPDATE" && !userCan(user, "REGULATORY", "UPDATE") && !userCan(user, "REGULATORY_PIPELINE", "UPDATE")) {
     return { user: null, error: "Vous n'êtes pas autorisé à modifier ce dossier." } as const;
   }
   return { user, error: null } as const;

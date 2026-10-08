@@ -39,6 +39,7 @@ const MODULE_OPTIONS: { value: string; label: string }[] = [
   { value: "CONGRESS_NATIONAL", label: "Ad & Pro — Prises en charge Nationales" },
   { value: "EVENTS", label: "Ad & Pro — Événements" },
   { value: "PROMO_MATERIAL", label: "Ad & Pro — Matériel promotionnel" },
+  { value: "AD_PRO_OTHER", label: "Ad & Pro — Autres" },
   { value: "MEDICAL", label: "Annuaire" },
   // Cocher « Moyens généraux » suffit à faire remonter ici les tickets de caisse et les achats
   // du quotidien : c'est ce rattachement que l'acheteur voit comme liste de destinations.

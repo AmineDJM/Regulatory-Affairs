@@ -7,13 +7,12 @@ import { visibleTabs } from "@/lib/nav-tabs";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
-import { MenuDossier } from "@/components/shared/menu-dossier";
 import { jourDuCycle, libelleCycle, moisPrecedent, moisSuivant } from "@/lib/force-de-vente/calculs";
 import type { BuVisible } from "@/lib/queries/force-de-vente";
 
 /**
  * L'EN-TÊTE DE LA FORCE DE VENTE — le même sur Pilotage, Territoires et Produits (Direction, 07/10) : « Force de
- * vente », le cycle et son jour ouvré, Exporter, « ⋯ » (les réglages), les BU de la portée, puis les onglets. Le titre
+ * vente », le cycle et son jour ouvré, Exporter, les BU de la portée, puis les onglets. Le titre
  * ne se répète pas d'un onglet à l'autre : c'est l'onglet qui dit la vue.
  */
 
@@ -38,8 +37,9 @@ export function lienFdv(chemin: string, p: { buId: string | null; year: number; 
 
 const btn = "inline-flex h-9 items-center rounded-[var(--radius)] border border-border bg-card px-3 text-[13px] font-medium hover:bg-secondary sm:h-8";
 
-export async function EnteteFdv({ user, scope, bus, chemin, buId, year, month, exporter = false }: {
+export async function EnteteFdv({ user, bus, chemin, buId, year, month, exporter = false }: {
   user: SessionUser;
+  /** La portée de la page — l'en-tête ne s'en sert plus depuis que les réglages sont un module (« Business Units »). */
   scope: RepScope;
   bus: BuVisible[];
   /** La vue où l'on est : « /planning », « /planning/territoires », « /planning/produits ». */
@@ -60,14 +60,6 @@ export async function EnteteFdv({ user, scope, bus, chemin, buId, year, month, e
     <div className="space-y-3">
       <PageHeader title="Force de vente">
         {exporter && <a href={lienFdv("/api/planning/export", p, {}, new Date(0))} className={btn}>Exporter</a>}
-        {scope.canConfigure && (
-          <MenuDossier>
-            <span className="px-2.5 pt-1 text-xs font-medium text-muted-foreground">Réglages</span>
-            <MenuLien href="/planning/business-units">Business units</MenuLien>
-            <MenuLien href="/planning/business-units?etape=secteurs">Secteurs</MenuLien>
-            <MenuLien href="/planning/parametres">Paramètres</MenuLien>
-          </MenuDossier>
-        )}
       </PageHeader>
       <div className="-mt-2 flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
         <Link href={lienFdv(chemin, { ...p, year: prec.y, month: prec.m })} aria-label="Cycle précédent" className="rounded-md p-1.5 hover:bg-secondary"><ChevronLeft className="h-4 w-4" /></Link>
@@ -94,6 +86,3 @@ function Chip({ href, actif, children }: { href: string; actif: boolean; childre
   );
 }
 
-function MenuLien({ href, children }: { href: string; children: React.ReactNode }) {
-  return <Link href={href} role="menuitem" className="rounded-md px-2.5 py-2 text-sm hover:bg-secondary">{children}</Link>;
-}

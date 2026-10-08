@@ -111,7 +111,7 @@ describe("personne ne réécrit l'ancienne adresse", () => {
 describe("le menu porte le stock À PART", () => {
   it("une entrée du pôle Sales & Marketing, dont les onglets sont le stock et le catalogue", () => {
     const entree = NAVIGATION.find((n) => n.href === CHEMIN_STOCK_PROMO)!;
-    expect(entree.pole).toBe("SALES_MARKETING");
+    expect(entree.pole).toBe("MARKETING");
     expect(entree.tabs).toBe(STOCK_PROMO_TABS);
     expect(STOCK_PROMO_TABS.map((t) => [t.module, t.href])).toEqual([["PROMO_STOCK", CHEMIN_STOCK_PROMO], ["PROMO_CATALOG", CHEMIN_CATALOGUE_PROMO]]);
   });

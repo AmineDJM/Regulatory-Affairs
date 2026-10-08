@@ -41,6 +41,8 @@ let cycleId = "";
 
 const sa = () => userWith({
   SALES_PLANNING: ["VIEW", "CREATE", "UPDATE", "DELETE"],
+  // LE MONTAGE (BU, produits, KAM, secteurs, paramètres) est le module « Business Units » (Direction, 08/10).
+  BUSINESS_UNITS: ["VIEW", "CREATE", "UPDATE", "DELETE"],
 }, "SUPER_ADMIN", saId, `${TAG} Amine`);
 
 suite("ops vague 6c — planning force de vente (SFE)", () => {
@@ -169,7 +171,7 @@ suite("ops vague 6c — planning force de vente (SFE)", () => {
     }
   });
 
-  it("save_sfe_settings : porte SALES_PLANNING — un délégué sans droits est refusé par le catalogue", async () => {
+  it("save_sfe_settings : porte BUSINESS_UNITS — un délégué sans droits est refusé par le catalogue", async () => {
     const delegate = userWith({}, "MEDICAL_DELEGATE", kamId, "KAM");
     const denied = await buildProposal("planning_operation", { op: "save_sfe_settings", days: "22" }, delegate);
     expect("error" in denied && denied.error).toMatch(/droit/);

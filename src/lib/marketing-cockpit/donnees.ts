@@ -398,6 +398,8 @@ export async function chargerDepenses(base: BaseCockpit, bu: BuCockpit, produit:
 const MODULES_AD_PRO = ["SPONSORING", "CONGRESS_NATIONAL", "CONGRESS_INTERNATIONAL", "EVENTS", "PROMO_MATERIAL", "AD_PRO_OTHER"];
 
 export interface EnveloppeCockpit {
+  /** L'enveloppe dans Budget Marketing (le lien de la carte). */
+  id: string;
   nom: string;
   annee: number;
   total: number;
@@ -409,22 +411,25 @@ export interface EnveloppeCockpit {
 }
 
 /**
- * L'ENVELOPPE Ad & Pro EN COURS que la personne a le droit de voir (`getEnvelopes` applique l'accès du Super Admin) :
- * active, couvrant aujourd'hui, et portant au moins un module Ad & Pro. Ses chiffres sont ceux de l'écran Budgets
- * (`getBudgetOverview`) — consommé = réglé, engagé = en attente de paiement.
+ * L'ENVELOPPE MARKETING EN COURS que la personne a le droit de voir — lue dans BUDGET MARKETING (Direction, 08/10) :
+ * une enveloppe `domaine = MARKETING`, active, couvrant aujourd'hui ; celle qui porte la famille Ad & Pro d'abord.
+ * Ses chiffres sont ceux de l'écran Budget Marketing (`getBudgetOverview`, portée MARKETING) — consommé = réglé,
+ * engagé = en attente de paiement.
  */
 export async function chargerEnveloppe(user: SessionUser, maintenant: Date): Promise<EnveloppeCockpit | null> {
-  if (!userCan(user, "BUDGETS", "VIEW")) return null;
-  const enveloppes = await getEnvelopes(user);
+  if (!userCan(user, "BUDGET_MARKETING", "VIEW") && !userCan(user, "BUDGETS", "VIEW")) return null;
+  const opts = { portee: "MARKETING" as const };
+  const enveloppes = await getEnvelopes(user, opts);
   const t = maintenant.getTime();
-  const e = enveloppes.find((x) => x.isActive && new Date(x.periodStart).getTime() <= t && new Date(x.periodEnd).getTime() >= t
-    && (x.modules.some((m) => MODULES_AD_PRO.includes(m)) || (x.module !== null && MODULES_AD_PRO.includes(x.module))));
+  const enCours = enveloppes.filter((x) => x.isActive && new Date(x.periodStart).getTime() <= t && new Date(x.periodEnd).getTime() >= t);
+  const adPro = (x: (typeof enCours)[number]) => x.modules.some((m) => MODULES_AD_PRO.includes(m)) || (x.module !== null && MODULES_AD_PRO.includes(x.module));
+  const e = enCours.find(adPro) ?? enCours[0];
   if (!e) return null;
-  const v = await getBudgetOverview(user, e.id).catch(() => null);
+  const v = await getBudgetOverview(user, e.id, null, null, opts).catch(() => null);
   if (!v) return null;
   const debut = new Date(v.period.from).getTime(), fin = new Date(v.period.to).getTime();
   return {
-    nom: v.envelope.name, annee: new Date(v.period.from).getUTCFullYear(),
+    id: v.envelope.id, nom: v.envelope.name, annee: new Date(v.period.from).getUTCFullYear(),
     total: v.totals.total, consomme: v.totals.consumed, engage: v.totals.committed,
     disponible: v.totals.total - v.totals.consumed - v.totals.committed,
     tempsEcoule: fin > debut ? Math.min(1, Math.max(0, (t - debut) / (fin - debut))) : partDeLAnnee(maintenant),

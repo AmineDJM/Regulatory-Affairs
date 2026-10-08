@@ -344,7 +344,7 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
     const noms = visees.map((v) => `« ${v.businessUnit.name} »`).join(", ");
     return {
       ok: false,
-      error: `« ${avant.name} » est visée par ${visees.length} Business Unit(s) (${noms}) : retirez-la de ces BU (Force de vente › Business Units), ou fusionnez-la dans une autre spécialité — la fusion fait suivre les BU.`,
+      error: `« ${avant.name} » est visée par ${visees.length} Business Unit(s) (${noms}) : retirez-la de ces BU (Business Units), ou fusionnez-la dans une autre spécialité — la fusion fait suivre les BU.`,
     };
   }
   const detaches = await prisma.$transaction(async (tx) => {

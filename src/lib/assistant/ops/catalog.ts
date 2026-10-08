@@ -869,7 +869,8 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["crée un dossier réglementaire", "nouveau dossier regulatory", "ouvre un dossier amm"],
     risk: "NORMAL",
     summary: "Crée un dossier Regulatory (référence auto REG-AAAA-NNN, DCI, ENTITÉ obligatoire — elle décide qui voit le dossier — responsable, dates cibles) avec ses 17 étapes semées.",
-    gate: (u) => userCan(u, "REGULATORY", "CREATE"),
+    // Le dossier naît AU PIPELINE (verrouillé) : c'est le « Créer » du module Pipeline réglementaire (Direction, 08/10).
+    gate: (u) => userCan(u, "REGULATORY_PIPELINE", "CREATE"),
     covers: ["regulatory-actions:createRegulatoryProduct"],
   },
   {
@@ -4371,7 +4372,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["crée la BU cardio", "nouvelle franchise de vente", "crée l'équipe de vente", "nouvelle équipe de délégués"],
     risk: "NORMAL",
     summary: "Crée une business unit : la franchise ET son équipe. Champ « person » = le SUPERVISEUR, « mode » = le terrain (gamme de ville / hospitalière / les deux, défaut les deux), « label » = le chef de BU, « reference » = le code. Tout le module s'y rattache : KAM, produits, prévisions.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "CREATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "CREATE"),
     covers: ["sales-planning-actions:createBusinessUnit"],
   },
   {
@@ -4380,7 +4381,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["change le responsable de la BU", "change le superviseur de la BU", "mets la BU en hospitalier"],
     risk: "NORMAL",
     summary: "Modifie une BU — code, couleur, entité, SUPERVISEUR (champ « person »), chef de BU (« label ») et TERRAIN (« mode ») REMPLACÉS par l'action : l'existant est relu et rejoué (FUSION) ; « aucun » retire le superviseur ou le chef.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:updateBusinessUnit"],
   },
   {
@@ -4389,7 +4390,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["supprime la BU"],
     risk: "SENSITIVE",
     summary: "Supprime une BU — REFUSÉ tant qu'elle porte des KAM ou des produits (ils deviendraient invisibles au pilotage, sans superviseur ni terrain) ; désactiver la BU est l'autre chemin.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "DELETE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "DELETE"),
     covers: ["sales-planning-actions:deleteBusinessUnit"],
   },
   {
@@ -4398,7 +4399,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["ajoute un produit promu au planning", "nouveau produit force de vente"],
     risk: "NORMAL",
     summary: "Crée un produit promu — canal Ville / Hôpital / les deux (défaut), BU et référent Direction Marketing en option.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "CREATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "CREATE"),
     covers: ["sales-planning-actions:createPromoProduct"],
   },
   {
@@ -4407,7 +4408,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["change le canal du produit promu", "modifie le produit du planning"],
     risk: "NORMAL",
     summary: "Modifie un produit promu — le CANAL a un défaut-piège (absent → « les deux ») : l'existant est relu et rejoué (FUSION), « aucun » retire le référent Direction Marketing.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:updatePromoProduct"],
   },
   {
@@ -4416,7 +4417,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["supprime le produit promu"],
     risk: "SENSITIVE",
     summary: "Supprime un produit promu ET ses affectations KAM × produit de tous les cycles (comptées).",
-    gate: (u) => userCan(u, "SALES_PLANNING", "DELETE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "DELETE"),
     covers: ["sales-planning-actions:deletePromoProduct"],
   },
   {
@@ -4434,7 +4435,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["change les paramètres SFE", "mets 22 jours terrain par mois"],
     risk: "SENSITIVE",
     summary: "Règle les paramètres GLOBAUX du moteur SFE (poids de position, capacité, fréquences par potentiel) — l'upsert réécrit tout avec des défauts : l'existant est relu et rejoué champ par champ (FUSION).",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:saveSfeSettings"],
   },
   {
@@ -4452,7 +4453,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["configure le profil KAM de", "mets le FTE du délégué"],
     risk: "NORMAL",
     summary: "Configure le profil d'un KAM (équipe — « aucune » détache —, région, capacités, FTE budget, séniorité, note) — l'upsert écrase (FTE absent → 1) : l'existant est relu et REJOUÉ (FUSION).",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:saveRepProfile"],
   },
   {
@@ -4461,7 +4462,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["retire le profil KAM de"],
     risk: "NORMAL",
     summary: "Retire le profil KAM d'une personne (la personne et ses affectations restent).",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:deleteRepProfile"],
   },
   {
@@ -4472,8 +4473,8 @@ export const OPS_CATALOG: OpMeta[] = [
       "quels hôpitaux dans le secteur",
     ],
     risk: "NORMAL",
-    summary: "Crée un SECTEUR — une sélection d'établissements qui porte un nom (« Est », « Oranais ») — sur une BU, avec les KAM qui le couvrent. Établissements et KAM par leurs NOMS (champs « institutions » et « person », séparés par des virgules) : un nom introuvable ou ambigu se DIT avec ses candidats. Un secteur sans établissement est créé mais AVERTI (le KAM qu'on y affecte n'aurait aucun médecin). Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Force de vente › Business Units, et l'action le refuse d'ici.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    summary: "Crée un SECTEUR — une sélection d'établissements qui porte un nom (« Est », « Oranais ») — sur une BU, avec les KAM qui le couvrent. Établissements et KAM par leurs NOMS (champs « institutions » et « person », séparés par des virgules) : un nom introuvable ou ambigu se DIT avec ses candidats. Un secteur sans établissement est créé mais AVERTI (le KAM qu'on y affecte n'aurait aucun médecin). Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Business Units, et l'action le refuse d'ici.",
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:createSector"],
   },
   {
@@ -4481,8 +4482,8 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Modifier un secteur",
     aliases: ["renomme le secteur", "ajoute l'hôpital au secteur", "affecte le KAM au secteur"],
     risk: "NORMAL",
-    summary: "Modifie un secteur (nom via « newName », ville pivot, établissements, KAM). L'action REMPLACE les deux listes — c'est ce qui fait qu'un retrait retire : l'existant est relu et REJOUÉ (FUSION) dès qu'une liste n'est pas citée, sans quoi renommer un secteur effacerait ses établissements. Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Force de vente › Business Units, et l'action le refuse d'ici.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    summary: "Modifie un secteur (nom via « newName », ville pivot, établissements, KAM). L'action REMPLACE les deux listes — c'est ce qui fait qu'un retrait retire : l'existant est relu et REJOUÉ (FUSION) dès qu'une liste n'est pas citée, sans quoi renommer un secteur effacerait ses établissements. Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Business Units, et l'action le refuse d'ici.",
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:updateSector"],
   },
   {
@@ -4490,8 +4491,8 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Supprimer un secteur",
     aliases: ["supprime le secteur", "retire le découpage"],
     risk: "SENSITIVE",
-    summary: "Supprime un secteur — les établissements et les comptes ne bougent pas. La carte DIT combien de KAM perdent ce territoire : sans autre secteur, leur panel devient vide et ils ne peuvent plus planifier de tournée. Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Force de vente › Business Units, et l'action le refuse d'ici.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    summary: "Supprime un secteur — les établissements et les comptes ne bougent pas. La carte DIT combien de KAM perdent ce territoire : sans autre secteur, leur panel devient vide et ils ne peuvent plus planifier de tournée. Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Business Units, et l'action le refuse d'ici.",
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:deleteSector"],
   },
   {
@@ -4503,7 +4504,7 @@ export const OPS_CATALOG: OpMeta[] = [
     ],
     risk: "NORMAL",
     summary: "Désigne une personne référente DIRECTION MARKETING d'une gamme (BU par son nom dans « target », personne dans « person »). La désignation CIBLE la notification : les demandes Ad & Pro de cette gamme la préviennent nommément, EN PLUS du rôle (que la direction du département reçoit). Elle n'ACCORDE aucun droit — quelqu'un qui ne porte pas le rôle Direction Marketing est REFUSÉ, avec le geste qui le donne. Un seul référent fait inscrire les demandes à son nom ; plusieurs n'en désignent aucun.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:addBuMarketingReferent"],
   },
   {
@@ -4512,7 +4513,7 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["retire le référent marketing", "enlève le référent de la gamme"],
     risk: "NORMAL",
     summary: "Retire une personne des référents Direction Marketing d'une gamme. La carte DIT ce qu'il reste : plus aucun référent signifie que les demandes de cette gamme ne préviennent plus personne nommément et repartent sur le rôle entier. Le rôle, lui, garde tous ses droits — on retire une désignation, pas un droit.",
-    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    gate: (u) => userCan(u, "BUSINESS_UNITS", "UPDATE"),
     covers: ["sales-planning-actions:removeBuMarketingReferent"],
   },
   {

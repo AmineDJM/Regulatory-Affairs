@@ -26,17 +26,17 @@ export const dynamic = "force-dynamic";
  * à qui il confie le cadenas. Voir `lib/regulatory/pipeline-access.ts`.
  */
 export default async function BusinessDevelopmentPipelinePage() {
-  // Les dossiers restent des dossiers réglementaires : c'est le droit REGULATORY qui les
-  // gouverne, et le verrou qui décide de ce que chacun voit.
-  const user = await requireModule("REGULATORY");
+  // SON PROPRE MODULE (Direction, 08/10) : « Pipeline réglementaire », réglé à part du suivi des dossiers dans
+  // Administration › Accès. Le verrou décide toujours de ce que chacun voit.
+  const user = await requireModule("REGULATORY_PIPELINE");
   // PAGE FERMÉE À QUI NE VOIT AUCUN DOSSIER VERROUILLÉ. Sans cela, l'écran s'ouvrait pour tout le
   // monde et affichait « Aucun dossier verrouillé » — une page vide qu'on relit trois fois avant
   // de comprendre qu'elle n'est pas pour soi. Le menu ne la propose pas ; l'adresse non plus.
   if (!seesLockedRegulatory(user)) notFound();
-  const canAssign = userCan(user, "REGULATORY", "UPDATE");
+  const canAssign = userCan(user, "REGULATORY_PIPELINE", "UPDATE");
   const canLock = holdsRegulatoryLock(user);
 
-  const canCreate = userCan(user, "REGULATORY", "CREATE");
+  const canCreate = userCan(user, "REGULATORY_PIPELINE", "CREATE");
   const { rows, companies, canSupervise, settings, suppliers } = await getRegulatoryRows(user);
   // Même menu « Projet » que le suivi des dossiers : les deux sous-modules rendent LE MÊME
   // tableau, et un classement disponible d'un côté seulement serait exactement le genre

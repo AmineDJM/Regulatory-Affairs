@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/session";
 import { type SessionUser } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { lireRegles, STATUTS, SEGMENTS, LETTRES_FORCABLES, type Statut } from "@/lib/segmentation/regles";
-import { impactDesRegles, segmenterPraticien } from "@/lib/segmentation/moteur";
+import { impactDesRegles, segmenterPraticien, SOURCE_EFFACEMENT } from "@/lib/segmentation/moteur";
 import { apercuImport, appliquerImport, chargerFaits, chargerStrategie, chargerSecteurs, type ApercuImport, type BilanImport } from "@/lib/segmentation/service";
 import { apercuImportDirection, appliquerImportDirection, type ApercuDirection, type BilanDirection } from "@/lib/segmentation/import-direction";
 import { ouvrirCycle, cloreCycle } from "@/lib/segmentation/cycle-service";
@@ -234,10 +234,23 @@ const nombreOuNul = (v: string | null | undefined): number | null => {
 };
 
 /** Le KAM renseigne un FAIT (« 27 patients / semaine », « 3 sur 10 ») — AMD calcule la conséquence. */
-export async function enregistrerPotentiel(input: { strategieId: string; doctorId: string; productId: string | null; potentiel: string; sur10: string; commentaire?: string }): Promise<R> {
+export async function enregistrerPotentiel(input: { strategieId: string; doctorId: string; productId: string | null; potentiel: string; sur10: string; commentaire?: string; effacer?: "q1" | "q2" }): Promise<R> {
   const { user, refus } = await exiger("UPDATE");
   if (refus) return { ok: false, error: refus };
   if (!(await dansLaPortee(user, input.doctorId))) return { ok: false, error: "Ce praticien n'est pas dans votre panel." };
+  // EFFACER une réponse (Direction, 08/10) : une observation SANS valeur, dont la source dit le champ vidé — la lettre
+  // retombe en NA, et l'historique garde la réponse d'avant.
+  if (input.effacer === "q1" || input.effacer === "q2") {
+    const s = await chargerStrategie(input.strategieId);
+    if (!s) return { ok: false, error: "Stratégie introuvable." };
+    const productId = s.produits[0]?.productId ?? null;
+    const champ = input.effacer === "q1" ? "potentiel" : "prescriptionsSur10";
+    if (champ === "prescriptionsSur10" && !productId) return { ok: false, error: "Classez d'abord un produit dans la stratégie." };
+    await prisma.hcpObservation.create({ data: { doctorId: input.doctorId, strategieId: s.id, productId, source: SOURCE_EFFACEMENT[champ], auteurId: user.id } });
+    await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityType: "DOCTOR", entityId: input.doctorId, field: "potentiel", newValue: `${input.effacer.toUpperCase()} effacée`, summary: "Réponse terrain effacée (NA) — l'historique la garde." });
+    revalidatePath(CHEMIN);
+    return { ok: true };
+  }
   const potentiel = nombreOuNul(input.potentiel), sur10 = nombreOuNul(input.sur10);
   if (Number.isNaN(potentiel) || Number.isNaN(sur10)) return { ok: false, error: "Valeurs numériques positives attendues." };
   if (sur10 !== null && sur10 > 10) return { ok: false, error: "« Sur 10 patients » : une valeur entre 0 et 10." };

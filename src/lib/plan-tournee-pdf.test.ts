@@ -5,11 +5,11 @@ import { rendrePlanTourneePdf } from "./plan-tournee-pdf";
 describe("le PDF du plan de tournée validé (Direction, 07/10)", () => {
   it("rend un PDF A4 paysage, une page par semaine", async () => {
     const visites = [
-      { jour: "2026-10-04", nom: "Abidi Saliha", detail: "Infectiologie · EHU Oran", potentiel: "MEDIUM", etat: "FAITE" as const },
-      { jour: "2026-10-04", nom: "Belabes Fatima Zohra", detail: "Infectiologie · EHU Oran", potentiel: "MEDIUM", etat: "NON_TENUE" as const },
-      { jour: "2026-10-05", nom: "Belkadi Kouied Amina", detail: "Infectiologie · CHU Oran", potentiel: "HIGH", etat: "FAITE" as const },
-      { jour: "2026-10-06", nom: "Belkhouche Rayane", detail: "Infectiologie · EHU Oran", potentiel: "LOW", etat: "PREVUE" as const },
-      { jour: "2026-10-12", nom: "Abidi Saliha", detail: "Infectiologie · EHU Oran", potentiel: "MEDIUM", etat: "PREVUE" as const },
+      { jour: "2026-10-04", nom: "Praticien Alpha", detail: "Infectiologie · EHU Oran", potentiel: "MEDIUM", etat: "FAITE" as const },
+      { jour: "2026-10-04", nom: "Praticienne Beta", detail: "Infectiologie · EHU Oran", potentiel: "MEDIUM", etat: "NON_TENUE" as const },
+      { jour: "2026-10-05", nom: "Praticienne Gamma", detail: "Infectiologie · CHU Oran", potentiel: "HIGH", etat: "FAITE" as const },
+      { jour: "2026-10-06", nom: "Praticien Delta", detail: "Infectiologie · EHU Oran", potentiel: "LOW", etat: "PREVUE" as const },
+      { jour: "2026-10-12", nom: "Praticien Alpha", detail: "Infectiologie · EHU Oran", potentiel: "MEDIUM", etat: "PREVUE" as const },
     ];
     const pdf = await rendrePlanTourneePdf({
       societe: "Adventum Pharma", kam: "Yacine Habes", periode: "octobre 2026",

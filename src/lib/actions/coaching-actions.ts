@@ -169,7 +169,7 @@ export async function creerFicheCoaching(formData: FormData): Promise<ActionResu
     return {
       ok: false,
       error: "Ce collaborateur n'est pas dans votre périmètre de coaching — vous coachez les KAM de vos Business Units "
-        + "(Force de vente › Business Units). Le directeur des opérations peut remplir la fiche pour vous.",
+        + "(Business Units). Le directeur des opérations peut remplir la fiche pour vous.",
     };
   }
   const managerId = await designerManager(l, user.id, fdStr(formData, "managerId"));

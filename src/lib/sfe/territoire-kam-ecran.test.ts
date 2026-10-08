@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { kamsSansTerritoire, nomDuTerritoire } from "./territoire-kam";
 import { diagnosticPanelVide } from "./panel-diagnostic";
-import { choixDepuisLiens, etablissementsSansService, remplirFormulaire } from "@/app/(app)/planning/business-units/choix-etablissements";
+import { choixDepuisLiens, etablissementsSansService, remplirFormulaire } from "@/app/(app)/business-units/choix-etablissements";
 
 /**
  * LE TERRITOIRE D'UN KAM À L'ÉCRAN (04/10/2026) — les règles pures que l'écran lit, et les POINTS
@@ -64,7 +64,7 @@ describe("les points d'appel — ce que l'écran montre est ce que le panel lit"
   it("l'écran BU n'a plus de section « Secteurs de la BU », et la ligne du KAM porte son territoire", () => {
     // LE MONTAGE EST DÉCOUPÉ EN ÉTAPES (07/10) : la ligne du KAM vit à l'étape « KAM », son territoire à l'étape
     // « Secteurs » — les deux dans `bu-etapes.tsx`, montées par `bu-manager.tsx`.
-    const bu = lire("src/app/(app)/planning/business-units/bu-manager.tsx") + lire("src/app/(app)/planning/business-units/bu-etapes.tsx");
+    const bu = lire("src/app/(app)/business-units/bu-manager.tsx") + lire("src/app/(app)/business-units/bu-etapes.tsx");
     expect(bu).not.toMatch(/Secteurs de la BU/);
     expect(bu).not.toMatch(/createSector|updateSector|deleteSector/);
     // Le texte « Secteur » ne se montre ni ne repart dans une BU hospitalière.
@@ -73,11 +73,11 @@ describe("les points d'appel — ce que l'écran montre est ce que le panel lit"
     // Le territoire ne se choisit que dans une BU hospitalière ; une BU de ville renvoie au texte de la ligne.
     expect(bu).toMatch(/!hospitaliere \? <p[^>]*>BU de ville/);
     expect(bu).toMatch(/<TerritoireKam buId=\{bu\.id\} kam=\{k\}/);
-    const page = lire("src/app/(app)/planning/business-units/page.tsx");
+    const page = lire("src/app/(app)/business-units/montage.tsx");
     expect(page).toMatch(/repId: \{ not: null \}, isActive: true/);
   });
   it("le panneau du territoire envoie la sélection par `remplirFormulaire` à l'action du territoire", () => {
-    const t = lire("src/app/(app)/planning/business-units/territoire-kam.tsx");
+    const t = lire("src/app/(app)/business-units/territoire-kam.tsx");
     expect(t).toMatch(/remplirFormulaire\(fd, choix\)/);
     expect(t).toMatch(/run\(enregistrerTerritoireKam, fd\)/);
   });

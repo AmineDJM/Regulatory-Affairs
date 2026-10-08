@@ -75,7 +75,7 @@ describe("le rafraîchissement suivi", () => {
     const ecrans = [
       "src/app/(app)/annuaires/etablissements/etablissements-table.tsx",
       "src/app/(app)/annuaires/etablissements/services-panel.tsx",
-      "src/app/(app)/planning/business-units/bu-manager.tsx",
+      "src/app/(app)/business-units/bu-manager.tsx",
       "src/components/shared/use-action.ts",
       // §118.175 : la carte d'un poste ouvre des fiches (modifier le poste, un voyageur) sur
       // l'état qu'elle montre — ouvertes avant la fin du rafraîchissement, elles réécriraient

@@ -175,10 +175,10 @@ export const TOUR_PLAN_OPS_IMPL: Record<string, OpImpl> = {
         ],
         args: { granularity: granularite, submissionLeadDays: String(jours) },
         successMessage: `Planification de tournée réglée : maille ${GRANULARITE_LABELS[granularite].toLowerCase()}, échéance ${jours} j avant la fin du mois précédent.`,
-        revalidate: ["/planning/parametres", "/medical/plan-de-tournee"],
+        revalidate: ["/business-units/parametres", "/medical/plan-de-tournee"],
       };
     },
-    execute: (args) => runFd(saveTourPlanningSettings, args, "Le réglage de la planification a été refusé.", { revalidate: ["/planning/parametres", "/medical/plan-de-tournee"] }),
+    execute: (args) => runFd(saveTourPlanningSettings, args, "Le réglage de la planification a été refusé.", { revalidate: ["/business-units/parametres", "/medical/plan-de-tournee"] }),
   },
 
   escalate_tour_plan: {

@@ -358,7 +358,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
   SALE: {
     label: "vente",
     module: "Ventes",
-    redirect: "/sales",
+    redirect: "/sales/historique",
     model: "sale",
     entityType: "SALE",
     searchFields: ["product", "client"],

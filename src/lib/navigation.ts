@@ -5,7 +5,7 @@ import type { NavItem } from "@/lib/labels";
  *
  * Treize entrées à plat sous « Pôles », c'était la carte du CODE : un module = une ligne. Une
  * direction ne lit pas son entreprise comme ça. Elle la lit en pôles : Regulatory,
- * Administration, Sales & Marketing, Business Development, Supply Chain.
+ * Administration, Marketing, Operations & Sales (la chaîne physique comprise), Business Development.
  *
  * Ce module ne décide RIEN sur les droits : il reçoit les entrées **déjà filtrées** par le RBAC
  * (côté serveur, dans le layout) et se contente de les ranger. Une entrée interdite n'arrive
@@ -17,9 +17,12 @@ import type { NavItem } from "@/lib/labels";
 export const NAV_POLES = [
   { key: "REGULATORY", label: "Regulatory", icon: "FileCheck2" },
   { key: "ADMINISTRATION", label: "Administration", icon: "Building2" },
-  { key: "SALES_MARKETING", label: "Sales & Marketing", icon: "TrendingUp" },
+  // « Sales & Marketing » est SÉPARÉ en deux pôles (Direction, 08/10 : « sépare Marketing et Sales »), à sa place.
+  { key: "MARKETING", label: "Marketing", icon: "Megaphone" },
+  { key: "OPERATIONS_SALES", label: "Operations & Sales", icon: "TrendingUp" },
   { key: "BUSINESS_DEV", label: "Business Development", icon: "Lightbulb" },
-  { key: "SUPPLY_CHAIN", label: "Supply Chain & Logistics", icon: "Truck" },
+  // « Supply Chain & Logistics » n'est plus un pôle (Direction, 08/10 : « Stocks et Logistique rejoignent Operations &
+  // Sales ») : la chaîne physique se lit avec le reste du business, par BU.
 ] as const;
 
 export type NavPoleKey = (typeof NAV_POLES)[number]["key"];
@@ -195,7 +198,7 @@ export const NAV_ALIASES: { terms: string[]; href: string; label: string }[] = [
   // (`modules-visibility.ts`) : leurs alias partent avec eux. Un raccourci qui mène à une page
   // interdite est pire qu'un raccourci absent — on tape, on est renvoyé, et l'on croit à une
   // panne de droits.
-  { terms: ["pch", "appel d'offres", "appel d offres", "marché", "marche"], href: "/pch", label: "Business Development — Marchés PCH" },
+  { terms: ["pch", "appel d'offres", "appel d offres", "marché", "marche"], href: "/pch", label: "Operations & Sales — Marchés PCH" },
   { terms: ["ctd", "enregistrement", "anpp"], href: "/regulatory/enregistrement", label: "Regulatory — Analyse CTD" },
   { terms: ["annuaire", "médecins", "medecins", "pharmaciens", "établissements", "etablissements"], href: "/medical/annuaire", label: "Annuaire — médecins & praticiens" },
   // On cherche « embauche » ou « CV » bien plus souvent que « recrutement » — et « demande de

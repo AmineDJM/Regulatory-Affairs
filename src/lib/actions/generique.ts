@@ -74,6 +74,7 @@ export const MODELES_INTERDITS: Readonly<Record<string, string>> = {
   riskSetting: "les seuils de risque",
   adoptionSetting: "les réglages d'adoption",
   sfeSettings: "les réglages SFE",
+  kpiReviewSetting: "la fréquence de revue des KPI d'une équipe — un réglage que le manager choisit lui-même",
   assistantRule: "les règles enseignées à Adam — une règle est l'attestation d'une PERSONNE",
   // LA CLÉ DE LIAISON AU SITE PUBLIC (§118.159) — l'identifiant qui donne le droit d'y publier.
   // Refusée sur le MODÈLE écrit, en plus de la décision EXCLUDED : une action ajoutée demain qui

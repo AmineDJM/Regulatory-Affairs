@@ -345,9 +345,9 @@ function RequestRow({ req, employeeId, employeeName, employeePosition, reference
             </div>
           </div>
           {/* L'ORDRE DE MISSION SE GÉNÈRE (Direction, 06/10) : le document de la Direction, rempli par la plateforme. */}
-          {req.type === "MISSION_ORDER" && req.status !== "CANCELLED" && (
+          {req.type === "MISSION_ORDER" && req.status !== "CANCELLED" && req.managerGate !== "PENDING" && req.managerGate !== "REJECTED" && (
             <div className="mt-2">
-              <OrdreMissionForm requestId={req.id} employeeName={employeeName} employeePosition={employeePosition} details={req.details} referenceSuggeree={referenceOrdreMission} />
+              <OrdreMissionForm requestId={req.id} employeeName={employeeName} employeePosition={employeePosition} details={req.details} referenceSuggeree={referenceOrdreMission} prefill={req.missionPrefill} />
             </div>
           )}
           <div className="mt-2">

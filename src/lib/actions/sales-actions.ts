@@ -50,7 +50,7 @@ export async function createSale(
     entityType: "SALE", entityId: created.id, summary: `Vente ${product} — ${client}`,
   });
 
-  revalidatePath("/sales");
+  revalidatePath("/sales/historique");
   return { ok: true, id: created.id };
 }
 
@@ -106,6 +106,6 @@ export async function importSales(
     summary: `${data.length} ventes importées via CSV`,
   });
 
-  revalidatePath("/sales");
+  revalidatePath("/sales/historique");
   return { ok: true };
 }

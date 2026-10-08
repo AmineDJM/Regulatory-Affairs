@@ -14,7 +14,7 @@ const cat = (over: Partial<BudgetCategoryView>): BudgetCategoryView => ({
 });
 
 const overview: BudgetOverview = {
-  envelope: { id: "e1", name: "Budget 2026", module: null, modules: ["SPONSORING"], accessRoles: [], accessUserIds: [], managerRoles: [], managerUserIds: [], periodStart: "2026-01-01T00:00:00.000Z", periodEnd: "2026-12-31T00:00:00.000Z", total: 1000, notes: null, isActive: true },
+  envelope: { id: "e1", name: "Budget 2026", module: null, modules: ["SPONSORING"], accessRoles: [], accessUserIds: [], managerRoles: [], managerUserIds: [], periodStart: "2026-01-01T00:00:00.000Z", periodEnd: "2026-12-31T00:00:00.000Z", total: 1000, notes: null, isActive: true, domaine: "GENERAL", businessUnitId: null, productId: null },
   period: { from: "2026-01-01T00:00:00.000Z", to: "2026-12-31T00:00:00.000Z" },
   categories: [
     cat({ id: "a", name: "Promotion", module: "SPONSORING", allocated: 1000, consumed: 800, remaining: 200, pct: 80 }),
@@ -28,7 +28,7 @@ const overview: BudgetOverview = {
 
 const grand: EnvelopesGrandTotal = {
   count: 1, total: 1000, allocated: 1000, consumed: 800, remaining: 200,
-  items: [{ id: "e1", name: "Budget 2026", isActive: true, modules: ["SPONSORING"], total: 1000, allocated: 1000, consumed: 800, remaining: 200 }],
+  items: [{ id: "e1", name: "Budget 2026", isActive: true, modules: ["SPONSORING"], domaine: "GENERAL", total: 1000, allocated: 1000, consumed: 800, remaining: 200 }],
 };
 
 describe("buildBudgetWorkbook", () => {

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { resolveRepScope } from "@/lib/sfe";
+import { resolveRepScope, peutConfigurerBu } from "@/lib/sfe";
 import { cn, initials } from "@/lib/utils";
 import { effortSummary } from "@/lib/sfe-performance";
 import { chargerEffortVentes } from "@/lib/queries/sfe-effort";
@@ -108,7 +108,7 @@ export default async function PilotagePage({ searchParams }: { searchParams?: { 
 
         <section className="surface h-fit min-w-0 rounded-xl">
           <header className="border-b border-border px-4 py-3"><h2 className="text-[15px] font-semibold">À traiter</h2></header>
-          <ATraiter aTraiter={aTraiter} canConfigure={scope.canConfigure} peutCoacher={peutCoacher} nonVuesHref={lienFdv("/planning", p, { liste: "non-vues" })} />
+          <ATraiter aTraiter={aTraiter} canConfigure={peutConfigurerBu(user)} peutCoacher={peutCoacher} nonVuesHref={lienFdv("/planning", p, { liste: "non-vues" })} />
         </section>
       </div>
 
@@ -262,7 +262,7 @@ function ATraiter({ aTraiter, canConfigure, peutCoacher, nonVuesHref }: { aTrait
       )}
       {secteursVacants.map((s) => (
         <LigneATraiter key={s.id} ton="i" titre={`Secteur ${s.nom} sans délégué`} sous={`${s.cibles} praticien${s.cibles > 1 ? "s" : ""} ciblé${s.cibles > 1 ? "s" : ""}, ${s.enA} en A`}
-          action={canConfigure ? <Link href={`/planning/business-units?bu=${s.buId}&etape=kams`} className={btnSm}>Affecter</Link> : undefined} />
+          action={canConfigure ? <Link href={`/business-units?bu=${s.buId}&etape=kams`} className={btnSm}>Affecter</Link> : undefined} />
       ))}
       {coachingsEnRetard.length > 0 && (
         <LigneATraiter ton="i" titre={`${coachingsEnRetard.length} coaching${coachingsEnRetard.length > 1 ? "s" : ""} en retard`} sous={`${prenoms(coachingsEnRetard.map((c) => c.nom))} · dernier il y a plus de 60 j`}

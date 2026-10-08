@@ -18,6 +18,15 @@ export function wilayaPivot(ville: string | null | undefined): string | null {
   return canonicalWilaya(ville) ?? wilayaInText(ville);
 }
 
+/**
+ * LA WILAYA D'UN PRATICIEN pour In / Out : la sienne ; à défaut, celle de son établissement (fiche de l'annuaire des
+ * établissements, puis le nom même de l'établissement — « CHU d'Oran » → Oran). `null` quand rien ne la dit.
+ */
+export function wilayaDuPraticien(d: { wilaya?: string | null; wilayaEtablissement?: string | null; etablissement?: string | null }): string | null {
+  return canonicalWilaya(d.wilaya) ?? canonicalWilaya(d.wilayaEtablissement)
+    ?? (d.etablissement?.trim() ? wilayaInText(d.etablissement) : null);
+}
+
 export function inOutDe(wilayaDuPraticien: string | null | undefined, pivotsDesKams: readonly (string | null)[]): InOut | null {
   const w = canonicalWilaya(wilayaDuPraticien);
   const pivots = pivotsDesKams.filter((p): p is string => !!p);

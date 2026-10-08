@@ -113,7 +113,7 @@ test.afterAll(async () => {
 
 test("créer une BU AVEC ses spécialités et sa principale — la carte fermée les nomme", async ({ page }) => {
   await login(page, EMAIL);
-  await aller(page, "/planning/business-units");
+  await aller(page, "/business-units");
   await page.getByRole("button", { name: "Créer une BU" }).click();
   await page.getByPlaceholder(/Nom de la BU/).fill(BU_NEUVE);
   const choix = page.getByRole("list", { name: "Spécialités du référentiel" });
@@ -129,7 +129,7 @@ test("créer une BU AVEC ses spécialités et sa principale — la carte fermée
 
 test("choisir, changer la principale, décocher — chaque geste en base, et l'éditeur fermé pendant le rafraîchissement", async ({ page }) => {
   await login(page, EMAIL);
-  await aller(page, "/planning/business-units");
+  await aller(page, "/business-units");
   await page.getByRole("button", { name: new RegExp(BU_EXISTANTE) }).click();
   const section = page.locator("section").filter({ has: page.getByRole("heading", { name: /Spécialités visées/ }) });
   // Sans spécialité, la section dit ce qu'on perd — la raison de l'étape, pas « obligatoire ».
@@ -173,7 +173,7 @@ test.describe("au téléphone (375 px)", () => {
   test.use({ viewport: { width: 375, height: 760 } });
   test("la carte et son éditeur tiennent sans déborder", async ({ page }) => {
     await login(page, EMAIL);
-    await aller(page, "/planning/business-units");
+    await aller(page, "/business-units");
     await page.getByRole("button", { name: new RegExp(BU_EXISTANTE) }).click();
     const section = page.locator("section").filter({ has: page.getByRole("heading", { name: /Spécialités visées/ }) });
     await section.getByRole("button", { name: "Modifier les spécialités" }).click();

@@ -194,10 +194,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         ]),
         args: { name, code: opStr(input, "reference") || null, color: null, companyId: null, headId, supervisorId, channel },
         successMessage: `BU « ${name} » créée${supShown ? `, supervisée par ${supShown}` : " — pensez à lui désigner un superviseur"}.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(createBusinessUnit, args, "La création de la BU a été refusée.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(createBusinessUnit, args, "La création de la BU a été refusée.", { revalidate: ["/business-units"] }),
   },
 
   update_business_unit: {
@@ -244,10 +244,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           isActive: cur?.isActive === false ? null : "on",
         },
         successMessage: `BU « ${opStr(input, "newName") || hit.name} » modifiée.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(updateBusinessUnit, args, "La modification de la BU a été refusée.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(updateBusinessUnit, args, "La modification de la BU a été refusée.", { revalidate: ["/business-units"] }),
   },
 
   delete_business_unit: {
@@ -269,10 +269,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Suppression définitive de la franchise."],
         args: { id: hit.id },
         successMessage: `BU « ${hit.name} » supprimée.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(deleteBusinessUnit, args, "La suppression de la BU a été refusée.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(deleteBusinessUnit, args, "La suppression de la BU a été refusée.", { revalidate: ["/business-units"] }),
   },
 
   // ───────── Produits promus ─────────
@@ -303,10 +303,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         ]),
         args: { name, code: opStr(input, "reference") || null, channel, businessUnitId: buId, managerId },
         successMessage: `Produit promu « ${name} » créé.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(createPromoProduct, args, "La création du produit a été refusée.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(createPromoProduct, args, "La création du produit a été refusée.", { revalidate: ["/business-units"] }),
   },
 
   update_promo_product: {
@@ -347,10 +347,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           isActive: cur?.isActive === false ? null : "on",
         },
         successMessage: `Produit « ${opStr(input, "newName") || hit.name} » modifié.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(updatePromoProduct, args, "La modification du produit a été refusée.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(updatePromoProduct, args, "La modification du produit a été refusée.", { revalidate: ["/business-units"] }),
   },
 
   delete_promo_product: {
@@ -364,10 +364,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Suppression définitive — les affectations KAM × produit de tous les cycles partent avec."],
         args: { id: hit.id },
         successMessage: `Produit « ${hit.name} » supprimé.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(deletePromoProduct, args, "La suppression du produit a été refusée.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(deletePromoProduct, args, "La suppression du produit a été refusée.", { revalidate: ["/business-units"] }),
   },
 
   // ───────── Prévision par produit et par cycle ─────────
@@ -458,10 +458,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Paramètres GLOBAUX du moteur SFE — tout champ non cité est rejoué à l'identique (FUSION)."],
         args,
         successMessage: "Paramètres SFE enregistrés.",
-        revalidate: ["/planning/parametres"],
+        revalidate: ["/business-units/parametres"],
       };
     },
-    execute: (args) => runFd(saveSfeSettings, args, "L'enregistrement des paramètres a été refusé.", { revalidate: ["/planning/parametres"] }),
+    execute: (args) => runFd(saveSfeSettings, args, "L'enregistrement des paramètres a été refusé.", { revalidate: ["/business-units/parametres"] }),
   },
 
   // ───────── Profil KAM ─────────
@@ -505,10 +505,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           note: opStr(input, "note") || cur?.note || null,
         },
         successMessage: `Profil KAM de ${rep.name} enregistré.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(saveRepProfile, args, "L'enregistrement du profil a été refusé.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(saveRepProfile, args, "L'enregistrement du profil a été refusé.", { revalidate: ["/business-units"] }),
   },
 
   delete_rep_profile: {
@@ -521,10 +521,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Le profil (équipe, capacités, FTE) est retiré — la personne reste, ses affectations aussi."],
         args: { repId: rep.id },
         successMessage: `Profil KAM de ${rep.name} retiré.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(deleteRepProfile, args, "Le retrait du profil a été refusé.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(deleteRepProfile, args, "Le retrait du profil a été refusé.", { revalidate: ["/business-units"] }),
   },
 
   // ───────── Secteurs (territoires nommés d'une BU) ─────────
@@ -561,13 +561,13 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           repIds: kam.map((k) => k.id).join(","),
         },
         successMessage: `Secteur « ${nom} » créé sur la BU ${bu.name}.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
     // `listes` NOMME les clés multivaluées : elles sont jointes ci-dessus et recoupées en
     // plusieurs entrées du formulaire par `toFd`, ce que `getAll` relit exactement.
     execute: (args) => runFd(createSector, args, "La création du secteur a été refusée.", {
-      revalidate: ["/planning/business-units"], listes: LISTES_SECTEUR,
+      revalidate: ["/business-units"], listes: LISTES_SECTEUR,
     }),
   },
 
@@ -619,11 +619,11 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           repIds: kam.map((k) => k.id).join(","),
         },
         successMessage: `Secteur « ${nouveauNom} » enregistré.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
     execute: (args) => runFd(updateSector, args, "L'enregistrement du secteur a été refusé.", {
-      revalidate: ["/planning/business-units"], listes: LISTES_SECTEUR,
+      revalidate: ["/business-units"], listes: LISTES_SECTEUR,
     }),
   },
 
@@ -649,10 +649,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           : ["Les établissements et les comptes ne bougent pas — on retire un découpage, pas un annuaire."],
         args: { id: hit.id },
         successMessage: `Secteur « ${cur.name} » supprimé.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(deleteSector, args, "La suppression du secteur a été refusée.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(deleteSector, args, "La suppression du secteur a été refusée.", { revalidate: ["/business-units"] }),
   },
 
   // ───────── Référents Direction Marketing d'une gamme ─────────
@@ -697,10 +697,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
             ],
         args: { businessUnitId: bu.id, userId: who.id },
         successMessage: `${who.name} est référent Direction Marketing de ${bu.name}.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(addBuMarketingReferent, args, "La désignation du référent a été refusée.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(addBuMarketingReferent, args, "La désignation du référent a été refusée.", { revalidate: ["/business-units"] }),
   },
 
   remove_marketing_referent: {
@@ -724,10 +724,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           : ["Le rôle Direction Marketing reste prévenu : on retire une désignation, pas un droit."],
         args: { id: ligne.id },
         successMessage: `${who.name} n'est plus référent de ${bu.name}.`,
-        revalidate: ["/planning/business-units"],
+        revalidate: ["/business-units"],
       };
     },
-    execute: (args) => runFd(removeBuMarketingReferent, args, "Le retrait du référent a été refusé.", { revalidate: ["/planning/business-units"] }),
+    execute: (args) => runFd(removeBuMarketingReferent, args, "Le retrait du référent a été refusé.", { revalidate: ["/business-units"] }),
   },
 
   // ───────── Affectations KAM × produit ─────────
