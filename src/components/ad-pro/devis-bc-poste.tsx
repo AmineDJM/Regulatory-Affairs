@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, FileText, FileDown, FileCheck, Wand2, Pencil, ScanText, CheckCircle2, AlertTriangle, Paperclip, Clock, Circle, XCircle } from "lucide-react";
+import { Loader2, Eye, FileText, FileDown, FileCheck, Wand2, Pencil, ScanText, CheckCircle2, AlertTriangle, Paperclip, Clock, Circle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -13,6 +13,8 @@ import {
   validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste, modifierBcDuPoste,
 } from "@/lib/actions/ad-pro-item-actions";
 import { ReviserPieceButton } from "@/components/legal/reviser-piece";
+import { ETIQUETTE_BROUILLON } from "@/lib/ad-pro/bc-brouillon";
+import { ApercuBonDeCommande } from "@/components/ad-pro/apercu-bc-poste";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -47,7 +49,20 @@ function LiensBC({ bc }: { bc: BcDePoste }) {
   );
 }
 
+/**
+ * LE NOM D'UN DEVIS, CLIQUABLE (Direction, 10/2026) : quand le fichier uploadé existe, la référence l'ouvre — la même route
+ * (`/api/documents/<id>`) que les autres pièces du poste ; sans fichier, le nom reste du texte.
+ */
+function NomDuDevis({ d }: { d: Pick<DevisDePosteVue, "reference" | "titre" | "fichierId"> }) {
+  const nom = d.reference ?? d.titre;
+  return d.fichierId
+    ? <a href={`/api/documents/${d.fichierId}`} target="_blank" rel="noreferrer" className="text-primary hover:underline" aria-label={`Ouvrir le fichier du devis ${nom}`}>{nom}</a>
+    : <>{nom}</>;
+}
+
 function phraseEtat(d: DevisDePosteVue): { texte: string; ton: "ok" | "attente" | "alerte" } | null {
+  // Un aperçu préparé mais pas encore validé : « Brouillon — à vérifier par le demandeur » (rien n'est numéroté ni envoyé).
+  if (d.brouillon && (d.etat === "A_GENERER" || d.etat === "A_REGENERER")) return { texte: ETIQUETTE_BROUILLON, ton: "attente" };
   switch (d.etat) {
     case "A_GENERER": return { texte: "BC à générer", ton: "attente" };
     case "A_REGENERER": return { texte: `BC à régénérer (${d.nbAjoutees > 0 ? `+${d.nbAjoutees}` : ""}${d.nbAjoutees > 0 && d.nbRetirees > 0 ? " " : ""}${d.nbRetirees > 0 ? `−${d.nbRetirees}` : ""} ligne${d.nbAjoutees + d.nbRetirees > 1 ? "s" : ""})`, ton: "attente" };
@@ -137,7 +152,7 @@ function FriseBC({ bc }: { bc: BcDePoste }) {
   );
 }
 
-export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration, peutGenerer, peutJoindre, peutModifier, busy, run, onJoindre, repli }: {
+export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration, peutGenerer, peutValider, peutJoindre, peutModifier, busy, run, onJoindre, repli }: {
   itemId: string;
   bcs: BcDePoste[];
   devis: DevisDePosteVue[];
@@ -145,6 +160,8 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
   /** Pourquoi la génération n'est pas ouverte (`refusGenerationBC`) — `null` : elle l'est. Seul le demandeur la voit. */
   refusGeneration: string | null;
   peutGenerer: boolean;
+  /** Valider l'aperçu et l'envoyer aux Finances : le demandeur de la demande, ou le Super Admin (jamais qui n'a fait que préparer). */
+  peutValider: boolean;
   peutJoindre: boolean;
   /** Le demandeur peut-il modifier le BC généré (« Modifier le BC », tant qu'il n'est pas signé) ? */
   peutModifier: boolean;
@@ -155,7 +172,12 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
   repli: React.ReactNode;
 }) {
   const vivants = devis.filter((d) => !d.annule);
-  const aFaire = vivants.filter((d) => d.etat === "A_GENERER" || d.etat === "A_REGENERER");
+  // GÉNÉRER = préparer l'APERÇU (un brouillon, sans numéro) ; le BC n'existe qu'une fois l'aperçu validé par le demandeur.
+  const aFaireTous = vivants.filter((d) => d.etat === "A_GENERER" || d.etat === "A_REGENERER");
+  const aFaire = aFaireTous.filter((d) => !d.brouillon);
+  const avecApercu = aFaireTous.filter((d) => d.brouillon);
+  const [apercuOuvert, setApercuOuvert] = React.useState<string | null>(null);
+  const apercuDuDevis = apercuOuvert ? avecApercu.find((d) => d.pieceId === apercuOuvert) ?? null : null;
   const depasse = refusDepassement(
     vivants.reduce((s, d) => s + Math.round(d.totalValideTtc * 100), 0) / 100, accorde,
     vivants.reduce((s, d) => s + Math.round(d.totalValideHt * 100), 0) / 100,
@@ -166,7 +188,7 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
     const fd = new FormData();
     fd.set("id", itemId);
     if (pieceId) fd.set("pieceId", pieceId);
-    void run(`gen:${pieceId ?? "tous"}:${itemId}`, () => genererBonDeCommandePoste(fd), "Bon de commande généré.");
+    void run(`gen:${pieceId ?? "tous"}:${itemId}`, () => genererBonDeCommandePoste(fd), "Aperçu du bon de commande prêt — à vérifier par le demandeur.");
   };
   const ouverte = peutGenerer && refusGeneration === null && !depasse;
   const figes = vivants.filter((d) => (d.etat === "FIGE" || d.etat === "A_ANNULER") && d.refus);
@@ -196,16 +218,21 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
         <ul className="space-y-0.5 border-t border-border/60 pt-1">
           {vivants.filter((d) => d.structure && (d.nbValidees > 0 || d.bc)).map((d) => {
             const e = phraseEtat(d);
-            const actionnable = ouverte && (d.etat === "A_GENERER" || d.etat === "A_REGENERER");
+            const actionnable = ouverte && (d.etat === "A_GENERER" || d.etat === "A_REGENERER") && !d.brouillon;
             return (
               <li key={d.pieceId} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere] sm:truncate" title={d.titre}>
-                  {d.reference ?? d.titre} — {d.nbValidees} ligne{d.nbValidees > 1 ? "s" : ""} validée{d.nbValidees > 1 ? "s" : ""} · <span className="tabular-nums">{d.entete.tvaRate === null ? `${dzd(d.totalValideHt)} · sans TVA (aucune sur le devis)` : `${dzd(d.totalValideTtc)} TTC`}</span>
+                  <NomDuDevis d={d} /> — {d.nbValidees} ligne{d.nbValidees > 1 ? "s" : ""} validée{d.nbValidees > 1 ? "s" : ""} · <span className="tabular-nums">{d.entete.tvaRate === null ? `${dzd(d.totalValideHt)} · sans TVA (aucune sur le devis)` : `${dzd(d.totalValideTtc)} TTC`}</span>
                 </span>
                 {e && !(actionnable && aFaire.length === 1) && <span className={e.ton === "ok" ? "text-success" : e.ton === "alerte" ? "text-destructive" : "text-warning"}>{e.texte}</span>}
                 {actionnable && aFaire.length > 1 && (
                   <button type="button" onClick={() => generer(d.pieceId)} disabled={enCours} className="min-h-9 text-primary hover:underline disabled:opacity-50 sm:min-h-0">
                     {d.etat === "A_REGENERER" ? "Régénérer" : "Générer"}
+                  </button>
+                )}
+                {d.brouillon && (peutGenerer || peutValider) && (
+                  <button type="button" onClick={() => setApercuOuvert(d.pieceId)} className="inline-flex min-h-9 items-center gap-1 font-medium text-primary hover:underline sm:min-h-0">
+                    <Eye className="h-3 w-3" /> Voir l&apos;aperçu{peutValider ? " et valider" : ""}
                   </button>
                 )}
               </li>
@@ -218,18 +245,25 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
       {depasse && aFaire.length > 0 && <p className="flex gap-1 text-warning"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {depasse}</p>}
       {peutGenerer && aFaire.length > 0 && refusGeneration && <p className="text-muted-foreground">{refusGeneration}</p>}
 
+      {apercuDuDevis && (
+        <ApercuBonDeCommande
+          itemId={itemId} devis={apercuDuDevis} peutEditer={peutGenerer} peutValider={peutValider} busy={busy} run={run}
+          onClose={() => setApercuOuvert(null)}
+        />
+      )}
+
       {(ouverte && aFaire.length > 0) || peutJoindre ? (
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
           {ouverte && aFaire.length === 1 && (
             <Button size="sm" onClick={() => generer(aFaire[0].pieceId)} disabled={enCours}>
               {enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-              {aFaire[0].etat === "A_REGENERER" ? "Régénérer le BC" : "Générer le BC"}
+              {aFaire[0].etat === "A_REGENERER" ? "Régénérer le BC (aperçu)" : "Générer le BC (aperçu)"}
             </Button>
           )}
           {ouverte && aFaire.length > 1 && (
             <Button size="sm" onClick={() => generer(null)} disabled={enCours}>
               {enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-              Générer tous les BC ({aFaire.length})
+              Générer tous les BC ({aFaire.length}) — aperçus
             </Button>
           )}
           {peutJoindre && (
@@ -323,7 +357,7 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
   return (
     <div className="space-y-2 rounded-lg border border-border bg-background p-2.5 text-xs" aria-label={`Lignes du devis ${devis.reference ?? devis.titre}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <p className="min-w-0 flex-1 font-medium text-foreground [overflow-wrap:anywhere]">Lignes du devis {devis.reference ?? devis.titre}{devis.fournisseur ? ` — ${devis.fournisseur}` : ""}</p>
+        <p className="min-w-0 flex-1 font-medium text-foreground [overflow-wrap:anywhere]">Lignes du devis <NomDuDevis d={devis} />{devis.fournisseur ? ` — ${devis.fournisseur}` : ""}</p>
         <button type="button" onClick={onClose} className="min-h-9 px-2 text-muted-foreground hover:text-foreground sm:min-h-0 sm:px-0">Fermer</button>
       </div>
       {devis.entete.lectureNote && (

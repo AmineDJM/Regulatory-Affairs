@@ -131,15 +131,18 @@ describe("le constructeur de pièces commerciales — la mise en page des pièce
     expect(texte).toContain("Adresse de livraison :");
     expect(texte).toContain("Siège Social : N° 14 Rue El Moudjahidine");
     expect(texte).toContain("TEL : 020 339 430");
+    // Le téléphone n'est PAS répété sous le montant (le pied ne le porte plus sur un bon de commande).
+    expect(texte).not.toContain("Tél. 020 339 430");
     const bande = m.tables.find((t) => t.header[0] === "Date")!;
-    expect(bande.header).toEqual(["Date", "Contact", "Devis N°", "Modalités de paiement"]);
+    expect(bande.header).toEqual(["Date", "Contact", "Référence", "Modalités de paiement"]);
     expect(texte).toContain("Mme ABDELAZIZ ASSIA");
     expect(texte).toContain("Tel 0770530674");
     expect(texte).toContain("26/0576");
-    expect(texte).toContain("Du 20/07/2026");
+    expect(texte).toContain("du 20/07/2026");
     expect(texte).toContain("Chèque");
     const lignes = m.tables.find((t) => t.header[0] === "Désignation")!;
-    expect(lignes.header).toEqual(["Désignation", "Qte", "PU HT", "Total HT"]);
+    // « Désignation | Unité | Qte | PU HT | Total HT » : la colonne Unité est toujours là sur un bon de commande.
+    expect(lignes.header).toEqual(["Désignation", "Unité", "Qte", "PU HT", "Total HT"]);
     expect(texte).toContain("Impression quadri recto verso sur 300g");
     expect(texte).toContain("Campagne Raltégravir");
     expect(texte).toContain("Offert");
@@ -180,14 +183,17 @@ describe("le constructeur de pièces commerciales — la mise en page des pièce
   });
 
   it("pose la pièce sur le papier en-tête : en-tête et pied conservés, et le code n'imprime plus l'identité en pied — le papier la porte", async () => {
-    const r = await construireDocumentCommercial(bonDeCommande({ livraison: { adresse: "Dépôt de Oued Smar", delai: "sous 10 jours" } }), { base: papierEnTeteDeDemonstration() });
+    const r = await construireDocumentCommercial(bonDeCommande({ livraison: { adresse: "Dépôt de Oued Smar", delai: "sous 10 jours", date: "2026-10-20" } }), { base: papierEnTeteDeDemonstration() });
     expect(r.verification.ok).toBe(true);
     expect(r.surPapierEnTete).toBe(true);
     const m = await modele(r.octets);
     expect(m.hasHeader).toBe(true);
     expect(m.hasFooter).toBe(true);
     const texte = texteDe(m);
-    expect(texte).toContain("Siège Social : Dépôt de Oued Smar");
+    // « Adresse de livraison : <lieu> » puis le siège ; la date de livraison s'imprime en mention.
+    expect(texte).toContain("Adresse de livraison : Dépôt de Oued Smar");
+    expect(texte).toContain("Siège Social : N° 14 Rue El Moudjahidine");
+    expect(texte).toContain("Date de livraison : 20/10/2026");
     expect(texte).toContain("Délai : sous 10 jours");
     expect(texte).not.toContain("RC N° :");
   });

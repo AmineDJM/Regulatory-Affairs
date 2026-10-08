@@ -3,7 +3,11 @@ import { texteDeLaLecture } from "@/lib/pieces-lues/lecture-fichier";
 import { identiteEmetteurDuTexte, identiteUtilisable } from "@/lib/pieces-lues/emetteur";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
-import { emettreDocumentDrive, reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
+import {
+  emettreDocumentDrive, previsualiserDocument, reviserDocumentDrive, type DemandeDocument, type ModificationsDocument,
+} from "@/platform/in-process/artifact/factory";
+import type { LigneCommerciale, PartieCommerciale } from "@/lib/artifact/factory/commercial";
+import { brouillonPerime, lignesEffectives, type BrouillonBc } from "@/lib/ad-pro/bc-brouillon";
 import { devisDesPostes, type DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
 import { rattacherPieceAuPoste } from "@/lib/ad-pro/pieces-poste";
 import { lignesDuBon, refusDepassement, type LigneDevisPoste } from "@/lib/ad-pro/devis-poste";
@@ -156,6 +160,108 @@ async function lierLesLignes(devisPieceId: string, itemId: string, bcId: string)
   });
 }
 
+/** L'objet que le BC porte quand le demandeur n'en a pas écrit : « Sponsoring : Traiteur — SPO-2026-006 ». */
+export const objetParDefaut = (poste: PosteAGenerer): string => `${ITEM_KIND_LABELS[poste.item.kind]} : ${poste.item.label} — ${poste.ref}`;
+
+/** Ce que le brouillon corrige d'une pièce DÉJÀ émise (révision) : seuls les champs écrits remplacent. */
+export function modificationsDuBrouillon(b: BrouillonBc): ModificationsDocument {
+  const m: ModificationsDocument = {};
+  if (b.objet) m.objet = b.objet;
+  if (b.notes) m.notes = b.notes;
+  if (b.contact) m.contact = { ...(b.contact.nom ? { nom: b.contact.nom } : {}), ...(b.contact.telephone ? { telephone: b.contact.telephone } : {}) };
+  if (b.modePaiement) m.modePaiement = b.modePaiement;
+  if (b.conditionsPaiement) m.conditionsPaiement = b.conditionsPaiement;
+  if (b.livraison) m.livraison = { ...(b.livraison.adresse ? { adresse: b.livraison.adresse } : {}), ...(b.livraison.date ? { date: b.livraison.date } : {}), ...(b.livraison.delai ? { delai: b.livraison.delai } : {}) };
+  if (b.tiers) {
+    const t = Object.fromEntries(Object.entries(b.tiers).filter(([, v]) => typeof v === "string" && v.trim()));
+    if (Object.keys(t).length > 0) m.tiers = t as unknown as ModificationsDocument["tiers"];
+  }
+  return m;
+}
+
+/**
+ * LA DEMANDE DE LA FABRIQUE POUR LE BC D'UN DEVIS — la MÊME pour l'aperçu et pour l'émission (§118.5) : deux compositions
+ * finiraient par diverger sur un champ. Le brouillon, quand il y en a un, remplace ce que le devis donne.
+ */
+export function demandeDuBC(
+  poste: PosteAGenerer,
+  d: Pick<DevisDePosteVue, "reference" | "pieceId" | "entete">,
+  tiers: PartieCommerciale,
+  lignes: LigneCommerciale[],
+  brouillon: BrouillonBc | null,
+): DemandeDocument {
+  const taxes = d.entete.extraTaxRate ? [{ libelle: d.entete.extraTaxLabel ?? "Taxe additionnelle", taux: d.entete.extraTaxRate / 100 }] : null;
+  const m = brouillon ? modificationsDuBrouillon(brouillon) : {};
+  return {
+    type: "BON_DE_COMMANDE",
+    societe: poste.societe,
+    tiers: { ...tiers, ...((m.tiers as Partial<PartieCommerciale> | undefined) ?? {}) },
+    lignes,
+    // La TVA est celle du PAPIER : `genererBonDeCommandePoste` refuse un devis dont le taux n'existe pas, avant d'arriver ici.
+    tvaDefaut: (d.entete.tvaRate ?? 0) / 100,
+    taxes,
+    referenceAmont: d.reference,
+    referenceAmontDate: d.entete.quoteDate,
+    objet: m.objet ?? objetParDefaut(poste),
+    ...(m.notes ? { notes: m.notes } : {}),
+    ...(m.contact ? { contact: m.contact } : {}),
+    ...(m.modePaiement ? { modePaiement: m.modePaiement } : {}),
+    ...(m.conditionsPaiement ? { conditionsPaiement: m.conditionsPaiement } : {}),
+    ...(m.livraison ? { livraison: m.livraison } : {}),
+    chainFromId: d.pieceId,
+    dossier: `Ad & Pro/${poste.ref}`,
+  };
+}
+
+export interface ApercuDuBC {
+  ok: true;
+  pdfBase64: string | null;
+  pages: number;
+  /** Le numéro que la validation attribuerait si elle avait lieu maintenant — prévu, JAMAIS réservé. */
+  numeroPrevu: string;
+  /** Le BC existe déjà (révision) : sa référence, inchangée. */
+  referenceExistante: string | null;
+  totaux: { totalHt: number; totalTva: number; totalTaxes: number; totalTtc: number; enLettres: string } | null;
+  bloquants: string[];
+  avertissements: string[];
+  /** Le fournisseur tel que le BC l'imprimera, pour le formulaire de correction. */
+  tiers: PartieCommerciale;
+}
+
+/**
+ * L'APERÇU DU BC d'un devis : la pièce telle qu'elle serait émise, rendue à BLANC (aucun numéro consommé, aucune ligne au
+ * registre, aucun fichier au Drive). Sous la délégation du poste : le demandeur relit son BC sans droit d'écriture Legal.
+ */
+export async function apercuDuBC(
+  user: CurrentUser, poste: PosteAGenerer, d: DevisDePosteVue, brouillon: BrouillonBc,
+): Promise<ApercuDuBC | { ok: false; error: string }> {
+  const lignesDevis = lignesDuBCDuDevis(d, poste.item.id);
+  if (lignesDevis.length === 0 && !d.bc) return { ok: false, error: "Aucune ligne n'est validée pour ce devis." };
+  if (brouillonPerime(brouillon, lignesDevis)) return { ok: false, error: "Les lignes validées du devis ont changé depuis les corrections : régénérez l'aperçu." };
+  const t = await tiersDuDevis(d, poste.item.supplier);
+  if (!t.ok) return { ok: false, error: t.error };
+  const lignes = lignesEffectives(brouillon, lignesDevis);
+  const demande = demandeDuBC(poste, d, t.tiers, lignes, brouillon);
+  const nom = d.reference?.trim() || d.titre;
+  const r = await previsualiserDocument(user, demande, {
+    avecPdf: true,
+    delegation: `${poste.ref} — poste « ${poste.item.label} » : aperçu du bon de commande du devis « ${nom} », relu par le demandeur`,
+    numeroAffiche: d.bc ? d.bc.reference : "À attribuer à la validation",
+  });
+  if (!r.ok) return { ok: false, error: r.motif };
+  return {
+    ok: true,
+    pdfBase64: r.pdf ? r.pdf.octets.toString("base64") : null,
+    pages: r.pdf?.pages ?? 0,
+    numeroPrevu: r.numeroProchain,
+    referenceExistante: d.bc ? d.bc.reference : null,
+    totaux: r.totaux ? { totalHt: r.totaux.totalHt, totalTva: r.totaux.totalTva, totalTaxes: r.totaux.totalTaxes, totalTtc: r.totaux.totalTtc, enLettres: r.totaux.enLettres } : null,
+    bloquants: r.bloquants.length > 0 ? r.bloquants : (r.pdf ? [] : r.pdfErreur ? [r.pdfErreur] : []),
+    avertissements: r.avertissements,
+    tiers: demande.tiers,
+  };
+}
+
 /**
  * GÉNÈRE (ou RÉVISE) le bon de commande de chaque devis demandé. Chaque devis passe par SA file (un geste à la fois
  * sur ses lignes) et est RELU dans la file : ce que la carte avait vu a pu changer — une ligne décochée, un BC annulé
@@ -163,25 +269,34 @@ async function lierLesLignes(devisPieceId: string, itemId: string, bcId: string)
  * d'erreur : il est écarté, et le bilan ne le compte pas. Chaque devis est isolé : l'échec de l'un est dit sans empêcher
  * les autres.
  */
-export async function genererLesBCsDuPoste(user: CurrentUser, poste: PosteAGenerer, pieceIds: readonly string[]): Promise<BilanGeneration> {
+export async function genererLesBCsDuPoste(
+  user: CurrentUser, poste: PosteAGenerer, pieceIds: readonly string[],
+  /** Les brouillons VALIDÉS par le demandeur, par devis : leurs corrections remplacent ce que le devis donne. */
+  brouillons: ReadonlyMap<string, BrouillonBc> = new Map(),
+): Promise<BilanGeneration> {
   const bilan: BilanGeneration = { bcs: [], echecs: [] };
-  const objet = `${ITEM_KIND_LABELS[poste.item.kind]} : ${poste.item.label} — ${poste.ref}`;
   for (const pieceId of pieceIds) {
     await enSerie(`ad-pro-devis:${pieceId}`, async () => {
       const d = ((await devisDesPostes([poste.item.id])).get(poste.item.id) ?? []).find((x) => x.pieceId === pieceId && !x.annule);
       if (!d) { bilan.echecs.push("un devis n'est plus rattaché à ce poste"); return; }
       const nom = d.reference?.trim() || d.titre;
-      const lignes = lignesDuBCDuDevis(d, poste.item.id);
+      const lignesDevis = lignesDuBCDuDevis(d, poste.item.id);
       if (d.etat !== "A_GENERER" && d.etat !== "A_REGENERER") {
         if (d.refus) bilan.echecs.push(`${nom} : ${d.refus}`);
         return;
       }
-      if (lignes.length === 0) { bilan.echecs.push(`${nom} : aucune ligne validée`); return; }
-      const delegation = `${poste.ref} — poste « ${poste.item.label} » validé et son bon de commande demandé, composé d'après les lignes validées du devis « ${nom} »`;
+      if (lignesDevis.length === 0) { bilan.echecs.push(`${nom} : aucune ligne validée`); return; }
+      const brouillon = brouillons.get(pieceId) ?? null;
+      if (brouillon && brouillonPerime(brouillon, lignesDevis)) {
+        bilan.echecs.push(`${nom} : les lignes validées du devis ont changé depuis l'aperçu — régénérez l'aperçu avant de valider`);
+        return;
+      }
+      const lignes = lignesEffectives(brouillon, lignesDevis);
+      const delegation = `${poste.ref} — poste « ${poste.item.label} » validé et son bon de commande demandé, composé d'après les lignes validées du devis « ${nom} »${brouillon ? ", aperçu validé par le demandeur" : ""}`;
       if (d.etat === "A_REGENERER" && d.bc) {
         const r = await reviserDocumentDrive(user, {
           legalDocumentId: d.bc.id,
-          modifications: { lignes },
+          modifications: { lignes, ...(brouillon ? modificationsDuBrouillon(brouillon) : {}) },
           motif: `Lignes validées du devis modifiées (${d.nbAjoutees} ajoutée${d.nbAjoutees > 1 ? "s" : ""}, ${d.nbRetirees} retirée${d.nbRetirees > 1 ? "s" : ""}).`,
         }, { delegation });
         if (!r.ok) { bilan.echecs.push(`${nom} : ${r.motif}`); return; }
@@ -191,21 +306,7 @@ export async function genererLesBCsDuPoste(user: CurrentUser, poste: PosteAGener
       }
       const t = await tiersDuDevis(d, poste.item.supplier);
       if (!t.ok) { bilan.echecs.push(`${nom} : ${t.error}`); return; }
-      const taxes = d.entete.extraTaxRate ? [{ libelle: d.entete.extraTaxLabel ?? "Taxe additionnelle", taux: d.entete.extraTaxRate / 100 }] : null;
-      const r = await emettreDocumentDrive(user, {
-        type: "BON_DE_COMMANDE",
-        societe: poste.societe,
-        tiers: t.tiers,
-        lignes,
-        // La TVA est celle du PAPIER : `genererBonDeCommandePoste` refuse un devis qui n'en indique pas, avant d'arriver ici.
-        tvaDefaut: (d.entete.tvaRate ?? 0) / 100,
-        taxes,
-        referenceAmont: d.reference,
-        referenceAmontDate: d.entete.quoteDate,
-        objet,
-        chainFromId: d.pieceId,
-        dossier: `Ad & Pro/${poste.ref}`,
-      }, { source: { type: "AD_PRO_ITEM", id: poste.item.id }, delegation });
+      const r = await emettreDocumentDrive(user, demandeDuBC(poste, d, t.tiers, lignes, brouillon), { source: { type: "AD_PRO_ITEM", id: poste.item.id }, delegation });
       if (!r.ok) { bilan.echecs.push(`${nom} : ${r.motif}`); return; }
       await rattacherPieceAuPoste({ itemId: poste.item.id, legalDocumentId: r.legalDocumentId, nature: "BON_DE_COMMANDE", acteurId: user.id });
       await lierLesLignes(d.pieceId, poste.item.id, r.legalDocumentId);

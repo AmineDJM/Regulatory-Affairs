@@ -160,6 +160,7 @@ export async function construireXlsxCommercial(spec: SpecDocumentCommercial, opt
     if (adresseLivraison) droite.push(`Siège Social : ${adresseLivraison}`);
     droite.push(e.nom.trim());
     if (present(e.telephone)) droite.push(`TEL : ${e.telephone.trim()}`);
+    if (present(spec.livraison?.date)) droite.push(`Date de livraison : ${formaterDateFr(spec.livraison!.date!.trim())}`);
     if (present(spec.livraison?.delai)) droite.push(`Délai : ${spec.livraison!.delai!.trim()}`);
   } else {
     droite.push(`Numéro de client : ${present(spec.numeroClient) ? spec.numeroClient.trim() : "—"}`);

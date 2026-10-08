@@ -107,9 +107,10 @@ function ligneIdentifiants(p: PartieCommerciale): string {
  */
 interface Colonne extends ColonneTableau { cle: "designation" | "unite" | "qte" | "remise" | "tva" | "pu" | "ht"; titre: string }
 
-function colonnesLignes(t: TotauxCommerciaux, titres: Record<Colonne["cle"], string>, largeurs: Record<Exclude<Colonne["cle"], "designation">, number>): Colonne[] {
+function colonnesLignes(t: TotauxCommerciaux, titres: Record<Colonne["cle"], string>, largeurs: Record<Exclude<Colonne["cle"], "designation">, number>, forcerUnite = false): Colonne[] {
   const chiffrees = t.lignes.filter((l) => !l.section);
-  const avecUnite = chiffrees.some((l) => present(l.unite));
+  // Le bon de commande de la maison porte TOUJOURS la colonne « Unité » (Direction, 10/2026) : « Désignation | Unité | Qte | PU HT | Total HT ».
+  const avecUnite = forcerUnite || chiffrees.some((l) => present(l.unite));
   const avecRemise = chiffrees.some((l) => l.remiseMontant > 0);
   const tauxDistincts = new Set(chiffrees.map((l) => l.taux)).size > 1;
   const colonnes: Colonne[] = [
@@ -137,7 +138,7 @@ function celluleDesignation(l: LigneCalculee, o: { grasDesignation: boolean; det
 /** La cellule d'une colonne chiffrée pour une ligne. */
 function celluleChiffree(cle: Colonne["cle"], l: LigneCalculee, avecDevise: boolean): Cellule {
   switch (cle) {
-    case "unite": return l.unite ?? "";
+    case "unite": return present(l.unite) ? l.unite : "—";
     case "qte": return formaterQuantite(l.quantite);
     case "remise": return l.remiseMontant > 0 ? formaterTaux(l.remise ?? 0) : "—";
     case "tva": return formaterTaux(l.taux);
@@ -166,7 +167,10 @@ function piedIdentite(spec: SpecDocumentCommercial): string[] {
   const e = spec.emetteur;
   const lignes: string[] = [];
   if (!spec.surPapierEnTete) {
-    const siege = [e.nom.trim(), e.formeJuridique, e.capital ? `au capital de ${e.capital}` : null, e.adresse ? `Siège Social : ${e.adresse}` : null, e.telephone ? `Tél. ${e.telephone}` : null, e.email]
+    // Sur un bon de commande ou un devis, le téléphone n'est PAS répété sous le montant (Direction, 10/2026) : il figure déjà
+    // dans le bloc « Adresse de livraison » (et dans le pied du papier en-tête).
+    const sansTelephone = spec.type === "BON_DE_COMMANDE" || spec.type === "DEVIS";
+    const siege = [e.nom.trim(), e.formeJuridique, e.capital ? `au capital de ${e.capital}` : null, e.adresse ? `Siège Social : ${e.adresse}` : null, e.telephone && !sansTelephone ? `Tél. ${e.telephone}` : null, e.email]
       .filter(present).join(" — ");
     if (siege) lignes.push(siege);
     const ids = ligneIdentifiants(e);
@@ -327,11 +331,14 @@ function blocsCommande(spec: SpecDocumentCommercial, t: TotauxCommerciaux): stri
     if (present(e.telephone)) droite.push({ texte: "\nTEL : ", gras: true }, { texte: e.telephone.trim(), gras: true });
     if (present(e.email)) droite.push({ texte: `\n${e.email.trim()}` });
   } else {
-    const adresseLivraison = present(spec.livraison?.adresse) ? spec.livraison!.adresse!.trim() : (present(e.adresse) ? e.adresse.trim() : "");
+    // « Adresse de livraison : <lieu de livraison> », puis le siège de la société (comme sur le BC de référence) ; la date de
+    // livraison, quand elle est renseignée, s'imprime en mention.
     droite.push({ texte: "Adresse de livraison :", gras: true });
-    if (adresseLivraison) droite.push({ texte: "\nSiège Social : ", gras: true }, { texte: adresseLivraison });
+    if (present(spec.livraison?.adresse)) droite.push({ texte: ` ${spec.livraison!.adresse!.trim()}` });
+    if (present(e.adresse)) droite.push({ texte: "\nSiège Social : ", gras: true }, { texte: e.adresse.trim() });
     droite.push({ texte: `\n${e.nom.trim()}` });
     if (present(e.telephone)) droite.push({ texte: "\nTEL : ", gras: true }, { texte: e.telephone.trim(), gras: true });
+    if (present(spec.livraison?.date)) droite.push({ texte: "\nDate de livraison : ", gras: true }, { texte: formaterDateFr(spec.livraison!.date!.trim()) });
     if (present(spec.livraison?.delai)) droite.push({ texte: "\nDélai : ", gras: true }, { texte: spec.livraison!.delai!.trim() });
   }
   blocs.push(tableau([[gauche, droite]], { colonnes: [{ largeurCm: LARGEUR_CM / 2 }, { largeurCm: LARGEUR_CM / 2 }], bordures: false, taillePt: 10 }));
@@ -339,21 +346,27 @@ function blocsCommande(spec: SpecDocumentCommercial, t: TotauxCommerciaux): stri
   // 3 — La bande des références : Date · Contact · Devis N° (ou Validité) · Modalités de paiement.
   const contact = [present(spec.contact?.nom) ? spec.contact!.nom!.trim() : null, present(spec.contact?.telephone) ? `Tel ${spec.contact!.telephone!.trim()}` : null].filter(present).join("\n") || "—";
   const jours = spec.validiteJours ?? 30;
+  // BON DE COMMANDE : la colonne s'appelle « Référence » (celle du BC de référence) et porte l'objet ET le devis d'origine.
+  const refBc = [
+    present(spec.objet) ? spec.objet.trim() : null,
+    present(spec.referenceAmont) ? `Devis N° ${spec.referenceAmont.trim()}${spec.referenceAmontDate ? ` du ${formaterDateFr(spec.referenceAmontDate)}` : ""}` : null,
+  ].filter(present).join("\n") || "—";
   const troisieme: [string, string] = estDevis
     ? ["Validité", `${jours} jours\njusqu'au ${formaterDateFr(ajouterJours(spec.date, jours))}`]
-    : present(spec.referenceAmont)
-      ? ["Devis N°", `${spec.referenceAmont.trim()}${spec.referenceAmontDate ? `\nDu ${formaterDateFr(spec.referenceAmontDate)}` : ""}`]
-      : ["Référence", present(spec.objet) ? spec.objet.trim() : "—"];
+    : ["Référence", refBc];
   const modalites = [spec.modePaiement ? LIBELLE_MODE[spec.modePaiement] : null, present(spec.conditionsPaiement) ? spec.conditionsPaiement.trim() : null].filter(present).join("\n") || "—";
   blocs.push(tableau([["Date", "Contact", troisieme[0], "Modalités de paiement"], [formaterDateFr(spec.date), contact, troisieme[1], modalites]], {
     colonnes: [{ largeurCm: 3.0, alignement: "center" }, { largeurCm: 4.6, alignement: "center" }, { largeurCm: 3.6, alignement: "center" }, { largeurCm: 4.8, alignement: "center" }],
     entete: true, couleurEntete: accent, bordures: false, taillePt: 9.5,
   }));
 
+  // UN VRAI ESPACE entre la bande Date · Contact · Référence et le tableau des lignes (Direction, 10/2026).
+  blocs.push(vide(14));
+
   // 4 — Les lignes, et les totaux dans les dernières lignes du même tableau, fermé par un filet.
   const colonnes = colonnesLignes(t,
     { designation: "Désignation", unite: "Unité", qte: "Qte", remise: "Remise", tva: "TVA", pu: "PU HT", ht: "Total HT" },
-    { unite: 1.6, qte: 1.5, remise: 1.6, tva: 1.4, pu: 3.2, ht: 3.2 });
+    { unite: 1.6, qte: 1.5, remise: 1.6, tva: 1.4, pu: 3.2, ht: 3.2 }, !estDevis);
   const lignes: Cellule[][] = [colonnes.map((col) => col.titre)];
   for (const l of t.lignes) {
     if (l.section) {

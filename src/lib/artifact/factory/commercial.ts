@@ -156,7 +156,8 @@ export interface SpecDocumentCommercial {
    * 150 955 (= 19 % de 794 500, pas de 810 390), TTC 961 345.
    */
   taxes?: TaxeAdditionnelle[] | null;
-  livraison?: { adresse?: string | null; delai?: string | null } | null;
+  /** `adresse` = le LIEU de livraison ; `date` = la date de livraison (ISO, imprimée en mention) ; `delai` = le délai en clair. */
+  livraison?: { adresse?: string | null; delai?: string | null; date?: string | null } | null;
   notes?: string | null;
   signataire?: { nom: string; qualite?: string | null } | null;
   /** Mentions de pied de page (identité légale, banque) — composées par l'appelant. */

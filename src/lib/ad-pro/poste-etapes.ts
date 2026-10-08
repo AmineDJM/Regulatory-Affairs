@@ -114,6 +114,8 @@ export interface RegardPoste {
   secondTempsParOperations?: boolean;
   /** La personne qui regarde a demandé le BC : c'est elle qui vérifie la pièce déposée. */
   verifieLeBC?: boolean;
+  /** Valider l'aperçu du BC et l'envoyer aux Finances : le demandeur de la demande, ou le Super Admin. */
+  peutValiderBc?: boolean;
 }
 
 export type CleGeste =

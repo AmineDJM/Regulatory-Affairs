@@ -56,7 +56,7 @@ import { canEditCompanyId } from "@/lib/company";
 import {
   addAdProItem, submitAdProItem, decideAdProItem, requestAdProItemOrder, approveAdProItemOrder, retirerDemandeBC,
   ajouterDevisPoste, retirerDevisDuPoste, demanderPaiementPoste,
-  validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste,
+  validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste, validerEtEnvoyerBcPoste,
 } from "@/lib/actions/ad-pro-item-actions";
 import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
 import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
@@ -86,6 +86,16 @@ const fd = (champs: Record<string, string>) => {
   for (const [k, v] of Object.entries(champs)) f.set(k, v);
   return f;
 };
+/**
+ * « GÉNÉRER LE BC » = L'APERÇU, puis la VALIDATION par le demandeur (Direction, 10/2026) : le geste d'écran complet, sans numéro
+ * ni envoi aux Finances tant que l'aperçu n'est pas validé. Quand rien n'est à générer (tout est à jour), la réponse de la
+ * génération fait foi.
+ */
+async function genererEtValider(f: FormData) {
+  const g = await genererBonDeCommandePoste(f);
+  if (!g.ok || /déjà son bon de commande, à jour/.test(g.message ?? "")) return g;
+  return validerEtEnvoyerBcPoste(f);
+}
 const pdf = (nom: string) => new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])], nom, { type: "application/pdf" });
 
 interface LigneSaisie { id?: string; ref: string; unite?: string; qte: string; prix: string }
@@ -464,7 +474,21 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     expect(avant.orderStage).toBe("NONE");
 
     await comme("kam");
-    const r = await genererBonDeCommandePoste(fd({ id: p1 }));
+    // ÉTAPE 1 — l'APERÇU : un brouillon par devis, et RIEN d'autre (ni BC, ni numéro, ni marche, ni Finances).
+    const apercu = await genererBonDeCommandePoste(fd({ id: p1 }));
+    ok(apercu);
+    expect(apercu.message).toMatch(/Brouillon — à vérifier par le demandeur/);
+    expect(await bcsDe(devA), "aucun BC avant la validation de l'aperçu").toHaveLength(0);
+    expect(await bcsDe(devB)).toHaveLength(0);
+    expect((await poste(p1)).orderStage, "rien n'est parti aux Finances ni au centre").toBe("NONE");
+    expect((await vue(p1, devA)).brouillon, "le brouillon est sur le devis").not.toBeNull();
+    // Seul le DEMANDEUR (ou le Super Admin) valide : la Direction, qui n'a pas demandé, ne valide pas à sa place.
+    await comme("ops");
+    expect(refus(await validerEtEnvoyerBcPoste(fd({ id: p1 })))).toMatch(/Seul le demandeur|Non autorisé/);
+    expect(await bcsDe(devA)).toHaveLength(0);
+    // ÉTAPE 2 — le demandeur valide : le numéro est attribué, le BC part.
+    await comme("kam");
+    const r = await validerEtEnvoyerBcPoste(fd({ id: p1 }));
     ok(r);
     expect(r.message).toMatch(/2 bons de commande générés/);
     expect(r.message, "au-dessus du seuil, le centre Ad & Pro vise le poste").toMatch(/centre de validation Ad & Pro/);
@@ -528,8 +552,9 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     const lx = await saisir(pc, x, [{ ref: "Livret", qte: "100", prix: "300" }]);
     await comme("kam");
     ok(await validerLignesDuDevis(formValider(pc, x, lx)));
-    const [r1, r2] = await Promise.all([genererBonDeCommandePoste(fd({ id: pc })), genererBonDeCommandePoste(fd({ id: pc }))]);
-    ok(r1); ok(r2);
+    const [r1, r2] = await Promise.all([genererEtValider(fd({ id: pc })), genererEtValider(fd({ id: pc }))]);
+    // Le second clic arrive après le premier (un geste à la fois sur le poste) : il est ok (à jour) ou refusé faute d'aperçu à valider.
+    expect([r1, r2].some((r) => r.ok), "un des deux clics fait le BC").toBe(true);
     expect(await bcsDe(x), "deux clics ne font pas deux commandes").toHaveLength(1);
     expect(await prisma.adProItemPiece.count({ where: { itemId: pc, nature: "BON_DE_COMMANDE" } })).toBe(1);
   }, 120_000);
@@ -546,7 +571,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     expect(coche.message).toMatch(/n'est plus à jour : régénérez-le/);
     expect(await vue(p1, devA)).toMatchObject({ etat: "A_REGENERER", nbAjoutees: 1, nbRetirees: 0 });
 
-    const r = await genererBonDeCommandePoste(fd({ id: p1, pieceId: devA }));
+    const r = await genererEtValider(fd({ id: p1, pieceId: devA }));
     ok(r);
     expect(r.message).toMatch(/mis à jour/);
     expect(r.message).toMatch(/révisé, version 2/);
@@ -615,7 +640,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     expect((await poste(ph)).orderStage, "refusé AVANT la marche").toBe("NONE");
     // Une taxe de 100 % passe le pré-contrôle (rien ne la voit) : c'est la fabrique qui refuse, APRÈS la prise de la marche.
     await prisma.adProDevis.update({ where: { legalDocumentId: x }, data: { tvaRate: 19, extraTaxRate: 100, extraTaxLabel: "Taxe lue de travers" } });
-    const e = refus(await genererBonDeCommandePoste(fd({ id: ph })));
+    const e = refus(await genererEtValider(fd({ id: ph })));
     expect(e).toMatch(/Aucun bon de commande n'a pu être généré/);
     expect(e).toMatch(/Taxe additionnelle/);
     const apres = await poste(ph);
@@ -673,7 +698,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     // Le BC A n'est pas signé : il se régénère encore — ici une ligne retirée.
     ok(await validerLignesDuDevis(formValider(p1, devA, [a[0], a[1]])));
     expect(await vue(p1, devA)).toMatchObject({ etat: "A_REGENERER", nbRetirees: 1 });
-    const r = await genererBonDeCommandePoste(fd({ id: p1, pieceId: devA }));
+    const r = await genererEtValider(fd({ id: p1, pieceId: devA }));
     ok(r);
     expect(versionDe((await bcsDe(devA))[0].custom)).toBe(3);
     // Payer exige les DEUX signatures : la facture ne se dépose pas après le seul BC B.
@@ -686,7 +711,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     // Les deux BC sont signés : plus aucune ligne de A ne bouge non plus.
     await comme("kam");
     expect(refus(await validerLignesDuDevis(formValider(p1, devA, [a[0]])))).toMatch(/signé par les Finances/);
-    const rien = await genererBonDeCommandePoste(fd({ id: p1, pieceId: devA }));
+    const rien = await genererEtValider(fd({ id: p1, pieceId: devA }));
     ok(rien);
     expect(rien.message, "à jour : rien à régénérer, rien n'est refait").toMatch(/déjà son bon de commande, à jour/);
   }, 180_000);
@@ -709,7 +734,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     const lx = await saisir(pg, x, [{ ref: "Autocollants", qte: "100", prix: "100" }, { ref: "Tampons", qte: "5", prix: "400" }]);
     await comme("kam");
     ok(await validerLignesDuDevis(formValider(pg, x, lx)));
-    ok(await genererBonDeCommandePoste(fd({ id: pg })));
+    ok(await genererEtValider(fd({ id: pg })));
     const [premier] = await bcsDe(x);
     expect((await poste(pg)).orderStage, "sous le seuil, le poste passe à la signature des Finances").toBe("DIRECTION_OK");
     ok(await validerLignesDuDevis(formValider(pg, x, [])));
@@ -726,7 +751,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     // On recoche : le BC est à générer, et le nouveau BC n'a pas le numéro de l'ancien.
     ok(await validerLignesDuDevis(formValider(pg, x, [lx[1]])));
     expect((await vue(pg, x)).etat).toBe("A_GENERER");
-    ok(await genererBonDeCommandePoste(fd({ id: pg })));
+    ok(await genererEtValider(fd({ id: pg })));
     const vivants = await bcsDe(x);
     expect(vivants).toHaveLength(1);
     expect(vivants[0].id).not.toBe(premier.id);
