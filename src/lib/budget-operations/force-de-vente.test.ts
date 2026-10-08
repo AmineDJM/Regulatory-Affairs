@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  agregerMasseSalariale, imputerPaie, moisDeLaPeriode, rattacherForceDeVente, CATEGORIES_OPERATIONS, CLE_MASSE_SALARIALE, HORS_BU,
+  agregerMasseSalariale, estDirectionDesOperations, imputerPaie, moisDeLaPeriode, rattacherForceDeVente, CATEGORIES_OPERATIONS,
+  CLE_MASSE_SALARIALE, DIRECTION_OPERATIONS, HORS_BU,
   type LignePaie,
 } from "./force-de-vente";
 
@@ -56,6 +57,55 @@ describe("qui est la force de vente", () => {
 });
 
 const L = (employeeId: string, month: number, cost: number, companyId: string | null = "adv"): LignePaie => ({ employeeId, year: 2027, month, cost, companyId });
+
+describe("la Direction des opérations entre dans la masse salariale (10/2026)", () => {
+  it("reconnaît le département sans casse ni accents, et le code", () => {
+    for (const nom of ["Direction des opérations", "DIRECTION DES OPERATIONS", "Opérations", "Direction d'Opérations"]) {
+      expect(estDirectionDesOperations({ name: nom, code: "X1" }), nom).toBe(true);
+    }
+    expect(estDirectionDesOperations({ name: "Chaîne", code: "DIR_OPS" })).toBe(true);
+    expect(estDirectionDesOperations({ name: "Direction commerciale", code: "COMMERCIAL" })).toBe(false);
+    expect(estDirectionDesOperations({ name: "Finances", code: "FIN" })).toBe(false);
+  });
+
+  const r = rattacherForceDeVente({
+    employes: [
+      { id: "ops1", userId: null, departmentId: "dep-ops" },
+      { id: "ops-sous", userId: null, departmentId: "dep-ops-logistique" },
+      { id: "dir-ops", userId: "u-dirops", departmentId: null, directeurOperations: true },
+      { id: "kam-ops", userId: "u-kam", departmentId: "dep-ops" },
+      { id: "bu-ops", userId: null, departmentId: "dep-bu" },
+      { id: "cpt", userId: null, departmentId: "dep-fin" },
+    ],
+    profils: [{ repId: "u-kam", businessUnitId: "onco", isActive: true }],
+    bus: [{ id: "onco", supervisorId: null, departmentId: "dep-bu" }],
+    departements: [
+      { id: "dep-ops", parentId: null, commercial: false, operations: true },
+      { id: "dep-ops-logistique", parentId: "dep-ops", commercial: false },
+      // Une BU rattachée sous la Direction des opérations reste dans SA BU.
+      { id: "dep-bu", parentId: "dep-ops", commercial: false },
+      { id: "dep-fin", parentId: null, commercial: false },
+    ],
+  });
+
+  it("le département, ses sous-départements et le directeur : « Direction des opérations » ; une BU garde la sienne", () => {
+    expect(Object.fromEntries(r)).toEqual({
+      ops1: DIRECTION_OPERATIONS, "ops-sous": DIRECTION_OPERATIONS, "dir-ops": DIRECTION_OPERATIONS, "kam-ops": "onco", "bu-ops": "onco",
+    });
+  });
+
+  it("le groupe est montré seul à partir de deux personnes, un seul détail nominatif jamais sans le droit", () => {
+    const mois = moisDeLaPeriode(new Date(Date.UTC(2027, 0, 1)), new Date(Date.UTC(2027, 0, 31)));
+    const lignes: LignePaie[] = ["ops1", "ops-sous", "dir-ops", "kam-ops", "bu-ops"].map((id) => ({ employeeId: id, year: 2027, month: 1, cost: 100, companyId: null }));
+    const base = { lignes, rattachement: r, mois, nomsBu: new Map([["onco", "Oncologie"]]), budgetMere: 0, budgetParBu: new Map<string, number>() };
+    const sans = agregerMasseSalariale({ ...base, voitLesSalaires: false });
+    expect(sans.groupes.map((g) => [g.libelle, g.effectif])).toEqual([["Direction des opérations", 3], ["Oncologie", 2]]);
+    expect("parPersonne" in sans).toBe(false);
+    const avec = agregerMasseSalariale({ ...base, voitLesSalaires: true, nomsPersonnes: new Map([["ops1", "Karim O."]]) });
+    expect(avec.groupes.map((g) => g.libelle)).toContain("Direction des opérations");
+    expect(avec.total.total).toBe(500);
+  });
+});
 
 describe("la paie dans les enveloppes", () => {
   const debut = new Date(Date.UTC(2027, 0, 1));

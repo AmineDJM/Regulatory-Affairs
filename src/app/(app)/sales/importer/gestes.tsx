@@ -23,8 +23,27 @@ function Erreur({ texte }: { texte: string | null }) {
 
 // ─────────────────────────── Téléverser ───────────────────────────
 
-function CarteApercu({ a }: { a: Apercu }) {
+/** Le mois / l'année proposés d'office pour un fichier : ceux lus sur ses dates (« annuel » quand il couvre plusieurs mois). */
+function periodeParDefaut(a: Apercu): ChoixPeriodeEcran {
+  const d = a.detectee;
+  const unMois = !d.annuel && d.debut === d.fin;
+  return { annee: d.debut.slice(0, 4), mois: unMois ? String(Number(d.debut.slice(5, 7))) : "annuel" };
+}
+
+const MOIS_LONGS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
+interface ChoixPeriodeEcran { annee: string; mois: string }
+
+function libelleDetectee(a: Apercu): string {
+  const d = a.detectee;
+  if (d.annuel) return `année ${d.debut.slice(0, 4)}`;
+  return d.debut === d.fin ? moisCourt(d.debut) : `${moisCourt(d.debut)} → ${moisCourt(d.fin)}`;
+}
+
+function CarteApercu({ a, choix, onChoix, disabled }: { a: Apercu; choix: ChoixPeriodeEcran; onChoix: (c: ChoixPeriodeEcran) => void; disabled: boolean }) {
   const ventes = a.nature === "VENTES_DR";
+  const anneeCourante = new Date().getFullYear();
+  const annees = Array.from(new Set([...Array.from({ length: 7 }, (_, k) => String(anneeCourante - 5 + k)), choix.annee])).sort();
   return (
     <div className="surface space-y-2 p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -34,6 +53,20 @@ function CarteApercu({ a }: { a: Apercu }) {
         <Badge tone="neutral">{a.periode.libelle}{a.periode.annuel ? " · annuel" : ""}</Badge>
         {a.deja && <Badge tone="warning">déjà importé le {new Date(a.deja.le).toLocaleDateString("fr-FR")}</Badge>}
       </div>
+      {/* LA PÉRIODE DU FICHIER, à confirmer ou corriger : c'est elle qui décide quel mois (par DR) le fichier remplace. */}
+      {!a.deja && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Période du fichier :</span>
+          <Select aria-label="Mois" value={choix.mois} disabled={disabled} onChange={(e) => onChoix({ ...choix, mois: e.target.value })} className="h-9 w-auto text-xs sm:h-8">
+            <option value="annuel">annuel</option>
+            {MOIS_LONGS.map((m, k) => <option key={m} value={String(k + 1)}>{m}</option>)}
+          </Select>
+          <Select aria-label="Année" value={choix.annee} disabled={disabled} onChange={(e) => onChoix({ ...choix, annee: e.target.value })} className="h-9 w-auto text-xs sm:h-8">
+            {annees.map((y) => <option key={y} value={y}>{y}</option>)}
+          </Select>
+          {a.choisie && <span className="text-muted-foreground">(choisie — lue : {libelleDetectee(a)})</span>}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
         <span>{formatNumber(a.lignes)} lignes</span>
         {ventes ? (
@@ -71,24 +104,54 @@ export function TeleverserPch() {
   const [occupe, setOccupe] = React.useState<"analyse" | "application" | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
-  const formulaire = (liste: File[]) => { const fd = new FormData(); for (const f of liste) fd.append("fichiers", f); return fd; };
+  /** Le mois / l'année choisis par fichier ; absent = ceux lus sur les dates du fichier. */
+  const [choix, setChoix] = React.useState<Record<string, ChoixPeriodeEcran>>({});
+  const choixDe = (a: Apercu) => choix[a.nomFichier] ?? periodeParDefaut(a);
+
+  /** Seules les périodes qui DIFFÈRENT de la lecture du fichier partent au serveur (`periodes`, JSON par nom de fichier). */
+  const formulaire = (liste: File[], periodes: Record<string, ChoixPeriodeEcran>) => {
+    const fd = new FormData();
+    for (const f of liste) fd.append("fichiers", f);
+    const aEnvoyer: Record<string, { annee: string; mois: string }> = {};
+    for (const f of liste) {
+      const c = periodes[f.name];
+      const a = apercus?.find((x) => x.nomFichier === f.name);
+      if (c && (!a || c.annee !== periodeParDefaut(a).annee || c.mois !== periodeParDefaut(a).mois)) aEnvoyer[f.name] = c;
+    }
+    if (Object.keys(aEnvoyer).length) fd.set("periodes", JSON.stringify(aEnvoyer));
+    return fd;
+  };
   const analyser = async (liste: File[]) => {
-    setErr(null); setResultats(null); setApercus(null); setErreurs([]);
+    setErr(null); setResultats(null); setApercus(null); setErreurs([]); setChoix({});
     if (!liste.length) return;
     setOccupe("analyse");
-    const r = await apercuFichiersVentesPch(formulaire(liste));
+    const r = await apercuFichiersVentesPch(formulaire(liste, {}));
     setOccupe(null);
     if (!r.ok) { setErr(r.error); return; }
     setApercus(r.apercus); setErreurs(r.erreurs);
+  };
+  /** Le mois ou l'année d'un fichier change : son aperçu se relit sous cette période (ce qu'elle remplace se met à jour). */
+  const choisir = async (a: Apercu, c: ChoixPeriodeEcran) => {
+    const f = fichiers.find((x) => x.name === a.nomFichier);
+    const suivant = { ...choix, [a.nomFichier]: c };
+    setChoix(suivant);
+    if (!f) return;
+    setErr(null); setOccupe("analyse");
+    const r = await apercuFichiersVentesPch(formulaire([f], suivant));
+    setOccupe(null);
+    if (!r.ok) { setErr(r.error); return; }
+    const nouveau = r.apercus[0];
+    if (nouveau) setApercus((liste) => liste?.map((x) => (x.nomFichier === a.nomFichier ? nouveau : x)) ?? null);
+    if (r.erreurs[0]) setErr(`${r.erreurs[0].nomFichier} : ${r.erreurs[0].error}`);
   };
   const appliquer = async () => {
     const aAppliquer = fichiers.filter((f) => apercus?.some((a) => a.nomFichier === f.name && !a.deja));
     if (!aAppliquer.length) return;
     setErr(null); setOccupe("application");
-    const r = await appliquerFichiersVentesPch(formulaire(aAppliquer));
+    const r = await appliquerFichiersVentesPch(formulaire(aAppliquer, choix));
     setOccupe(null);
     if (!r.ok) { setErr(r.error); return; }
-    setResultats(r.resultats); setApercus(null); setFichiers([]);
+    setResultats(r.resultats); setApercus(null); setFichiers([]); setChoix({});
     rafraichir();
   };
   const nouveaux = apercus?.filter((a) => !a.deja).length ?? 0;
@@ -108,7 +171,7 @@ export function TeleverserPch() {
       {erreurs.map((e) => <Erreur key={e.nomFichier} texte={`${e.nomFichier} : ${e.error}`} />)}
       {apercus && apercus.length > 0 && (
         <div className="space-y-2">
-          {apercus.map((a) => <CarteApercu key={a.empreinte} a={a} />)}
+          {apercus.map((a) => <CarteApercu key={a.empreinte} a={a} choix={choixDe(a)} onChoix={(c) => void choisir(a, c)} disabled={occupe !== null || enCours} />)}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="outline" onClick={() => { setApercus(null); setFichiers([]); }} className="w-full sm:w-auto">Annuler</Button>
             <Button onClick={appliquer} disabled={!nouveaux || occupe !== null || enCours} className="w-full sm:w-auto">

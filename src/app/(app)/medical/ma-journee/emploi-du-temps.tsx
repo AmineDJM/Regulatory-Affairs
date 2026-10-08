@@ -145,6 +145,16 @@ export function EmploiDuTemps({
 
   return (
     <div className="space-y-3">
+      {/* ── LE RAPPORT TERRAIN LIBRE, EN TÊTE (Direction, 10/2026) : le geste principal de « Ma journée » — la même
+          feuille que « Faire un rapport » du plan de tournée (visite hors plan, `ajouterVisiteImprevue`). ── */}
+      <Button
+        className="h-12 w-full text-sm sm:h-9 sm:w-auto"
+        onClick={() => { setErr(null); setImprevue(true); }}
+        disabled={occupe}
+      >
+        <Plus className="h-4 w-4" /> Faire un rapport terrain
+      </Button>
+
       {/* ── LES QUATRE VUES ─────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
         {/* Au téléphone, les vues forment une rangée qui glisse, à hauteur de pouce. */}
@@ -272,21 +282,13 @@ export function EmploiDuTemps({
 
       {/* La visite imprévue : un lien discret sous le tableau, pas un second gros bouton (Direction, 07/10). La
           pharmacovigilance à côté, du même poids. */}
-      <div className="flex flex-wrap items-center gap-x-4">
-        <button
-          type="button"
-          onClick={() => { setErr(null); setImprevue(true); }}
-          disabled={occupe}
-          className="inline-flex min-h-10 items-center gap-1.5 text-sm text-primary hover:underline disabled:opacity-50"
-        >
-          <Plus className="h-4 w-4" /> Visite imprévue
-        </button>
-        {lienPv && (
+      {lienPv && (
+        <div className="flex flex-wrap items-center gap-x-4">
           <Link href={lienPv} className="inline-flex min-h-10 items-center gap-1.5 text-sm text-warning hover:underline">
             <ShieldAlert className="h-4 w-4" /> Pharmacovigilance
           </Link>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── LE RAPPORT TERRAIN ──────────────────────────────────────────────── */}
       <FeuilleRapportVisite ouverte={ouverte} onClose={() => setOuverte(null)} gamme={gamme} stock={stock} executer={run} occupe={occupe} err={err}

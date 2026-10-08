@@ -9,6 +9,7 @@ import {
   apercuFichierPch, appliquerFichierPch, rattacherEtablissementPch, rattacherPostePch, reglerFournisseurPch,
   enregistrerDirectionRegionale, type Apercu,
 } from "@/lib/ventes-pch/service";
+import { lireChoixPeriode, type ChoixPeriode } from "@/lib/ventes-pch/calculs";
 
 /**
  * VENTES PCH — les gestes : voir l'aperçu d'un ou plusieurs fichiers (rien n'est écrit), les appliquer, rattacher un
@@ -29,6 +30,24 @@ function fichiersDe(formData: FormData): File[] {
   return formData.getAll("fichiers").filter((f): f is File => typeof f !== "string" && f.size > 0);
 }
 
+/**
+ * LES PÉRIODES CHOISIES, fichier par fichier : un champ `periodes` JSON `{ "<nom du fichier>": { annee, mois } }` (`mois` 1..12,
+ * ou « annuel »). Une entrée illisible est ignorée : le fichier garde alors la période lue sur ses dates.
+ */
+function periodesChoisies(formData: FormData): Map<string, ChoixPeriode> {
+  const out = new Map<string, ChoixPeriode>();
+  const brut = fdStr(formData, "periodes");
+  if (!brut) return out;
+  try {
+    const o = JSON.parse(brut) as Record<string, { annee?: unknown; mois?: unknown }>;
+    for (const [nom, v] of Object.entries(o ?? {})) {
+      const c = lireChoixPeriode(v?.annee, v?.mois);
+      if (c) out.set(nom, c);
+    }
+  } catch { /* champ illisible : aucune période choisie */ }
+  return out;
+}
+
 export type ResultatApercu = { ok: true; apercus: Apercu[]; erreurs: { nomFichier: string; error: string }[] } | { ok: false; error: string };
 
 /** APERÇU : chaque fichier est lu, sa nature et sa période reconnues, ses lignes rattachées — RIEN n'est écrit. */
@@ -38,9 +57,10 @@ export async function apercuFichiersVentesPch(formData: FormData): Promise<Resul
   const fichiers = fichiersDe(formData);
   if (!fichiers.length) return { ok: false, error: "Choisissez au moins un fichier." };
   const apercus: Apercu[] = [], erreurs: { nomFichier: string; error: string }[] = [];
+  const periodes = periodesChoisies(formData);
   for (const f of fichiers) {
     try {
-      const r = await apercuFichierPch(Buffer.from(await f.arrayBuffer()), f.name || "fichier.xlsx");
+      const r = await apercuFichierPch(Buffer.from(await f.arrayBuffer()), f.name || "fichier.xlsx", periodes.get(f.name) ?? null);
       if (r.ok) apercus.push(r.apercu); else erreurs.push({ nomFichier: f.name, error: r.error });
     } catch (e) {
       erreurs.push({ nomFichier: f.name, error: `Lecture impossible : ${e instanceof Error ? e.message : String(e)}` });
@@ -58,9 +78,10 @@ export async function appliquerFichiersVentesPch(formData: FormData): Promise<Re
   const fichiers = fichiersDe(formData);
   if (!fichiers.length) return { ok: false, error: "Choisissez au moins un fichier." };
   const resultats: { nomFichier: string; message: string; ok: boolean }[] = [];
+  const periodes = periodesChoisies(formData);
   for (const f of fichiers) {
     try {
-      const r = await appliquerFichierPch(Buffer.from(await f.arrayBuffer()), f.name || "fichier.xlsx", user.id);
+      const r = await appliquerFichierPch(Buffer.from(await f.arrayBuffer()), f.name || "fichier.xlsx", user.id, periodes.get(f.name) ?? null);
       if (!r.ok) { resultats.push({ nomFichier: f.name, message: r.error, ok: false }); continue; }
       if (r.deja) { resultats.push({ nomFichier: f.name, message: "Déjà importé — rien de changé.", ok: true }); continue; }
       const a = r.apercu;

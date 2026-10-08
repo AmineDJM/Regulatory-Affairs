@@ -29,6 +29,29 @@ export function moisEntre(debut: string, fin: string): string[] {
 export const dateDuMois = (mois: string): Date => new Date(`${mois}-01T00:00:00Z`);
 export const moisDeDate = (d: Date): string => d.toISOString().slice(0, 7);
 
+/**
+ * LA PÉRIODE CHOISIE PAR LA PERSONNE POUR UN FICHIER (Direction, 10/2026) : un mois précis de l'année donnée
+ * (`mois` = 1..12), ou « annuel » (`mois` = null) — chaque ligne garde alors son mois, ramené à l'année choisie.
+ * Sans choix, la période se lit sur les dates du fichier.
+ */
+export interface ChoixPeriode { annee: number; mois: number | null }
+
+/** Le mois (« 2026-05 ») sous lequel une ligne détectée au mois `detecte` s'enregistre, selon le choix. */
+export function moisSelonChoix(detecte: string, choix: ChoixPeriode | null | undefined): string {
+  if (!choix) return detecte;
+  const mm = choix.mois !== null ? String(choix.mois).padStart(2, "0") : detecte.slice(5, 7);
+  return `${choix.annee}-${mm}`;
+}
+
+/** Un choix lu sur un champ de formulaire — rejeté s'il n'est pas un mois (1..12) / une année (2000..2100) lisibles. */
+export function lireChoixPeriode(annee: unknown, mois: unknown): ChoixPeriode | null {
+  const a = Number(annee);
+  if (!Number.isInteger(a) || a < 2000 || a > 2100) return null;
+  if (mois === null || mois === undefined || mois === "" || mois === "annuel") return { annee: a, mois: null };
+  const m = Number(mois);
+  return Number.isInteger(m) && m >= 1 && m <= 12 ? { annee: a, mois: m } : null;
+}
+
 // ─────────────────────────── Périodes ───────────────────────────
 
 export type TypePeriode = "mois" | "trimestre" | "annee" | "12m";

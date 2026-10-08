@@ -15435,6 +15435,11 @@ model PchVenteImport {
   /// Les mois couverts (« 2026-05 »).
   mois          String[]            @default([])
   annuel        Boolean             @default(false)
+  /// LA PÉRIODE RETENUE (Direction, 10/2026) : l'année, et le mois (1..12 — nul quand le fichier est annuel). `periodeChoisie` :
+  /// vrai quand la personne a posé le mois / l'année à l'import au lieu de ceux lus sur les dates du fichier.
+  periodeAnnee   Int?
+  periodeMois    Int?
+  periodeChoisie Boolean            @default(false)
   lignes        Int                 @default(0)
   /// Les comptes de l'import (établissements, produits reconnus, non servis, retours…), figés à l'application.
   rapport       Json?
