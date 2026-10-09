@@ -106,6 +106,8 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // Budget Regulatory et Budget Operations & Sales (08/10) — mêmes enveloppes, bornées à leur pôle.
   BUDGET_REGULATORY: { domaines: ["FINANCE"], mots: ["budget regulatory", "budget reglementaire", "bv 25", "bv 75", "frais enregistrement"] },
   BUDGET_OPERATIONS: { domaines: ["FINANCE"], mots: ["budget operations", "masse salariale force de vente", "budget force de vente"] },
+  // Campagne budgétaire (10/2026) — propositions des pôles, revue, arbitrage. Aucun outil d'Adam : gestes d'écran.
+  BUDGET_CAMPAIGN: { domaines: ["FINANCE"], mots: ["campagne budgetaire", "budget 2027", "budgets 2027", "proposition budgetaire", "arbitrage budgetaire"] },
   FINANCES: { domaines: ["FINANCE"] },
   RH: { domaines: ["HR"] },
   RECRUITMENT: { domaines: ["HR"] },
@@ -113,8 +115,6 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   HR_REQUESTS: { domaines: ["HR"], mots: ["demandes rh", "attestation", "ordre de mission", "conge", "absence", "arret maladie"] },
   TRAINING: { domaines: ["HR"], mots: ["formation", "formations", "seminaire"] },
   PHARMACOVIGILANCE: { domaines: ["REGULATORY"], mots: ["pharmacovigilance", "effet indesirable", "cas pv", "signalement"] },
-  // Retours & réclamations (08/10) — retours, réclamations qualité, rappels de lot. Aucun outil d'Adam : gestes d'écran.
-  RETOURS_RECLAMATIONS: { domaines: ["DATA"], mots: ["retour", "retours", "reclamation", "reclamations", "rappel de lot", "lot defectueux"] },
   DOCUMENTS: { domaines: ["DRIVE"] },
   DRIVE: { domaines: ["DRIVE"] },
   ADMIN: { domaines: ["ADMIN"] },

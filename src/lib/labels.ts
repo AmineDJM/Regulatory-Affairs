@@ -934,7 +934,6 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   LEGAL_DOCUMENT: "Document légal",
   INVOICE: "Facture",
   PHARMACOVIGILANCE_CASE: "Cas de pharmacovigilance",
-  RECLAMATION: "Réclamation",
   STOCK_PCH_RELEVE: "Relevé du stock PCH",
 };
 
@@ -1816,10 +1815,10 @@ export const MODULE_LABELS: Record<Module, string> = {
   HR_REQUESTS: "Demandes RH",
   TRAINING: "Formations",
   PHARMACOVIGILANCE: "Pharmacovigilance",
-  RETOURS_RECLAMATIONS: "Retours & réclamations",
   PCH_VENTES: "Ventes PCH",
   KPI: "KPI & bilans",
   COCKPIT_OPERATIONS: "Cockpit Opérations",
+  BUDGET_CAMPAIGN: "Campagne budgétaire",
 };
 
 /**
@@ -2105,6 +2104,9 @@ export const NAVIGATION: NavItem[] = [
   // seulement l'encadrant.
   { module: "MY_TEAM", label: "Mon Équipe", href: "/mon-equipe", icon: "Users", group: "Pilotage", gate: "myTeam" },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/business-units", "/budgets/reglages"] },
+  // LA CAMPAGNE BUDGÉTAIRE (Budgets 2027, Direction 10/2026) — chaque pôle prépare, le comité valide, les enveloppes de
+  // l'année s'ouvrent d'elles-mêmes. Un responsable de département y entre par l'organigramme (accès implicite).
+  { module: "BUDGET_CAMPAIGN", label: "Campagne budgétaire", href: "/budget-campagne", icon: "PiggyBank", group: "Pôles", pole: "ADMINISTRATION", match: ["/budget-campagne"] },
 
   // MARKETING — séparé de « Operations & Sales » (Direction, 08/10 : « sépare Marketing et Sales »). Ce que la
   // Direction Marketing tient : son cockpit, la segmentation, les produits, Ad & Pro, le stock promotionnel et le site
@@ -2158,8 +2160,6 @@ export const NAVIGATION: NavItem[] = [
   // CONSUMPTION INTELLIGENCE n'a PLUS d'entrée de menu (Direction, 08/10 : « supprime ce module Consommation ou masque-le
   // de ma vue »). Seule l'ENTRÉE part : les écrans `/consommation`, leurs données et le module `CONSUMPTION` restent — ils
   // nourrissent l'affinité de la segmentation et la fiche Produits 360, qui y mènent encore par leurs liens.
-  // RETOURS & RÉCLAMATIONS (Direction, 08/10) — retours, réclamations qualité et rappels de lot, par BU.
-  { module: "RETOURS_RECLAMATIONS", label: "Retours & réclamations", href: "/retours-reclamations", icon: "Undo2", group: "Pôles", pole: "OPERATIONS_SALES" },
   // BUDGET OPERATIONS & SALES (Direction, 08/10) — la masse salariale de la force de vente et les dépenses hors Ad & Pro.
   { module: "BUDGET_OPERATIONS", label: "Budget Operations & Sales", href: "/budget-operations", icon: "PiggyBank", group: "Pôles", pole: "OPERATIONS_SALES", tabs: BUDGET_OPERATIONS_TABS, match: ["/budget-operations"] },
 

@@ -38,7 +38,23 @@ export type AiFeature =
    * LUNA ET LES KPI (KPI sans code, Direction 08/10) : traduire une phrase en définitions, pré-noter un KPI évalué avec
    * ses preuves, rédiger le commentaire d'une revue. Jamais le chiffre. Suit la bascule de l'assistant.
    */
-  | "kpi";
+  | "kpi"
+  /**
+   * LA VOIX DU TERRAIN (Marketing cockpit, Cockpit Opérations — 10/2026) : Luna range les rapports de visite en
+   * objections, signaux d'approvisionnement, opportunités, concurrence, pharmacovigilance, avec une citation MOT POUR
+   * MOT. Suit la bascule des rapports terrain (analyse IA des rapports).
+   */
+  | "voix_terrain"
+  /**
+   * L'ESSENTIEL D'UN PRODUIT (Produits 360, Direction 10/2026) : Luna choisit et formule trois points à partir des faits
+   * CALCULÉS de la fiche, chacun cité. Jamais un chiffre à elle. Suit la bascule de l'assistant.
+   */
+  | "produit_360"
+  /**
+   * LA CAMPAGNE BUDGÉTAIRE (Budgets 2027, 10/2026) : Luna rédige un brouillon de justification d'écart et résume ce qui a
+   * changé entre deux versions d'une proposition. Jamais un montant. Suit la bascule de l'assistant.
+   */
+  | "budget_campagne";
 
 export interface AiSettingsView {
   masterEnabled: boolean;
@@ -86,6 +102,9 @@ const FEATURE_KEY: Record<AiFeature, keyof AiSettingsView> = {
   lecture_pieces: "lecturePiecesEnabled",
   conseil_pieces: "conseilPiecesEnabled",
   kpi: "assistantEnabled",
+  voix_terrain: "fieldReportAiEnabled",
+  produit_360: "assistantEnabled",
+  budget_campagne: "assistantEnabled",
 };
 
 /**

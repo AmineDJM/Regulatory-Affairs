@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { taskCreationMode, creationNotices, CREATION_STATUS, type TaskCreationMode } from "@/lib/tasks/request-flow";
 import { rejouerNotifications } from "@/lib/notifications/ecrire";
+import { lienTache } from "@/lib/chemins/espace";
 
 /**
  * LE CŒUR canonique de la création de tâche — partagé par l'écran ET le Chief of Staff.
@@ -60,10 +61,12 @@ export async function createTaskRecord(
   // Prévenir chacun selon son rôle : le destinataire d'une DEMANDE reçoit une pop-up (elle
   // attend sa réponse), les participants et lecteurs la cloche.
   const notices = creationNotices({ creatorId: actorId, assignedToId: input.assignedToId, participantIds, readerIds, mode });
-  const link = `/mon-espace/taches/${created.id}`;
   if (notices.length) {
+    // La tâche s'ouvre dans la vue où elle se range POUR CHACUN : « À faire » (ou « à accepter ») pour qui
+    // la reçoit, « Partagées » pour un participant ou un lecteur.
     const lignes = notices.map((n) => ({
-      userId: n.userId, type: "ASSIGNMENT" as const, title: n.title, body: input.title, link, popup: n.popup,
+      userId: n.userId, type: "ASSIGNMENT" as const, title: n.title, body: input.title,
+      link: lienTache(created.id, n.userId === input.assignedToId ? undefined : "partagees"), popup: n.popup,
     }));
     try {
       await prisma.notification.createMany({ data: lignes });

@@ -5,8 +5,9 @@ import { saveFile } from "@/lib/storage";
 import { callLuna, lunaModel } from "@/lib/openai-luna";
 import { docxToPdf } from "@/lib/payslip/to-pdf";
 import { composerDocx, paragraphe, MIME_DOCX } from "@/lib/artifact/factory/word";
-import { profilDocumentaire } from "@/platform/in-process/artifact/factory";
+import { profilDocumentaire, resoudreSociete } from "@/platform/in-process/artifact/factory";
 import type { CurrentUser } from "@/lib/session";
+import { anneeDuRegistre, attribuerAuRegistre, registreDe, verifierReferenceLibre } from "@/lib/references/registre-serveur";
 import {
   ETAPE_DEMANDE_DEVIS, lettreDeSecours, lettreValide, texteDeLaLettre, quantiteEnLettre,
   type ArticleADeviser, type LettreDevis,
@@ -125,25 +126,62 @@ function blocsDeLaLettre(l: LettreDevis, m: { reference: string | null; signatai
 const nomDeFichier = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 120);
 
 export type DepotLettreDevis =
-  | { ok: true; parLuna: boolean; texte: string; pdf: boolean; surPapierEnTete: boolean }
+  | {
+    ok: true; parLuna: boolean; texte: string; pdf: boolean; surPapierEnTete: boolean;
+    /** La référence NNN/DG/AAAA attribuée au registre commun de la société ; `null` hors registre. */
+    referenceRegistre: string | null;
+  }
   | { ok: false; error: string };
+
+/**
+ * LA SOCIÉTÉ DONT LA LETTRE PORTE L'EN-TÊTE — et donc la référence : celle qu'on nomme, sinon celle du rédacteur (la même
+ * résolution que `profilDocumentaire`, que le champ « Référence » du formulaire lit aussi pour préremplir le prochain numéro).
+ */
+export async function societeDeLaLettre(user: CurrentUser, societeId: string | null): Promise<string | null> {
+  if (societeId) return societeId;
+  const r = await resoudreSociete(user.id, null).catch(() => null);
+  return r && r.ok ? r.societe.id : null;
+}
 
 /**
  * RÉDIGER, COMPOSER, DÉPOSER — sur chaque objet de `cibles` (le dossier ou le poste d'abord, puis la demande au secrétariat).
  * `societeId` : la société dont le papier en-tête habille la lettre (`null` : celle du rédacteur).
+ *
+ * LA RÉFÉRENCE (Direction, 10/2026 : « tout document généré doit avoir la numérotation NNN/DG/AAAA ») : quand la société tient
+ * le registre commun, la lettre prend le prochain numéro de son registre — ou `referenceChoisie`, saisie au formulaire et
+ * vérifiée (libre pour la société et l'année, tous documents confondus). Hors registre, `reference` (celle du dossier).
  */
 export async function deposerLettreDevis(
   user: CurrentUser,
   cibles: { entityType: EntityType; entityId: string }[],
-  d: ContenuDemandeDevis & { reference: string | null; societeId: string | null },
+  d: ContenuDemandeDevis & { reference: string | null; societeId: string | null; referenceChoisie?: string | null },
 ): Promise<DepotLettreDevis> {
   if (cibles.length === 0) return { ok: false, error: "Aucun objet où déposer la demande de devis." };
-  const { lettre, parLuna } = await redigerLettreDevis(d);
   const profil = await profilDocumentaire(user, d.societeId).catch(() => null);
+  const societeId = profil && profil.ok ? profil.profil.societe.id : d.societeId;
+  const annee = anneeDuRegistre();
+  const registre = await registreDe(societeId, annee);
+  const choisie = d.referenceChoisie?.trim() || null;
+  // Un numéro choisi se vérifie AVANT la rédaction (Luna peut prendre vingt secondes) ; il est réattribué sous verrou ensuite.
+  if (registre.actif && societeId && choisie) {
+    const libre = await verifierReferenceLibre(societeId, choisie, annee);
+    if (!libre.ok) return { ok: false, error: libre.motif };
+  }
+  const { lettre, parLuna } = await redigerLettreDevis(d);
+  let reference = d.reference;
+  let referenceRegistre: string | null = null;
+  if (registre.actif && societeId) {
+    const r = await attribuerAuRegistre({
+      companyId: societeId, annee, docType: "DEMANDE_DEVIS", entityType: cibles[0].entityType, entityId: cibles[0].entityId,
+      createdById: user.id, saisie: choisie,
+    });
+    if (!r.ok) return { ok: false, error: r.motif };
+    reference = referenceRegistre = r.reference;
+  }
   const habillage = profil && profil.ok ? profil.habillage : null;
   const composition = composerDocx({
     blocs: blocsDeLaLettre(lettre, {
-      reference: d.reference, signataire: user.name ?? "", societe: profil && profil.ok ? profil.profil.societe.nom : null, date: new Date(),
+      reference, signataire: user.name ?? "", societe: profil && profil.ok ? profil.profil.societe.nom : null, date: new Date(),
     }),
     base: habillage?.base ?? null,
     police: habillage?.police ?? undefined,
@@ -152,7 +190,7 @@ export async function deposerLettreDevis(
     auteur: user.name ?? "Adventum",
   });
   const pdf = await docxToPdf(composition.octets).catch(() => ({ ok: false as const, error: "conversion impossible" }));
-  const base = nomDeFichier(`Demande de devis — ${d.reference ?? d.titre}`);
+  const base = nomDeFichier(`Demande de devis — ${reference ?? d.titre}`);
   const fichiers: { nom: string; octets: Buffer; mime: string }[] = [
     ...(pdf.ok ? [{ nom: `${base}.pdf`, octets: pdf.pdf, mime: "application/pdf" }] : []),
     { nom: `${base}.docx`, octets: composition.octets, mime: MIME_DOCX },
@@ -169,10 +207,10 @@ export async function deposerLettreDevis(
       });
     }
   }
-  return { ok: true, parLuna, texte: texteDeLaLettre(lettre), pdf: pdf.ok, surPapierEnTete: composition.surPapierEnTete };
+  return { ok: true, parLuna, texte: texteDeLaLettre(lettre), pdf: pdf.ok, surPapierEnTete: composition.surPapierEnTete, referenceRegistre };
 }
 
-/** La phrase de fin d'un dépôt — ce qui est parti, et sous quelle forme. */
+/** La phrase de fin d'un dépôt — ce qui est parti, sous quelle forme, et sous quelle référence. */
 export function phraseDepotLettre(r: Extract<DepotLettreDevis, { ok: true }>): string {
-  return `Demande de devis ${r.pdf ? "en PDF et Word" : "en Word (le PDF n'a pas pu être produit)"}${r.surPapierEnTete ? ", sur papier en-tête" : ""}${r.parLuna ? ", rédigée par Luna" : ""}.`;
+  return `Demande de devis${r.referenceRegistre ? ` N° ${r.referenceRegistre}` : ""} ${r.pdf ? "en PDF et Word" : "en Word (le PDF n'a pas pu être produit)"}${r.surPapierEnTete ? ", sur papier en-tête" : ""}${r.parLuna ? ", rédigée par Luna" : ""}.`;
 }

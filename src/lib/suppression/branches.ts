@@ -96,6 +96,8 @@ export const REFERENTS: readonly Referent[] = [
     raison: "un lien « relié à… » arrivant sur la demande." },
   { modele: "MailLink", champType: "entityType", champId: "entityId", conduite: "EMPORTEE",
     raison: "un e-mail classé sur la demande — le lien part avec elle, l'e-mail reste dans la boîte." },
+  { modele: "AdProMedecin", champType: "entityType", champId: "entityId", conduite: "EMPORTEE",
+    raison: "un médecin concerné PAR la demande (bénéficiaire, orateur, invité) — le lien part avec elle, le praticien reste à l'annuaire ; resté seul, il gonflerait le cockpit marketing et la fiche du praticien d'une dépense disparue." },
 
   // ── COEUR : instantanés par le cœur de la suppression, ligne par ligne ───────────────────
   { modele: "Document", champType: "entityType", champId: "entityId", conduite: "COEUR",
@@ -130,6 +132,8 @@ export const REFERENTS: readonly Referent[] = [
     raison: "un rappel interne d'Adam : comme ses surveillances, il constate lui-même que sa cible a disparu." },
   { modele: "LecturePieceConfirmation", champType: "cibleType", champId: "cibleId", conduite: "HISTOIRE",
     raison: "une ATTESTATION (lot D2) : une personne a relu, ligne à ligne, ce qu'une lecture proposait — l'audit porte son nom. On ne réécrit pas le passé : elle reste quand la pièce part, et une pièce restaurée la retrouve par son identifiant." },
+  { modele: "DocumentReference", champType: "entityType", champId: "entityId", conduite: "HISTOIRE",
+    raison: "le REGISTRE COMMUN des références NNN/DG/AAAA (Direction, 10/2026) : un numéro attribué ne se réutilise jamais — la ligne reste quand le document part, sinon son numéro redeviendrait libre et serait donné à un autre document." },
 ];
 
 /**
@@ -323,6 +327,7 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   RowGrant: ["droit sur la ligne", "droits sur la ligne"],
   EntityLink: ["lien « relié à »", "liens « relié à »"],
   MailLink: ["e-mail classé", "e-mails classés"],
+  AdProMedecin: ["médecin concerné", "médecins concernés"],
   PchContractLine: ["ligne de marché", "lignes de marché"],
   // Le registre des projets (§118.163) : ce qu'un projet emporte, et ce qui perd son lien avec lui.
   BdRange: ["gamme", "gammes"],

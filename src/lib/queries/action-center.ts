@@ -12,6 +12,7 @@ import { clauseDemandesSecretariatVisibles } from "@/lib/queries/visibilite-list
 import { libelleEtape } from "@/lib/promo-material/circuit";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { polesLisibles } from "@/lib/lecteurs/consulting";
+import { reécriteLienNotification } from "@/lib/notifications/lien-actuel";
 import type { PromoMaterialStatus } from "@prisma/client";
 import {
   type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, PROMO_MATERIAL_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS, DOSSIER_STATUS,
@@ -927,7 +928,7 @@ export async function getActionCenter(user: SessionUser) {
   let notifications: ActionNotification[] = [];
   if (userCan(user, "NOTIFICATIONS", "VIEW")) {
     const notifs = await prisma.notification.findMany({ where: { userId: user.id, isRead: false }, orderBy: { createdAt: "desc" }, take: 20 });
-    notifications = notifs.map((n) => ({ id: n.id, title: n.title, body: n.body ?? "", link: n.link ?? "", type: n.type, createdAt: n.createdAt.toISOString() }));
+    notifications = notifs.map((n) => ({ id: n.id, title: n.title, body: n.body ?? "", link: reécriteLienNotification(n.link) ?? "", type: n.type, createdAt: n.createdAt.toISOString() }));
   }
 
   const isOverdue = (i: ActionItem) => i.deadline !== null && new Date(i.deadline) < now;

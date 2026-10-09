@@ -62,10 +62,16 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
   // sur ses spécialités resterait en base, à moitié montée, sans que personne l'ait voulue.
   const voulues = await specialitesDemandees(formData.getAll("specialtyIds").map(String), fdStr(formData, "principaleId"));
   if (!voulues.ok) return { ok: false, error: voulues.error };
+  // LE DÉPARTEMENT de la BU dans l'organigramme — demandé dès la création (il se règle aussi à l'étape d'identité).
+  const departmentId = fdStr(formData, "departmentId") || null;
+  if (departmentId && !(await prisma.department.findUnique({ where: { id: departmentId }, select: { id: true } }))) {
+    return { ok: false, error: "Ce département n'existe plus — rechargez l'écran." };
+  }
   const created = await prisma.$transaction(async (tx) => {
     const bu = await tx.businessUnit.create({
     data: {
       name,
+      departmentId,
       code: fdStr(formData, "code") ?? undefined,
       color: fdStr(formData, "color") ?? undefined,
       companyId: fdStr(formData, "companyId") || null,
@@ -100,10 +106,16 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
   // la couleur, l'entité, le chef et le superviseur à chaque fois. Les clés se lisent EN LITTÉRAL, pour
   // que la fiche de l'action les dise. Un nom porté VIDE ne s'écrit pas : une BU garde toujours un nom.
   const nom = fdStr(formData, "name");
+  // LE DÉPARTEMENT DE LA BU (l'organigramme, seule source — Direction 10/2026) : choisi à l'étape d'identité.
+  const departmentId = formData.has("departmentId") ? fdStr(formData, "departmentId") || null : undefined;
+  if (departmentId && !(await prisma.department.findUnique({ where: { id: departmentId }, select: { id: true } }))) {
+    return { ok: false, error: "Ce département n'existe plus — rechargez l'écran." };
+  }
   await prisma.businessUnit.update({
     where: { id },
     data: {
       ...(nom ? { name: nom } : {}),
+      ...(departmentId !== undefined ? { departmentId } : {}),
       ...(formData.has("code") ? { code: fdStr(formData, "code") } : {}),
       ...(formData.has("color") ? { color: fdStr(formData, "color") } : {}),
       ...(formData.has("companyId") ? { companyId: fdStr(formData, "companyId") || null } : {}),

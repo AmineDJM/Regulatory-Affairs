@@ -54,6 +54,10 @@ import {
 } from "@/lib/artifact/factory/commercial";
 import { construireDossier } from "@/lib/artifact/factory/dossier";
 import { charteDe, lireMarque, mentionsDe, resumerMarque, signatairePour, type Charte, type Marque } from "@/lib/brand/model";
+import {
+  attribuerReference, estMotifDg, largeurDuMotif, plancherRegistre, registreActif, typeSurRegistre, validerReferenceSaisie,
+} from "@/lib/references/registre";
+import { magasinPrisma, prevoirReference, rattacherReference } from "@/lib/references/registre-serveur";
 import type { DonneesCanoniques } from "@/lib/artifact/factory/canonical";
 import { MIME_DOCX } from "@/lib/artifact/factory/word";
 import { MIME_XLSX } from "@/lib/artifact/adapters/xlsx/adapter";
@@ -105,6 +109,11 @@ export interface ReglagesDocumentaires {
    * — « commencer à 032/DG/2026 » — qui ne le fait jamais reculer. Vide = la série commence à 1.
    */
   numerotationDepart: DepartsNumerotation;
+  /**
+   * LA SOCIÉTÉ TIENT LE REGISTRE COMMUN NNN/DG/AAAA (`settings.registreDG`, ou des BC déjà au motif /DG/) : ses bons de commande
+   * — et toute nature au motif /DG/ — prennent leur numéro au compteur COMMUN de la société (`lib/references/registre.ts`).
+   */
+  registreDG?: boolean;
   /** Vrai si un profil a été enregistré ; faux = ce sont les défauts du code. */
   existe: boolean;
 }
@@ -269,7 +278,8 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
     ? {
       quotePrefix: profil.quotePrefix, orderPrefix: profil.orderPrefix, invoicePrefix: profil.invoicePrefix, vatRate: Number(profil.vatRate),
       paymentTerms: profil.paymentTerms, quoteValidityDays: profil.quoteValidityDays, footerNote: profil.footerNote, letterheadId: profil.letterheadId,
-      signatoryName: profil.signatoryName, signatoryTitle: profil.signatoryTitle, numerotation: lireNumerotation(profil.settings), numerotationDepart: lireNumerotationDepart(profil.settings), existe: true,
+      signatoryName: profil.signatoryName, signatoryTitle: profil.signatoryTitle, numerotation: lireNumerotation(profil.settings), numerotationDepart: lireNumerotationDepart(profil.settings),
+      registreDG: registreActif(profil.settings), existe: true,
     }
     // UNE COPIE, jamais la constante : les standards enseignés ci-dessous ÉCRIVENT dans `reglages`.
     // Sans copie, la première société qui appliquait « 60 jours » le laissait dans les défauts du
@@ -494,6 +504,11 @@ export interface DemandeDocument {
   /** Émettre même si une pièce au contenu identique existe déjà. */
   forcerDoublon?: boolean;
   sansPdf?: boolean;
+  /**
+   * Pour une pièce au REGISTRE COMMUN NNN/DG/AAAA (`ApercuDocument.surRegistre`) : la référence choisie à la génération
+   * (ex. « 040/DG/2026 »), unique pour la société et l'année, tous documents confondus. Vide = le prochain numéro libre.
+   */
+  numeroChoisi?: string | null;
 }
 
 /** Ce que le registre garde de la pièce, sous `LegalDocument.custom.fabrique`. */
@@ -794,6 +809,22 @@ async function jugerPieceAmont(user: CurrentUser, type: TypeDocumentCommercial, 
 }
 
 class PlafondAvoirDepasse extends Error {}
+/** Un numéro choisi refusé SOUS VERROU (pris entre la vérification et l'écriture) : la transaction est annulée, le refus dit. */
+class ReferenceRefusee extends Error {}
+
+/**
+ * LA PIÈCE VA-T-ELLE AU REGISTRE COMMUN NNN/DG/AAAA (Direction, 10/2026) ? Le BC d'une société qui le tient, et toute nature
+ * au motif /DG/ : son numéro vient du compteur COMMUN de la société (ordres de mission, demandes de devis… compris), pas de
+ * la série de sa nature. `null` : la pièce garde sa série (`attribuerNumero`).
+ */
+function registreDeLaPiece(type: TypeDocumentCommercial, profil: ProfilDocumentaire, annee: number): { plancher: number; largeur: number } | null {
+  const motif = profil.reglages.numerotation[type] ?? null;
+  if (!typeSurRegistre(type, motif, profil.reglages.registreDG === true)) return null;
+  return {
+    plancher: plancherRegistre({ numerotation: profil.reglages.numerotation, numerotationDepart: profil.reglages.numerotationDepart }, annee),
+    largeur: estMotifDg(motif) ? largeurDuMotif(motif) : 3,
+  };
+}
 
 /** « par Adam » ou « par <la personne> » — la même lecture pour la pièce, l'audit et la révision. */
 function parQui(user: CurrentUser, canal: OptionsEmission["canal"]): string {
@@ -906,6 +937,17 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   const annee = Number(base.date.slice(0, 4));
   const prefixe = prefixeDe(type, profil);
   const totaux = essai.totaux;
+  // LE REGISTRE COMMUN NNN/DG/AAAA (Direction, 10/2026) : la pièce y prend son numéro — le prochain, ou celui CHOISI à la
+  // génération (vérifié ici sur sa forme, puis sous verrou sur son unicité, tous types de documents de la société confondus).
+  const registre = Number.isFinite(annee) ? registreDeLaPiece(type, profil, annee) : null;
+  const saisie = demande.numeroChoisi?.trim() || null;
+  if (saisie && !registre) {
+    return echec("MISSING_INPUT", `${profil.societe.nom} ne tient pas le registre NNN/DG/AAAA pour cette pièce (${LIBELLE_TYPE[type].toLowerCase()}) : son numéro vient de sa série et ne se choisit pas. Laissez le champ vide.`);
+  }
+  if (saisie && registre) {
+    const v = validerReferenceSaisie(saisie, annee, registre.largeur);
+    if (!v.ok) return echec("MISSING_INPUT", v.motif);
+  }
   let cree: { id: string; fabrique: Fabrique };
   try {
   cree = await prisma.$transaction(async (tx) => {
@@ -916,8 +958,20 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
       const refus = refusPlafondAvoir(facture.numero, totaux.totalTtc, resteACrediter(facture.ttc, await montantsDesAvoirsActifs(facture.id, tx)));
       if (refus) throw new PlafondAvoirDepasse(refus);
     }
-    const seq = await attribuerNumero(tx, profil.societe.id, kind, annee, departDe(profil.reglages.numerotationDepart, type, annee));
-    const numero = formaterNumero(prefixe, annee, seq, profil.reglages.numerotation[type] ?? null);
+    let numero: string;
+    let entreeRegistre: string | null = null;
+    if (registre) {
+      const r = await attribuerReference(magasinPrisma(tx), {
+        companyId: profil.societe.id, annee, plancher: registre.plancher, largeur: registre.largeur,
+        docType: type, entityType: "LEGAL_DOCUMENT", entityId: null, createdById: user.id, saisie,
+      });
+      if (!r.ok) throw new ReferenceRefusee(r.motif);
+      numero = r.reference;
+      entreeRegistre = r.id;
+    } else {
+      const seq = await attribuerNumero(tx, profil.societe.id, kind, annee, departDe(profil.reglages.numerotationDepart, type, annee));
+      numero = formaterNumero(prefixe, annee, seq, profil.reglages.numerotation[type] ?? null);
+    }
     const fabrique: Fabrique = {
       version: 1, etat: "EN_COURS", type, empreinte, societeId: profil.societe.id, numero,
       spec: { ...base, numero }, totaux: resumeTotaux(totaux), docx: null, pdf: null,
@@ -942,10 +996,11 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
       },
       select: { id: true },
     });
+    if (entreeRegistre) await rattacherReference(entreeRegistre, "LEGAL_DOCUMENT", doc.id, tx);
     return { id: doc.id, fabrique };
   });
   } catch (e) {
-    if (e instanceof PlafondAvoirDepasse) return echec("MISSING_INPUT", e.message);
+    if (e instanceof PlafondAvoirDepasse || e instanceof ReferenceRefusee) return echec("MISSING_INPUT", e.message);
     throw e;
   }
   return terminerEmission(user, cree.id, cree.fabrique, habillage, demande, profil, { repris: false, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null, canal: opts.canal ?? null });
@@ -1012,6 +1067,8 @@ export interface ApercuDocument {
   /** Le numéro que la PROCHAINE émission recevra si personne n'émet entre-temps — prévu, pas réservé. */
   numeroProchain: string;
   motif: string | null;
+  /** La pièce prend son numéro au REGISTRE COMMUN NNN/DG/AAAA : il peut être CHOISI à l'émission (`DemandeDocument.numeroChoisi`). */
+  surRegistre: boolean;
   papierEnTete: { id: string; nom: string } | null;
   identiteIncomplete: string[];
   /** La spécification telle qu'elle sera composée, numéro prévu compris. */
@@ -1077,10 +1134,14 @@ export async function previsualiserDocument(
   const prefixe = prefixeDe(type, profil);
   const motif = profil.reglages.numerotation[type] ?? null;
   const anneeSure = Number.isFinite(annee) ? annee : new Date().getUTCFullYear();
-  const seq = await prisma.documentSequence.findUnique({ where: { companyId_kind_year: { companyId: profil.societe.id, kind, year: anneeSure } }, select: { last: true } });
-  const numeroProchain = formaterNumero(prefixe, anneeSure, prochaineSequence(seq?.last ?? 0, departDe(profil.reglages.numerotationDepart, type, anneeSure)), motif);
+  // Au registre commun NNN/DG/AAAA, le prévu se lit au compteur COMMUN de la société (et saute les numéros déjà choisis).
+  const registre = registreDeLaPiece(type, profil, anneeSure);
+  const seq = registre ? null : await prisma.documentSequence.findUnique({ where: { companyId_kind_year: { companyId: profil.societe.id, kind, year: anneeSure } }, select: { last: true } });
+  const numeroProchain = registre
+    ? await prevoirReference(profil.societe.id, anneeSure, registre)
+    : formaterNumero(prefixe, anneeSure, prochaineSequence(seq?.last ?? 0, departDe(profil.reglages.numerotationDepart, type, anneeSure)), motif);
   const spec: SpecDocumentCommercial = { ...base, numero: opts.numeroAffiche?.trim() || numeroProchain };
-  const commun = { ok: true as const, societe: { id: profil.societe.id, nom: profil.societe.nom }, numeroProchain, motif, papierEnTete: profil.papierEnTete, identiteIncomplete: profil.identiteIncomplete, spec, pdfParEditeur: convertConfigured() };
+  const commun = { ok: true as const, societe: { id: profil.societe.id, nom: profil.societe.nom }, numeroProchain, motif, surRegistre: registre !== null, papierEnTete: profil.papierEnTete, identiteIncomplete: profil.identiteIncomplete, spec, pdfParEditeur: convertConfigured() };
   // LA PIÈCE AMONT SE JUGE DÈS L'APERÇU (lot D1c — F1) : l'écran ne propose pas d'émettre ce que l'émission refusera.
   const amontId = (demande.chainFromId ?? "").trim() || null;
   const refusAmont = amontId && type !== "AVOIR" ? await jugerPieceAmont(user, type, amontId, profil.societe.id) : null;

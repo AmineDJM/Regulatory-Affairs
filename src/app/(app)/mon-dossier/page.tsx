@@ -24,6 +24,7 @@ import { modulesPretables, congeTermine } from "@/lib/hr/stand-in";
 import { detenteurPourInterim } from "@/lib/hr/stand-in-resolve";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
+import { ANCRE_MES_CONGES, ANCRE_MES_DEMANDES_RH, ancreDemandeRh } from "@/lib/chemins/rh";
 
 export const dynamic = "force-dynamic";
 
@@ -143,7 +144,9 @@ export default async function MonDossierPage() {
         </Card>
       </div>
 
-      <Card>
+      {/* LES ANCRES DES NOTIFICATIONS (`chemins/rh`) : « Congé approuvé », « Message sur votre demande de
+          congé »… mènent ici, et une réponse des RH sur UNE demande mène à SA ligne. */}
+      <Card id={ANCRE_MES_CONGES} className="scroll-mt-20">
         <CardHeader>
           <CardTitle>Mes congés et absences</CardTitle>
         </CardHeader>
@@ -161,7 +164,7 @@ export default async function MonDossierPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id={ANCRE_MES_DEMANDES_RH} className="scroll-mt-20">
         <CardHeader>
           <CardTitle>Mes demandes RH</CardTitle>
         </CardHeader>
@@ -171,7 +174,7 @@ export default async function MonDossierPage() {
           ) : (
             <ul className="divide-y divide-border">
               {dossier.requests.map((r) => (
-                <li key={r.id} className="space-y-2 px-3 py-3 sm:px-4">
+                <li key={r.id} id={ancreDemandeRh(r.id)} className="scroll-mt-20 space-y-2 px-3 py-3 sm:px-4">
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

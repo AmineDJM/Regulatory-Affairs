@@ -11,7 +11,8 @@ import { CHANNELS, CHANNEL_LABELS, channelCovers, channelLabel, type Channel, ty
 import { TerritoireKam, type TerritoireRow } from "./territoire-kam";
 import { WilayaPivotKam } from "./wilaya-pivot";
 import type { EtabOpt } from "./choix-etablissements";
-import type { BuRow, KamRow, Opt, ProductRow, ReferentRow } from "./bu-manager";
+import type { BuRow, KamRow, LectureOrg, Opt, ProductRow, ReferentRow } from "./bu-manager";
+import { InfoBulle } from "@/components/ui/info-bulle";
 
 /**
  * LES ÉTAPES DU MONTAGE D'UNE BU (Direction, 07/10 : « découpées en étapes au lieu d'un écran de 14 blocs ») — la BU et
@@ -37,13 +38,36 @@ const Titre = ({ icone, children }: { icone?: React.ReactNode; children: React.R
 
 // ───────────────────────────── 1. La BU et son superviseur ─────────────────────────────
 
-export function EtapeIdentite({ bu, companies, supervisors, users, steps, saveBu, busy, run, referentsInside, referentsEligibles }: {
+export function EtapeIdentite({ bu, companies, supervisors, users, steps, saveBu, busy, run, referentsInside, referentsEligibles, departements = [], lectureOrg = null }: {
   bu: BuRow; companies: Opt[]; supervisors: Opt[]; users: Opt[]; steps: BuStep[];
   saveBu: (patch: Partial<BuRow>) => void; busy: boolean; run: Run;
   referentsInside: ReferentRow[]; referentsEligibles: Opt[];
+  /** Les départements de l'organigramme — la seule source (Direction, 10/2026). */
+  departements?: Opt[];
+  lectureOrg?: LectureOrg | null;
 }) {
+  const nomDe = (id: string | null) => (id ? users.find((u) => u.id === id)?.name ?? supervisors.find((u) => u.id === id)?.name ?? null : null);
+  const propose = lectureOrg?.propose && lectureOrg.propose !== bu.supervisorId ? lectureOrg.propose : null;
+  // Le superviseur proposé n'est pas toujours dans la liste des candidats par rôle : il reste choisissable.
+  const candidats = propose && !supervisors.some((s) => s.id === propose) ? [...supervisors, { id: propose, name: nomDe(propose) ?? "Responsable du département" }] : supervisors;
   return (
     <div className="space-y-5">
+      <section className="space-y-2">
+        <Titre>Département</Titre>
+        <div className="flex flex-wrap items-center gap-2">
+          <select key={bu.departmentId ?? ""} className={`${inputCls} min-w-56`} defaultValue={bu.departmentId ?? ""} onChange={(e) => saveBu({ departmentId: e.target.value || null })} aria-label="Département de la BU">
+            <option value="">— Département (organigramme) —</option>
+            {departements.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <InfoBulle label="Pourquoi le département">
+            L&apos;organigramme est la seule source : la BU pointe sur son département, son superviseur en découle (le responsable du
+            département), et son budget est celui de ce département.
+          </InfoBulle>
+        </div>
+        {!bu.departmentId && (
+          <p className="text-xs text-amber-700 dark:text-amber-500">Rattachez la BU à son département — ou ouvrez son budget pour lui créer son sous-département.</p>
+        )}
+      </section>
       <section className="space-y-2">
         <Titre>Identité</Titre>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -93,15 +117,24 @@ export function EtapeIdentite({ bu, companies, supervisors, users, steps, saveBu
       <section className="space-y-2">
         <Titre>Supervision &amp; terrain</Titre>
         <div className="flex flex-wrap items-center gap-2">
-          <select className={inputCls} defaultValue={bu.supervisorId ?? ""} onChange={(e) => saveBu({ supervisorId: e.target.value || null })}>
+          <select key={bu.supervisorId ?? ""} className={inputCls} defaultValue={bu.supervisorId ?? ""} onChange={(e) => saveBu({ supervisorId: e.target.value || null })}>
             <option value="">— Superviseur —</option>
-            {supervisors.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {candidats.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
+          {propose && (
+            <button type="button" disabled={busy} onClick={() => saveBu({ supervisorId: propose })}
+              className="rounded-lg border border-input px-2.5 py-2 text-xs hover:bg-secondary disabled:opacity-60 sm:py-1">
+              Proposé : {nomDe(propose) ?? "le responsable du département"} — appliquer
+            </button>
+          )}
           <select className={inputCls} defaultValue={bu.channel} onChange={(e) => saveBu({ channel: e.target.value })}>
             {CHANNELS.map((c) => <option key={c} value={c}>Terrain : {CHANNEL_LABELS[c]}</option>)}
           </select>
         </div>
         {!bu.supervisorId && <p className="text-xs text-muted-foreground">{steps.find((s) => s.key === "SUPERVISEUR")!.why}</p>}
+        {bu.supervisorId && (lectureOrg?.horsLigne.length ?? 0) > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-500">Hors de la ligne hiérarchique de : {lectureOrg!.horsLigne.join(", ")}.</p>
+        )}
       </section>
 
       <section className="space-y-2">

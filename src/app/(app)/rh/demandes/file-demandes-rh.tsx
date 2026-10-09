@@ -40,7 +40,7 @@ const VIDE: Record<FiltreDemandes, string> = {
   pretes: "Aucune demande prête ces 30 derniers jours.",
 };
 
-export function FileDemandesRh({ demandes, filtre, referenceOrdreMission, currentUserId, lienFiche, maintenant }: {
+export function FileDemandesRh({ demandes, filtre, referenceOrdreMission, currentUserId, lienFiche, maintenant, demandeAOuvrir }: {
   demandes: HrQueueItem[];
   filtre: FiltreDemandes;
   referenceOrdreMission: string;
@@ -49,8 +49,14 @@ export function FileDemandesRh({ demandes, filtre, referenceOrdreMission, curren
   lienFiche: boolean;
   /** L'instant du serveur (ISO) : le rendu et l'hydratation disent la même ancienneté. */
   maintenant: string;
+  /** ID de la demande à ouvrir automatiquement via query param (?demande=...) */
+  demandeAOuvrir?: string | null;
 }) {
-  const [ouverte, setOuverte] = React.useState<string | null>(null);
+  const [ouverte, setOuverte] = React.useState<string | null>(demandeAOuvrir ?? null);
+  // Arrivé par une notification : la ligne ouverte vient sous les yeux, pas en bas d'une longue file.
+  React.useEffect(() => {
+    if (demandeAOuvrir) document.getElementById(`demande-${demandeAOuvrir}`)?.scrollIntoView({ block: "start" });
+  }, [demandeAOuvrir]);
   return (
     <section className="surface overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
@@ -141,7 +147,7 @@ function LigneDemande({ r, ouverte, basculer, referenceOrdreMission, currentUser
   };
 
   return (
-    <li>
+    <li id={`demande-${r.id}`} className="scroll-mt-20">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)_auto_auto]">
         <div className="flex min-w-0 items-center gap-2.5">
           <Initiales nom={r.employeeName} />

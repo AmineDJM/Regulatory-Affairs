@@ -12,6 +12,9 @@ import {
   PAYMENT_CENTRE_REFUSAL,
 } from "@/lib/payments/authorization";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { dossierHrefByOrder } from "@/lib/expense-orders";
+import { ENTITE_SANS, slugSectionDeLOrdre } from "@/lib/payments/sections-centre";
+import { lienCentreDePaiement, lienOrdreAPayer } from "@/lib/chemins/finances";
 
 /**
  * LE CENTRE DE PAIEMENT — le PDG et le Super Admin autorisent, la comptabilité exécute.
@@ -198,16 +201,18 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
       type: "VALIDATION_REQUIRED",
       title: "Paiement autorisé — à régler",
       body: `${order.reference} — ${order.label} (${money})`,
-      link: "/finances/paiements-a-faire",
+      link: lienOrdreAPayer(id),
     });
   }
   if (order.requestedById) {
+    // Le demandeur ne siège pas au centre : il va sur SON dossier (la demande qui porte l'ordre).
+    const dossier = await dossierHrefByOrder([id]).then((m) => m.get(id)).catch(() => undefined);
     await notifyUser({
       userId: order.requestedById,
       type: next === "APPROVED" ? "GENERIC" : "VALIDATION_REQUIRED",
       title: `Centre de paiement — ${CENTRAL_DECISION_LABEL[decision]}`,
       body: `${order.reference} — ${order.label} (${money})${body.trim() ? ` : ${body.trim().slice(0, 200)}` : ""}`,
-      link: PATH,
+      link: dossier ?? PATH,
     });
   }
 
@@ -233,7 +238,7 @@ export async function respondToPaymentCentre(formData: FormData): Promise<Action
 
   const order = await prisma.expenseOrder.findUnique({
     where: { id },
-    select: { id: true, reference: true, label: true, amount: true, centralStatus: true, requestedById: true },
+    select: { id: true, reference: true, label: true, amount: true, centralStatus: true, requestedById: true, companyId: true, sourceType: true },
   });
   if (!order) return { ok: false, error: "Ordre de dépense introuvable." };
 
@@ -263,7 +268,7 @@ export async function respondToPaymentCentre(formData: FormData): Promise<Action
     type: "VALIDATION_REQUIRED",
     title: "Réponse reçue — autorisation à reprendre",
     body: `${order.reference} — ${order.label} (${Number(order.amount).toLocaleString("fr-FR")} DZD)`,
-    link: PATH,
+    link: lienCentreDePaiement(order.companyId ?? ENTITE_SANS, slugSectionDeLOrdre(order.sourceType)),
   });
 
   revalidatePath(PATH);

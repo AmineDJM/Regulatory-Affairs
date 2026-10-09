@@ -25,8 +25,10 @@ import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { rouvrirDemandeAuSecretariat, fermerDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
 import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis, joindreLettreDeDevis } from "@/lib/promo-automatismes";
-import { phraseDepotLettre } from "@/lib/demande-devis-depot";
+import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis, joindreLettreDeDevis, societeDuDossier } from "@/lib/promo-automatismes";
+import { phraseDepotLettre, societeDeLaLettre } from "@/lib/demande-devis-depot";
+import { saisieEffective, type ReferenceProchaine } from "@/lib/references/registre";
+import { etatDuRegistre } from "@/lib/references/registre-serveur";
 import { natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
 import { refusDeRangement } from "@/lib/promo-material/rangement";
 import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
@@ -159,11 +161,25 @@ export async function regenererDemandeDevisPromo(formData: FormData): Promise<Ac
   if (v) return { ok: false, error: v };
   if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) génère la demande de devis de ce dossier." };
   const enCours = await prisma.promoMaterial.findUnique({ where: { id: pm.id }, select: { adminRequestId: true } });
-  const r = await joindreLettreDeDevis(user, pm.id, enCours?.adminRequestId ?? null);
+  // La référence NNN/DG/AAAA (registre commun) : préremplie avec le prochain numéro ; modifiée, elle est vérifiée puis attribuée.
+  const r = await joindreLettreDeDevis(user, pm.id, enCours?.adminRequestId ?? null, saisieEffective(fdStr(formData, "reference"), fdStr(formData, "referenceSuggeree")));
   if (!r.ok) return { ok: false, error: r.error };
   await audit(user, pm.id, "Demande de devis (lettre) générée.");
   revalidatePath(chemin(pm.id));
   return { ok: true, message: phraseDepotLettre(r) };
+}
+
+/**
+ * LA RÉFÉRENCE QUE PORTERA LA LETTRE DE DEMANDE DE DEVIS DU DOSSIER (registre commun NNN/DG/AAAA, Direction 10/2026) — ce que
+ * le champ « Référence » préremplit : la société du dossier (celle dont le papier en-tête habille la lettre), si elle tient le
+ * registre, et son prochain numéro — PRÉVU, rien n'est réservé. Lecture seule ; mêmes personnes que la génération.
+ */
+export async function referenceDemandeDevisPromo(formData: FormData): Promise<ReferenceProchaine> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) génère la demande de devis de ce dossier." };
+  return etatDuRegistre(await societeDeLaLettre(user, await societeDuDossier(pm)));
 }
 
 /**

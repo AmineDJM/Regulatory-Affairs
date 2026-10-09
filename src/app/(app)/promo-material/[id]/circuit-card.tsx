@@ -1,12 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, Clock, FileCheck2, Rocket, XCircle, Undo2, RotateCcw } from "lucide-react";
+import { Loader2, AlertCircle, BadgeCheck, BellRing, CheckCircle2, Circle, Clock, FileCheck2, Rocket, Send, XCircle, Undo2, RotateCcw } from "lucide-react";
 import {
   startPromoCircuit, markQuoteReceived, validatePromoStep, refusePromoStep, completePromoTrack,
-  renvoyerPromoStep, resoumettrePromoDemande,
+  renvoyerPromoStep, resoumettrePromoDemande, relancerPromo,
 } from "@/lib/actions/promo-circuit-actions";
+import { demanderDevisPromo, terminerRetranscriptionPromo } from "@/lib/actions/promo-devis-actions";
+import { genererBonsDeCommandePromo, marquerBonDeCommandeEnvoye } from "@/lib/actions/promo-execution-actions";
 import type { PromoTrack } from "@/lib/promo-material/circuit";
+import type { ChiffresDuDossier, EtapeFiche, GesteFiche, OuEnEst } from "@/lib/promo-material/fiche";
+import { MenuLigne, emettreGeste } from "./menu-ligne";
 import { Button } from "@/components/ui/button";
 import { Textarea, Label } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -288,5 +292,235 @@ export function PromoCircuitCard(p: Props) {
         </form>
       )}
     </div>
+  );
+}
+
+// ═══════════════════════ CIRCUIT 2 — LA CARTE DU DOSSIER (maquette validée, 10/2026) ═══════════════════════
+
+export interface StatutProps {
+  id: string;
+  frise: EtapeFiche[];
+  chiffres: ChiffresDuDossier;
+  ou: OuEnEst;
+  /** Le geste utile à la personne qui regarde — `null` : en attente (ou rien à faire). */
+  geste: GesteFiche | null;
+  /** Relancer la personne attendue (demandeur, assistante, pilotes, Direction) — tranché au serveur. */
+  peutRelancer: boolean;
+  canRenvoyer: boolean;
+  canRefuser: boolean;
+  renvoi: { depuis: string; quand: string; motif: string } | null;
+  /** La demande au secrétariat avant son départ : son texte exact. */
+  apercuDemandeDevis: string | null;
+  /** Ce qui empêche encore de terminer la retranscription — dit par le serveur. */
+  manques: string[];
+  /** Les chantiers encore ouverts : « Clore le dossier » les clôt l'un après l'autre. */
+  chantiersOuverts: PromoTrack[];
+}
+
+const nombreDzd = (n: number | null) => (n == null ? "—" : n.toLocaleString("fr-FR", { maximumFractionDigits: 0 }));
+
+/** Le point de la frise — fait (vert), ici (bleu), arrêté (rouge), à venir. */
+const POINT: Record<EtapeFiche["etat"], string> = {
+  fait: "border-success bg-success",
+  ici: "border-primary bg-primary ring-4 ring-primary/15",
+  arret: "border-destructive bg-destructive ring-4 ring-destructive/15",
+  avenir: "border-border bg-card",
+};
+
+/**
+ * LA CARTE DU DOSSIER — la frise des huit étapes, les cinq chiffres d'argent, et UNE bande « ce qu'il reste à faire » :
+ * le seul geste utile à la personne qui regarde, ou « En attente — chez X » avec « Relancer ». Les chantiers « Bons de
+ * commande / Factures / Visa — Clore » ont disparu : la frise et le tableau des BC disent tout ; la clôture devient le
+ * geste de la dernière étape. Tout arrive tranché du serveur — ce composant ne décide d'aucun droit.
+ */
+export function PromoStatutCard(p: StatutProps) {
+  const { saving, err, msg, run } = useRun();
+  const [mode, setMode] = React.useState<null | "renvoi" | "refus">(null);
+  const [motif, setMotif] = React.useState("");
+  const [correction, setCorrection] = React.useState("");
+  const fd = (extra?: Record<string, string>) => {
+    const f = new FormData(); f.set("id", p.id);
+    if (extra) for (const [k, v] of Object.entries(extra)) f.set(k, v);
+    return f;
+  };
+  const dossier = (extra?: Record<string, string>) => {
+    const f = new FormData(); f.set("promoMaterialId", p.id);
+    if (extra) for (const [k, v] of Object.entries(extra)) f.set(k, v);
+    return f;
+  };
+  /** Un geste qui vit dans un tableau : la ligne s'ouvre là où il se fait. */
+  const versLeTableau = (cible: string, g: GesteFiche) => {
+    emettreGeste({ cle: g.cle, ...(g.quoteId ? { quoteId: g.quoteId } : {}) });
+    document.getElementById(cible)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  /** Clore : chaque chantier encore ouvert, l'un après l'autre — le dernier termine le dossier. */
+  const clore = () => run(async () => {
+    let dernier: ActionResult = { ok: true };
+    for (const t of p.chantiersOuverts) {
+      dernier = await completePromoTrack(fd({ track: t }));
+      if (!dernier.ok) return dernier;
+    }
+    return dernier;
+  });
+  const g = p.geste;
+  const decisions = (p.canRenvoyer || p.canRefuser) && mode === null;
+
+  const bouton = (): React.ReactNode => {
+    if (!g) return null;
+    const occupe = saving;
+    const icone = occupe ? <Loader2 className="h-4 w-4 animate-spin" /> : null;
+    switch (g.cle) {
+      case "BASCULER":
+        return <BoutonDecisif size="sm" onClick={() => run(() => startPromoCircuit(fd()))} disabled={occupe}>{icone ?? <Rocket className="h-4 w-4" />} Basculer</BoutonDecisif>;
+      case "VALIDER_ETAPE":
+        return <BoutonDecisif size="sm" variant="success" onClick={() => run(() => validatePromoStep(fd()))} disabled={occupe}>{icone ?? <BadgeCheck className="h-4 w-4" />} Valider</BoutonDecisif>;
+      case "ENVOYER_DEMANDE_DEVIS":
+        return <Button size="sm" onClick={() => run(() => demanderDevisPromo(dossier()))} disabled={occupe}>{icone ?? <Send className="h-4 w-4" />} Envoyer</Button>;
+      case "TERMINER_RETRANSCRIPTION":
+        return (
+          <span className="inline-flex items-center gap-1">
+            {p.manques.length > 0 && (
+              <InfoBulle label="Ce qui manque" align="right">
+                <span className="mb-1 block font-medium">Avant de terminer</span>
+                {p.manques.map((m) => <span key={m} className="block [overflow-wrap:anywhere]">• {m}</span>)}
+              </InfoBulle>
+            )}
+            <Button size="sm" variant="outline" onClick={() => { emettreGeste({ cle: "AJOUTER_DEVIS" }); document.getElementById("devis")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} disabled={occupe}>Ajouter un devis</Button>
+            <Button size="sm" onClick={() => run(() => terminerRetranscriptionPromo(dossier()))} disabled={occupe || p.manques.length > 0}>{icone ?? <Send className="h-4 w-4" />} Retranscription terminée</Button>
+          </span>
+        );
+      case "CHOISIR_LIGNES":
+        return <Button size="sm" onClick={() => versLeTableau("devis", g)}>Choisir</Button>;
+      case "PREPARER_BC":
+        return <BoutonDecisif size="sm" onClick={() => run(() => genererBonsDeCommandePromo(dossier()))} disabled={occupe}>{icone} Générer les aperçus</BoutonDecisif>;
+      case "ENVOYER_BC":
+        return <Button size="sm" onClick={() => run(() => marquerBonDeCommandeEnvoye(dossier({ quoteId: g.quoteId ?? "" })))} disabled={occupe}>{icone ?? <Send className="h-4 w-4" />} Marquer envoyé</Button>;
+      case "ADRESSER_IM":
+        return <Button size="sm" onClick={() => versLeTableau("visa", g)}>Adresser</Button>;
+      case "CLORE":
+        return <BoutonDecisif size="sm" variant="success" onClick={clore} disabled={occupe}>{icone ?? <CheckCircle2 className="h-4 w-4" />} Clore le dossier</BoutonDecisif>;
+      case "RESOUMETTRE":
+        return null;
+      default: {
+        // Les gestes d'une ligne du tableau des BC : la ligne s'ouvre sur le bon formulaire.
+        const libelle = g.cle === "VERIFIER_BC" ? "Vérifier" : g.cle === "MODIFIER_BC" ? "Corriger" : g.cle === "DEPOSER_FACTURE" ? "Déposer"
+          : g.cle === "RECEPTIONNER" ? "Réceptionner" : "Ouvrir";
+        return <Button size="sm" onClick={() => versLeTableau("bc", g)}>{libelle}</Button>;
+      }
+    }
+  };
+
+  const enAttente = !g && p.ou.chez !== null;
+  return (
+    <section className="surface overflow-hidden" aria-label="Où en est le dossier">
+      {/* LA FRISE — huit étapes ; elle défile dans son propre conteneur au téléphone. */}
+      <ol className="flex overflow-x-auto px-4 py-3.5">
+        {p.frise.map((e) => (
+          <li key={e.cle} className="relative flex min-w-[7.5rem] flex-1 flex-col gap-0.5 pt-[1.125rem] text-xs" aria-current={e.etat === "ici" ? "step" : undefined}>
+            <span aria-hidden className={`absolute left-0 right-0 top-[5px] h-0.5 ${e.etat === "fait" ? "bg-success" : "bg-border"}`} />
+            <span aria-hidden className={`absolute left-0 top-0 h-3 w-3 rounded-full border-2 ${POINT[e.etat]}`} />
+            <b className={`pr-2 text-[0.8125rem] ${e.etat === "avenir" ? "font-medium text-muted-foreground" : "font-semibold"}`}>{e.libelle}</b>
+            {e.detail && <span className="pr-2 text-muted-foreground">{e.detail}</span>}
+          </li>
+        ))}
+      </ol>
+
+      {/* LES CINQ CHIFFRES D'ARGENT — en DZD. */}
+      <dl className="grid grid-cols-2 gap-px border-t border-border bg-border sm:grid-cols-5">
+        {([
+          ["Budget estimé", p.chiffres.budget],
+          ["Retenu (TTC)", p.chiffres.retenu],
+          ["Engagé (BC)", p.chiffres.engage],
+          ["Facturé", p.chiffres.facture],
+          ["Payé", p.chiffres.paye],
+        ] as [string, number | null][]).map(([libelle, valeur], i) => (
+          <div key={libelle} className={`bg-card px-4 py-3 ${i === 4 ? "col-span-2 sm:col-span-1" : ""}`}>
+            <dt className="text-xs text-muted-foreground">{libelle}</dt>
+            <dd className={`text-lg font-semibold tabular-nums ${!valeur ? "text-muted-foreground" : ""}`}>{nombreDzd(valeur)}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {/* CE QU'IL RESTE À FAIRE — un seul geste, ou chez qui l'on attend. */}
+      <div className="space-y-3 border-t border-border bg-primary/5 px-4 py-3.5">
+        <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="min-w-0 text-sm">
+            <p className="font-semibold [overflow-wrap:anywhere]">
+              {g ? g.libelle : enAttente ? `En attente — chez ${p.ou.chez}` : p.ou.etat}
+            </p>
+            <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+              {g || enAttente ? p.ou.etat : null}
+              {p.renvoi && <> · renvoyé à l&apos;étape « {p.renvoi.depuis} » le {p.renvoi.quand} : « {p.renvoi.motif} »</>}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {bouton()}
+            {enAttente && p.peutRelancer && (
+              <Button size="sm" variant="outline" onClick={() => run(() => relancerPromo(fd()))} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />} Relancer
+              </Button>
+            )}
+            {decisions && (
+              <MenuLigne label="Autres issues" entrees={[
+                ...(p.canRenvoyer ? [{ libelle: "Renvoyer pour correction", onClick: () => setMode("renvoi") }] : []),
+                ...(p.canRefuser ? [{ libelle: "Refuser", danger: true, onClick: () => setMode("refus") }] : []),
+              ]} />
+            )}
+          </div>
+        </div>
+
+        {p.apercuDemandeDevis && (
+          <details className="text-xs">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Aperçu de la demande au secrétariat</summary>
+            <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs [overflow-wrap:anywhere]">{p.apercuDemandeDevis}</pre>
+          </details>
+        )}
+
+        {g?.cle === "RESOUMETTRE" && (
+          <form
+            action={(f: FormData) => { f.set("id", p.id); run(() => resoumettrePromoDemande(f), () => setCorrection("")); }}
+            className="space-y-2"
+          >
+            <Label htmlFor="promo-resoumission-v2">Ce qui a changé</Label>
+            <Textarea id="promo-resoumission-v2" name="note" value={correction} onChange={(e) => setCorrection(e.target.value)} className="min-h-[60px] bg-background" placeholder="Ex. quantités revues, article ajouté, précision du brief." />
+            <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={saving || !correction.trim()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resoumettre la demande
+            </Button>
+          </form>
+        )}
+        {mode === "renvoi" && p.canRenvoyer && (
+          <form
+            action={(f: FormData) => { f.set("id", p.id); run(() => renvoyerPromoStep(f), () => { setMode(null); setMotif(""); }); }}
+            className="space-y-2 rounded-lg border border-amber-500/40 bg-background p-3"
+          >
+            <Label htmlFor="promo-renvoi-motif-v2">Ce qu&apos;il faut corriger</Label>
+            <Textarea id="promo-renvoi-motif-v2" name="motif" value={motif} onChange={(e) => setMotif(e.target.value)} className="min-h-[60px]" placeholder="Ex. retenez plutôt le devis de l'imprimeur B, moins cher à qualité égale." />
+            <div className="flex flex-wrap gap-2">
+              <BoutonDecisif type="submit" size="sm" disabled={saving || !motif.trim()}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Renvoyer au demandeur
+              </BoutonDecisif>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
+            </div>
+          </form>
+        )}
+        {mode === "refus" && p.canRefuser && (
+          <form
+            action={(f: FormData) => { f.set("id", p.id); run(() => refusePromoStep(f), () => { setMode(null); setMotif(""); }); }}
+            className="space-y-2 rounded-lg border border-destructive/30 bg-background p-3"
+          >
+            <Label htmlFor="promo-refuse-reason-v2">Motif du refus</Label>
+            <Textarea id="promo-refuse-reason-v2" name="reason" value={motif} onChange={(e) => setMotif(e.target.value)} className="min-h-[60px]" placeholder="Un refus est définitif : pour une correction, renvoyez plutôt le dossier." />
+            <div className="flex flex-wrap gap-2">
+              <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving || !motif.trim()}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer le refus
+              </BoutonDecisif>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
+            </div>
+          </form>
+        )}
+        <Err msg={err} />
+        <Ok msg={msg} />
+      </div>
+    </section>
   );
 }

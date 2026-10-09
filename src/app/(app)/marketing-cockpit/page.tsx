@@ -15,14 +15,17 @@ import {
 } from "@/lib/marketing-cockpit/donnees";
 import { libelleMois, marcheDuProduit, type MarcheProduit } from "@/lib/marketing-cockpit/marche";
 import { CHEMIN_BUDGET_MARKETING } from "@/lib/budget-marketing/domaine";
-import {
-  couvertureFrequence, entonnoir, estCible, messagePeuPorte, montantDzd, passesEnA, pourcent, prescripteursAvecAffinite,
-  repartitionDepenses,
-} from "@/lib/marketing-cockpit/calculs";
+import { estCible, messagePeuPorte, passesEnA, pourcent, repartitionDepenses } from "@/lib/marketing-cockpit/calculs";
+import { VISITES_ENGAGEMENT, conversions, decideursEngages } from "@/lib/marketing-cockpit/terrain";
+import { chargerTerrain } from "@/lib/marketing-cockpit/terrain-donnees";
+import { previsionsDesServices, totalExprime } from "@/lib/besoins-services/regles";
+import { proposeLaSaisie } from "@/lib/besoins-services/service";
+import { CarteVoixTerrain } from "@/components/shared/voix-terrain";
 import { SelecteurProduit } from "./selecteur-produit";
 import { MessagesManager } from "./messages-manager";
+import { PrevisionsServices, type LignePrevisionEcran } from "./previsions-services";
 import {
-  CarteASurveiller, CarteEntonnoir, CarteEnveloppe, CarteOuVaLArgent, CarteSignaux, Carte, Courbes, Tuiles, Vide, VueLeaders,
+  CarteASurveiller, CarteEnveloppe, CarteLots, CarteOuVaLArgent, CarteSignaux, Carte, Courbes, Tuiles, Vide, VueLeaders,
   type SignalCockpit, type TuileCockpit,
 } from "./vues";
 
@@ -145,74 +148,90 @@ async function VueEnsemble({ base, bu, produit, lien, voitMarche, voitArgent, us
   base: BaseCockpit; bu: BuCockpit; produit: ProduitCockpit | null; lien: (v: Vue) => string;
   voitMarche: boolean; voitArgent: boolean; user: Parameters<typeof chargerEnveloppe>[0]; maintenant: Date;
 }) {
-  const [messages, depenses, enveloppe, marche] = await Promise.all([
+  const [messages, depenses, marche, terrain] = await Promise.all([
     chargerMessages(base, bu, produit, maintenant),
     voitArgent ? chargerDepenses(base, bu, produit, maintenant) : Promise.resolve(null),
-    voitArgent ? chargerEnveloppe(user, maintenant) : Promise.resolve(null),
     voitMarche ? marcheDe(produit) : Promise.resolve(null),
+    chargerTerrain(base, bu, produit, user.id, maintenant),
   ]);
-  const couverture = couvertureFrequence(base.praticiens);
-  const affinite = prescripteursAvecAffinite(base.praticiens.map((p) => p.segment));
-  const affiniteAvant = base.precedent ? prescripteursAvecAffinite([...base.precedent.segments.values()]) : null;
-  const ecart = affiniteAvant === null ? null : affinite - affiniteAvant;
   const repartition = depenses ? repartitionDepenses(depenses, base.praticiens.filter((p) => estCible(p.lettre)).length) : null;
+  const { annee } = terrain;
+  const nb = (n: number) => n.toLocaleString("fr-FR").replace(/ /g, " ");
 
-  const tuiles: TuileCockpit[] = [];
-  if (voitMarche && produit) {
-    const part = marche?.part ?? null;
-    const pts = part && part.precedente !== null ? (part.actuelle - part.precedente) * 100 : null;
-    tuiles.push({
-      label: `Part de marché${marche?.classe ? ` (${marche.classe.replace(/^[A-Z0-9]{3,5}\s+/, "").toLowerCase()}, ville)` : " (ville)"}`,
-      valeur: part ? pourcent(part.actuelle, 1) : "—",
-      note: !marche ? "produit absent des données marché" : !part ? "marque non reconnue dans IQVIA" : pts === null ? "IQVIA, 12 mois glissants" : `${pts >= 0 ? "+" : "−"}${Math.abs(pts).toFixed(1).replace(".", ",")} pt sur 12 mois`,
-      ton: pts === null ? "muet" : pts >= 0 ? "ok" : "ko",
-      info: <>Valeur de nos marques dans leur classe IQVIA (ville), 12 mois glissants ; l&apos;écart se reconstruit par la croissance de chaque ligne.</>,
-    });
-  } else {
-    const portes = messages.reduce((s, m) => s + m.stats.portesCycle, 0);
-    tuiles.push({
-      label: "Messages portés ce cycle",
-      valeur: String(portes),
-      note: `${messages.filter((m) => m.isActive).length} message(s) actif(s)`,
+  // CE QUI DÉPEND VRAIMENT DU TERRAIN (maquette validée, 10/2026) — en marché d'AO, la part de réceptions PCH ne mesure
+  // pas l'effort : on lit ce que les services DEMANDENT et ce que les médecins PRESCRIVENT.
+  const besoins = terrain.besoins;
+  const exprime = totalExprime(besoins, annee);
+  const engages = decideursEngages(base.praticiens);
+  const conv = base.precedent ? conversions(base.precedent.segments, base.segmentDe) : null;
+  const aff = terrain.affinite;
+  const affDerniere = aff ? [...aff.serie].reverse().find((s) => s.moyenne !== null) ?? null : null;
+  const lots = terrain.lots;
+  const objections = terrain.voix.groupes.find((g) => g.categorie === "OBJECTION")?.rapports ?? 0;
+
+  const tuiles: TuileCockpit[] = [
+    {
+      label: "Besoins annuels exprimés",
+      valeur: exprime ? nb(exprime.total) : "—",
+      note: exprime ? `boîtes en ${annee} · ${exprime.services} service${exprime.services > 1 ? "s" : ""}` : `aucun besoin saisi pour ${annee}`,
       ton: "muet",
-      info: <>Visites de {base.cycle.libelle} dont le rapport porte un message du périmètre.</>,
-    });
-  }
-  tuiles.push({
-    label: "Prescripteurs avec affinité (A + C)",
-    valeur: base.strategie ? String(affinite) : "—",
-    note: !base.strategie ? "segmentation à activer" : ecart === null ? "pas de cycle précédent" : ecart === 0 ? "stable depuis le dernier cycle" : `${ecart > 0 ? "+" : "−"}${Math.abs(ecart)} depuis le dernier cycle`,
-    ton: ecart === null || ecart === 0 ? "muet" : ecart > 0 ? "ok" : "ko",
-    info: <>Segment A (fort potentiel) ou C (faible potentiel) : affinité haute pour le produit, selon les règles de la Segmentation.</>,
-  });
-  tuiles.push({
-    label: "Cibles H · A · B vues à fréquence",
-    valeur: pourcent(couverture.taux),
-    note: "source : Force de vente",
-    ton: "muet",
-    info: <>{couverture.tenues} cible(s) sur {couverture.cibles} ont eu, pendant {base.cycle.libelle}, au moins les visites que la Segmentation requiert.</>,
-  });
-  if (voitArgent) {
-    const taux = enveloppe && enveloppe.total > 0 ? enveloppe.consomme / enveloppe.total : null;
-    tuiles.push({
-      label: "Budget consommé",
-      valeur: pourcent(taux),
-      note: enveloppe ? `à ${pourcent(enveloppe.tempsEcoule)} de ${enveloppe.annee}` : "aucune enveloppe marketing ouverte",
+      info: <>Le besoin annuel que les décideurs annoncent pour leur service, en boîtes de {produit?.nom ?? "la BU"} — c&apos;est ce qui fixe le volume de l&apos;appel d&apos;offres. Saisi par le KAM à la visite du décideur.</>,
+    },
+    {
+      label: "Décideurs engagés",
+      valeur: base.strategie && engages.total ? `${engages.engages} / ${engages.total}` : "—",
+      note: !base.strategie ? "segmentation à activer" : engages.total ? `vus ≥ ${VISITES_ENGAGEMENT} fois · ${base.cycle.libelle}` : "aucun décideur (H) dans le panel",
       ton: "muet",
-      info: enveloppe ? <>Budget Marketing, enveloppe « {enveloppe.nom} » : {montantDzd(enveloppe.consomme)} réglés sur {montantDzd(enveloppe.total)} DZD.</> : undefined,
-      href: userCan(user, "BUDGET_MARKETING", "VIEW") ? `${CHEMIN_BUDGET_MARKETING}${enveloppe ? `?env=${enveloppe.id}` : ""}` : undefined,
-    });
-  }
+      info: <>Praticiens classés H (décideurs) avec au moins {VISITES_ENGAGEMENT} visites terminées pendant {base.cycle.libelle}, sur tous les H du panel.</>,
+    },
+    {
+      label: "Affinité moyenne (Q2/Q1)",
+      valeur: affDerniere ? pourcent(affDerniere.moyenne, 1) : "—",
+      note: !base.strategie ? "segmentation à activer" : !affDerniere ? "aucune réponse Q1 / Q2" : aff?.ecartPts == null ? `${affDerniere.mesures} praticien${affDerniere.mesures > 1 ? "s" : ""} mesuré${affDerniere.mesures > 1 ? "s" : ""}` : `${aff.ecartPts >= 0 ? "+" : "−"}${Math.abs(aff.ecartPts).toFixed(1).replace(".", ",")} pt en ${aff.serie.length} cycles`,
+      ton: aff?.ecartPts == null || aff.ecartPts === 0 ? "muet" : aff.ecartPts > 0 ? "ok" : "ko",
+      info: aff ? <>Moyenne des affinités déclarées du panel ({aff.methode === "RATIO_FICHIER" ? "Q2 ÷ Q1" : "Q2 ÷ 10"}, méthode de la règle), à la fin de chaque cycle : {aff.serie.map((s) => `${s.libelle} ${pourcent(s.moyenne, 1)}`).join(" · ")}.</> : undefined,
+    },
+    {
+      label: "Conversions B → A",
+      valeur: conv ? String(conv.bVersA) : "—",
+      note: conv ? `ce cycle · ${conv.aVersB} retour${conv.aVersB > 1 ? "s" : ""} A → B` : "pas de cycle figé avant",
+      ton: conv && conv.bVersA > conv.aVersB ? "ok" : conv && conv.aVersB > conv.bVersA ? "ko" : "muet",
+      info: base.precedent ? <>Segment du produit depuis le cycle figé « {base.precedent.libelle} » : B devenus A, et A redevenus B (dérogations comprises).</> : undefined,
+    },
+    {
+      label: "Hôpitaux qui reçoivent nos lots",
+      valeur: lots?.nosLotsConnus && lots.consommateurs ? String(lots.avecNosLots.length) : "—",
+      note: !lots || lots.consommateurs === 0 ? "aucune distribution DR (12 mois)" : !lots.nosLotsConnus ? "aucun n° de lot sur nos BL" : `sur ${lots.consommateurs} qui consomment la DCI`,
+      ton: "muet",
+      info: <>Nos n° de lot (BL de nos livraisons PCH) retrouvés dans la distribution des directions régionales aux hôpitaux, 12 mois.</>,
+    },
+    {
+      label: "Objections relevées",
+      valeur: terrain.voix.rapports ? String(objections) : "—",
+      note: !terrain.voix.rapports ? "aucun rapport (30 j)" : terrain.voix.objectionsPrixAo ? `dont ${terrain.voix.objectionsPrixAo} « prix / AO » · 30 j` : "30 derniers jours",
+      ton: "muet",
+      info: <>Comptes rendus de visite de la BU des 30 derniers jours rangés en objections ({terrain.voix.parLuna ? "Luna" : "mots-clés"}).</>,
+    },
+  ];
+
+  // LES PRÉVISIONS DES SERVICES — la table, et ce qu'il faut pour saisir.
+  const cleDe = (b: { institutionId: string; serviceId: string | null }) => `${b.institutionId}|${b.serviceId ?? "-"}`;
+  const previsions: LignePrevisionEcran[] = previsionsDesServices(besoins, annee).map((p) => {
+    const duLieu = besoins.filter((b) => cleDe(b) === p.cle);
+    const unique = produit?.productId ? duLieu.find((b) => b.annee === annee && b.productId === produit.productId) : undefined;
+    return {
+      cle: p.cle, lieu: [duLieu[0]?.service, duLieu[0]?.etablissement].filter(Boolean).join(" · ") || "Établissement",
+      decideur: [...new Set(duLieu.map((b) => b.decideur).filter((x): x is string => !!x))].join(", ") || null,
+      actuel: p.actuel, precedent: p.precedent, evolution: p.evolution,
+      ligne: unique ? { id: unique.id, quantite: unique.quantite, note: unique.note } : null,
+    };
+  });
+  const decideursPanel = base.panel
+    .filter((l) => l.statut === "DECIDEUR" && l.institutionId)
+    .map((l) => ({ id: l.doctorId, libelle: [l.nom, l.etablissement].filter(Boolean).join(" · ") }))
+    .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
   const leaders = base.panel.filter((l) => l.statut && STATUTS_LEADERS.includes(l.statut));
   const oublies = leaders.filter((l) => !(base.visites.get(l.doctorId)?.six));
-  if (!voitArgent) {
-    tuiles.push({
-      label: "Leaders d'opinion",
-      valeur: String(leaders.length),
-      note: oublies.length ? `${oublies.length} sans visite depuis 6 mois` : "tous vus en 6 mois",
-      ton: oublies.length ? "ko" : "muet",
-    });
-  }
 
   // CE QUI BOUGE — des signaux calculés, chacun avec la page qui le montre.
   const signaux: SignalCockpit[] = [];
@@ -235,16 +254,21 @@ async function VueEnsemble({ base, bu, produit, lien, voitMarche, voitArgent, us
     signaux.push({ ton: "w", titre: `${oublies.length} leader${oublies.length > 1 ? "s" : ""} d'opinion sans visite depuis 6 mois`, detail: "décideurs, influenceurs, référents", href: lien("leaders") });
   }
 
-  const e = entonnoir(base.annuaire ?? 0, base.praticiens);
   return (
     <div className="space-y-4">
-      <Tuiles tuiles={tuiles} />
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        {base.strategie
-          ? <CarteEntonnoir e={{ ...e, annuaireConnu: base.annuaire !== null }} sousTitre={produit?.nom ?? `BU ${bu.nom}`} />
-          : <Carte titre="De l'annuaire à la prescription"><Vide>La segmentation de la BU n&apos;est pas activée.</Vide></Carte>}
-        <CarteSignaux signaux={signaux.slice(0, 5)} />
+      <Tuiles tuiles={tuiles} className="md:grid-cols-3 xl:grid-cols-6" />
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <PrevisionsServices
+          lignes={previsions}
+          annee={annee}
+          produit={produit?.productId ? { productId: produit.productId, nom: produit.nom } : null}
+          decideurs={decideursPanel}
+          peutSaisir={proposeLaSaisie(user)}
+        />
+        <CarteLots lots={lots} molecule={lots?.molecule ?? null} />
+        <CarteVoixTerrain titre="La voix du terrain" voix={terrain.voix} max={4} />
       </div>
+      {signaux.length > 0 && <CarteSignaux signaux={signaux.slice(0, 5)} />}
     </div>
   );
 }

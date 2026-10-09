@@ -4,6 +4,7 @@ import { toNumber, formatCurrency } from "@/lib/utils";
 import { getRiskThresholds, type RiskThresholds } from "./risk-settings";
 import { kamsQuiCouvrent } from "@/lib/queries/panel-kam";
 import { lienRapportTerrain } from "@/lib/chemins/rapports-terrain";
+import { lienOrdreAPayer } from "@/lib/chemins/finances";
 import { DETECTEURS_PLUS } from "./risks-plus";
 
 /**
@@ -256,9 +257,9 @@ async function medicalKolRisks(th: RiskThresholds): Promise<Risk[]> {
     const relances: RiskAction[] = suivi.destinataires.length > 0
       ? suivi.destinataires.slice(0, 3).map((k) => ({
           label: `Message à ${k.name}`, icon: "Bell",
-          payload: { kind: "notify", userId: k.id, title: "Médecin KOL à visiter", body: `${d.name} — non visité ${since}`, link: `/medical` },
+          payload: { kind: "notify", userId: k.id, title: "Médecin KOL à visiter", body: `${d.name} — non visité ${since}`, link: `/praticiens/${d.id}` },
         }))
-      : [{ label: "Notifier Promotion médicale", icon: "Bell", payload: { kind: "notify", role: "MEDICAL_PROMOTION_MANAGER", title: "Médecin KOL sans délégué ni secteur", body: d.name, link: `/medical` } }];
+      : [{ label: "Notifier Promotion médicale", icon: "Bell", payload: { kind: "notify", role: "MEDICAL_PROMOTION_MANAGER", title: "Médecin KOL sans délégué ni secteur", body: d.name, link: `/praticiens/${d.id}` } }];
     out.push({
       id: `kol-${d.id}`, level, category: "MEDICAL", module: "Promotion médicale",
       title: "Médecin stratégique non visité", object: `${d.title ? d.title + " " : ""}${d.name}`,
@@ -272,12 +273,12 @@ async function medicalKolRisks(th: RiskThresholds): Promise<Risk[]> {
         d.targetProducts ? `Produits liés : ${d.targetProducts}` : "Produits non renseignés",
         suivi.preuve,
       ],
-      href: `/medical`, at: (d.lastVisit ?? new Date(0)).toISOString(),
+      href: `/praticiens/${d.id}`, at: (d.lastVisit ?? new Date(0)).toISOString(),
       actions: [
         ...relances,
         // La tâche va à UNE personne quand une seule le suit ; sinon à personne (on ne choisit pas).
         { label: "Créer tâche visite", icon: "ListChecks", payload: { kind: "task", title: `Planifier une visite : ${d.name} (KOL non visité ${since})`, assigneeId: suivi.destinataires.length === 1 ? suivi.destinataires[0].id : null, priority: "HIGH", module: "Promotion médicale" } },
-        { label: "Voir médecin", icon: "ExternalLink", href: `/medical` },
+        { label: "Voir médecin", icon: "ExternalLink", href: `/praticiens/${d.id}` },
       ],
     });
   }
@@ -300,10 +301,10 @@ async function expenseOrderRisks(th: RiskThresholds): Promise<Risk[]> {
       probableCause: "Aucun règlement effectué depuis l'émission.",
       recommendation: "Régler ou demander une révision de budget.",
       evidence: [`Montant : ${formatCurrency(toNumber(o.amount))}`, `Émis il y a ${age} j`, o.dueDate ? `Échéance : ${o.dueDate.toLocaleDateString("fr-FR")}` : "Pas d'échéance"],
-      href: `/finances/paiements-a-faire`, at: o.createdAt.toISOString(),
+      href: lienOrdreAPayer(o.id), at: o.createdAt.toISOString(),
       actions: [
-        { label: "Notifier comptable", icon: "Bell", payload: { kind: "notify", userId: finance?.id, role: finance ? undefined : "FINANCE_BUDGET_MANAGER", title: "Ordre de dépense à régler", body: `${o.reference} — ${formatCurrency(toNumber(o.amount))}`, link: `/finances/paiements-a-faire` } },
-        { label: "Ouvrir", icon: "ExternalLink", href: `/finances/paiements-a-faire` },
+        { label: "Notifier comptable", icon: "Bell", payload: { kind: "notify", userId: finance?.id, role: finance ? undefined : "FINANCE_BUDGET_MANAGER", title: "Ordre de dépense à régler", body: `${o.reference} — ${formatCurrency(toNumber(o.amount))}`, link: lienOrdreAPayer(o.id) } },
+        { label: "Ouvrir", icon: "ExternalLink", href: lienOrdreAPayer(o.id) },
       ],
     });
   }

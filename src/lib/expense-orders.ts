@@ -3,6 +3,8 @@ import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 import { ENTITY_MODULE } from "@/lib/entity-access";
 import { initialCentralStatus, isHighValue, CENTRAL_AUTH_THRESHOLD_DZD } from "@/lib/payments/authorization";
 import { deadlineNatureOf } from "@/lib/finance/deadline-nature";
+import { ENTITE_SANS, slugSectionDeLOrdre } from "@/lib/payments/sections-centre";
+import { lienCentreDePaiement, lienOrdreAPayer } from "@/lib/chemins/finances";
 import {
   needsCompanionDossier, companionPayee, companionStatusForOrder,
 } from "@/lib/finance/dossier-auto";
@@ -310,7 +312,9 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       type: "VALIDATION_REQUIRED",
       title: "Autorisation de paiement demandée",
       body: `${order.reference} — ${input.label} (${money}${isHighValue(input.amount) ? `, au-dessus de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD` : ""})`,
-      link: "/centre-de-paiement",
+      // L'entité et la section où l'ordre attend — la section seulement quand l'origine la DIT
+      // (un porteur — demande de paiement, secrétariat — renvoie à une origine lue ailleurs).
+      link: lienCentreDePaiement(companyId ?? ENTITE_SANS, slugSectionDeLOrdre(input.sourceType)),
     });
   } else {
     // Chemin HISTORIQUE : plus aucun ordre ne naît hors du centre. Il reste pour que la fonction
@@ -319,7 +323,7 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       type: "VALIDATION_REQUIRED",
       title: "Nouvel ordre de dépense",
       body: `${order.reference} — ${input.label} (${money})`,
-      link: "/finances/paiements-a-faire",
+      link: lienOrdreAPayer(order.id),
     });
   }
   return order;

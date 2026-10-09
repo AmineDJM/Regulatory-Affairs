@@ -222,6 +222,16 @@ export const NEUTRAL = new Set([
   //
   // Le chemin est EXACT, pas le dossier.
   "src/lib/chemins/rapports-terrain",
+  // `chemins/espace` et `chemins/rh` disent OÙ MÈNE UNE NOTIFICATION de l'espace personnel (la tâche ouverte, la
+  // conversation, le bilan d'une période) et du dossier RH (la demande dépliée chez le salarié, la file des RH) : des
+  // adresses et des fabricants de liens — zéro import, sans état, sans base, sans règle métier. Même raison que les
+  // précédents : les actions de l'ERP et celles d'Adam écrivent les MÊMES notifications (« Tâche mise à jour », « Nouvelle
+  // demande RH ») ; deux copies du lien divergeaient — celle d'Adam menait à la fiche de l'employé, celle de l'écran à la
+  // file des RH. Le compteur ne bouge pas.
+  //
+  // Les chemins sont EXACTS, pas le dossier.
+  "src/lib/chemins/espace",
+  "src/lib/chemins/rh",
 ]);
 
 export interface Violation {

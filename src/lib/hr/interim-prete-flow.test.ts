@@ -330,7 +330,8 @@ suite("l'intérim ne prête jamais plus que ce que l'absent détient", () => {
     expect(pourS.body).toContain("Le congé n'est pas encore accordé");
     expect(pourS.body).toContain("Modules prêtés : Marchés PCH.");
     const pourA = await prisma.notification.findFirstOrThrow({ where: { userId: u.a, createdAt: { gte: avant }, title: "Intérimaire validé" } });
-    expect(pourA.link).toBe("/mon-espace");
+    // L'absent, lui, retrouve l'intérim sur SON congé (« Mon dossier RH › Mes congés et absences »).
+    expect(pourA.link).toBe("/mon-dossier#mes-conges");
   });
 
   it("un intérim déjà tranché ne se retranche pas", async () => {

@@ -13,7 +13,7 @@ import {
   validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste, modifierBcDuPoste,
 } from "@/lib/actions/ad-pro-item-actions";
 import { ReviserPieceButton } from "@/components/legal/reviser-piece";
-import { ETIQUETTE_BROUILLON } from "@/lib/ad-pro/bc-brouillon";
+import { ETIQUETTE_BROUILLON } from "@/lib/bons-de-commande/brouillon";
 import { ApercuBonDeCommande } from "@/components/ad-pro/apercu-bc-poste";
 
 /**

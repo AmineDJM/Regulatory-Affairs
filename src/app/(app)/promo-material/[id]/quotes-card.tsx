@@ -2,27 +2,33 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, FileText, Loader2, Pencil, Plus, RotateCcw, ScanText, Send, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileText, Loader2, Pencil, Plus, RotateCcw, ScanText, Trash2, Undo2 } from "lucide-react";
 import {
-  enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo,
+  enregistrerDevisPromo, supprimerDevisPromo, choisirLignesPromo, demanderCorrectionDevisPromo,
   redemanderDevisPromo, lireScanDevisPromo, rangerDevisPromo,
 } from "@/lib/actions/promo-devis-actions";
 import type { LectureDevisPromo, LignePreremplie } from "@/lib/pieces-lues/prerempli-devis-promo";
 import { proposerLigne } from "@/lib/promo-material/proposition-ligne-devis";
-import { totauxDeLaSelection, totauxDuDevis, totalLigneHT, ecartDeRetranscription, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
-import { ACTIONS, ACTION_LABEL, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import { libelleArticleDemande, libellesPromusDeLArticle, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
+import { totauxDeLaSelection, totauxRetenus, totalLigneHT, ecartDeRetranscription, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
+import { ACTIONS, ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
+import { libelleArticleDemande, type ArticleDemandeLu } from "@/lib/promo-material/achats";
+import { comparaisonDesDevis } from "@/lib/promo-material/fiche";
 import type { PartyOption } from "@/lib/contacts/parties";
 import { PartyPicker } from "@/components/directory/party-picker";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input, Label, Textarea } from "@/components/ui/input";
+import { Sheet } from "@/components/ui/sheet";
 import type { ActionResult } from "@/lib/actions/types";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 import { InfoBulle } from "@/components/ui/info-bulle";
+import { DemandeDevisCard, type GenerationLettre } from "./demande-devis-card";
+import { MenuLigne, useGeste } from "./menu-ligne";
 
 /**
- * LES DEVIS DU DOSSIER — le tableau interne de l'entreprise (§118.152).
+ * LES DEVIS DU DOSSIER — le tableau interne de l'entreprise (§118.152), présenté CÔTE À CÔTE (maquette validée, 10/2026) :
+ * une colonne par devis (fournisseur, n°, date, fichier), une rangée par article × prestation et les lignes hors demande,
+ * le meilleur prix en vert, une case pour retenir. Le « Rapprochement avec la demande » et les blocs par devis ont fondu
+ * dans ce seul tableau ; la lettre de demande de devis et l'éditeur d'un devis s'ouvrent depuis son en-tête.
  *
  * Trois lectures du MÊME tableau, et c'est le serveur qui dit laquelle :
  *   • l'assistante RETRANSCRIT (étape « devis demandés ») : un devis par agence, ses lignes,
@@ -59,8 +65,6 @@ interface Props {
   canTranscribe: boolean;
   /** Le demandeur peut choisir (tranché au serveur : lui ET l'étape). */
   canSelect: boolean;
-  /** Ce qui empêche encore de déclarer la retranscription terminée — dit par le serveur. */
-  manques: string[];
   parties?: PartyOption[];
   canCreateContact: boolean;
   /** Le seuil du DG, pour dire au demandeur si son choix passera par le Directeur Général. */
@@ -71,6 +75,8 @@ interface Props {
   peutRanger?: boolean;
   /** Pourquoi pas à cette étape — la phrase même de l'action. */
   refusRangement?: string | null;
+  /** LA LETTRE DE DEMANDE DE DEVIS (Word + PDF, Luna) — ses générations, la (re)générer, son aperçu, son retrait au secrétariat. */
+  lettre?: { generations: GenerationLettre[]; peutGenerer: boolean; apercu: React.ReactNode; retrait: React.ReactNode } | null;
 }
 
 function useRun() {
@@ -396,13 +402,19 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
 
 // ───────────────────────── La carte ─────────────────────────
 
-export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg, aRanger = [], peutRanger = false, refusRangement = null }: Props) {
+export function PromoQuotesCard({
+  id, quotes, articles, canTranscribe, canSelect, parties, canCreateContact, seuilDg, aRanger = [], peutRanger = false, refusRangement = null, lettre = null,
+}: Props) {
   const { saving, err, msg, run } = useRun();
   const [edition, setEdition] = React.useState<string | "nouveau" | null>(null);
+  const [voirLettre, setVoirLettre] = React.useState(false);
   const [choisies, setChoisies] = React.useState<Set<string>>(() => new Set(quotes.flatMap((q) => q.lines.filter((l) => l.selected).map((l) => l.id))));
   const [correction, setCorrection] = React.useState(false);
   const [redemande, setRedemande] = React.useState(false);
   const [cherche, setCherche] = React.useState("");
+
+  // « Ajouter un devis » depuis « Ce qu'il reste à faire » : l'éditeur s'ouvre ici.
+  useGeste((g) => { if (g.cle === "AJOUTER_DEVIS" && canTranscribe) setEdition("nouveau"); });
 
   // Le montant RETENU, calculé à mesure — avec la sélection de l'écran, pas celle de la base.
   const affiches: DevisLu[] = quotes.map((q) => ({ ...q, lines: q.lines.map((l) => ({ ...l, selected: canSelect ? choisies.has(l.id) : l.selected })) }));
@@ -415,17 +427,38 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
     run(() => choisirLignesPromo(f));
   };
   const auDg = seuilDg != null && seuilDg > 0 && selection.lignes > 0 && selection.ttc > seuilDg;
-  const nomArticle = new Map(articles.map((a) => { const promus = libellesPromusDeLArticle(a); return [a.id, `${a.reference} ${a.nom}${promus.length ? ` — ${promus.join(", ")}` : ""}`]; }));
-  // LE RAPPROCHEMENT — calculé par le module pur, avec la sélection de l'écran (§118.165).
-  const rapprochement = articles.length > 0 && quotes.length > 0 ? rapprocher(articles, affiches) : null;
+  // LA COMPARAISON — calculée par le module pur, avec la sélection de l'écran : une rangée par article × prestation.
+  const rangees = comparaisonDesDevis(articles, affiches);
+  const edite = edition && edition !== "nouveau" ? quotes.find((q) => q.id === edition) ?? null : null;
+  /** « Demander un devis » sur une rangée non chiffrée : le geste qu'on a ici — redemander au secrétariat, ou la lettre. */
+  const demanderUnDevis = (libelle: string) => {
+    if (canSelect) { setCherche(`Devis manquant : ${libelle}.`); setCorrection(false); setRedemande(true); }
+    else if (lettre?.peutGenerer) setVoirLettre(true);
+  };
+  const peutDemander = canSelect || Boolean(lettre?.peutGenerer);
+  const nbColonnes = quotes.length + 1;
+  const pu = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 
   return (
-    <div className="space-y-4">
-      {/* LES DEVIS DÉPOSÉS SANS FOURNISSEUR (§118.204) — « les fiches doivent être automatiques » : un fichier
-          « devis » de la demande devient un devis du circuit d'un geste, l'agence choisie dans l'annuaire. Le
-          fichier n'est pas retéléversé : le devis le DÉSIGNE. Plus de « Créer sa fiche » ici. */}
+    <section id="devis" className="surface scroll-mt-20 overflow-hidden" aria-labelledby="titre-devis">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <h2 id="titre-devis" className="text-[0.9375rem] font-semibold">Devis reçus — comparaison</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {lettre && (lettre.peutGenerer || lettre.generations.length > 0 || lettre.retrait) && (
+            <Button size="sm" variant="outline" onClick={() => setVoirLettre(true)}>
+              <FileText className="h-4 w-4" /> {lettre.generations.length > 0 ? "Demande de devis" : "Générer la demande de devis"}
+            </Button>
+          )}
+          {canTranscribe && (
+            <Button size="sm" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Ajouter un devis</Button>
+          )}
+        </div>
+      </header>
+
+      {/* LES DEVIS DÉPOSÉS SANS FOURNISSEUR (§118.204) — un fichier « devis » de la demande devient un devis du circuit
+          d'un geste, l'agence choisie dans l'annuaire. Le fichier n'est pas retéléversé : le devis le DÉSIGNE. */}
       {aRanger.length > 0 && (
-        <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+        <div className="space-y-2 border-b border-border bg-warning/5 px-4 py-3">
           <p className="flex items-center gap-1 text-sm font-medium">
             Devis déposés sans fournisseur ({aRanger.length})
             <InfoBulle label="Que faire de ces devis" align="left">
@@ -459,208 +492,180 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
         </div>
       )}
 
-      {quotes.length === 0 && !canTranscribe && (
-        <p className="text-sm text-muted-foreground">Aucun devis retranscrit pour l&apos;instant.</p>
-      )}
-
-      {quotes.map((q) => {
-        const t = totauxDuDevis(q);
-        const ecart = ecartDeRetranscription(q);
-        const toutCoche = q.lines.length > 0 && q.lines.every((l) => choisies.has(l.id));
-        if (edition === q.id) {
-          return <EditeurDevis key={q.id} id={id} devis={q} articles={articles} parties={parties} canCreateContact={canCreateContact} onDone={() => setEdition(null)} />;
-        }
-        return (
-          <div key={q.id} className="rounded-lg border border-border">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{q.supplierName}</p>
-                <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                  {q.reference ? `Devis n° ${q.reference}` : "Devis sans numéro"}{q.quoteDate ? ` · ${new Date(q.quoteDate).toLocaleDateString("fr-FR")}` : ""} · TVA {q.tvaRate} %{q.extraTaxRate ? ` · ${q.extraTaxLabel ?? "Taxe"} ${q.extraTaxRate} %` : ""}
-                  {q.documentName
-                    ? <> · <FileText className="inline h-3 w-3" /> {q.documentId
-                      ? <a href={`/api/documents/${q.documentId}`} target="_blank" rel="noreferrer" className="text-primary hover:underline" aria-label={`Ouvrir le fichier du devis ${q.documentName}`}>{q.documentName}</a>
-                      : q.documentName}</>
-                    : <> · <span className="text-amber-600">scan manquant</span></>}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {canSelect && (
-                  <label className="flex min-h-9 items-center gap-2 text-xs sm:min-h-0 sm:gap-1.5">
-                    <input type="checkbox" className="h-4 w-4 sm:h-auto sm:w-auto" checked={toutCoche} onChange={(e) => toutLeDevis(q, e.target.checked)} /> Tout le devis
-                  </label>
-                )}
-                {canTranscribe && (
-                  <>
-                    <Button size="sm" variant="outline" onClick={() => setEdition(q.id)} disabled={saving}><Pencil className="h-4 w-4" /> Corriger</Button>
-                    <BoutonDecisif size="sm" variant="ghost" disabled={saving} aria-label={`Retirer le devis de ${q.supplierName}`}
-                      onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); f.set("quoteId", q.id); run(() => supprimerDevisPromo(f)); }}>
-                      <Trash2 className="h-4 w-4" />
-                    </BoutonDecisif>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[520px]">
-                <thead>
-                  <tr className="text-left text-xs text-muted-foreground">
-                    {canSelect && <th className="w-8 px-3 py-1.5" />}
-                    <th className="px-3 py-1.5 font-medium">Référence</th>
-                    <th className="px-3 py-1.5 font-medium">Unité</th>
-                    <th className="px-3 py-1.5 text-right font-medium">Quantité</th>
-                    <th className="px-3 py-1.5 text-right font-medium">Prix unitaire HT</th>
-                    <th className="px-3 py-1.5 text-right font-medium">Prix total HT</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {q.lines.map((l) => {
-                    const retenue = canSelect ? choisies.has(l.id) : l.selected;
+      {quotes.length === 0 ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground">Aucun devis reçu pour l&apos;instant.</p>
+      ) : (
+        // UNE COLONNE PAR DEVIS, UNE RANGÉE PAR ARTICLE × PRESTATION — un tableau au téléphone aussi : il défile dans son
+        // conteneur, la colonne des rangées reste fixe.
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[40rem] text-sm">
+            <thead>
+              <tr className="bg-muted/50 align-top text-xs text-muted-foreground">
+                <th className="sticky left-0 z-[1] bg-card px-3 py-2 text-left font-medium">Article · prestation</th>
+                {quotes.map((q) => {
+                  const ecart = ecartDeRetranscription(q);
+                  const toutCoche = q.lines.length > 0 && q.lines.every((l) => choisies.has(l.id));
+                  return (
+                    <th key={q.id} className="min-w-[10rem] px-3 py-2 text-right font-medium">
+                      <span className="block text-[0.8125rem] font-semibold text-foreground">{q.supplierName}</span>
+                      <span className="block font-normal [overflow-wrap:anywhere]">
+                        {q.reference ? `n° ${q.reference}` : "sans n°"}{q.quoteDate ? ` · ${new Date(q.quoteDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}` : ""}
+                        {" · "}
+                        {q.documentId && q.documentName
+                          ? <a href={`/api/documents/${q.documentId}`} target="_blank" rel="noreferrer" className="text-primary hover:underline" aria-label={`Ouvrir le fichier du devis ${q.documentName}`}>{q.documentName}</a>
+                          : q.documentName ?? <span className="text-warning">scan manquant</span>}
+                      </span>
+                      {ecart && (
+                        <span className="mt-0.5 inline-flex items-center gap-0.5 font-normal text-warning">
+                          écart de retranscription
+                          <InfoBulle label="Écart de retranscription" align="right">Les lignes font {formatDzd(ecart.calcule)} HT, le devis annonce {formatDzd(ecart.annonce)}.</InfoBulle>
+                        </span>
+                      )}
+                      {(canSelect || canTranscribe) && (
+                        <span className="mt-1 flex flex-wrap items-center justify-end gap-1 font-normal">
+                          {canSelect && (
+                            <label className="flex min-h-9 items-center gap-1.5 sm:min-h-0">
+                              <input type="checkbox" className="h-4 w-4" checked={toutCoche} onChange={(e) => toutLeDevis(q, e.target.checked)} /> tout
+                            </label>
+                          )}
+                          {canTranscribe && (
+                            <>
+                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEdition(q.id)} disabled={saving} aria-label={`Corriger le devis de ${q.supplierName}`}><Pencil className="h-3.5 w-3.5" /></Button>
+                              <BoutonDecisif size="sm" variant="ghost" className="h-7 px-2" disabled={saving} aria-label={`Retirer le devis de ${q.supplierName}`}
+                                onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); f.set("quoteId", q.id); run(() => supprimerDevisPromo(f)); }}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </BoutonDecisif>
+                            </>
+                          )}
+                        </span>
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {rangees.map((r) => (
+                <tr key={r.cle} className="border-t border-border align-top">
+                  <td className="sticky left-0 z-[1] max-w-[16rem] bg-card px-3 py-2">
+                    <span className="[overflow-wrap:anywhere]">{r.libelle}</span>
+                    <span className="text-muted-foreground">
+                      {" · "}
+                      {r.manquantes.length > 0
+                        ? r.manquantes.map((a) => ACTION_LABEL[a].toLowerCase()).join(", ")
+                        : r.action ? ACTION_LABEL[r.action].toLowerCase() : "sans prestation"}
+                    </span>
+                    {r.horsDemande && <span className="ml-1.5 rounded-full border border-border px-1.5 py-px text-[0.6875rem] text-muted-foreground">hors demande</span>}
+                  </td>
+                  {r.manquantes.length > 0 ? (
+                    <td colSpan={nbColonnes - 1} className="px-3 py-2 text-center text-muted-foreground">
+                      non chiffré{peutDemander && <> — <button type="button" className="text-primary hover:underline" onClick={() => demanderUnDevis(`${r.libelle} · ${r.manquantes.map((a) => ACTION_LABEL[a].toLowerCase()).join(", ")}`)}>demander un devis</button></>}
+                    </td>
+                  ) : quotes.map((q) => {
+                    const ls = r.cellules[q.id] ?? [];
+                    const meilleur = r.meilleurs.includes(q.id);
+                    if (ls.length === 0) return <td key={q.id} className="px-3 py-2 text-right text-muted-foreground">—</td>;
                     return (
-                      <tr key={l.id} className={`border-t border-border ${retenue ? "!bg-emerald-500/5" : ""}`}>
-                        {canSelect && (
-                          <td data-label="Retenir" className="px-3 py-1.5"><input type="checkbox" className="h-5 w-5 sm:h-auto sm:w-auto" checked={retenue} onChange={() => bascule(l.id)} aria-label={`Retenir ${l.reference}`} /></td>
-                        )}
-                        <td className="px-3 py-1.5 font-medium sm:font-normal">
-                          <div className="w-full">
-                            {l.reference}{!canSelect && retenue && <Badge tone="success" className="ml-2">retenue</Badge>}
-                            <span className="mt-0.5 flex flex-wrap gap-1 text-xs font-normal">
-                              {l.action && <Badge tone="info">{ACTION_LABEL[l.action as PromoAction]}</Badge>}
-                              {l.requestItemId
-                                ? <span className="text-muted-foreground">{nomArticle.get(l.requestItemId) ?? "article demandé"}</span>
-                                : articles.length > 0 && <span className="text-amber-700 dark:text-amber-400">en plus (non demandé)</span>}
-                            </span>
-                          </div>
-                        </td>
-                        <td data-label="Unité" className="px-3 py-1.5 text-muted-foreground">{l.unit ?? "—"}</td>
-                        <td data-label="Quantité" className="px-3 py-1.5 text-right tabular-nums">{l.quantity.toLocaleString("fr-FR")}</td>
-                        <td data-label="Prix unitaire HT" className="px-3 py-1.5 text-right tabular-nums">{formatDzd(l.unitPrice)}</td>
-                        <td data-label="Prix total HT" className="px-3 py-1.5 text-right tabular-nums">{formatDzd(totalLigneHT(l))}</td>
-                      </tr>
+                      <td key={q.id} className="px-3 py-2 text-right tabular-nums">
+                        {ls.map((l) => (
+                          <label key={l.id} className={`flex items-center justify-end gap-1.5 whitespace-nowrap ${canSelect ? "min-h-9 cursor-pointer sm:min-h-0" : ""}`} title={`${l.reference} — ${formatDzd(l.totalHT)} HT`}>
+                            {canSelect
+                              ? <input type="checkbox" className="h-4 w-4" checked={choisies.has(l.id)} onChange={() => bascule(l.id)} aria-label={`Retenir ${l.reference} — ${q.supplierName}`} />
+                              : l.retenue ? <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-label="retenue" /> : null}
+                            <span className={meilleur ? "font-semibold text-success" : ""}>{pu(l.prixUnitaire)} × {l.quantite.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}</span>
+                          </label>
+                        ))}
+                      </td>
                     );
                   })}
-                </tbody>
-                <tfoot className="">
-                  <tr className="border-t border-border text-xs">
-                    <td colSpan={canSelect ? 5 : 4} className="px-3 py-1.5 text-right text-muted-foreground">
-                      Total du devis — HT {formatDzd(t.ht)} · TVA {formatDzd(t.tva)}{t.taxe ? ` · ${q.extraTaxLabel ?? "Taxe"} ${formatDzd(t.taxe)}` : ""}
-                    </td>
-                    <td className="px-3 py-1.5 text-right font-medium tabular-nums">{formatDzd(t.ttc)} TTC</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            {ecart && (
-              <p className="border-t border-border px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-                Écart de retranscription : les lignes font {formatDzd(ecart.calcule)} HT, le devis annonce {formatDzd(ecart.annonce)}.
-              </p>
-            )}
-          </div>
-        );
-      })}
-
-      {rapprochement && (
-        <div className="space-y-2 rounded-lg border border-border p-3 [overflow-wrap:anywhere]">
-          <p className="text-sm font-medium">Rapprochement avec la demande</p>
-          <div className="space-y-2">
-            {rapprochement.articles.map(({ article, lignes, actionsSansDevis }) => (
-              <div key={article.id} className="rounded-md bg-muted/40 px-3 py-2 text-sm">
-                <p className="font-medium">{libelleArticleDemande(article)}</p>
-                {lignes.length === 0
-                  ? <p className="text-xs text-amber-700 dark:text-amber-400">Aucune ligne de devis ne chiffre encore cet article.</p>
-                  : (
-                    <ul className="mt-1 space-y-0.5 text-xs">
-                      {lignes.map((l) => (
-                        <li key={l.ligneId} className={l.retenue ? "font-medium text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}>
-                          {l.fournisseur} — {l.action ? `${ACTION_LABEL[l.action]} · ` : ""}{l.reference} · {l.quantite.toLocaleString("fr-FR")} × {formatDzd(l.prixUnitaire)} = {formatDzd(l.totalHT)} HT{l.retenue ? " · retenue" : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                {actionsSansDevis.length > 0 && lignes.length > 0 && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">Pas encore chiffré : {actionsSansDevis.map((a) => ACTION_LABEL[a].toLowerCase()).join(", ")}.</p>
-                )}
-              </div>
-            ))}
-            {rapprochement.enPlus.length > 0 && (
-              <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs">
-                <p className="font-medium">En plus de la demande — {rapprochement.enPlus.length} ligne{rapprochement.enPlus.length > 1 ? "s" : ""}, qui peuvent être retenues :</p>
-                <ul className="mt-1 space-y-0.5 text-muted-foreground">
-                  {rapprochement.enPlus.map((l) => (
-                    <li key={l.ligneId}>{l.fournisseur} — {l.action ? `${ACTION_LABEL[l.action]} · ` : ""}{l.reference} · {formatDzd(l.totalHT)} HT{l.retenue ? " · retenue" : ""}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-border">
+                <td className="sticky left-0 z-[1] bg-card px-3 py-2 font-medium">Total retenu TTC</td>
+                {affiches.map((q) => {
+                  const t = totauxRetenus(q);
+                  return <td key={q.id} className="px-3 py-2 text-right font-semibold tabular-nums">{t.lignes > 0 ? pu(t.ttc) : <span className="font-normal text-muted-foreground">—</span>}</td>;
+                })}
+              </tr>
+              <tr className="border-t border-border text-xs text-muted-foreground">
+                <td className="sticky left-0 z-[1] bg-card px-3 py-1.5">Taxes</td>
+                {quotes.map((q) => (
+                  <td key={q.id} className="whitespace-nowrap px-3 py-1.5 text-right">
+                    {q.tvaRate != null ? `TVA ${q.tvaRate} %` : "TVA non indiquée"}{q.extraTaxRate ? ` · ${q.extraTaxLabel ?? "taxe"} ${q.extraTaxRate} %` : ""}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
 
-      {canTranscribe && edition === "nouveau" && (
-        <EditeurDevis id={id} devis={null} articles={articles} parties={parties} canCreateContact={canCreateContact} onDone={() => setEdition(null)} />
-      )}
+      {(err || msg) && <div className="space-y-2 border-t border-border px-4 py-2.5"><Erreur msg={err} /><Info msg={msg} /></div>}
 
-      <Erreur msg={err} />
-      <Info msg={msg} />
-
-      {canTranscribe && edition === null && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Déposer un devis</Button>
-            <Button size="sm" className="w-full sm:w-auto" onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); run(() => terminerRetranscriptionPromo(f)); }} disabled={saving || manques.length > 0}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Retranscription terminée
-            </Button>
-          </div>
-          {manques.length > 0 && (
-            <ul className="list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
-              {manques.map((m) => <li key={m}>{m}</li>)}
-            </ul>
-          )}
-        </div>
-      )}
-
+      {/* LE CHOIX DES LIGNES — le montant retenu calculé à mesure, et les issues du choix. */}
       {canSelect && (
-        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <p className="text-sm">
-            Retenu : <strong>{selection.lignes}</strong> ligne{selection.lignes > 1 ? "s" : ""} sur {selection.devis} devis —{" "}
-            <strong className="tabular-nums">{formatDzd(selection.ttc)} TTC</strong>
-            <span className="text-muted-foreground"> (HT {formatDzd(selection.ht)})</span>
-            <InfoBulle label="Ce qui se passe ensuite" className="ml-1 align-middle">
-              Votre choix part à la Direction Marketing{auDg ? ", puis au Directeur Général (au-dessus du seuil)" : ""}. Les bons de commande
-              seront générés d&apos;après ces lignes, un par fournisseur.
-            </InfoBulle>
-          </p>
-          {!correction && !redemande ? (
-            <div className="flex flex-wrap gap-2">
-              <BoutonDecisif size="sm" variant="success" onClick={() => envoyerChoix(true)} disabled={saving || selection.lignes === 0}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Valider ma sélection
-              </BoutonDecisif>
-              <Button size="sm" variant="outline" onClick={() => envoyerChoix(false)} disabled={saving}>Enregistrer sans valider</Button>
-              <Button size="sm" variant="ghost" onClick={() => setCorrection(true)} disabled={saving}><Undo2 className="h-4 w-4" /> Demander une correction</Button>
-              <Button size="sm" variant="ghost" onClick={() => setRedemande(true)} disabled={saving}><RotateCcw className="h-4 w-4" /> Redemander des devis</Button>
-            </div>
-          ) : redemande ? (
+        <div className="space-y-2 border-t border-border bg-primary/5 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm">
+              Retenu : <strong>{selection.lignes}</strong> ligne{selection.lignes > 1 ? "s" : ""} —{" "}
+              <strong className="tabular-nums">{formatDzd(selection.ttc)} TTC</strong>
+              <InfoBulle label="Ce qui se passe ensuite" className="ml-1 align-middle">
+                Votre choix part à la Direction Marketing{auDg ? ", puis au Directeur Général (au-dessus du seuil)" : ""}. Les bons de commande
+                seront préparés d&apos;après ces lignes, un par fournisseur, et vous les validerez avant l&apos;envoi aux Finances.
+              </InfoBulle>
+            </p>
+            {!correction && !redemande && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => envoyerChoix(false)} disabled={saving}>Enregistrer</Button>
+                <BoutonDecisif size="sm" variant="success" onClick={() => envoyerChoix(true)} disabled={saving || selection.lignes === 0}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Valider ma sélection
+                </BoutonDecisif>
+                <MenuLigne label="Autres issues du choix" entrees={[
+                  { libelle: "Demander une correction à l'assistante", onClick: () => setCorrection(true) },
+                  { libelle: "Redemander des devis", onClick: () => setRedemande(true) },
+                ]} />
+              </div>
+            )}
+          </div>
+          {redemande && (
             <form action={(f: FormData) => { f.set("promoMaterialId", id); run(() => redemanderDevisPromo(f), () => { setRedemande(false); setCherche(""); }); }} className="space-y-2">
-              <Label htmlFor="promo-redemande">Ce que vous cherchez</Label>
-              <Textarea id="promo-redemande" name="note" value={cherche} onChange={(e) => setCherche(e.target.value)} className="min-h-[50px]" placeholder="Ex. d'autres imprimeurs, 2 000 exemplaires au lieu de 5 000, livraison avant le 15." />
-              <p className="text-xs text-muted-foreground">Une nouvelle demande part à l&apos;assistante ; les devis déjà reçus restent, pour comparer.</p>
+              <Label htmlFor="promo-redemande" className="inline-flex items-center gap-1">
+                Ce que vous cherchez
+                <InfoBulle label="Ce que fait une nouvelle demande">Une nouvelle demande part à l&apos;assistante ; les devis déjà reçus restent, pour comparer.</InfoBulle>
+              </Label>
+              <Textarea id="promo-redemande" name="note" value={cherche} onChange={(e) => setCherche(e.target.value)} className="min-h-[50px] bg-background" placeholder="Ex. d'autres imprimeurs, 2 000 exemplaires au lieu de 5 000, livraison avant le 15." />
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="submit" size="sm" disabled={saving || !cherche.trim()}>Envoyer la demande</Button>
+                <Button type="submit" size="sm" disabled={saving || !cherche.trim()}><RotateCcw className="h-4 w-4" /> Envoyer la demande</Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setRedemande(false)} disabled={saving}>Annuler</Button>
               </div>
             </form>
-          ) : (
+          )}
+          {correction && (
             <form action={(f: FormData) => { f.set("promoMaterialId", id); run(() => demanderCorrectionDevisPromo(f), () => setCorrection(false)); }} className="space-y-2">
               <Label htmlFor="promo-correction">Ce qui est à corriger dans la retranscription</Label>
-              <Textarea id="promo-correction" name="motif" required className="min-h-[50px]" placeholder="Ex. le prix unitaire des présentoirs est 2 500 DZD, pas 25 000." />
+              <Textarea id="promo-correction" name="motif" required className="min-h-[50px] bg-background" placeholder="Ex. le prix unitaire des présentoirs est 2 500 DZD, pas 25 000." />
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="submit" size="sm" disabled={saving}>Renvoyer à l&apos;assistante</Button>
+                <Button type="submit" size="sm" disabled={saving}><Undo2 className="h-4 w-4" /> Renvoyer à l&apos;assistante</Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setCorrection(false)} disabled={saving}>Annuler</Button>
               </div>
             </form>
           )}
         </div>
       )}
-    </div>
+
+      {canTranscribe && edition !== null && (
+        <Sheet open onClose={() => setEdition(null)} width="xl" title={edite ? `Corriger le devis de ${edite.supplierName}` : "Ajouter un devis"} description="Le scan, le fournisseur, les lignes : la lecture du scan préremplit, tout reste modifiable.">
+          <EditeurDevis key={edite?.id ?? "nouveau"} id={id} devis={edite} articles={articles} parties={parties} canCreateContact={canCreateContact} onDone={() => setEdition(null)} />
+        </Sheet>
+      )}
+
+      {lettre && voirLettre && (
+        <Sheet open onClose={() => setVoirLettre(false)} width="lg" title="Demande de devis" description="La lettre à l'agence, en Word et en PDF, sur le papier en-tête de la société.">
+          <DemandeDevisCard promoMaterialId={id} generations={lettre.generations} peutGenerer={lettre.peutGenerer} apercu={lettre.apercu} retrait={lettre.retrait} />
+        </Sheet>
+      )}
+    </section>
   );
 }

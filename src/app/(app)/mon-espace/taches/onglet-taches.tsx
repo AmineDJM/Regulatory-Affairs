@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   BellRing, Check, ChevronLeft, ChevronRight, ExternalLink, Loader2, MapPin, MessageSquare, MoreHorizontal,
   Navigation, Play, Send, SlidersHorizontal, Users, X,
@@ -77,6 +78,15 @@ export function OngletTaches({ data, champsComplets, peutCreer, ouvrir }: {
   const [ouverte, setOuverte] = React.useState<string | null>(ouvrir);
   const toutes = React.useMemo(() => [...data.aAccepter, ...data.lignes], [data.aAccepter, data.lignes]);
   const selection = ouverte ? toutes.find((t) => t.id === ouverte) ?? null : null;
+  // `?tache=` (une notification) VISE UNE TÂCHE QUI N'EST PAS DANS CETTE VUE (déplacée, terminée, page
+  // suivante) : sa fiche l'ouvre à coup sûr — un panneau qui ne s'ouvre pas laisserait croire au lien mort.
+  const router = useRouter();
+  const ouvrirAuDepart = React.useRef(ouvrir);
+  React.useEffect(() => {
+    const id = ouvrirAuDepart.current;
+    if (id && !toutes.some((t) => t.id === id)) router.replace(`/mon-espace/taches/${encodeURIComponent(id)}`);
+    ouvrirAuDepart.current = null;
+  }, [toutes, router]);
 
   return (
     <div className="space-y-4">

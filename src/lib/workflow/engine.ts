@@ -10,6 +10,7 @@ import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { isManagerOfUser, getManagerOfUser } from "@/lib/departments";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
+import { CHEMIN_PARENT_AD_PRO, lienDemandeAdPro, type ParentAdPro } from "@/lib/chemins/ad-pro";
 import { defaultDefinition } from "./defaults";
 import { estDecisionnaire, etapesNonAtteintes, estIgnoree, parcoursEffectif, seuilFranchissement } from "./parcours";
 import { adProOriginRank } from "./origin";
@@ -1309,12 +1310,8 @@ async function recordEvent(instanceId: string, step: LoadedStep, action: string,
 }
 
 function entityPath(entityType: EntityType, entityId: string): string {
-  const base =
-    entityType === "SPONSORING" ? "/sponsoring"
-      : entityType === "CONGRESS_INTERNATIONAL" ? "/congress-international"
-        : entityType === "CONGRESS_NATIONAL" ? "/congress-national"
-          : "/events";
-  return `${base}/${entityId}`;
+  // La table des fiches Ad & Pro vit une fois (`chemins/ad-pro`) ; le circuit ne porte que ces quatre natures.
+  return lienDemandeAdPro(entityType in CHEMIN_PARENT_AD_PRO ? (entityType as ParentAdPro) : "EVENT", entityId);
 }
 
 function auditModule(entityType: EntityType): string {

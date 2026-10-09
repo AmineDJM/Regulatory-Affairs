@@ -75,8 +75,9 @@ async function historique(missionId: string, stepKey: string): Promise<{ n: numb
 async function messageSigneAdam(agentId: string, destinataireId: string, body: string, missionId?: string): Promise<boolean> {
   try {
     // Le MÊME geste que l'écran et l'assistant : conversation, message, fait MESSAGE_RECEIVED.
-    await envoyerMessageDirect({ senderId: agentId, senderName: "Adam", recipientId: destinataireId, body, missionId: missionId ?? null });
-    await notifyUser({ userId: destinataireId, type: "GENERIC", title: "Relance d'Adam", body: body.slice(0, 100), link: "/messages" });
+    const { conversationId } = await envoyerMessageDirect({ senderId: agentId, senderName: "Adam", recipientId: destinataireId, body, missionId: missionId ?? null });
+    // Le lien ouvre LA conversation où Adam vient d'écrire, pas la messagerie à parcourir.
+    await notifyUser({ userId: destinataireId, type: "GENERIC", title: "Relance d'Adam", body: body.slice(0, 100), link: `/messages?c=${encodeURIComponent(conversationId)}` });
     return true;
   } catch (e) {
     console.error("[relance] message impossible", e);

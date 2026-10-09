@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { notifyUser } from "@/lib/notify";
 import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
+import { lienDemandeDeValidation, lienEtapeAValider } from "@/lib/chemins/validations";
 
 /**
  * Moteur de validation transversal. Le Super Admin définit des règles
@@ -85,13 +86,17 @@ async function nextReference(): Promise<string> {
   return buildRef("VAL", year, refs.map((r) => r.reference));
 }
 
-export async function notifyValidator(userId: string, req: { reference: string; title: string }) {
+/**
+ * Prévient un validateur — le lien mène à SA carte de décision (`?focus=<étape>`), pas en haut d'une
+ * liste où il faudrait la chercher : la fiche `/validations/<id>` n'a pas les boutons.
+ */
+export async function notifyValidator(userId: string, req: { id: string; reference: string; title: string }, stepId?: string | null) {
   await notifyUser({
     userId,
     type: "VALIDATION_REQUIRED",
     title: "Validation demandée",
     body: `${req.reference} — ${req.title}`,
-    link: "/validations",
+    link: stepId ? lienEtapeAValider(stepId) : lienDemandeDeValidation(req.id),
   });
 }
 
@@ -144,7 +149,7 @@ export async function createValidationFromRules(input: CreateValidationInput): P
   }));
 
   const toNotify = rule.mode === "PARALLEL" ? req.steps : req.steps.filter((s) => s.order === 1);
-  for (const s of toNotify) await notifyValidator(s.validatorId, req);
+  for (const s of toNotify) await notifyValidator(s.validatorId, req, s.id);
 
   return { ok: true, matched: true, requestId: req.id, reference: req.reference };
 }
@@ -223,10 +228,10 @@ export async function createDirectValidation(input: {
   }));
 
   if ((input.mode ?? "SEQUENTIAL") === "PARALLEL") {
-    for (const s of req.steps) await notifyValidator(s.validatorId, req);
+    for (const s of req.steps) await notifyValidator(s.validatorId, req, s.id);
   } else {
     const first = req.steps.find((s) => s.order === 1);
-    if (first) await notifyValidator(first.validatorId, req);
+    if (first) await notifyValidator(first.validatorId, req, first.id);
   }
   return { ok: true, matched: true, requestId: req.id, reference: req.reference };
 }

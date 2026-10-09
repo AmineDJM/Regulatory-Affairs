@@ -1,22 +1,24 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Wallet } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
 import { getAppSettings } from "@/lib/settings";
 import { generalMeansBudgetTargets } from "@/lib/general-means/budget-targets";
-import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
+import { normalizeYear, DEPT_BUDGET_LABEL, consumedPercent } from "@/lib/department-budget";
 import { PageHeader } from "@/components/shared/page-header";
-import { KpiCard } from "@/components/shared/kpi-card";
+import { Tuile } from "@/components/shared/tuile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { formatCurrency } from "@/lib/utils";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { Repartition } from "@/components/charts/repartition";
+import { SANS_NATURE, repartitionParNature, titreMois, totauxDuMois } from "@/lib/general-means/ecran";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { CashPanel } from "./cash-panel";
 import { ExpensePanel } from "./expense-panel";
 import { ServiceSwitch, ChangerDeService } from "./service-switch";
-import { SuppliesManager } from "../demandes/supplies-manager";
+import { EnteteMenu } from "./entete-menu";
 import { ExpenseTable } from "./expense-table";
 
 export const dynamic = "force-dynamic";
@@ -162,21 +164,39 @@ export default async function MoyensGenerauxPage({
   // montants ni consommation — classer une dépense ne suppose pas d'accéder au module Budget.
   const budgetTargets = view.canSpend ? await generalMeansBudgetTargets() : [];
 
-  const health = budgetHealth(view.allocated, view.consumed);
-  const tone = health === "OVER_BUDGET" ? "danger" : health === "AT_RISK" ? "warning" : health === "UNSET" ? "default" : "success";
+  // MOIS EN COURS, DÉPENSES PAR NATURE : lus sur la liste affichée (les 200 plus récentes — largement assez pour deux mois).
+  const maintenant = new Date();
+  const mois = totauxDuMois(view.expenses, maintenant);
+  const nomDuMois = (ym: string) => titreMois(ym).split(" ")[0].toLowerCase();
+  const natures = repartitionParNature(view.expenses.map((e) => ({ amount: e.amount, nature: e.nature })));
+  const fund = view.cash?.fund ?? null;
+  const derniereRemise = view.cash?.remittances.find((r) => r.centre === "VERSEE") ?? view.cash?.remittances[0] ?? null;
+  const totalAnnee = view.consumed + view.otherConsumed;
 
   return (
     <div className="space-y-5">
-      {/* Le département ne figure au titre que pour le Super Admin : c'est lui qui désigne le
-          service, il doit voir lequel est en vigueur. Pour les autres, il n'y en a qu'un. */}
-      {/* EN-TÊTE : LE CATALOGUE D'ARTICLES, ET LUI SEUL (décision de la Direction, 04/10 : « ne laisser
-          dans le header que le catalogue d'articles »). Le reste — la caisse, les dépenses, le choix du
-          service — n'a pas été retiré : il vit dans la page, sous l'en-tête. */}
+      {/* EN-TÊTE (Direction, 09/10) : la société et l'année, UN geste principal (« Ajouter une dépense »), le reste dans ⋯.
+          La caisse, les dépenses et le choix du service ne sont pas retirés : ils vivent dans la page, sous l'en-tête. */}
       <PageHeader
         title={pilote ? `Moyens généraux — ${view.department.path}` : "Moyens généraux"}
-        description="La caisse à deux horizons — l'exercice (l'année) et le mois — et le détail des dépenses avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
+        description={`${view.department.company ?? view.department.name} · ${year}`}
       >
-        {canManageCatalog && <SuppliesManager articles={catalogRows} />}
+        {view.canSpend && (
+          <ExpensePanel
+            departmentId={view.department.id} year={year} remaining={view.remaining}
+            articles={articleOptions} budgetTargets={budgetTargets}
+            cash={view.cash ? {
+              // « Reçue » se juge sur le FOND : une remise en attente de confirmation
+              // n'empêche pas de dépenser ce qui est déjà en main.
+              status: view.cash.fund.received > 0 ? "RECEIVED" : "ALLOTTED",
+              remaining: view.cash.fund.remaining,
+              // La caisse n'est proposée qu'à qui peut réellement en sortir de l'argent :
+              // offrir l'option à quelqu'un d'autre, c'est un refus après la saisie.
+              canSpend: view.isHolder || view.canAmendCash,
+            } : null}
+          />
+        )}
+        {canManageCatalog && <EnteteMenu articles={catalogRows} peutModifier />}
       </PageHeader>
 
       {/* QUEL DÉPARTEMENT TIENT LES MOYENS GÉNÉRAUX DE LA SOCIÉTÉ — le réglage qui décide où tout le
@@ -192,87 +212,79 @@ export default async function MoyensGenerauxPage({
         </div>
       )}
 
-      {/* TROIS INDICATEURS, PAS QUATRE. « Restant sur l'année » affichait allocation − consommé :
-          sans caisse annuelle réglée, cela donnait un « restant » NÉGATIF du montant déjà dépensé
-          (« −11 680 DZD »), qui ne veut rien dire pour personne. La consommation de l'année est
-          déjà là, avec son pourcentage quand une caisse existe ; le seul reste qui se dépense
-          vraiment est celui du mois, juste à côté. */}
+      {/* TROIS CHIFFRES : ce qu'il reste à dépenser, ce que le mois a coûté, ce que l'année a coûté. Les explications
+          (caisse de l'exercice, autres budgets) sont derrière ⓘ. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <KpiCard label={`Caisse de l'exercice ${year}`} value={formatCurrency(view.allocated)} icon="Wallet" />
-        <KpiCard
-          label="Consommé (année)" value={formatCurrency(view.consumed)} icon="Receipt" tone={tone}
-          hint={view.allocated > 0 ? `${consumedPercent(view.allocated, view.consumed)} % de la caisse annuelle` : "aucune caisse annuelle réglée"}
-        />
-        <KpiCard
-          label="Reste en caisse d'avance" value={view.cash ? formatCurrency(view.cash.fund.remaining) : "—"} icon="HandCoins"
-          tone={view.cash?.fund.overspent ? "danger" : view.cash?.fund.lowOnCash ? "warning" : "info"}
-          hint={view.cash
-            ? `${view.cash.fund.remittanceCount} remise${view.cash.fund.remittanceCount > 1 ? "s" : ""} en cours`
+        <Tuile
+          label="En caisse" valeur={fund ? formatCurrency(fund.remaining) : "—"}
+          ton={fund?.overspent ? "danger" : fund?.lowOnCash ? "alerte" : "defaut"}
+          contexte={fund
+            ? `sur ${formatCurrency(fund.remitted)} remis${derniereRemise ? ` le ${formatDate(derniereRemise.remittedAt, { day: "2-digit", month: "2-digit" })}` : ""}${view.cash?.holder ? ` · ${view.cash.holder}` : ""}`
             : "aucune somme remise"}
+        />
+        <Tuile
+          label="Dépensé ce mois" valeur={formatCurrency(mois.courant)}
+          contexte={`${nomDuMois(mois.precedentMois)} : ${formatCurrency(mois.precedent)}`}
+        />
+        <Tuile
+          className="col-span-2 md:col-span-1"
+          label="Dépenses de l'année" valeur={formatCurrency(totalAnnee)}
+          contexte={`${view.expenseCount} dépense${view.expenseCount > 1 ? "s" : ""}`}
+          info={
+            <InfoBulle label="À propos des dépenses de l'année">
+              {view.allocated > 0
+                ? <>Caisse de l&apos;exercice {year} : {formatCurrency(view.allocated)} — {consumedPercent(view.allocated, view.consumed)} % consommée par les {DEPT_BUDGET_LABEL.OPERATING.toLowerCase()}. </>
+                : <>Aucune caisse annuelle réglée. </>}
+              {view.otherConsumed > 0 && <>Dont {formatCurrency(view.otherConsumed)} imputés à d&apos;autres budgets (métier, formation), non déduits de cette caisse.</>}
+            </InfoBulle>
+          }
         />
       </div>
 
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Wallet className="h-4 w-4 text-primary" /> Caisse d&apos;avance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-3 text-xs text-muted-foreground">
-            La part de la caisse de l&apos;exercice <strong>en main</strong> — pas un budget à côté, le
-            <strong> même argent</strong>. Elle est <strong>continue</strong> : chaque remise s&apos;ajoute au fond
-            et garde sa date, aucune ne clôt la précédente. La personne qui la détient confirme avoir reçu la
-            somme, puis chaque dépense en est déduite, justificatif scanné à l&apos;appui, jusqu&apos;à
-            épuisement — moment où elle demande une rallonge.
-          </p>
-          <CashPanel view={view} people={people} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Toutes les dépenses {year} ({view.expenseCount})</CardTitle>
-          {/* La liste MÊLE les natures ; la caisse affichée plus haut, elle, n'en porte
-              qu'une. Sans cette phrase, la somme des lignes ne retomberait pas sur le
-              « Consommé » et on croirait à une erreur de calcul. */}
-          {view.otherConsumed > 0 && (
-            <p className="text-xs text-muted-foreground">
-              Dont <strong>{formatCurrency(view.otherConsumed)}</strong> imputés à d&apos;autres budgets
-              (métier, formation) — non déduits de la caisse des {DEPT_BUDGET_LABEL.OPERATING.toLowerCase()}.
-            </p>
-          )}
-          {view.truncated && (
-            <p className="text-xs text-muted-foreground">
-              Les {LIST_LIMIT} plus récentes sont affichées ; les totaux ci-dessus portent sur l&apos;année entière.
-            </p>
-          )}
-        </CardHeader>
-        {view.canSpend && (
-          <CardContent className="pb-0">
-            <p className="mb-2 text-xs text-muted-foreground">
-              <strong>Un seul endroit pour enregistrer un achat</strong>, qu&apos;il ait été réglé sur la caisse
-              du mois ou autrement (virement, carte, facture payée par les Finances). Le moyen de paiement se
-              choisit dans le formulaire, et se corrige après coup sur une dépense déjà saisie.
-            </p>
-            <ExpensePanel
-              departmentId={view.department.id} year={year} remaining={view.remaining}
-              articles={articleOptions} budgetTargets={budgetTargets}
-              cash={view.cash ? {
-                // « Reçue » se juge sur le FOND : une remise en attente de confirmation
-                // n'empêche pas de dépenser ce qui est déjà en main.
-                status: view.cash.fund.received > 0 ? "RECEIVED" : "ALLOTTED",
-                remaining: view.cash.fund.remaining,
-                // La caisse n'est proposée qu'à qui peut réellement en sortir de l'argent :
-                // offrir l'option à quelqu'un d'autre, c'est un refus après la saisie.
-                canSpend: view.isHolder || view.canAmendCash,
-              } : null}
-            />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between gap-2 p-4 pb-2">
+            <CardTitle>Caisse d&apos;avance</CardTitle>
+            <InfoBulle label="À propos de la caisse d'avance">
+              La part de la caisse de l&apos;exercice en main — le même argent, pas un budget à côté. Elle est continue : chaque remise
+              s&apos;ajoute au fond et garde sa date. La personne qui la détient confirme avoir reçu la somme, puis chaque dépense en est
+              déduite, justificatif à l&apos;appui, jusqu&apos;à épuisement — moment où elle demande une rallonge.
+            </InfoBulle>
+          </CardHeader>
+          <CardContent className="p-4 pt-2">
+            <CashPanel view={view} people={people} />
           </CardContent>
-        )}
-        <CardContent className="p-0">
+        </Card>
+
+        <Card>
+          <CardHeader className="flex-row items-center justify-between gap-2 p-4 pb-2">
+            <CardTitle>Par nature · {year}</CardTitle>
+            <InfoBulle label="À propos de la répartition par nature">
+              La nature d&apos;une dépense est la catégorie du budget où son ticket est classé. « {SANS_NATURE} » : pas encore rangée.
+              {view.truncated && <> Calculé sur les {LIST_LIMIT} dépenses les plus récentes.</>}
+            </InfoBulle>
+          </CardHeader>
+          <CardContent className="p-4 pt-2">
+            {natures.length === 0
+              ? <p className="text-sm text-muted-foreground">Aucune dépense cette année.</p>
+              : <Repartition rows={natures} format={formatCurrency} />}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="flex-row items-center justify-between gap-2 p-4 pb-2">
+          <CardTitle>Dépenses</CardTitle>
+          <InfoBulle label="À propos des dépenses">
+            {view.canSpend && <>Un seul endroit pour enregistrer un achat, qu&apos;il ait été réglé sur la caisse ou autrement (virement, carte, facture payée par les Finances) : le moyen de paiement se choisit dans le formulaire et se corrige après coup. </>}
+            Seul le mois en cours est ouvert ; un clic sur une ligne en montre le détail.
+            {view.truncated && <> Les {LIST_LIMIT} plus récentes sont affichées ; les totaux portent sur l&apos;année entière.</>}
+          </InfoBulle>
+        </CardHeader>
+        <CardContent className="p-0 pb-2">
           {/* UNE SEULE LISTE, ET ELLE SE FILTRE. Les dépenses payées en liquide s'affichaient
-              aussi dans un bloc « Dépenses de la caisse » juste au-dessus : les mêmes achats,
-              deux fois, avec deux compteurs. « Caisse d'avance » est devenu un filtre. */}
+              aussi dans un bloc « Dépenses de la caisse » : les mêmes achats, deux fois, avec
+              deux compteurs. « Caisse d'avance » est un filtre de paiement. */}
           <ExpenseTable
             expenses={view.expenses}
             canSpend={view.canSpend}
@@ -280,6 +292,7 @@ export default async function MoyensGenerauxPage({
             articles={articleOptions}
             budgetTargets={budgetTargets}
             cashUsable={Boolean(view.cash && view.cash.fund.received > 0 && (view.isHolder || view.canAmendCash))}
+            maintenant={maintenant.toISOString()}
           />
         </CardContent>
       </Card>

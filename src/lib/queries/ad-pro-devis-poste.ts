@@ -8,7 +8,7 @@ import {
 } from "@/lib/ad-pro/devis-poste";
 import { IDENTITE_VIDE, identiteUtilisable, type IdentiteEmetteur } from "@/lib/pieces-lues/emetteur";
 import { montantLu } from "@/lib/pieces-lues/montants";
-import { brouillonPerime, lireBrouillon, lignesEffectives, type BrouillonBc } from "@/lib/ad-pro/bc-brouillon";
+import { brouillonPerime, lireBrouillon, lignesEffectives, type BrouillonBc } from "@/lib/bons-de-commande/brouillon";
 import type { LigneCommerciale } from "@/lib/artifact/factory/commercial";
 
 /** L'identité gardée en base (JSON) → sa forme typée, ou `null` si elle ne nomme personne. */

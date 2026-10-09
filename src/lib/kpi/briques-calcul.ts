@@ -219,13 +219,6 @@ export class ChargeurBriques {
         const r = tachesATemps(taches.flatMap((t) => (t.dueDate ? [{ dueDate: t.dueDate, completedAt: t.completedAt, statut: t.status }] : [])), this.maintenant);
         return ok(m.brique === "TACHES_ECHUES" ? r.echues : r.aTemps);
       }
-      case "RECLAMATIONS_DECLAREES": {
-        try {
-          return ok(await prisma.reclamation.count({ where: { declaredById: userId, createdAt: { gte: f.debut, lt: f.fin } } }));
-        } catch {
-          return ok(null, "Le registre des réclamations n'est pas disponible.");
-        }
-      }
       case "VALIDATIONS_REPONDUES":
         return ok(await prisma.validationStep.count({ where: { validatorId: userId, status: { not: "PENDING" }, decidedAt: { gte: f.debut, lt: f.fin } } }));
       case "DELAI_VALIDATIONS": {
@@ -304,14 +297,6 @@ export class ChargeurBriques {
         date: jour(t.dueDate), libelle: t.title, etat: t.status === "DONE" ? `faite le ${t.completedAt?.toLocaleDateString("fr-FR") ?? "—"}` : t.status.toLowerCase(),
         compte: t.status === "DONE" && !!t.completedAt && !!t.dueDate && t.completedAt < new Date(t.dueDate.getFullYear(), t.dueDate.getMonth(), t.dueDate.getDate() + 1),
       }));
-    }
-    if (b === "RECLAMATIONS_DECLAREES") {
-      try {
-        const r = await prisma.reclamation.findMany({ where: { declaredById: userId, createdAt: { gte: f.debut, lt: f.fin } }, select: { reference: true, productLabel: true, createdAt: true, status: true }, take: 300 });
-        return r.map((x) => ({ date: jour(x.createdAt), libelle: `${x.reference} · ${x.productLabel}`, etat: x.status.toLowerCase(), compte: true }));
-      } catch {
-        return [];
-      }
     }
     const etapes = await prisma.validationStep.findMany({
       where: { validatorId: userId, status: { not: "PENDING" }, decidedAt: { gte: f.debut, lt: f.fin } },

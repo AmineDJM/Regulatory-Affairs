@@ -23,7 +23,7 @@ import {
 } from "./promo-devis-actions";
 import {
   genererBonsDeCommandePromo, marquerBonDeCommandeEnvoye, deposerFacturePromo, demanderPaiementFacturePromo,
-  annulerBonDeCommandePromo, receptionnerLigneFacturePromo, modifierBonDeCommandePromo,
+  annulerBonDeCommandePromo, receptionnerLigneFacturePromo, modifierBonDeCommandePromo, validerEtEnvoyerBcPromo,
 } from "./promo-execution-actions";
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
 import { REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
@@ -524,6 +524,22 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     ACTOR = await actorFor(u.asst);
     const r = await genererBonsDeCommandePromo(form({ promoMaterialId: pmId, livraisonAdresse: "Siège, Alger" }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    // DEUX TEMPS (Direction, 10/2026) : la génération dépose un APERÇU par devis retenu — aucun numéro, rien au registre.
+    expect(await prisma.legalDocument.count({ where: { sourceType: "PROMO_MATERIAL", sourceId: pmId, kind: "PURCHASE_ORDER" } })).toBe(0);
+    const apercus = await prisma.promoQuote.findMany({ where: { promoMaterialId: pmId, lines: { some: { selected: true } } }, select: { id: true, bcBrouillon: true } });
+    expect(apercus.length).toBe(2);
+    expect(apercus.every((q) => q.bcBrouillon !== null), "un aperçu par devis retenu").toBe(true);
+    // L'assistante prépare, mais ne valide pas à la place du demandeur.
+    const parAssistante = await validerEtEnvoyerBcPromo(form({ promoMaterialId: pmId, quoteId: apercus[0]!.id }));
+    expect(parAssistante.ok).toBe(false);
+    ACTOR = await actorFor(u.cp);
+    for (const q of apercus) {
+      const v = await validerEtEnvoyerBcPromo(form({ promoMaterialId: pmId, quoteId: q.id }));
+      expect(v.ok, v.ok ? "" : v.error).toBe(true);
+    }
+    const restants = (await prisma.promoQuote.findMany({ where: { promoMaterialId: pmId }, select: { bcBrouillon: true } })).filter((q) => q.bcBrouillon !== null);
+    expect(restants, "l'aperçu validé est consommé").toHaveLength(0);
+    ACTOR = await actorFor(u.asst);
     const bcs = await prisma.legalDocument.findMany({ where: { sourceType: "PROMO_MATERIAL", sourceId: pmId, kind: "PURCHASE_ORDER" } });
     expect(bcs).toHaveLength(2);
     expect(bcs.map((b) => Number(b.amount)).sort((x, y) => x - y)).toEqual([363_000, 1_190_000]);
@@ -586,9 +602,9 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     const bc = await prisma.legalDocument.findFirstOrThrow({ where: { sourceType: "PROMO_MATERIAL", sourceId: pmId, kind: "PURCHASE_ORDER" }, select: { id: true, custom: true } });
     const f = fichiersEmis(bc.custom);
     expect(f.docx).toBeTruthy();
-    // PRÉMISSE : l'assistante a émis, le fichier vit dans SON Drive — le demandeur ne l'y lit pas.
+    // PRÉMISSE : le demandeur a validé l'aperçu, donc émis — le fichier vit dans SON Drive : les Finances ne l'y lisent pas.
     const cp = await actorFor(u.cp);
-    expect(canViewDrive(await resolveDriveAccess(cp, f.docx!)), "sans cela, la route de la pièce ne répare rien").toBe(false);
+    expect(canViewDrive(await resolveDriveAccess(await actorFor(u.fin), f.docx!)), "sans cela, la route de la pièce ne répare rien").toBe(false);
     expect(await fichierEmisDeLaPiece(cp, bc.id, "docx")).toEqual({ nodeId: f.docx });
     expect(await fichierEmisDeLaPiece(await actorFor(u.fin), bc.id, "docx")).toEqual({ nodeId: f.docx });
     expect(await fichierEmisDeLaPiece(await actorFor(u.dehors), bc.id, "docx")).toBeNull();

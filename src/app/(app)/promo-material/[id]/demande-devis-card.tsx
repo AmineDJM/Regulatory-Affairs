@@ -5,8 +5,9 @@ import { AlertCircle, CheckCircle2, ExternalLink, FileText, Loader2, RefreshCw, 
 import { Button } from "@/components/ui/button";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
-import { regenererDemandeDevisPromo } from "@/lib/actions/promo-devis-actions";
+import { referenceDemandeDevisPromo, regenererDemandeDevisPromo } from "@/lib/actions/promo-devis-actions";
 import { deleteDocument } from "@/lib/actions/document-actions";
+import { ChampReference } from "@/components/references/champ-reference";
 
 /**
  * LA DEMANDE DE DEVIS — la lettre que Luna rédige pour l'agence (Word + PDF sur papier en-tête), l'étape d'avant les
@@ -31,6 +32,7 @@ export function DemandeDevisCard({ promoMaterialId, generations, peutGenerer, ap
   const [occupe, setOccupe] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<string | null>(null);
+  const [reference, setReference] = React.useState({ valeur: "", suggeree: "", refusee: false });
   const bloque = occupe || enCours;
   const chemin = `/promo-material/${promoMaterialId}`;
 
@@ -38,6 +40,9 @@ export function DemandeDevisCard({ promoMaterialId, generations, peutGenerer, ap
     setOccupe(true); setErr(null); setMsg(null);
     const fd = new FormData();
     fd.set("promoMaterialId", promoMaterialId);
+    // La référence NNN/DG/AAAA (registre commun) : préremplie avec le prochain numéro, modifiable.
+    fd.set("reference", reference.valeur);
+    fd.set("referenceSuggeree", reference.suggeree);
     const r = await regenererDemandeDevisPromo(fd);
     setOccupe(false);
     if (r.ok) { setMsg(r.message ?? null); rafraichir(); } else setErr(r.error ?? "Génération impossible.");
@@ -100,10 +105,19 @@ export function DemandeDevisCard({ promoMaterialId, generations, peutGenerer, ap
       {err && <div role="alert" className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{err}</span></div>}
       {msg && <div className="flex items-start gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{msg}</span></div>}
 
+      {peutGenerer && (
+        <div className="max-w-xs">
+          <ChampReference
+            cle={`${promoMaterialId}:${generations.length}`}
+            charger={() => { const fd = new FormData(); fd.set("promoMaterialId", promoMaterialId); return referenceDemandeDevisPromo(fd); }}
+            onChange={(e) => setReference({ valeur: e.valeur, suggeree: e.suggeree ?? "", refusee: e.erreur !== null })}
+          />
+        </div>
+      )}
       {(peutGenerer || retrait) && (
         <div className="flex flex-wrap items-center gap-2">
           {peutGenerer && (
-            <Button size="sm" variant={derniere ? "outline" : "primary"} className="w-full sm:w-auto" disabled={bloque} onClick={generer}>
+            <Button size="sm" variant={derniere ? "outline" : "primary"} className="w-full sm:w-auto" disabled={bloque || reference.refusee} onClick={generer}>
               {occupe ? <Loader2 className="h-4 w-4 animate-spin" /> : derniere ? <RefreshCw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
               {derniere ? "Régénérer" : "Générer la demande de devis"}
             </Button>

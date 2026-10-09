@@ -30,7 +30,6 @@ export const BRIQUE_IDS = [
   "NOTE_COACHING",
   "TACHES_ECHUES",
   "TACHES_A_TEMPS",
-  "RECLAMATIONS_DECLAREES",
   "VALIDATIONS_REPONDUES",
   "DELAI_VALIDATIONS",
 ] as const;
@@ -175,13 +174,6 @@ export const BRIQUES: readonly Brique[] = [
     source: "Tâches (statut DONE, terminée le, échéance)",
     dimensions: PERSONNE_PERIODE, parametres: [],
     motsCles: ["tache", "taches", "a temps", "dans les delais"],
-  },
-  {
-    id: "RECLAMATIONS_DECLAREES", libelle: "Réclamations déclarées", unite: "NOMBRE", additive: true, metier: "TOUS",
-    definition: "Retours, réclamations qualité et rappels de lot déclarés par la personne dans la période.",
-    source: "Retours & réclamations (Reclamation : déclarant, date de déclaration)",
-    dimensions: PERSONNE_PERIODE, parametres: [],
-    motsCles: ["reclamation", "reclamations", "retour", "retours"],
   },
   {
     id: "VALIDATIONS_REPONDUES", libelle: "Validations répondues", unite: "NOMBRE", additive: true, metier: "TOUS",

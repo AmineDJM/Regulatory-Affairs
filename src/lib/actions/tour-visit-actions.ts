@@ -13,6 +13,8 @@ import { fenetreRapport, refusVisiteHorsDelai } from "@/lib/sfe/tournee";
 import { produitsDeLaBu, refusProduitsHorsBu } from "@/lib/sfe/produits-bu";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
 import { lirePotentielDuRapport } from "@/lib/segmentation/potentiel-rapport";
+import { lireBesoinsDuRapport } from "@/lib/besoins-services/regles";
+import { ecrireBesoinsDuRapport } from "@/lib/besoins-services/service";
 import {
   dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport,
 } from "@/lib/promo/remises-visite";
@@ -142,6 +144,10 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
   const pot = lirePotentielDuRapport(formData);
   if (!pot.ok) return { ok: false, error: pot.error };
 
+  // ── LE BESOIN ANNUEL DU SERVICE (décideur) — facultatif, sur le service du praticien visité ──────
+  const besoins = lireBesoinsDuRapport(formData);
+  if (!besoins.ok) return { ok: false, error: besoins.error };
+
   // ── LE MATÉRIEL REMIS (§118.166) — déduit du stock du DÉLÉGUÉ de la visite ───────────────────
   const maintenant = new Date();
   const deja = await dejaDansLaVisite(visite.id);
@@ -192,6 +198,7 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
             },
           });
         }
+        await ecrireBesoinsDuRapport(tx, { doctorId: visite.doctorId, besoins: besoins.besoins, auteurId: user.id, maintenant });
       }
       // UN RAPPORT VOCAL est un `FieldReport` — l'objet du module Rapports terrain, avec sa
       // transcription et sa propre validation. On le RATTACHE à la visite (`visitId`) : sans le

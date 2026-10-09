@@ -203,7 +203,7 @@ export async function dossiersPromoAMonTour(user: SessionUser): Promise<DossierP
 export const SELECT_DEVIS = {
   id: true, position: true, supplierId: true, supplierName: true, reference: true, quoteDate: true,
   tvaRate: true, extraTaxLabel: true, extraTaxRate: true, announcedTotal: true, documentId: true, note: true,
-  purchaseOrderId: true, purchaseOrderSentAt: true, purchaseOrderSentById: true,
+  purchaseOrderId: true, purchaseOrderSentAt: true, purchaseOrderSentById: true, bcBrouillon: true,
   lines: { orderBy: { position: "asc" }, select: { id: true, position: true, reference: true, unit: true, quantity: true, unitPrice: true, selected: true, action: true, requestItemId: true } },
 } satisfies Prisma.PromoQuoteSelect;
 

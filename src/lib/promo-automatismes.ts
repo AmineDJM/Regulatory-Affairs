@@ -1,4 +1,5 @@
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { moneyEntityOf } from "@/lib/company";
@@ -7,7 +8,10 @@ import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
 import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
-import { emettreDocumentDrive } from "@/platform/in-process/artifact/factory";
+import { emettreDocumentDrive, previsualiserDocument, type DemandeDocument } from "@/platform/in-process/artifact/factory";
+import type { PartieCommerciale } from "@/lib/artifact/factory/commercial";
+import { ETIQUETTE_BROUILLON } from "@/lib/bons-de-commande/brouillon";
+import { brouillonPromoEnJson, brouillonPromoNeuf, lireBrouillonPromo, type BrouillonBcPromo } from "@/lib/promo-material/bc-brouillon-promo";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { articleDemandeLu, SELECT_ARTICLE_DEMANDE } from "@/lib/queries/promo-achats";
 import { lignesDuBonDeCommande, formatDzd } from "@/lib/promo-material/devis";
@@ -165,7 +169,11 @@ export async function envoyerDemandeDeDevis(auteurId: string, promoMaterialId: s
  * et Word, déposée sur le dossier (étape « Demande de devis ») et sur la demande au secrétariat (ce que l'assistante envoie
  * aux agences). Appelée APRÈS l'envoi réussi : un échec ici ne retient jamais la demande de devis, il se dit.
  */
-export async function joindreLettreDeDevis(user: CurrentUser, promoMaterialId: string, demandeId: string | null): Promise<DepotLettreDevis> {
+export async function joindreLettreDeDevis(
+  user: CurrentUser, promoMaterialId: string, demandeId: string | null,
+  /** La référence NNN/DG/AAAA choisie au formulaire (registre commun) ; absente = le prochain numéro libre. */
+  referenceChoisie: string | null = null,
+): Promise<DepotLettreDevis> {
   const pm = await prisma.promoMaterial.findUnique({
     where: { id: promoMaterialId },
     select: { id: true, reference: true, title: true, description: true, companyId: true, requesterId: true },
@@ -176,7 +184,7 @@ export async function joindreLettreDeDevis(user: CurrentUser, promoMaterialId: s
     user,
     [{ entityType: "PROMO_MATERIAL", entityId: pm.id }, ...(demandeId ? [{ entityType: "ADMIN_REQUEST" as const, entityId: demandeId }] : [])],
     {
-      titre: pm.title, brief: pm.description, reference: pm.reference, societeId: await societeDuDossier(pm),
+      titre: pm.title, brief: pm.description, reference: pm.reference, societeId: await societeDuDossier(pm), referenceChoisie,
       articles: articles.map((a) => ({
         designation: a.nom, quantite: a.quantite, unite: a.unite, prestations: a.actions, precision: a.commentaire, produits: a.promus,
       })),
@@ -191,7 +199,7 @@ export async function joindreLettreDeDevis(user: CurrentUser, promoMaterialId: s
  * de la personne qui clique (ni du validateur qui déclenche la génération automatique) : deux gestes du
  * même dossier doivent produire le même BC. `null` quand rien ne se lit à coup sûr.
  */
-async function societeDuDossier(pm: { companyId: string | null; requesterId: string | null }): Promise<string | null> {
+export async function societeDuDossier(pm: { companyId: string | null; requesterId: string | null }): Promise<string | null> {
   if (pm.companyId) return pm.companyId;
   if (!pm.requesterId) return null;
   const e = await prisma.employee.findFirst({
@@ -223,15 +231,119 @@ export interface OptionsGeneration {
   taxe: { libelle: string; taux: number } | null | undefined;
   /** Généré à la dernière validation, sans geste : dit dans l'audit de la fabrique. */
   automatique: boolean;
+  /**
+   * « APERCU » (défaut) : la génération dépose l'APERÇU du BC de chaque devis à générer — sans numéro, rien au registre ni
+   * aux Finances (Direction, 10/2026 : « pré-valider le preview du BC par le demandeur »). « VALIDER » : le demandeur (ou le
+   * Super Admin) a relu l'aperçu — le BC est émis, numéroté, et part dans sa marche (centre, signature des Finances).
+   */
+  mode?: "APERCU" | "VALIDER";
+  /** VALIDER : les devis visés ; absent, tous ceux dont l'aperçu existe. */
+  quoteIds?: readonly string[];
 }
 
-export type BilanGeneration = { ok: true; emis: number; echecs: string[]; message: string } | { ok: false; error: string };
+export type BilanGeneration = { ok: true; emis: number; apercus: number; echecs: string[]; message: string } | { ok: false; error: string };
+
+type DevisBrutBC = Awaited<ReturnType<typeof devisDuDossier>>[number];
+type FournisseurBC = { name: string; address: string | null; city: string | null; wilaya: string | null; rc: string | null; nif: string | null; rib: string | null; phone: string | null; email: string | null };
+
+/** Ce qu'un aperçu remplace dans le bloc « A : » du fournisseur — seuls les champs écrits. */
+function tiersCorriges(b: BrouillonBcPromo | null): Partial<PartieCommerciale> {
+  if (!b?.tiers) return {};
+  return Object.fromEntries(Object.entries(b.tiers).filter(([, v]) => typeof v === "string" && v.trim())) as Partial<PartieCommerciale>;
+}
+
+/** Les options qu'un aperçu porte — ce que l'émission reprend telles que le demandeur les a relues. */
+function optionsDuBrouillon(b: BrouillonBcPromo): OptionsGeneration {
+  return { livraison: { adresse: b.livraison?.adresse ?? null, delai: b.livraison?.delai ?? null }, notes: b.notes, taxe: b.taxe, automatique: false };
+}
+
+/**
+ * LA DEMANDE DE LA FABRIQUE POUR LE BC D'UN DEVIS — la MÊME pour l'aperçu et pour l'émission (§118.5) : deux compositions
+ * finiraient par diverger sur un champ. L'aperçu, quand il y en a un, remplace ce que le devis donne (objet, contact,
+ * modalités de paiement, date de livraison, bloc du fournisseur, numéro choisi) ; les LIGNES restent les lignes retenues.
+ */
+function demandeDuBcPromo(
+  pm: { reference: string; title: string }, brut: DevisBrutBC, f: FournisseurBC, societe: string, o: OptionsGeneration, b: BrouillonBcPromo | null,
+): DemandeDocument {
+  const d = devisLu(brut);
+  const adresse = [f.address, [f.city, f.wilaya].filter(Boolean).join(", ")].filter((x) => x && x.trim()).join("\n") || null;
+  const dateLivraison = b?.livraison?.date ?? null;
+  return {
+    type: "BON_DE_COMMANDE",
+    societe,
+    tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email, ...tiersCorriges(b) },
+    lignes: lignesDuBonDeCommande(d),
+    // Pas de TVA indiquée sur le devis = pas de TVA (jamais devinée).
+    tvaDefaut: (d.tvaRate ?? 0) / 100,
+    taxes: o.taxe !== undefined
+      ? (o.taxe ? [o.taxe] : null)
+      : d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,
+    referenceAmont: d.reference,
+    referenceAmontDate: brut.quoteDate ? brut.quoteDate.toISOString().slice(0, 10) : null,
+    objet: b?.objet ?? `Matériel promotionnel ${pm.reference} — ${pm.title}`,
+    livraison: o.livraison.adresse || o.livraison.delai || dateLivraison ? { ...o.livraison, date: dateLivraison } : null,
+    notes: o.notes,
+    contact: b?.contact ?? null,
+    modePaiement: b?.modePaiement ?? null,
+    conditionsPaiement: b?.conditionsPaiement ?? null,
+    numeroChoisi: b?.numeroChoisi ?? null,
+    dossier: `Matériel promotionnel/${pm.reference}`,
+  };
+}
+
+const FOURNISSEUR_BC = { id: true, name: true, address: true, city: true, wilaya: true, rc: true, nif: true, rib: true, phone: true, email: true } as const;
+
+export interface ApercuBcPromo {
+  ok: true;
+  pdfBase64: string | null;
+  /** Le numéro que la validation attribuerait maintenant — prévu, JAMAIS réservé. */
+  numeroPrevu: string;
+  totaux: { totalHt: number; totalTva: number; totalTaxes: number; totalTtc: number; enLettres: string } | null;
+  bloquants: string[];
+  avertissements: string[];
+}
+
+/**
+ * L'APERÇU DU BC D'UN DEVIS — la pièce telle qu'elle serait émise, rendue À BLANC (aucun numéro consommé, aucune ligne au
+ * registre, aucun fichier au Drive), sous la délégation du dossier : le demandeur relit SON bon de commande sans droit
+ * d'écriture Legal. La porte de PERSONNE est celle de l'appelant.
+ */
+export async function apercuDuBcPromo(user: CurrentUser, promoMaterialId: string, quoteId: string): Promise<ApercuBcPromo | { ok: false; error: string }> {
+  const pm = await prisma.promoMaterial.findUnique({ where: { id: promoMaterialId }, select: SELECT_DOSSIER_BC });
+  const refus = refusEtatGeneration(pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const brut = (await devisDuDossier(pm.id)).find((d) => d.id === quoteId);
+  if (!brut) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
+  const b = lireBrouillonPromo(brut.bcBrouillon);
+  if (!b) return { ok: false, error: "Ce devis n'a pas d'aperçu de bon de commande : générez-le d'abord." };
+  const societe = await societeDuDossier(pm);
+  if (!societe) return { ok: false, error: "La société qui commande est introuvable : renseignez la société du demandeur (RH › fiche salarié)." };
+  const f = brut.supplierId ? await prisma.companyContact.findUnique({ where: { id: brut.supplierId }, select: FOURNISSEUR_BC }) : null;
+  if (!f) return { ok: false, error: `${brut.supplierName} : fournisseur absent de l'annuaire — faites corriger le devis.` };
+  const r = await previsualiserDocument(user, demandeDuBcPromo(pm, brut, f, societe, optionsDuBrouillon(b), b), {
+    avecPdf: true,
+    delegation: `${pm.reference} — aperçu du bon de commande du devis ${brut.reference ?? brut.supplierName}, relu par le demandeur`,
+    numeroAffiche: "À attribuer à la validation",
+  });
+  if (!r.ok) return { ok: false, error: r.motif };
+  return {
+    ok: true,
+    pdfBase64: r.pdf ? r.pdf.octets.toString("base64") : null,
+    numeroPrevu: r.numeroProchain,
+    totaux: r.totaux ? { totalHt: r.totaux.totalHt, totalTva: r.totaux.totalTva, totalTaxes: r.totaux.totalTaxes, totalTtc: r.totaux.totalTtc, enLettres: r.totaux.enLettres } : null,
+    bloquants: r.bloquants.length > 0 ? r.bloquants : (r.pdf ? [] : r.pdfErreur ? [r.pdfErreur] : []),
+    avertissements: r.avertissements,
+  };
+}
 
 /**
  * GÉNÉRER LES BONS DE COMMANDE — un par devis dont une ligne est retenue, et qui n'en a pas (un devis
  * est celui d'UN fournisseur : c'est le BC de l'agence). Idempotent et sérialisé par dossier (`enSerie`) :
  * deux déclenchements simultanés — la validation automatique et un clic de repli — ne font pas deux BC.
  * Chaque devis est isolé : l'échec de l'un est DIT sans empêcher les autres.
+ *
+ * DEUX TEMPS (Direction, 10/2026) : la génération dépose d'abord l'APERÇU de chaque BC (`mode` « APERCU », sans numéro) ;
+ * le BC n'est émis — numéroté, au registre, aux Finances — qu'à la validation de cet aperçu par le demandeur (« VALIDER »).
  */
 export async function genererLesBonsDeCommande(user: CurrentUser, promoMaterialId: string, o: OptionsGeneration): Promise<BilanGeneration> {
   const lu = await prisma.promoMaterial.findUnique({ where: { id: promoMaterialId }, select: SELECT_DOSSIER_BC });
@@ -254,48 +366,95 @@ export async function genererLesBonsDeCommande(user: CurrentUser, promoMaterialI
     }).map((d) => d.id));
     const aGenerer = devis.filter((d) => d.lines.some((l) => l.selected) && !actifs.has(d.id));
     if (aGenerer.length === 0) {
-      return { ok: true, emis: 0, echecs: [], message: "Chaque devis retenu a déjà son bon de commande — rien de nouveau à générer." };
+      return { ok: true, emis: 0, apercus: 0, echecs: [], message: "Chaque devis retenu a déjà son bon de commande — rien de nouveau à générer." };
+    }
+
+    // ── 1. L'APERÇU : un brouillon sur chaque devis à générer, et RIEN d'autre — ni numéro, ni pièce, ni Finances. ──
+    if ((o.mode ?? "APERCU") === "APERCU") {
+      const maintenant = new Date();
+      const poses: string[] = [];
+      const regles: string[] = [];
+      const saisi = Boolean(o.livraison.adresse || o.livraison.delai || o.notes) || o.taxe !== undefined;
+      for (const brut of aGenerer) {
+        const existant = lireBrouillonPromo(brut.bcBrouillon);
+        if (existant) {
+          // L'aperçu existe : ses corrections ne sont jamais écrasées par un clic. Le geste de repli peut seulement
+          // régler ce qu'il SAISIT (livraison, notes, taxe) — un champ laissé vide garde sa valeur.
+          if (o.automatique || !saisi) continue;
+          const apres: BrouillonBcPromo = {
+            ...existant,
+            livraison: o.livraison.adresse || o.livraison.delai
+              ? { adresse: o.livraison.adresse ?? existant.livraison?.adresse ?? null, date: existant.livraison?.date ?? null, delai: o.livraison.delai ?? existant.livraison?.delai ?? null }
+              : existant.livraison,
+            notes: o.notes ?? existant.notes,
+            taxe: o.taxe !== undefined ? o.taxe : existant.taxe,
+            modifieLe: maintenant.toISOString(), modifiePar: user.id,
+          };
+          const regle = await prisma.promoQuote.updateMany({
+            where: { id: brut.id, purchaseOrderId: brut.purchaseOrderId ?? null, promoMaterial: { circuitVersion: 2, circuitState: "IN_EXECUTION" } },
+            data: { bcBrouillon: brouillonPromoEnJson(apres) as Prisma.InputJsonValue },
+          });
+          if (regle.count > 0) regles.push(brut.supplierName);
+          continue;
+        }
+        const b = brouillonPromoNeuf({
+          promoMaterialId: pm.id, par: user.id, parNom: user.name ?? null, maintenant,
+          livraison: o.livraison, notes: o.notes, taxe: o.taxe,
+        });
+        const pose = await prisma.promoQuote.updateMany({
+          where: { id: brut.id, purchaseOrderId: brut.purchaseOrderId ?? null, promoMaterial: { circuitVersion: 2, circuitState: "IN_EXECUTION" } },
+          data: { bcBrouillon: brouillonPromoEnJson(b) as Prisma.InputJsonValue },
+        });
+        if (pose.count > 0) poses.push(brut.supplierName);
+      }
+      if (poses.length || regles.length) {
+        await recordAudit({
+          actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: pm.id,
+          summary: `${ETIQUETTE_BROUILLON}${o.automatique ? " (préparé à la dernière validation)" : ""} — ${[...poses, ...regles].join(", ")} : aucun numéro attribué.`,
+        });
+      }
+      revalidatePath(chemin(pm.id));
+      const n = poses.length;
+      const deja = aGenerer.length - n - regles.length;
+      return {
+        ok: true, emis: 0, apercus: n, echecs: [],
+        message: n > 0
+          ? `${n} aperçu${n > 1 ? "s" : ""} de bon de commande prêt${n > 1 ? "s" : ""} (${poses.join(", ")}) — à vérifier par le demandeur, puis « Valider et envoyer aux Finances ». Le numéro n'est attribué qu'à la validation.`
+          : regles.length > 0
+            ? `Aperçu${regles.length > 1 ? "s" : ""} mis à jour (${regles.join(", ")}) — à vérifier par le demandeur.`
+            : `${ETIQUETTE_BROUILLON} : ${deja > 1 ? "les aperçus existent" : "l'aperçu existe"} déjà — relisez, corrigez au besoin, puis « Valider et envoyer aux Finances ».`,
+      };
+    }
+
+    // ── 2. LA VALIDATION : le BC des aperçus visés est émis, numéroté, et part dans sa marche. ──
+    const vises = aGenerer.filter((d) => lireBrouillonPromo(d.bcBrouillon) && (!o.quoteIds || o.quoteIds.includes(d.id)));
+    if (vises.length === 0) {
+      return { ok: false, error: "Aucun aperçu de bon de commande à valider : générez d'abord l'aperçu (« Générer les bons de commande »), relisez-le, puis validez-le." };
     }
     const fournisseurs = await prisma.companyContact.findMany({
-      where: { id: { in: aGenerer.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) } },
-      select: { id: true, name: true, address: true, city: true, wilaya: true, rc: true, nif: true, rib: true, phone: true, email: true },
+      where: { id: { in: vises.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) } },
+      select: FOURNISSEUR_BC,
     });
     const parId = new Map(fournisseurs.map((f) => [f.id, f]));
     const emis: string[] = [];
     const echecs: string[] = [];
     const reserves: string[] = [];
-    for (const brut of aGenerer) {
+    for (const brut of vises) {
       const d = devisLu(brut);
+      const b = lireBrouillonPromo(brut.bcBrouillon);
       const f = brut.supplierId ? parId.get(brut.supplierId) : undefined;
       if (!f) { echecs.push(`${d.supplierName} : fournisseur absent de l'annuaire — faites corriger le devis`); continue; }
-      const adresse = [f.address, [f.city, f.wilaya].filter(Boolean).join(", ")].filter((x) => x && x.trim()).join("\n") || null;
-      const r = await emettreDocumentDrive(user, {
-        type: "BON_DE_COMMANDE",
-        societe,
-        tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email },
-        lignes: lignesDuBonDeCommande(d),
-        // Pas de TVA indiquée sur le devis = pas de TVA (jamais devinée).
-        tvaDefaut: (d.tvaRate ?? 0) / 100,
-        taxes: o.taxe !== undefined
-          ? (o.taxe ? [o.taxe] : null)
-          : d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,
-        referenceAmont: d.reference,
-        referenceAmontDate: brut.quoteDate ? brut.quoteDate.toISOString().slice(0, 10) : null,
-        objet: `Matériel promotionnel ${pm.reference} — ${pm.title}`,
-        livraison: o.livraison.adresse || o.livraison.delai ? o.livraison : null,
-        notes: o.notes,
-        dossier: `Matériel promotionnel/${pm.reference}`,
-      }, {
+      const r = await emettreDocumentDrive(user, demandeDuBcPromo(pm, brut, f, societe, b ? optionsDuBrouillon(b) : o, b), {
         source: { type: "PROMO_MATERIAL", id: pm.id },
-        delegation: `${pm.reference} — dossier de matériel promotionnel validé (demande, Direction Marketing, seuil du DG), bon de commande composé d'après les lignes retenues${o.automatique ? ", généré automatiquement à la dernière validation" : ""}`,
+        delegation: `${pm.reference} — dossier de matériel promotionnel validé (demande, Direction Marketing, seuil du DG), bon de commande composé d'après les lignes retenues, aperçu validé par le demandeur`,
       });
       if (!r.ok) { echecs.push(`${d.supplierName} : ${r.motif}`); continue; }
       // LE LIEN S'ÉCRIT SUR CE QUI A ÉTÉ LU (§118.204) : le dossier encore en exécution, le devis encore sur le BC
       // (ou l'absence de BC) que la génération a lu. Une écriture par le seul identifiant recoudrait le devis à ce
-      // BC par-dessus un autre lien posé entre-temps, ou sur un dossier sorti de l'exécution.
+      // BC par-dessus un autre lien posé entre-temps, ou sur un dossier sorti de l'exécution. L'aperçu validé est consommé.
       const lie = await prisma.promoQuote.updateMany({
         where: { id: d.id, purchaseOrderId: brut.purchaseOrderId ?? null, promoMaterial: { circuitVersion: 2, circuitState: "IN_EXECUTION" } },
-        data: { purchaseOrderId: r.legalDocumentId, purchaseOrderSentAt: null, purchaseOrderSentById: null },
+        data: { purchaseOrderId: r.legalDocumentId, purchaseOrderSentAt: null, purchaseOrderSentById: null, bcBrouillon: Prisma.DbNull },
       });
       if (lie.count === 0) { echecs.push(`${d.supplierName} : ${r.reference} émis, mais le devis ou le dossier a changé pendant la génération — rechargez la fiche`); continue; }
       emis.push(`${r.reference} (${d.supplierName}, ${formatDzd(r.totaux.totalTtc)} TTC)`);
@@ -304,17 +463,17 @@ export async function genererLesBonsDeCommande(user: CurrentUser, promoMaterialI
     if (emis.length) {
       await recordAudit({
         actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: pm.id,
-        summary: `Bons de commande générés${o.automatique ? " automatiquement (dernière validation)" : ""} : ${emis.join(" ; ")}`,
+        summary: `Bons de commande validés par le demandeur et envoyés aux Finances : ${emis.join(" ; ")}`,
       });
     }
     revalidatePath(chemin(pm.id));
     revalidatePath(CHEMIN_BONS_DE_COMMANDE);
-    if (emis.length === 0) return { ok: false, error: `Aucun bon de commande n'a pu être généré — ${echecs.join(" ; ")}.` };
+    if (emis.length === 0) return { ok: false, error: `Aucun bon de commande n'a pu être émis — ${echecs.join(" ; ")}.` };
     const suite = [...new Set(reserves)].join(" ");
     return {
-      ok: true, emis: emis.length, echecs,
-      message: `${emis.length} bon${emis.length > 1 ? "s" : ""} de commande généré${emis.length > 1 ? "s" : ""} : ${emis.join(" ; ")}.`
-        + (echecs.length ? ` Non générés : ${echecs.join(" ; ")}.` : "")
+      ok: true, emis: emis.length, apercus: 0, echecs,
+      message: `${emis.length} bon${emis.length > 1 ? "s" : ""} de commande validé${emis.length > 1 ? "s" : ""} et envoyé${emis.length > 1 ? "s" : ""} aux Finances : ${emis.join(" ; ")}.`
+        + (echecs.length ? ` Non émis : ${echecs.join(" ; ")}.` : "")
         + (suite ? ` ${suite}` : ""),
     };
   });

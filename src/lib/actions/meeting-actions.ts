@@ -13,6 +13,7 @@ import { recordAudit } from "@/lib/audit";
 import { algiersInputToUtc } from "@/lib/calendar-tz";
 import { fdStr, fdBool, fdDate, type ActionResult } from "@/lib/actions/types";
 import type { CalendarInviteStatus } from "@prisma/client";
+import { lienTache } from "@/lib/chemins/espace";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 const MAX_MSG_ATTACHMENT = 25 * 1024 * 1024; // 25 Mo par pièce jointe du fil de réunion
@@ -321,7 +322,7 @@ export async function acceptMeetingProposal(formData: FormData): Promise<ActionR
   });
   await prisma.meetingTaskProposal.update({ where: { id: proposalId }, data: { status: "ACCEPTED", createdTaskId: task.id } });
   if (assignedToId !== user.id) {
-    await notifyUser({ userId: assignedToId, type: "ASSIGNMENT", title: "Nouvelle tâche (réunion)", body: proposal.title, link: "/mon-espace" });
+    await notifyUser({ userId: assignedToId, type: "ASSIGNMENT", title: "Nouvelle tâche (réunion)", body: proposal.title, link: lienTache(task.id) });
   }
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Réunions", entityType: "TASK", entityId: task.id, summary: `Tâche « ${proposal.title} » créée depuis une réunion` });
   revalidatePath(`/meetings/${proposal.meetingId}`);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { reécriteLienNotification } from "@/lib/notifications/lien-actuel";
 
 export const dynamic = "force-dynamic";
 
@@ -22,5 +23,7 @@ export async function GET() {
     }),
   ]);
 
-  return NextResponse.json({ unread, popups }, { headers: { "Cache-Control": "private, no-store" } });
+  // Le lien ACTUEL : une pop-up d'hier peut porter l'adresse d'un module déplacé depuis.
+  const aJour = popups.map((p) => ({ ...p, link: reécriteLienNotification(p.link) }));
+  return NextResponse.json({ unread, popups: aJour }, { headers: { "Cache-Control": "private, no-store" } });
 }

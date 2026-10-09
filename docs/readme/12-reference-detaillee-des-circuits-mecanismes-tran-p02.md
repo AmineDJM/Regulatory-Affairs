@@ -932,6 +932,18 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   société × nature × année. Le **premier numéro** de la série se règle par nature et par année
   (`settings.numerotationDepart`, même panneau : « Premier numéro de 2026 : 32 » donne `032/DG/2026`) : c'est un
   **plancher** — le numéro attribué vaut `max(dernier + 1, départ)`, le compteur ne recule jamais (§118.203).
+- **Le registre COMMUN des références NNN/DG/AAAA** (Direction, 10/2026 : « tout document ou BC généré », « un compteur
+  commun ») — `lib/references/registre.ts` (règle pure) + `registre-serveur.ts` (magasin Prisma). UN compteur par société
+  et par année (`DocumentSequence`, kind `REGISTRE_DG`) et UN registre `DocumentReference` (unique société × année ×
+  numéro, TOUS types confondus, jamais supprimé). Y vont : le **bon de commande** d'une société au registre
+  (`settings.registreDG`, posé pour Adventum, Pharmagène et AMD par la migration `20270117160000_registre_dg`, ou BC déjà
+  au motif /DG/) et toute pièce de la fabrique au motif /DG/, l'**ordre de mission** (`ordre-mission-depot.ts`, société
+  imprimée sinon employeur), la **lettre de demande de devis** (`demande-devis-depot.ts`, poste Ad & Pro et dossier
+  promotionnel). Le numéro est attribué à la FINALISATION (jamais à l'aperçu ni au brouillon) ; chaque formulaire
+  porte un champ « Référence » (`components/references/champ-reference.tsx`) prérempli avec le prochain numéro, modifiable,
+  vérifié en direct (`verifierReferenceRegistre`) : un numéro libre est accepté, plus haut il fait avancer le compteur,
+  pris il est refusé ; laissé tel quel, le prochain libre est attribué (`saisieEffective`). 2026 commence à `040/DG/2026`,
+  chaque année repart à `001`. Les autres sociétés gardent leur numérotation (ordre de mission `NNN/DPG/AAAA`).
 - **La mise en page est du code, et c'est celle des pièces de la maison** (`build.ts` → `word.ts`). Deux modèles,
   relevés sur deux pièces réelles fournies par la Direction. La **FACTURE** (modèle Pharmagène) : émetteur et
   « Facture » face à face avec numéro de client, numéro et date ; bande « Facturer à : » ; bloc client et RC / NIF /

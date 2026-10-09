@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ETIQUETTE_BROUILLON, brouillonNeuf, brouillonPerime, lignesEffectives, lireBrouillon, peutValiderLeBrouillon, signatureDesLignes, totalHtDesLignes,
-} from "@/lib/ad-pro/bc-brouillon";
+} from "@/lib/bons-de-commande/brouillon";
 import { formaterNumero } from "@/lib/artifact/factory/commercial";
 
 /** L'aperçu du BC à valider par le demandeur (Direction, 10/2026) : le brouillon n'a aucun numéro, et seul le demandeur valide. */

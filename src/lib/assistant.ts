@@ -35,6 +35,8 @@ import { companyIdForNew, companyScopedWhere } from "@/lib/company";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles, broadcastNotification, type BroadcastAudience } from "@/lib/notify";
+import { lienTache, lienConversation } from "@/lib/chemins/espace";
+import { lienDemandeRhATraiter, lienMaDemandeRh } from "@/lib/chemins/rh";
 import { createEventForUser, algiersInputToUtc, CALENDAR_KINDS } from "@/lib/calendar";
 import { createDossierRecord } from "@/lib/dossiers-core";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
@@ -6690,7 +6692,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     const { conversationId: convId } = await envoyerMessageDirect({
       senderId: user.id, senderName: user.name, senderEmail: user.email, recipientId, body,
     });
-    await notifyUser({ userId: recipientId, type: "GENERIC", title: "Nouveau message", body: body.slice(0, 80), link: "/messages" });
+    await notifyUser({ userId: recipientId, type: "GENERIC", title: "Nouveau message", body: body.slice(0, 80), link: lienConversation(convId) });
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityId: convId, summary: `Message envoyé via l'assistant à ${payload.recipientName ?? "un collègue"}` });
     return { ok: true, message: `Message envoyé à ${payload.recipientName ?? "votre collègue"}.`, link: "/messages", revalidate: ["/messages"] };
   }
@@ -6800,16 +6802,17 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     if (HR_LEAVE_TYPES.has(type) && !periodEnd) return { ok: false, error: "Date de fin du congé manquante." };
     if (periodStart && periodEnd && periodEnd < periodStart) return { ok: false, error: "La date de fin précède la date de début." };
     const periodDays = periodStart && periodEnd ? Math.floor((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1 : null;
-    await prisma.hrDocumentRequest.create({
+    const demandeRh = await prisma.hrDocumentRequest.create({
       data: {
         employeeId: employee.id, type: type as HrRequestType, details: payload.details?.trim() || null,
         expenseMonth: type === "EXPENSE_REPORT" ? expenseMonth : null,
         periodStart, periodEnd, periodDays,
       },
+      select: { id: true },
     });
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityType: "EMPLOYEE", entityId: employee.id, summary: `Demande RH « ${HR_REQUEST_FR[type]} » créée via l'assistant` });
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Nouvelle demande RH", body: `${employee.fullName} — ${HR_REQUEST_FR[type]}`, link: `/rh/${employee.id}` });
-    return { ok: true, message: `Demande RH « ${HR_REQUEST_FR[type]} » créée (en attente de traitement RH).`, link: "/mon-dossier", revalidate: ["/mon-dossier", "/rh"] };
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "GENERIC", title: "Nouvelle demande RH", body: `${employee.fullName} — ${HR_REQUEST_FR[type]}`, link: lienDemandeRhATraiter(demandeRh.id) });
+    return { ok: true, message: `Demande RH « ${HR_REQUEST_FR[type]} » créée (en attente de traitement RH).`, link: lienMaDemandeRh(demandeRh.id), revalidate: ["/mon-dossier", "/rh"] };
   }
 
   if (payload?.kind === "create_sponsoring_request") {
@@ -6937,7 +6940,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     if (data.assignedToId && data.assignedToId !== user.id) notifyTargets.add(data.assignedToId as string);
     if (task.assignedToId && task.assignedToId !== user.id) notifyTargets.add(task.assignedToId);
     await Promise.all([...notifyTargets].map((uid) =>
-      notifyUser({ userId: uid, type: "GENERIC", title: "Tâche mise à jour", body: `${task.title} — ${summary.join(", ")}`, link: "/mon-espace" }).catch(() => undefined),
+      notifyUser({ userId: uid, type: "GENERIC", title: "Tâche mise à jour", body: `${task.title} — ${summary.join(", ")}`, link: lienTache(task.id) }).catch(() => undefined),
     ));
     await recordAudit({
       actorId: user.id, action: "UPDATE", module: "Assistant IA", entityType: "TASK", entityId: task.id,

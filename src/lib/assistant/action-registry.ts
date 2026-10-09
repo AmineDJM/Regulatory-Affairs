@@ -1203,6 +1203,10 @@ X("LES LIGNES DES DEVIS D'UN POSTE ET LES BC QU'ELLES FONT GÉNÉRER (§118.206)
   "ad-pro-item-actions:modifierBcDuPoste", "ad-pro-item-actions:deposerFacturePoste",
   // LA LETTRE DE DEMANDE DE DEVIS (Direction, 07/10) : rédigée par Luna, posée sur le poste — un bouton de l'étape.
   "ad-pro-item-actions:genererDemandeDevisPoste", "promo-devis-actions:regenererDemandeDevisPromo",
+  // LE CHAMP « RÉFÉRENCE » DES FORMULAIRES DE GÉNÉRATION (registre commun NNN/DG/AAAA, Direction 10/2026) : lire le prochain numéro
+  // de la société (prévu, jamais réservé) et vérifier en direct un numéro saisi — des lectures d'écran, pas des gestes d'Adam.
+  "ad-pro-item-actions:referenceDemandeDevisPoste", "promo-devis-actions:referenceDemandeDevisPromo",
+  "hr-document-actions:referenceOrdreDeMission", "registre-references-actions:verifierReferenceRegistre",
 ]);
 X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable remonte la marche du N+1 à son propre N+1, "
   + "qui la redescend validée ou refusée. Un geste de la ligne « Mon équipe », devant la demande — pas un appel d'Adam.", [
@@ -1230,12 +1234,9 @@ X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable
   "demande-stocks-actions:cloreDemandeStocks", "demande-stocks-actions:supprimerDemandeStocks",
 ]);
 X("OPERATIONS & SALES (Direction, 08/10) — le STOCK PCH CENTRAL saisi depuis le mail de la PCH (quantités par produit, "
-  + "collage confirmé à l'écran, mail joint) et les RETOURS & RÉCLAMATIONS (déclarer, échanger, changer le statut, "
-  + "nommer le responsable). Des gestes d'écran, devant le relevé ou la fiche : Adam est en pause de développement, "
+  + "collage confirmé à l'écran, mail joint). Un geste d'écran, devant le relevé : Adam est en pause de développement, "
   + "aucun geste neuf ne lui est ouvert.", [
   "stock-pch-actions:enregistrerStockPch",
-  "reclamation-actions:declarerReclamation", "reclamation-actions:commenterReclamation",
-  "reclamation-actions:changerStatutReclamation", "reclamation-actions:qualifierReclamation",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "
@@ -1371,6 +1372,20 @@ X("LA DEMANDE D'ACHAT DU MATÉRIEL PROMOTIONNEL (§118.165) se compose en PIOCHA
   + "Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic du demandeur sur "
   + "/promo-material/<id>, carte « Articles demandés ».", [
   "promo-demande-actions:enregistrerArticleDemandePromo", "promo-demande-actions:retirerArticleDemandePromo",
+  // « AUTRE ARTICLE » PROPOSÉ AU CATALOGUE (Direction, 10/2026) : ajouté d'un clic par qui tient le catalogue, sinon ses
+  // gestionnaires sont prévenus — un geste du demandeur devant sa demande, jamais un appel d'Adam.
+  "promo-demande-actions:proposerArticleAuCataloguePromo",
+]);
+X("L'APERÇU DU BC D'UN DOSSIER DE MATÉRIEL PROMOTIONNEL, À VALIDER PAR LE DEMANDEUR (Direction, 10/2026) : la génération "
+  + "(automatique à la dernière validation, ou le geste de repli) dépose un aperçu SANS numéro ; on le relit "
+  + "(`apercuBcPromo`), on le corrige (`modifierApercuBcPromo`), on le retire (`annulerApercuBcPromo`) — et seule la "
+  + "validation du demandeur (ou du Super Admin) attribue le numéro NNN/DG/AAAA et envoie le BC aux Finances "
+  + "(`validerEtEnvoyerBcPromo`). Engager la société se décide devant le PDF, pas dans une conversation. RELANCER "
+  + "(`relancerPromo`) prévient la personne attendue, une fois par jour : un geste de la fiche, pas d'Adam. "
+  + "Un clic sur /promo-material/<id>.", [
+  "promo-execution-actions:apercuBcPromo", "promo-execution-actions:modifierApercuBcPromo",
+  "promo-execution-actions:annulerApercuBcPromo", "promo-execution-actions:validerEtEnvoyerBcPromo",
+  "promo-circuit-actions:relancerPromo",
 ]);
 X("LE MATÉRIEL DU STOCK D'UN POSTE AD & PRO (§118.167) — lister les articles du magasin qu'un événement emporte, et "
   + "CONFIRMER après l'événement ce qui a été remis, rendu, abîmé ou perdu. La confirmation est une ATTESTATION : elle fait "
@@ -1855,6 +1870,14 @@ X("KPI & BILANS (KPI sans code, Direction 08/10) — définir un KPI, en régler
   "kpi-actions:importerKpi",
   "kpi-actions:commentaireLunaKpi",
   "kpi-actions:signerRevueKpi",
+]);
+X("LES BESOINS ANNUELS DES SERVICES (Marketing cockpit · terrain, 10/2026) — le nombre de boîtes qu'un DÉCIDEUR a annoncé "
+  + "pour son service, qui fixe le volume de l'appel d'offres. C'est un fait ENTENDU en visite par le KAM (ou rapporté à la "
+  + "Direction Marketing) : un modèle ne l'a pas entendu, et un rapport lu par une étape pourrait dicter un chiffre que "
+  + "personne n'a annoncé (§118.15). La saisie se fait dans le rapport de visite ou d'un clic sur « Prévisions des "
+  + "services » ; Adam est de plus en pause de développement.", [
+  "besoins-services-actions:enregistrerBesoinService",
+  "besoins-services-actions:retirerBesoinService",
 ]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──

@@ -3,12 +3,16 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Wallet, Loader2, Check, Plus, HandCoins, AlertTriangle, Lock,
+  Loader2, Check, Plus, HandCoins, AlertTriangle, Lock,
   CalendarClock, ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { InfoBulle } from "@/components/ui/info-bulle";
+import { EntreeMenu, MenuPlus } from "@/app/(app)/medical/menu-plus";
+import { partDepensee } from "@/lib/general-means/ecran";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -43,7 +47,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
-  const [pane, setPane] = React.useState<"none" | "topup" | "allot" | "plan">("none");
+  const [pane, setPane] = React.useState<"none" | "topup" | "allot" | "plan" | "solder">("none");
   const [grant, setGrant] = React.useState<Record<string, string>>({});
 
   // LA PHRASE DE L'ACTION D'ABORD, quand elle en a une : celle de la remise porte la RÉFÉRENCE de
@@ -72,42 +76,36 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
     <div className="space-y-3">
       {cash && fund ? (
         <>
-          <div className="flex flex-wrap items-center gap-2">
-            <Wallet className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold">Caisse d&apos;avance</h2>
-            <Badge tone={fund.received > 0 ? "success" : "warning"} dot={false}>
-              {fund.received > 0 ? "Ouverte" : fund.remittanceCount === 0 && enAttente.length > 0 ? "En attente du centre de paiement" : "En attente de réception"}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              {fund.remittanceCount} remise{fund.remittanceCount > 1 ? "s" : ""} en cours
-              {cash.holder ? ` · détenue par ${cash.holder}` : ""}
-            </span>
+          {/* UNE BARRE, UN RESTE : dépensé sur remis. Le détail (reçu, à confirmer, remises) est dans l'historique. */}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <span className="flex flex-wrap items-center gap-2 text-sm">
+                <Badge tone={fund.received > 0 ? "success" : "warning"} dot={false}>
+                  {fund.received > 0 ? "Ouverte" : fund.remittanceCount === 0 && enAttente.length > 0 ? "En attente du centre de paiement" : "En attente de réception"}
+                </Badge>
+                <span className="text-muted-foreground">
+                  Dépensé <span className="tabular-nums text-foreground">{formatCurrency(fund.spent)}</span> sur <span className="tabular-nums text-foreground">{formatCurrency(fund.remitted)}</span>
+                </span>
+              </span>
+              <strong className={`tabular-nums ${fund.overspent ? "text-destructive" : fund.lowOnCash ? "text-warning" : "text-success"}`}>
+                reste {formatCurrency(fund.remaining)}
+              </strong>
+            </div>
+            <Progress value={partDepensee(fund.spent, fund.remitted)} tone={fund.overspent ? "danger" : fund.lowOnCash ? "warning" : "primary"} className="h-2.5" />
+            {cash.holder && <p className="text-xs text-muted-foreground">Détenue par {cash.holder}</p>}
           </div>
 
           {view.plan?.isActive && (
             <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <CalendarClock className="h-3.5 w-3.5" />
-              Rechargement mensuel réglé par les RH : <strong className="text-foreground">{formatCurrency(view.plan.monthlyAmount)}</strong>
-              le {view.plan.rechargeDay} de chaque mois
-              {view.plan.nextRechargeAt && <> — prochain le <strong className="text-foreground">{formatDate(view.plan.nextRechargeAt)}</strong></>}.
-              Les ressources humaines en sont prévenues <strong>48 h avant</strong>.
+              Rechargement : <strong className="text-foreground">{formatCurrency(view.plan.monthlyAmount)}</strong>
+              le {view.plan.rechargeDay} du mois
+              {view.plan.nextRechargeAt && <> — prochain le <strong className="text-foreground">{formatDate(view.plan.nextRechargeAt)}</strong></>}
+              <InfoBulle label="À propos du rechargement mensuel" align="left">
+                Rechargement mensuel réglé par les RH. Ils en sont prévenus 48 h avant chaque échéance.
+              </InfoBulle>
             </p>
           )}
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Figure label="Remis (non soldé)" value={formatCurrency(fund.remitted)} hint={`${fund.remittanceCount} remise${fund.remittanceCount > 1 ? "s" : ""}`} />
-            <Figure
-              label="Reçu (en main)" value={formatCurrency(fund.received)}
-              hint={fund.awaitingReceipt ? `${formatCurrency(fund.awaitingAmount)} à confirmer` : undefined}
-              tone={fund.awaitingReceipt ? "warning" : undefined}
-            />
-            <Figure label="Dépensé" value={formatCurrency(fund.spent)} hint={`${fund.usedPercent} %`} />
-            <Figure
-              label="Reste en caisse"
-              value={formatCurrency(fund.remaining)}
-              tone={fund.overspent ? "danger" : fund.lowOnCash ? "warning" : "success"}
-            />
-          </div>
 
           {/* CE QUE LE FOND A À DIRE — dépassement, épuisement, ou réception en attente. Un seul
               message à la fois : trois bandeaux empilés ne se lisent plus. */}
@@ -165,33 +163,47 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
               </Button>
             )}
             {view.canAllot && (
-              <>
-                <Button size="sm" variant="outline" onClick={() => setPane(pane === "allot" ? "none" : "allot")}>
-                  <Plus className="h-4 w-4" /> Remettre une somme
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setPane(pane === "plan" ? "none" : "plan")}>
-                  <CalendarClock className="h-4 w-4" /> Réglage mensuel
-                </Button>
-              </>
+              <Button size="sm" variant="outline" onClick={() => setPane(pane === "allot" ? "none" : "allot")}>
+                <Plus className="h-4 w-4" /> Remettre une somme
+              </Button>
             )}
-            {(view.isHolder || view.canAllot) && cash.currentId && (
+            {/* « Réglage mensuel » et « Solder la caisse » : rares, donc derrière ⋯ (Direction, 09/10). */}
+            {(view.canAllot || ((view.isHolder || view.canAllot) && cash.currentId)) && (
+              <MenuPlus label="Autres gestes de la caisse">
+                {view.canAllot && (
+                  <EntreeMenu onClick={() => setPane("plan")}><CalendarClock className="h-4 w-4 text-muted-foreground" /> Réglage mensuel</EntreeMenu>
+                )}
+                {(view.isHolder || view.canAllot) && cash.currentId && (
+                  <EntreeMenu onClick={() => setPane("solder")}><Lock className="h-4 w-4 text-muted-foreground" /> Solder la caisse</EntreeMenu>
+                )}
+              </MenuPlus>
+            )}
+          </div>
+
+          {/* SOLDER : la confirmation vit ICI, hors du menu — un menu qui se referme au clic démonterait le bouton décisif. */}
+          {pane === "solder" && (view.isHolder || view.canAllot) && cash.currentId && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-secondary/30 p-3 text-sm">
+              <span className="min-w-0 flex-1">
+                Solder arrête {fund.remittanceCount} remise{fund.remittanceCount > 1 ? "s" : ""} ; reliquat <strong className="tabular-nums">{formatCurrency(fund.remaining)}</strong>.
+              </span>
               <BoutonDecisif size="sm" variant="outline" disabled={busy === "close"}
                 confirmation={`solder la caisse (${fund.remittanceCount} remise(s) arrêtée(s), reliquat ${formatCurrency(fund.remaining)})`}
                 onClick={() => {
                 const fd = new FormData(); fd.set("id", cash.currentId ?? "");
                 void run("close", () => closePettyCash(fd), "Caisse soldée.");
               }}>
-                <Lock className="h-4 w-4" /> Solder la caisse
+                {busy === "close" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} Solder la caisse
               </BoutonDecisif>
-            )}
-          </div>
+              <Button size="sm" type="button" variant="outline" onClick={() => setPane("none")}>Annuler</Button>
+            </div>
+          )}
         </>
       ) : (
         <EmptyState
           icon="Wallet"
           title="Aucune somme en caisse"
           description={view.canAllot
-            ? "Remettez une somme à la personne qui achète au quotidien : la remise passe d'abord par le centre de paiement ; une fois versée, elle confirmera l'avoir reçue, puis y imputera ses dépenses. Les remises suivantes s'ajouteront au fond — la caisse ne se ferme pas au changement de mois."
+            ? "Remettez une somme à la personne qui achète au quotidien."
             : "L'administration n'a pas encore remis de somme pour ce département."}
         />
       )}
@@ -206,10 +218,12 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           }}
           className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
         >
-          <p className="text-sm font-medium">Remettre une somme en caisse</p>
-          <p className="text-xs text-muted-foreground">
-            La remise part d&apos;abord au <strong>centre de paiement</strong> : une fois autorisée et versée par
-            les Finances, elle <strong>s&apos;ajoute</strong> au fond en cours et garde sa date — rien n&apos;est clos.
+          <p className="flex items-center gap-1 text-sm font-medium">
+            Remettre une somme en caisse
+            <InfoBulle label="À propos de la remise" align="left">
+              La remise part d&apos;abord au centre de paiement : une fois autorisée et versée par les Finances, elle s&apos;ajoute au fond en cours
+              et garde sa date — rien n&apos;est clos. La personne qui la reçoit confirme ensuite l&apos;avoir reçue.
+            </InfoBulle>
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs">
@@ -389,11 +403,27 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
 
       {/* L'HISTORIQUE DES REMISES — ce que la période servait à raconter, en mieux : chaque
           somme avec SA date, sans faire croire qu'un mois solde le précédent. */}
-      {cash && cash.remittances.length > 0 && (
-        <RemittanceList title={`Remises en cours (${cash.remittances.length})`} rows={cash.remittances} />
-      )}
-      {view.history.length > 0 && (
-        <RemittanceList title="Remises soldées" rows={view.history} muted />
+      {((cash && cash.remittances.length > 0) || view.history.length > 0) && (
+        <details className="group rounded-xl border border-border">
+          <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground sm:min-h-0">
+            <span>
+              Historique des remises
+              <span className="ml-1.5 text-xs">
+                ({cash?.remittances.length ?? 0} en cours · {view.history.length} soldée{view.history.length > 1 ? "s" : ""})
+              </span>
+            </span>
+            <span className="text-xs text-primary group-open:hidden">Afficher</span>
+            <span className="hidden text-xs text-primary group-open:inline">Masquer</span>
+          </summary>
+          <div className="space-y-3 border-t border-border p-3">
+            {cash && cash.remittances.length > 0 && (
+              <RemittanceList title={`Remises en cours (${cash.remittances.length})`} rows={cash.remittances} />
+            )}
+            {view.history.length > 0 && (
+              <RemittanceList title="Remises soldées" rows={view.history} muted />
+            )}
+          </div>
+        </details>
       )}
     </div>
   );
@@ -444,17 +474,6 @@ function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMe
           </TableBody>
         </Table>
       </div>
-    </div>
-  );
-}
-
-function Figure({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "danger" | "warning" | "success" }) {
-  const cls = tone === "danger" ? "text-destructive" : tone === "warning" ? "text-warning" : tone === "success" ? "text-success" : "";
-  return (
-    <div className="min-w-0 rounded-lg border border-border px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-base font-semibold tabular-nums [overflow-wrap:anywhere] sm:text-lg ${cls}`}>{value}</p>
-      {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
     </div>
   );
 }

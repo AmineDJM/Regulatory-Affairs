@@ -28,6 +28,7 @@ import { getMyPortfolio } from "@/lib/queries/portfolio";
 import { TrainingRequestButton } from "@/components/purchase/training-request-button";
 import { ExpenseClaimButton } from "@/components/hr/expense-claim-button";
 import { getManagerOfUser } from "@/lib/departments";
+import { ANCRE_MES_AVANCES } from "@/lib/chemins/rh";
 
 export default async function MonEspacePage() {
   const user = await requireModule("WORKSPACE");
@@ -212,7 +213,7 @@ export default async function MonEspacePage() {
           reçu — mais rien ne se crée depuis cet espace. Les congés, eux, vivent ENTIÈREMENT
           dans « Mon dossier RH » (bouton en tête pour y aller). */}
       {myAdvances.length > 0 && (
-        <section className="space-y-3">
+        <section id={ANCRE_MES_AVANCES} className="scroll-mt-20 space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes avances sur salaire</h2>
           <MyAdvances advances={myAdvances} />
         </section>

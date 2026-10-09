@@ -20,6 +20,16 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { compteDeLEcriture } from "@/lib/finance/comptes";
 import { STATUTS_SOLDES_PAR_UN_REGLEMENT } from "@/lib/ad-pro/cloture-sponsoring";
 import { solderVirementPaie } from "@/lib/hr/paie-centre";
+import { lienOrdreAPayer } from "@/lib/chemins/finances";
+
+/**
+ * OÙ ENVOYER LE DEMANDEUR D'UN ORDRE — le dossier qui l'a émis (sa demande, ses pièces), qu'il peut
+ * ouvrir ; à défaut seulement, la ligne de l'ordre dans « Paiements à faire ».
+ */
+async function lienDuDossierDeLOrdre(orderId: string): Promise<string> {
+  const dossier = await dossierHrefByOrder([orderId]).then((m) => m.get(orderId)).catch(() => undefined);
+  return dossier ?? lienOrdreAPayer(orderId);
+}
 
 /**
  * LE DOSSIER COMPAGNON PASSE À « SOLDÉ » quand son ordre est réglé, et le fil le dit.
@@ -222,9 +232,11 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   }
 
   if (order.requestedById) {
+    // Le demandeur va sur SON dossier (la demande qui a émis l'ordre) : la file des Finances n'est
+    // pas son écran — la même règle que « Facture demandée » ci-dessous.
     await notifyUser({
       userId: order.requestedById, type: "GENERIC", title: "Ordre de dépense réglé",
-      body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire",
+      body: `${order.reference} — ${order.label}`, link: await lienDuDossierDeLOrdre(order.id),
     });
   }
 
@@ -312,7 +324,7 @@ export async function requestInvoice(formData: FormData): Promise<ActionResult> 
   // ON ENVOIE LE DEMANDEUR LÀ OÙ IL PEUT DÉPOSER — son dossier — et non dans la file du
   // décaissement, qui est l'écran des Finances et que la plupart des demandeurs ne peuvent même
   // pas ouvrir. C'est le dossier qui porte les pièces ; l'y conduire est la moitié du geste.
-  const dossier = (await dossierHrefByOrder([order.id])).get(order.id) ?? "/finances/paiements-a-faire";
+  const dossier = await lienDuDossierDeLOrdre(order.id);
   if (order.requestedById) {
     await notifyUser({
       userId: order.requestedById, type: "ASSIGNMENT", title: "Facture demandée",
@@ -377,7 +389,7 @@ export async function deferExpenseOrder(formData: FormData): Promise<ActionResul
     await notifyUser({
       userId: order.requestedById, type: "GENERIC", title: "Paiement reporté",
       body: `${order.reference} — ${order.label} : reporté au ${check.until.toLocaleDateString("fr-FR")}${reason ? ` — ${reason}` : ""}`,
-      link: "/finances/paiements-a-faire",
+      link: await lienDuDossierDeLOrdre(order.id),
     });
   }
   await recordAudit({

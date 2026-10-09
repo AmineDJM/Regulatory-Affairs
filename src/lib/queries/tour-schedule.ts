@@ -14,6 +14,7 @@ import { getSfeConfig } from "@/lib/sfe";
 import { lettresDesPraticiens } from "@/lib/segmentation/lettres-service";
 import { requisDuPraticien } from "@/lib/segmentation/lettre-requise";
 import type { Lettre } from "@/lib/segmentation/regles";
+import { besoinsAEcrire, type BesoinAEcrire } from "@/lib/besoins-services/service";
 
 /**
  * L'EMPLOI DU TEMPS D'UN KAM — ce que l'écran affiche, et ce que la Direction compte.
@@ -64,6 +65,9 @@ export interface LigneEmploiDuTemps {
   /** LE POTENTIEL À METTRE À JOUR (Segmentation Studio, §18) : présent quand le praticien est dans le panel d'une
    *  stratégie de la BU du KAM — la métrique, le produit #1 et la dernière valeur connue, pour ne rien redemander. */
   potentiel: PotentielAMettreAJour | null;
+  /** LE BESOIN ANNUEL DU SERVICE (Marketing cockpit · terrain) : présent quand le praticien est DÉCIDEUR d'une stratégie
+   *  active de la BU du KAM — les produits classés et ce qui est déjà saisi pour l'an prochain. */
+  besoin: BesoinAEcrire | null;
 }
 
 export interface PotentielAMettreAJour {
@@ -199,6 +203,7 @@ async function lignesEtGamme(
   // CE QUE CHAQUE VISITE A REMIS — une lecture pour toutes (§118.102b : jamais une par ligne).
   const remises = await remisesDesVisites(visites.map((v) => v.id));
   const potentiels = await potentielsDesPraticiens(visites.map((v) => v.doctorId).filter((x): x is string => !!x), profil?.businessUnitId ?? null);
+  const besoins = await besoinsAEcrire(visites.map((v) => v.doctorId).filter((x): x is string => !!x), profil?.businessUnitId ?? null, maintenant);
   const RIEN: RemisesDeVisite = { materiel: [], numeriques: [] };
 
   const lignes: LigneEmploiDuTemps[] = visites.map((v) => {
@@ -230,6 +235,7 @@ async function lignesEtGamme(
       vocal: v.fieldReports.length > 0,
       motifNonTenue: v.notHeldReason,
       potentiel: v.doctorId ? potentiels.get(v.doctorId) ?? null : null,
+      besoin: v.doctorId ? besoins.get(v.doctorId) ?? null : null,
     };
   });
 

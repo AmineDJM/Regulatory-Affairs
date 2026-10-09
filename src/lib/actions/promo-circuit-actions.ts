@@ -20,7 +20,9 @@ import {
   contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisLu, SELECT_DEVIS,
 } from "@/lib/queries/promo-circuit";
 import { totauxDeLaSelection, formatDzd } from "@/lib/promo-material/devis";
-import { verdictDuChantierPromo } from "@/lib/queries/promo-execution";
+import { verdictDuChantierPromo, executionDuDossier } from "@/lib/queries/promo-execution";
+import { notifierSignatairesBC } from "@/lib/bons-de-commande/signataires";
+import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { hasGlobalView } from "@/lib/rbac";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
@@ -383,7 +385,7 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
     bilanBC = await genererLesBonsDeCommande(user, id, { livraison: { adresse: null, delai: null }, notes: null, taxe: undefined, automatique: true });
     suiteAuto = bilanBC.ok
       ? bilanBC.message
-      : `Les bons de commande n'ont pas pu être générés automatiquement : ${bilanBC.error} Ils se génèrent depuis la carte « Exécution ».`;
+      : `Les aperçus des bons de commande n'ont pas pu être préparés automatiquement : ${bilanBC.error} Ils se préparent depuis « Bons de commande, réception, factures ».`;
   }
 
   // On prévient CELUI QUI DOIT AGIR ENSUITE, pas tout le monde.
@@ -413,9 +415,9 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
     // Les TROIS chantiers s'ouvrent d'un coup : c'est le moment où le circuit cesse d'être une file.
     await notifyUser({
       userId: item.requesterId, type: "GENERIC",
-      title: version === 2 && bilanBC?.ok ? "Validations obtenues — bons de commande générés" : "Validations obtenues — vous pouvez lancer",
+      title: version === 2 && bilanBC?.ok ? "Validations obtenues — bons de commande à vérifier et valider" : "Validations obtenues — vous pouvez lancer",
       body: version === 2
-        ? `${item.reference} — ${suiteAuto ?? "les bons de commande se génèrent depuis la carte « Exécution »."}`
+        ? `${item.reference} — ${suiteAuto ?? "les bons de commande se préparent depuis la fiche du dossier."}`
         : `${item.reference} — bon de commande, demande de paiement et demande de visa peuvent partir en parallèle.`,
       link: path(id),
     });
@@ -667,4 +669,78 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
       ? "Dernier chantier clos — le dossier est terminé."
       : `Clos. Reste : ${pendingTracks(nextDone).map((t) => libelleChantier(t, version)).join(", ")}.`,
   };
+}
+
+/** Une relance par jour au plus : au-delà, une notification qui revient sans cesse cesse d'être lue (§118.32). */
+const DELAI_RELANCE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * RELANCER — la fiche dit « En attente — chez X » ; la personne (ou le service) attendue reçoit un rappel, nommé, avec
+ * le lien du dossier. Une fois par jour au plus, par le demandeur, l'assistante, les pilotes de l'exécution ou la Direction.
+ * Le destinataire se lit sur l'étape, par les MÊMES règles que les avis du circuit : le validateur de la demande, l'assistante,
+ * la Direction Marketing, le Directeur Général ; en exécution, les signataires des BC, le centre, les Finances ou le demandeur.
+ */
+export async function relancerPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  const pm = await prisma.promoMaterial.findUnique({ where: { id } });
+  if (!pm || pm.circuitVersion !== 2 || !pm.circuitState) return { ok: false, error: "Ce dossier ne se relance pas d'ici." };
+  if (pm.status === "CANCELLED" || pm.circuitState === "REFUSED" || pm.circuitState === "COMPLETED") return { ok: false, error: "Ce dossier n'attend plus personne." };
+  const acteur = { id: user.id, role: user.role, secondaryRole: user.secondaryRole, vueGlobale: hasGlobalView(user.role) };
+  if (!(pm.requesterId === user.id || pm.assistantId === user.id || piloteLExecution(acteur, pm))) {
+    return { ok: false, error: "Seuls le demandeur, l'assistante et la Direction relancent ce dossier." };
+  }
+
+  let ids: string[] = [];
+  let roles: Parameters<typeof notifyRoles>[0] = [];
+  let signataires = false;
+  let qui = "";
+  const etat = pm.circuitState as PromoState;
+  if (attendSaCorrection({ circuitState: etat, returnedAt: pm.returnedAt })) {
+    ids = pm.requesterId ? [pm.requesterId] : []; qui = "le demandeur";
+  } else if (etat === "REVIEW_REQUEST") {
+    if (pm.requestValidatorId) { ids = [pm.requestValidatorId]; qui = "le validateur de la demande"; } else { roles = ["DIRECTION"]; qui = "la Direction des opérations"; }
+  } else if (etat === "QUOTE_TO_REQUEST" || etat === "REVIEW_REQUESTER") {
+    ids = pm.requesterId ? [pm.requesterId] : []; qui = "le demandeur";
+  } else if (etat === "QUOTE_REQUESTED") {
+    if (pm.assistantId) ids = [pm.assistantId]; else roles = ["DIRECTION_ASSISTANT"];
+    qui = "l'assistante de direction";
+  } else if (etat === "REVIEW_MANAGER") {
+    const nommees = await validateursMarketing(pm);
+    if (nommees) ids = nommees; else roles = [ROLE_DIRECTION_MARKETING];
+    qui = "la Direction Marketing";
+  } else if (etat === "REVIEW_DG") {
+    roles = ["GENERAL_MANAGER"]; qui = "le Directeur Général";
+  } else if (etat === "IN_EXECUTION") {
+    const execution = await executionDuDossier(id);
+    const bcs = execution.filter((e) => e.lignesRetenues > 0 && e.bc);
+    const factures = execution.flatMap((e) => e.factures);
+    if (bcs.some((e) => e.bc?.etape === "A_SIGNER")) { signataires = true; qui = "les Finances (signature des BC)"; }
+    else if (bcs.some((e) => e.bc?.etape === "A_VALIDER" || e.bc?.etape === "SANS_PORTE")) { roles = ["GENERAL_MANAGER", "SUPER_ADMIN"]; qui = "le centre de validation"; }
+    else if (factures.some((f) => f.paiementDemande && !f.reglee)) { roles = ["FINANCE_BUDGET_MANAGER"]; qui = "les Finances (paiement)"; }
+    else { ids = pm.requesterId ? [pm.requesterId] : []; qui = "le demandeur"; }
+  } else {
+    return { ok: false, error: "Cette étape ne se relance pas d'ici." };
+  }
+  ids = ids.filter((x) => x !== user.id);
+  if (ids.length === 0 && roles.length === 0 && !signataires) return { ok: false, error: "Personne d'autre à relancer : c'est à vous d'agir." };
+
+  // UNE PAR JOUR, ÉCRITE SUR CE QUI A ÉTÉ LU : deux clics croisés ne font pas deux relances.
+  const pris = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: pm.circuitState, OR: [{ financeReminderAt: null }, { financeReminderAt: { lt: new Date(Date.now() - DELAI_RELANCE_MS) } }] },
+    data: { financeReminderAt: new Date(), financeReminderCount: { increment: 1 } },
+  });
+  if (pris.count === 0) return { ok: false, error: "Ce dossier a déjà été relancé aujourd'hui, ou vient de changer d'étape." };
+
+  const avis = { type: "LATE" as const, title: `Relance — ${pm.reference}`, body: `${user.name ?? "Le demandeur"} relance : ${pm.title}`, link: path(id) };
+  for (const userId of ids) await notifyUser({ userId, ...avis });
+  if (roles.length) await notifyRoles(roles, avis);
+  if (signataires) await notifierSignatairesBC({ ...avis, link: CHEMIN_BONS_DE_COMMANDE });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: id,
+    summary: `Relance envoyée à ${qui} (${libelleEtape(etat, 2)}).`,
+  });
+  revalidatePath(path(id));
+  return { ok: true, message: `Relance envoyée à ${qui}.` };
 }

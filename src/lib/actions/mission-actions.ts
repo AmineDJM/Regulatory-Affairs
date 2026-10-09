@@ -323,7 +323,7 @@ export async function requestMissionOrder(formData: FormData): Promise<ActionRes
   if (marche.gate === "PENDING" && manager?.userId) {
     await notifyUser({ userId: manager.userId, type: "GENERIC", title: "Ordre de mission à valider (votre équipe)", body: `${employee.fullName} — ${parent.label}${dates(depart, retour)}`, link: `${MES_MISSIONS}#a-valider` }).catch(() => undefined);
   } else {
-    await notifyRoles(rolesWithModule("HR_REQUESTS", "UPDATE"), { type: "GENERIC", title: "Ordre de mission à établir", body: `${employee.fullName} — ${parent.label}`, link: "/rh/demandes" }).catch(() => undefined);
+    await notifyRoles(rolesWithModule("HR_REQUESTS", "UPDATE"), { type: "GENERIC", title: "Ordre de mission à établir", body: `${employee.fullName} — ${parent.label}`, link: `/rh/demandes?demande=${created.id}` }).catch(() => undefined);
   }
   await recordAudit({ actorId: user.id, action: "CREATE", module: "RH", entityType: "MISSION_ASSIGNMENT", entityId: a.id, summary: `Ordre de mission demandé — ${parent.label}${marche.gate ? " (N+1 puis RH)" : " (directement aux RH)"}` });
   revalider(a.entityType, a.entityId);
@@ -410,7 +410,7 @@ export async function deciderOrdreMissionN1(formData: FormData): Promise<ActionR
     }).catch(() => undefined);
   }
   if (decision === "VALIDER") {
-    await notifyRoles(rolesWithModule("HR_REQUESTS", "UPDATE"), { type: "GENERIC", title: "Ordre de mission à établir", body: `${req.employee.fullName} — validé par le N+1`, link: "/rh/demandes" }).catch(() => undefined);
+    await notifyRoles(rolesWithModule("HR_REQUESTS", "UPDATE"), { type: "GENERIC", title: "Ordre de mission à établir", body: `${req.employee.fullName} — validé par le N+1`, link: `/rh/demandes?demande=${id}` }).catch(() => undefined);
   }
   await recordAudit({
     actorId: user.id, action: decision === "VALIDER" ? "VALIDATE" : "REFUSE", module: "RH", entityType: "EMPLOYEE", entityId: req.employeeId,

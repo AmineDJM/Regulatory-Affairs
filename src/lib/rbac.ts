@@ -155,10 +155,6 @@ export const MODULES = [
   // Voir en portée TOUT = la boîte de Regulatory ; en portée « ses lignes » = ses propres signalements et les cas
   // où l'on a été ajouté. Créer = signaler un cas ; Modifier/Valider = instruire (statut, enquête, participants).
   "PHARMACOVIGILANCE",
-  // RETOURS_RECLAMATIONS (Operations & Sales, Direction 08/10) : retours de marchandise, réclamations qualité et rappels
-  // de lot. Voir en portée TOUT = toutes les réclamations ; « ses lignes » = celles qu'on a déclarées ou dont on est
-  // responsable. Créer = déclarer (le KAM, depuis le terrain) ; Modifier = instruire (statut, responsable, conclusion).
-  "RETOURS_RECLAMATIONS",
   // KPI : « KPI & bilans » (Direction, 08/10 — KPI sans code). Voir = son bilan et celui de son arbre ; Créer = déclarer,
   // proposer un KPI, en créer pour son équipe ; Valider = noter un KPI évalué, valider une déclaration, signer une revue.
   // Le PÉRIMÈTRE suit l'organigramme (l'arbre de Mon équipe), jamais le rôle : `src/lib/kpi/droits.ts`.
@@ -173,6 +169,11 @@ export const MODULES = [
   // opérations : livré à la PCH, exécution des marchés, demande non servie, ruptures de la chaîne, couverture terrain, et
   // « À traiter ». Lecture seule : chaque geste se fait dans l'écran du module visé. Voir = l'ouvrir.
   "COCKPIT_OPERATIONS",
+  // BUDGET_CAMPAIGN : « Budgets 2027 / Campagne budgétaire » (Direction, 10/2026) — chaque pôle prépare sa proposition,
+  // les valideurs l'examinent ligne par ligne, on arbitre, on valide, les enveloppes de l'année se créent. Voir (portée
+  // TOUT) = la vue de la Direction ; Modifier = piloter la campagne ; le responsable d'un département prépare SON pôle
+  // par l'organigramme (accès implicite, portée bornée). Valider = le comité nommé dans la campagne, pas ce droit seul.
+  "BUDGET_CAMPAIGN",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -685,25 +686,6 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
 }
 
 /**
- * « RETOURS & RÉCLAMATIONS » PAR DÉFAUT (Direction, 08/10) — les opérations, la Direction et le Directeur Général
- * gèrent ; ceux qui reçoivent la pharmacovigilance (Regulatory) et le pharmacien responsable LISENT ; le KAM DÉCLARE
- * depuis le terrain (portée « ses lignes », `defaultScope`). Personne d'autre : la console l'ouvre ensuite personne par
- * personne. ÉCRIT, pas dérivé (§118.130).
- */
-const RECLAMATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
-  DIRECTION: MANAGE,
-  GENERAL_MANAGER: MANAGE,
-  OPERATIONS_DIRECTOR: MANAGE,
-  HEAD_OF_REGULATORY: READ,
-  REGULATORY_ASSISTANT: READ,
-  MEDICAL_INFO_PHARMACIST: READ,
-  MEDICAL_DELEGATE: ["VIEW", "CREATE", "UPLOAD"],
-};
-for (const [role, actions] of Object.entries(RECLAMATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
-  if (!PERMISSIONS[role].RETOURS_RECLAMATIONS) PERMISSIONS[role].RETOURS_RECLAMATIONS = [...actions];
-}
-
-/**
  * « KPI & BILANS » PAR DÉFAUT (Direction, 08/10) — comme Mon équipe, une PORTE accordée à tous : chacun voit son bilan
  * et y déclare ; qui encadre crée des KPI pour son équipe, note, valide et signe — mais seulement sur SON arbre (la
  * règle est dans `kpi/droits.ts`, l'arbre est celui de Mon équipe). Sans équipe, Créer/Valider ne donnent prise sur
@@ -724,6 +706,18 @@ const COCKPIT_OPERATIONS_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
 };
 for (const [role, actions] of Object.entries(COCKPIT_OPERATIONS_PAR_DEFAUT) as [UserRole, Action[]][]) {
   if (!PERMISSIONS[role].COCKPIT_OPERATIONS) PERMISSIONS[role].COCKPIT_OPERATIONS = [...actions];
+}
+
+/** « CAMPAGNE BUDGÉTAIRE » PAR DÉFAUT (Direction, 10/2026) — la Direction et le DG la pilotent (le Super Admin a tout) ;
+ *  les Finances l'examinent en lecture ; les responsables de département préparent LEUR pôle par l'organigramme
+ *  (`getAccess`, accès implicite). Personne d'autre : la console l'ouvre au cas par cas. */
+const BUDGET_CAMPAIGN_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  FINANCE_BUDGET_MANAGER: READ,
+};
+for (const [role, actions] of Object.entries(BUDGET_CAMPAIGN_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].BUDGET_CAMPAIGN) PERMISSIONS[role].BUDGET_CAMPAIGN = [...actions];
 }
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
@@ -1087,8 +1081,6 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     SPONSORING: ["MEDICAL_DELEGATE"],
     // Segmentation Studio : le KAM ne voit et ne renseigne que SON panel (secteur ∪ rattachement).
     SEGMENTATION: ["MEDICAL_DELEGATE"],
-    // Retours & réclamations : le KAM ne lit que ce qu'il a déclaré (ou ce dont on l'a fait responsable).
-    RETOURS_RECLAMATIONS: ["MEDICAL_DELEGATE"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }
@@ -1510,6 +1502,11 @@ export const getAccess = perRequest(
       rhCanUpdate: modules.get("RH")?.actions.has("UPDATE") ?? false,
     });
     grantImplicit("RECRUITMENT", recruitment.actions, recruitment.scope);
+
+    // ── LA CAMPAGNE BUDGÉTAIRE : QUI DIRIGE UN DÉPARTEMENT PRÉPARE LE BUDGET DE SON PÔLE ──
+    // Un FAIT de l'organigramme (responsable ou adjoint), pas un rôle. En LECTURE et portée bornée (ASSIGNED) : l'écran
+    // ne lui montre que SES pôles, jamais la vue de la Direction ni le cadrage (`lib/budget-campagne/regles.ts`).
+    if (departmentsLed > 0) grantImplicit("BUDGET_CAMPAIGN", ["VIEW"], null);
 
     // ── « MON ÉQUIPE » SUIT L'ORGANIGRAMME, PAS LE RÔLE ──
     //

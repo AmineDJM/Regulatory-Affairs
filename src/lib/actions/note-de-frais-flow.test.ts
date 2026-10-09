@@ -195,7 +195,8 @@ suite("Note de frais : un montant, une pièce, quinze minutes, et les RH", () =>
       where: { userId: salarieId, title: { contains: "corriger votre note" } },
       select: { link: true },
     });
-    expect(notif?.link).toBe("/mon-dossier");
+    // …et le lien ouvre SA note dans son dossier, pas le haut de la page.
+    expect(notif?.link).toBe(`/mon-dossier#demande-rh-${noteId}`);
   });
 
   it("…et la correction repasse HORS DÉLAI, la réouverture primant sur l'horloge", async () => {

@@ -269,6 +269,7 @@ describe("les actions qui CHARGENT un écran voient la personne visualisée", ()
     "src/lib/actions/link-actions.ts": ["linkCandidatesFor"],
     "src/lib/actions/my-team-actions.ts": ["teamMemberKpis"],
     "src/lib/actions/regulatory-actions.ts": ["checkDciDuplicate"],
+    "src/lib/actions/ad-pro-medecins-actions.ts": ["chercherMedecinsAnnuaire"],
     "src/lib/actions/assistant-actions.ts": ["listAssistantFiles", "myAssistantThreads", "myAssistantThread", "refreshMyBrief"],
   };
   // Lectures VOLONTAIREMENT au nom du Super Admin réel : aperçus d'une écriture qui suivra en son nom, lectures
@@ -276,6 +277,8 @@ describe("les actions qui CHARGENT un écran voient la personne visualisée", ()
   const AU_NOM_DE_L_ADMIN = new Set([
     "apercuSuppressionPieceDeLaDemande", "apercuDeSuppression", "apercuSuppressionGroupee", // aperçu d'une suppression
     "apercuAvantImpressionPiece", "previewDirectorySheet", "previewCatalogNormalization", // aperçu d'une écriture
+    "apercuBcPoste", // l'aperçu du BC que la MÊME personne valide ensuite (numéro du registre NNN/DG/AAAA attribué en son nom)
+    "apercuBcPromo", // le même aperçu, pour le BC d'un devis de matériel promotionnel (validé ensuite par le demandeur, en son nom)
     "apercuRegles", "apercuImportSegmentation", // aperçu d'un import / d'une règle
     "lireLesLignesDuDevis", "lireScanDevisPromo", "lireFacturePromo", // lecture OCR qui prépare une saisie
     "searchRelations", "compterDossiersNonEntames", "searchCorpusAction", // réservés au Super Admin

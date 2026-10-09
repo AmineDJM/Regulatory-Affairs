@@ -13,6 +13,11 @@ import { MODES_PAIEMENT } from "@/lib/artifact/factory/commercial";
  * numéro, produit le Word et le PDF définitifs et lance la marche existante (visa du centre, signature).
  *
  * Module PUR (aucun import lourd) : lu par l'écran (composant client) comme par les actions serveur.
+ *
+ * POURQUOI ICI, sous `bons-de-commande/` et non sous `ad-pro/` : deux circuits le partagent (le poste Ad & Pro et le
+ * devis de matériel promotionnel, `promo-material/bc-brouillon-promo.ts`), et il parle le vocabulaire de la pièce
+ * commerciale (`artifact/factory/commercial`, domaine `office`). Logé dans le domaine `adpro`, il en faisait deux
+ * traversées inter-domaines (`platform/domains.test.ts`) ; c'est la règle du BC, pas celle d'un circuit.
  * Une valeur `null` d'un champ dit « telle que le devis la donne » ; une valeur écrite remplace.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
@@ -45,6 +50,8 @@ export interface BrouillonBc {
   livraison: { adresse: string | null; date: string | null; delai: string | null } | null;
   /** Le bloc « A : » du fournisseur : seuls les champs écrits remplacent ceux du devis. */
   tiers: Partial<Pick<PartieCommerciale, "nom" | "adresse" | "telephone" | "email" | "rc" | "nif">> | null;
+  /** Le numéro de BC choisi par le demandeur (ex. « 040/DG/2026 ») ; `null` = attribué automatiquement à la validation. */
+  numeroChoisi: string | null;
 }
 
 const texte = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -90,6 +97,7 @@ export function lireBrouillon(brut: unknown): BrouillonBc | null {
     modePaiement: mode, conditionsPaiement: texte(o.conditionsPaiement),
     livraison: l ? { adresse: texte(l.adresse), date: texte(l.date), delai: texte(l.delai) } : null,
     tiers: t ? { nom: texte(t.nom) ?? undefined, adresse: texte(t.adresse), telephone: texte(t.telephone), email: texte(t.email), rc: texte(t.rc), nif: texte(t.nif) } : null,
+    numeroChoisi: texte(o.numeroChoisi),
   };
 }
 
@@ -98,6 +106,7 @@ export function brouillonNeuf(p: { itemId: string; par: string; parNom: string |
   return {
     itemId: p.itemId, par: p.par, parNom: p.parNom, le: (p.maintenant ?? new Date()).toISOString(), modifieLe: null, modifiePar: null,
     lignes: null, signature: null, objet: null, notes: null, contact: null, modePaiement: null, conditionsPaiement: null, livraison: null, tiers: null,
+    numeroChoisi: null,
   };
 }
 

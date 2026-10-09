@@ -25,10 +25,11 @@ const FILTRES: FiltreDemandes[] = ["a-traiter", "en-cours", "pretes"];
  * filtres (À traiter, En cours, Prêtes) ; une LIGNE par demande, un geste (« Traiter »), le traitement dans un panneau
  * sous la ligne ; puis la TABLE des congés à trancher, chacun avec sa discussion.
  */
-export default async function DemandesRhPage({ searchParams }: { searchParams?: { filtre?: string } }) {
+export default async function DemandesRhPage({ searchParams }: { searchParams?: { filtre?: string; demande?: string } }) {
   const user = await requireModule("HR_REQUESTS");
   const peutTrancherConges = userCan(user, "HR_REQUESTS", "VALIDATE");
   const filtre: FiltreDemandes = FILTRES.includes(searchParams?.filtre as FiltreDemandes) ? (searchParams!.filtre as FiltreDemandes) : "a-traiter";
+  const demandeAOuvrir = searchParams?.demande ?? null;
   // LA MÊME CLAUSE DE VISIBILITÉ pour la file ouverte et pour les demandes prêtes : le filtre « Prêtes » n'ouvre rien de
   // plus que ce que l'écran voyait déjà (les salariés visibles), borné à 30 jours et 50 lignes.
   const perimetre = await clauseSalariesVisibles(user.id);
@@ -49,7 +50,13 @@ export default async function DemandesRhPage({ searchParams }: { searchParams?: 
 
   const enCours = demandes.filter((d) => d.status === "IN_PROGRESS");
   const compte: Record<FiltreDemandes, number> = { "a-traiter": demandes.length, "en-cours": enCours.length, pretes: pretes.length };
-  const liste = filtre === "pretes" ? pretes : filtre === "en-cours" ? enCours : demandes;
+  // UNE NOTIFICATION OUVRE SA DEMANDE OÙ ELLE EST (`?demande=`) : une entrevue confirmée ou une note
+  // de frais traitée est « prête », pas « à traiter » — sans ce choix, le lien tombait sur une liste
+  // où la demande n'est pas, et rien ne s'ouvrait.
+  const filtreVu: FiltreDemandes = !searchParams?.filtre && demandeAOuvrir && !demandes.some((d) => d.id === demandeAOuvrir) && pretes.some((d) => d.id === demandeAOuvrir)
+    ? "pretes"
+    : filtre;
+  const liste = filtreVu === "pretes" ? pretes : filtreVu === "en-cours" ? enCours : demandes;
   const LIBELLE: Record<FiltreDemandes, string> = { "a-traiter": "À traiter", "en-cours": "En cours", pretes: "Prêtes" };
   const resume = [
     `${demandes.length} à traiter`,
@@ -64,10 +71,10 @@ export default async function DemandesRhPage({ searchParams }: { searchParams?: 
           {FILTRES.map((f) => (
             <Link
               key={f} href={f === "a-traiter" ? "/rh/demandes" : `/rh/demandes?filtre=${f}`} scroll={false}
-              aria-current={f === filtre ? "page" : undefined}
+              aria-current={f === filtreVu ? "page" : undefined}
               className={cn(
                 "inline-flex min-h-9 items-center rounded-full border px-3 text-sm transition-colors sm:min-h-8",
-                f === filtre ? "border-foreground bg-foreground text-background" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground",
+                f === filtreVu ? "border-foreground bg-foreground text-background" : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground",
               )}
             >
               {LIBELLE[f]} ({compte[f]})
@@ -77,8 +84,8 @@ export default async function DemandesRhPage({ searchParams }: { searchParams?: 
       </PageHeader>
       <ModuleTabs tabs={tabs} />
       <FileDemandesRh
-        demandes={liste} filtre={filtre} referenceOrdreMission={reference} currentUserId={user.id}
-        lienFiche={userCan(user, "EMPLOYEES", "VIEW")} maintenant={maintenant}
+        demandes={liste} filtre={filtreVu} referenceOrdreMission={reference} currentUserId={user.id}
+        lienFiche={userCan(user, "EMPLOYEES", "VIEW")} maintenant={maintenant} demandeAOuvrir={demandeAOuvrir}
       />
       {peutTrancherConges && (
         <CongesATrancher
