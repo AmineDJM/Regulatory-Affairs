@@ -707,7 +707,10 @@ est **saisi à la main** (« reçus par mail ») : `enregistrerStockPch` (`lib/a
 `saisitLeStockPch` = voit la chaîne + Stocks Créer/Modifier) — date du mail (jamais future), central ou une **annexe /
 DR** (lieu `StockAnnex` de type ANNEX, jamais un nom libre), nos produits seulement (relus côté serveur), « Coller le
 tableau » (règles pures partagées `lib/stocks/pch-central.ts`), mail ou PDF joint (entityType `STOCK_PCH_RELEVE`) ; les
-quantités s'écrivent par `ecrireEtatDuJour` — un état par produit, lieu et jour, ressaisir corrige.
+quantités s'écrivent par `ecrireEtatDuJour` — un état par produit, lieu et jour, ressaisir corrige. **Sources du stock
+(10/10)** : PCH central + **DR** (`StockSnapshot.drCode`, scope ANNEX) et relevés des hôpitaux (KAM) — Adventum n'a **pas
+de stock propre**. Le relevé peut se lire d'un **fichier Excel / CSV** (`lireReleveStockPch`, `lib/stocks/pch-releve-fichier.ts` :
+lecture seule, vérification à l'écran puis `enregistrerStockPch`).
 
 **RETOURS & RÉCLAMATIONS — RETIRÉ (09/10)** : le module `RETOURS_RECLAMATIONS`, l'écran `/retours-reclamations`, ses
 actions, ses règles (`lib/reclamations/`), ses chemins, son entrée de menu et son lien dans la journée du KAM n'existent
@@ -734,7 +737,9 @@ soi seulement ; le **catalogue et les modèles par rôle** = Super Admin (`/admi
 - **Couche 1 — briques** (`lib/kpi/briques.ts`, pur ; calcul serveur `briques-calcul.ts`) : des mesures écrites une
   fois dans le code sur des données que la plateforme tient déjà (visites, messages portés, contacts requis /
   réalisés, cibles vues à fréquence, rapports dans le délai, plans de tournée validés à temps, note de coaching, tâches
-  à temps, réclamations déclarées, validations et leur délai…). Aucune brique n'estime : donnée absente → `null` et sa
+  à temps, réclamations déclarées, validations et leur délai, **demandes traitées** et leur délai — support
+  `resolvedAt`, RH `handledAt`, administratives `completedAt` —, **livré / non servi PCH** par secteur ou BU, cible Luna…).
+  Aucune brique n'estime : donnée absente → `null` et sa
   raison. **Ajouter une brique est le seul cas où l'on code.**
 - **Couche 2 — définitions** (`KpiDefinition`, versionnée par famille — modifier crée une version) : une brique ou le
   rapport de deux, filtres, cible, sens (plus haut / plus bas = mieux), nature **CALCULÉ · RATIO · ÉVALUÉ · DÉCLARÉ ·

@@ -1,5 +1,26 @@
 ## 🧾 Journal des évolutions récentes
 
+### MANQUES COMBLÉS : LIENS DE NOTIFICATION EXACTS, KPI DEMANDES TRAITÉES / PCH / CIBLE LUNA, STOCKS PCH CENTRAL + DR, INFO MÉDICALE PAR PRODUIT, DATE DE BESOIN DU MATÉRIEL PROMO (2026-10-10)
+
+Commit `4d3e3325`. Migrations additives et idempotentes : `20270118150000_kpi_complements`
+(`SupportRequest.resolvedAt`, `HrDocumentRequest.handledAt`, rattrapage sans estimation) et
+`20270118150000_complements_stocks_infomed` (`StockSnapshot.drCode`, `MedicalInfoDeclaration.productId`,
+`PromoMaterial.neededBy`) — tables distinctes, même horodatage, noms distincts.
+
+- **Notifications / tâches / rapports / absences** : liens de notification menant à l'ancre exacte
+  (`lib/chemins/*`, `components/shared/surligner-cible.tsx`), invitations de mission visibles dans Tâches, rapports de
+  terrain par délégué, et **absences : un encadrant lit « Congé » (annuel, sans solde, récupération) ou « Absent »,
+  jamais la nature médicale** ; le type précis reste aux RH (`natureDeLAbsence`, `voitLeTypeDesAbsences`,
+  `lib/hr/confidentialite.ts`).
+- **KPI** : briques `DEMANDES_TRAITEES` et `DELAI_DEMANDES` (support, demandes RH, demandes administratives, datées
+  par `resolvedAt` / `handledAt` / `completedAt`), `LIVRE_PCH`, `NON_SERVI_PCH`, `EXECUTION_MARCHES`
+  (`lib/kpi/briques.ts`, `briques-pch.ts`) ; cible Luna (`kpi/luna-cible.ts`) ; alertes de la force de vente sur le requis.
+- **Stocks** : sources = **PCH central + DR** (`StockSnapshot.drCode`, scope ANNEX) et relevés des hôpitaux — **pas de
+  stock propre Adventum** ; relevé PCH lu depuis un fichier (`lireReleveStockPch`, lecture seule) ; Logistique retiré du
+  cockpit des opérations ; **part de nos lots** dans l'Intelligence terrain (`lib/influence/parts-lots.ts`).
+- **Information médicale** : `MedicalInfoDeclaration.productId` (corrigé par `changerProduitDeclaration`).
+- **Matériel promotionnel** : date de besoin du demandeur `PromoMaterial.neededBy` (`modifierDateBesoinPromo`).
+
 ### WILAYA PIVOT, BC EN BROUILLON ET REGISTRE NNN/DG/AAAA, NOTIFICATIONS À L'ACTION EXACTE, COCKPITS « TERRAIN », PRODUITS 360 V2, CAMPAGNE BUDGÉTAIRE, ORGANIGRAMME SOURCE UNIQUE, INTELLIGENCE TERRAIN (2026-10-09)
 
 Commits `b06dcfb1`, `e8928d0b`, `3af65afa`, `c149c5ed`, `ae1e4fdf`, `4d950789`, `9ddcc340`, `1ebbd379`, `fd90e82e`.
