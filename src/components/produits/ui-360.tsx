@@ -104,3 +104,31 @@ export function BarreContrat({ attribue, commande, livre, className }: { attribu
 export function Vide({ children }: { children: React.ReactNode }) {
   return <p className="px-4 py-4 text-sm text-muted-foreground">{children}</p>;
 }
+
+/** La pastille d'une lettre de segmentation (H violet, A vert, B bleu, C orange, D rouge, NA / NC gris), avec un compte. */
+const TON_LETTRE: Record<string, string> = {
+  H: "bg-violet-500/10 text-violet-600 dark:text-violet-300",
+  A: "bg-success/10 text-success",
+  B: "bg-primary/10 text-primary",
+  C: "bg-warning/10 text-warning",
+  D: "bg-destructive/10 text-destructive",
+};
+export function LettreChip({ lettre, n, className }: { lettre: string; n?: number; className?: string }) {
+  return (
+    <span title={n !== undefined ? `${lettre} : ${n}` : undefined}
+      className={cn("inline-flex h-5 min-w-[24px] items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-bold tabular-nums", TON_LETTRE[lettre] ?? "bg-muted text-muted-foreground", className)}>
+      {n !== undefined ? <>{lettre !== "H" && lettre !== "A" && lettre !== "B" && lettre !== "C" && lettre !== "D" ? `${lettre} ` : ""}{n}</> : lettre}
+    </span>
+  );
+}
+
+/** Un chiffre clé de l'en-tête : libellé, valeur, une ligne de contexte. « n/d » quand la donnée manque. */
+export function Chiffre({ label, valeur, contexte, ton }: { label: string; valeur: string | null; contexte?: string | null; ton?: "ok" | "ko" | "w" | null }) {
+  return (
+    <div className="min-w-0 border-b border-r border-border px-4 py-3">
+      <span className="block truncate text-xs text-muted-foreground">{label}</span>
+      <strong className={cn("block truncate text-lg font-semibold tabular-nums", valeur === null && "text-muted-foreground")}>{valeur ?? "n/d"}</strong>
+      {contexte && <em className={cn("block truncate text-xs not-italic", ton === "ok" ? "text-success" : ton === "ko" ? "text-destructive" : ton === "w" ? "text-warning" : "text-muted-foreground")}>{contexte}</em>}
+    </div>
+  );
+}

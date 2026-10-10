@@ -240,9 +240,16 @@ Marketing aura développées » ; puis « un Budget Regulatory » (« Regulatory
   part, jamais deviné ; **saisir un BV payé hors circuit** (`saisirBvManuel`, `BudgetExpenseLine.regulatoryProductId`)
   et **ranger un BV** demandé ou payé dans l'enveloppe (`imputerBv`). Ce ne sont PAS les bons de versement de
   l'Information médicale.
+- **Budget Regulatory allégé (09/10)** : la vue d'ensemble se lit en **4 chiffres** et des graphiques
+  (`components/charts/projection.tsx` — consommation prolongée par les BV 75 % attendus —, `repartition.tsx`, tuiles
+  `components/shared/tuile.tsx`) et la liste des **« Prochains BV »** (à demander / déjà demandé chez les Finances, mois
+  attendu ; un BV sans date n'a pas de mois, « — », jamais placé au hasard) — règles pures
+  `lib/budget-regulatory/synthese.ts` (+ tests), écran `budgets/vue-regulatory.tsx`. Même allègement pour **Moyens
+  généraux** (voir sa section).
 - **Masse salariale** (`lib/budget-operations/force-de-vente.ts`, pur + tests ; `queries/budget-operations.ts`) : la
   force de vente = profil KAM actif → sa BU ; sinon superviseur d'une BU ; sinon département sous le sous-département
-  d'une BU ; sinon sous la Direction commerciale → « hors BU » ; personne d'autre. Budget de l'année (catégorie
+  d'une BU ; sinon sous la Direction commerciale → « hors BU » ; **depuis le 09/10**, un salarié de la **Direction des
+  opérations** (ou au rôle directeur des opérations) entre aussi, sous « Direction des opérations » ; personne d'autre. Budget de l'année (catégorie
   `MASSE_SALARIALE_FDV`, sous-catégories par BU — `businessUnitId`) face à la paie réelle (coût de
   `lib/hr/payroll-cost.ts`), BU par BU, mois par mois — **des totaux** : le détail par personne seulement pour qui voit
   les salaires (`voitLesSalaires`), une équipe d'une personne regroupée (`EFFECTIF_MINIMUM` = 2). Catégories d'office
@@ -252,6 +259,93 @@ Marketing aura développées » ; puis « un Budget Regulatory » (« Regulatory
   `20270117100000_budget_regulatory_operations` (`cle`, `businessUnitId` des catégories, `regulatoryProductId` ;
   marque REGULATORY les enveloppes générales qui ne couvrent que Regulatory ; rien n'est deviné pour les Operations).
   Idempotentes : le marquage n'a lieu qu'à la création de la colonne.
+
+### Campagne budgétaire — Budgets 2027 (09/10)
+
+**LA DÉCISION** (maquette validée) : chaque pôle prépare sa proposition, la soumet (v1), les valideurs l'examinent ligne
+par ligne ; « à revoir » la renvoie au pôle qui resoumet (v2…) ; on arbitre, on valide, et **les enveloppes de l'année
+se créent d'elles-mêmes**. Module `BUDGET_CAMPAIGN` (`/budget-campagne`, pôle Administration).
+
+- **Une page, trois vues** (`app/(app)/budget-campagne/`) : la **Direction** (`vue-direction.tsx` — frise, tuiles,
+  propositions par pôle, panneau d'examen `?examen=`), le **pôle** (`vue-pole.tsx` — ses lignes, le pré-remplissage, la
+  soumission), les **réglages** (`?vue=reglages` : dates, cadrage, valideurs, seuil, rectificatif). `?campagne=`,
+  `?pole=` : les liens des notifications (`lib/chemins/budget-campagne.ts`).
+- **Les règles** (module PUR `lib/budget-campagne/regles.ts`, + `regles.test.ts`, `vues.test.ts`) : campagne
+  Cadrage → Préparation par pôle → Revue et allers-retours → Arbitrage → Budgets ouverts (`TRANSITIONS_CAMPAGNE`,
+  `verifierCloture`) ; proposition en préparation · à examiner · à revoir · acceptée (avec ajustements) · refusée ;
+  décision par ligne ; une **justification** est exigée au-delà de ±5 % d'écart au réalisé (`SEUIL_JUSTIFICATION_DEFAUT`,
+  réglable) et pour toute ligne nouvelle non nulle ; `diffVersions` dit exactement ce qui a changé d'une version à
+  l'autre (Luna peut proposer une justification, `proposerJustificationLuna`, `lib/budget-campagne-luna.ts`).
+- **Décisions de la Direction (défauts réglables)** : le **cadrage global du DG est PRIVÉ** — les pôles ne le voient
+  jamais (filtré côté serveur, `vueCampagnePour`) ; on valide **à deux, DG ET Super Admin** (comité, règle « tous »,
+  `issueDesVotes`, `valideursEnAttente`) ; **pas de révision après validation**, sauf si le Super Admin l'autorise,
+  proposition par proposition (`autoriserRevisionProposition`, `rouvrirRectificatif`).
+- **Jamais une page blanche** (`prefill.ts`) : chaque ligne part du réalisé de l'année projeté sur 12 mois ; lignes
+  automatiques : masse salariale depuis la Paie (**en total seulement**, groupe < 3 salariés non chiffré pour qui ne voit
+  pas les salaires), recrutements prévus, BV 25 % / 75 % des dossiers attendus, Ad & Pro par BU (tendance 6 mois).
+- **Validé = ouvert** (`enveloppes.ts`, `ouvrirEnveloppeDeLaProposition`) : idempotent (une proposition porte au plus
+  une enveloppe, chaque ligne retient sa catégorie) — rejoué, rien ne double ; un rectificatif met à jour les
+  allocations, audité catégorie par catégorie.
+- **Droits** (`rbac.ts`) : Direction et DG pilotent (Gérer), Finances lisent, Super Admin tout ; le **responsable d'un
+  département** prépare SON pôle par l'organigramme (accès implicite Voir, portée bornée) ; valider = le comité nommé
+  dans la campagne, pas le droit seul. Actions `lib/actions/budget-campagne-actions.ts`. Tables `BudgetCampaign`,
+  `BudgetProposal`, `BudgetProposalVersion`, `BudgetProposalLine`, `BudgetProposalComment`, `BudgetProposalVote`
+  (migration `20270118100000_campagne_budgetaire`).
+
+### Organigramme, seule source — et son contrôle de cohérence (09/10)
+
+Sociétés → départements (responsable, adjoint) → personnes (poste, N+1) se modifient **à UN endroit**. Le département
+d'une personne se règle sur sa **fiche salarié** (`Employee.departmentId`) ; le libellé texte (`Employee.department`) et
+le département du compte (`User.departmentId`) en **dérivent** et ne se saisissent plus : chaque geste qui change un
+rattachement passe par `lib/org/source-unique.ts` (`alignerSurLaFiche`, `alignerLibellesDuDepartement` — appelés par
+`hr-actions.ts`, `department-actions.ts`, `org-coherence-actions.ts`). La migration `20270118100000_campagne_budgetaire`
+rattrape l'existant (une fiche sans département reprend celui du compte ; libellés et comptes alignés).
+**Contrôle de cohérence** (Super Admin, panneau sur `/organigramme`, `coherence-panel.tsx`) — règle pure
+`lib/org/coherence.ts` (+ `coherence.test.ts`), lecture `coherence-donnees.ts` : comptes divergents, libellés périmés,
+BU sans département, départements sans responsable, superviseurs de BU hors de la ligne hiérarchique de leurs KAM (le
+responsable du département, sinon l'adjoint, est proposé), salariés sans département — chacun corrigé d'un clic
+(`lib/actions/org-coherence-actions.ts` : `alignerCompteSurFiche`, `alignerToutSurOrganigramme`,
+`rattacherBuAuDepartement`, `designerResponsableDepartement`, `appliquerSuperviseurPropose` ; Super Admin seul).
+
+### Intelligence terrain — graphe d'influence et ROI Ad & Pro (Super Admin seul, 09/10)
+
+Console d'administration, `/admin/intelligence-terrain` (carte depuis `/admin`), **visible uniquement par le Super
+Admin** : la page renvoie tout autre rôle — Direction, DG, même avec tous les modules — **avant** de lire la moindre
+donnée, et les deux actions refusent de même (`lib/influence/acces.test.ts`). Deux onglets (`?onglet=influence|roi`).
+
+- **Influence** (« powered by Luna ») : par service hospitalier, un **graphe** (`graphe-service.tsx`) des praticiens et
+  de leurs liens — **structurels** sans modèle (hiérarchie du service, pharmacie, co-orateurs ;
+  `lib/influence/relations.ts`) et **proposés par Luna** depuis les rapports des délégués (suit l'avis de, élève de,
+  co-orateur, comité, décide pour ; `lib/influence/extraction.ts` : la citation doit être un extrait **mot pour mot**,
+  sinon la mention est jetée). Luna ne crée rien : chaque lien lu est **PROPOSÉ**, le Super Admin le confirme ou le
+  rejette, preuve citée sous les yeux (`deciderLienInfluence`). **Score d'influence 0–100 explicable**
+  (`lib/influence/score.ts`, chaque point a sa raison écrite) : dirige le service +30 (sinon Pr / MCA +15), orateur
+  +10 par intervention (≤ 20), cité par d'autres (lien confirmé = 1, proposé = confiance × 0,5 ; 6 points par poids,
+  ≤ 25), volume de l'établissement (boîtes distribuées par les DR, ≤ 15), taille du réseau (≤ 10) ; une donnée absente
+  ne rapporte ni ne retire rien. « Ordre d'entrée » proposé : le décideur, puis l'influenceur des prescripteurs, puis
+  la pharmacie. **Analyse** `lib/influence-luna.ts` : liens structurels recalculés, rapports **nouveaux** depuis le
+  filigrane lus par lots (portes : interrupteur général → bascule `influence` (suit les rapports terrain) → clé → appel
+  borné 25 s → relecture stricte → `logAiUsage` ; un échec n'avance pas le filigrane), noms rapprochés de l'annuaire,
+  scores mis en cache — **une fois par jour** (`scheduled.ts`, `analyserInfluenceSiDu`) et relançable
+  (`relancerAnalyseInfluence`). Tables `PraticienRelation`, `InfluenceScore`, `AnalyseWatermark` (migration
+  `20270118120000_intelligence_terrain`).
+- **ROI Ad & Pro** (`lib/roi-adpro/mesure.ts`, pur + tests ; lecture `lib/queries/roi-adpro.ts`) : avant / après
+  l'action (fenêtre 3, 6 ou 12 mois) comparé à des médecins **semblables non touchés** (même spécialité, zone, lettre,
+  statut) — différence des différences, avec une **fourchette** (bootstrap déterministe), jamais présentée comme
+  certaine ; sous le seuil (moins de 3 médecins touchés mesurables ou moins de 10 comparables) : « pas assez de
+  données ». Sources : médecins concernés des demandes (et invités / prises en charge des congrès), coûts des postes
+  validés, affinité Q2/Q1, lettres figées des cycles, visites et messages (l'effort terrain, isolé), consommation des
+  établissements (fichiers PCH des DR).
+
+### Notifications — le lien mène à l'action exacte (09/10)
+
+Une notification est écrite **une fois**, avec l'adresse du jour. **À la source** : les actions qui notifient pointent
+désormais l'écran actuel et l'action précise (82 liens corrigés : `lib/chemins/*` — `ad-pro.ts`, `espace.ts`,
+`finances.ts`, `rh.ts`, `validations.ts`…). **À l'affichage** (liste, cloche, pop-up `/api/notifications/poll`, boîte,
+badges) : les notifications **déjà en base** passent par `reécriteLienNotification` (`lib/notifications/lien-actuel.ts`,
+pur + tests), table de réécriture tirée de l'historique du dépôt (routes supprimées ou devenues pages d'escale :
+`/missions` → `/mon-espace/missions`, `/retours-reclamations` → `/mon-espace`, stock promotionnel, Finances…) — un clic,
+plus de 404 ni de double saut. Jamais appliquée à l'écriture.
 
 ### Ad & Pro — corriger une demande, joindre un fichier à un avis
 

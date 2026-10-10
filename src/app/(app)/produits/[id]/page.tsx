@@ -1,98 +1,49 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
-import { toNumber } from "@/lib/utils";
-import { produit360ParId } from "@/lib/queries/product-360";
-import { segmentationDuProduit, consommationDuProduit } from "@/lib/queries/vue-360";
-import { attributionProduit } from "@/lib/queries/attribution-produit";
-import { fiche360, type ASurveiller } from "@/lib/queries/produits-360";
+import { fiche360, type ASurveiller, type Fiche360, type TonFiche } from "@/lib/queries/produits-360";
 import { chargerProduitCanonique } from "@/lib/queries/produits-canoniques";
-import { sections360, peutModifierLesPrix } from "@/lib/vues-360-acces";
-import { LIBELLE_PERIMETRE } from "@/lib/market/produit-marche";
-import { chainesContratsPch, territoiresPch, fraicheurPch } from "@/lib/ventes-pch/requetes";
-import { SOURCE_RECEPTIONS, moisCourt } from "@/lib/ventes-pch/calculs";
-import { COUVERTURE_LABELS } from "@/lib/pch/rattachement-produit";
+import { sections360 } from "@/lib/vues-360-acces";
+import { essentielDuProduit } from "@/lib/produit-360-luna";
+import { essentielDeterministe, type PointEssentiel } from "@/lib/products/essentiel-360";
 import { STATUT_PV, GRAVITE_PV, estStatutPv, estGravitePv } from "@/lib/pharmacovigilance/regles";
-import { pct, ETAT_LABELS } from "@/lib/segmentation/regles";
+import { CATEGORIE_VOIX_LABELS } from "@/lib/voix-terrain/pur";
 import { montantCourt } from "@/lib/products/fiche-360";
-import { REGULATORY_STATUS, PCH_LINE_STATUS, MANUFACTURING_STATUS, VARIATION_STATUS, REG_REQUEST_STATUS } from "@/lib/labels";
+import { decimal, moisCourtDe, type Lettre360 } from "@/lib/products/sante";
+import { REGULATORY_STATUS, MANUFACTURING_STATUS, VARIATION_STATUS, REG_REQUEST_STATUS } from "@/lib/labels";
 import { BackLink } from "@/components/shared/back-link";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { ProductDriveExplorer, dossierDriveAffiche } from "@/components/documents/product-drive-explorer";
-import { Onglets, Pastille, Point, FriseCycle, Carte, Vide, BarreContrat, type Ton } from "@/components/produits/ui-360";
+import { Onglets, Pastille, Point, Carte, Vide, Chiffre, LettreChip, type Ton } from "@/components/produits/ui-360";
+import { AnneauSante } from "@/components/produits/anneau-sante";
 import { AliasProduit, RenommerProduit } from "./fiche-gestes";
-import { RepartitionBu } from "./repartition-bu";
-import { PrixProduit } from "./prix-produit";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Produits 360 — AMD Internal OS" };
 
-const dzd = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
-const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
 const entier = (n: number) => Math.round(n).toLocaleString("fr-FR");
-const signe = (n: number) => `${n > 0 ? "+" : ""}${nombre(n)} %`;
-const jour = (d: string | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
-const ROLES: Record<string, string> = { DELEGATE: "Délégué", PRODUCT_MANAGER: "Chef de produit", NATIONAL_SALES: "National Sales", SUPERVISOR: "Superviseur" };
-const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+const jour = (d: string | null) => (d ? new Date(d).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
+const jj = (d: string) => new Date(d).toLocaleDateString("fr-FR", { timeZone: "UTC", day: "2-digit", month: "2-digit" });
+const signe = (n: number) => `${n > 0 ? "+" : ""}${n}`;
 
-type Onglet = "vue" | "ventes" | "terrain" | "reglementaire" | "stock" | "couts" | "documents";
-
-/** Un chiffre clé : libellé, valeur, et une ligne de contexte (variation, unité, source). */
-function Chiffre({ label, valeur, contexte, ton }: { label: string; valeur: string; contexte?: string | null; ton?: "ok" | "ko" | null }) {
-  return (
-    <div className="min-w-0 border-b border-r border-border px-4 py-3 last:border-r-0">
-      <span className="block text-xs text-muted-foreground">{label}</span>
-      <strong className="block truncate text-lg font-semibold tabular-nums">{valeur}</strong>
-      {contexte && <em className={`block text-xs not-italic ${ton === "ok" ? "text-success" : ton === "ko" ? "text-destructive" : "text-muted-foreground"}`}>{contexte}</em>}
-    </div>
-  );
-}
-
-/** Mois par mois, en boîtes : nos réceptions à la PCH (sell-in, plein) à côté de la distribution aux hôpitaux (sell-out, clair). */
-function BarresMensuelles({ mois, sellIn, sellOut }: { mois: string[]; sellIn: number[]; sellOut: number[] }) {
-  const max = Math.max(...sellIn, ...sellOut, 0);
-  if (max <= 0) return <Vide>Aucune réception ni distribution sur ces 12 mois.</Vide>;
-  const W = 520; const H = 170; const base = 140; const pas = (W - 20) / mois.length; const l = Math.max(4, Math.min(13, pas / 2 - 3));
-  return (
-    <div className="px-4 py-3">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Réceptions PCH et distribution hospitalière, par mois">
-        {mois.map((m, i) => {
-          const x = 14 + i * pas;
-          const hi = (sellIn[i] / max) * (base - 14);
-          const ho = (sellOut[i] / max) * (base - 14);
-          const k = Number(m.slice(5)) - 1;
-          return (
-            <g key={m}>
-              <title>{`${MOIS[k]} ${m.slice(0, 4)} — nos réceptions ${entier(sellIn[i])} · distribuées ${entier(sellOut[i])} boîtes`}</title>
-              <rect x={x} y={base - hi} width={l} height={hi} rx={2} fill="hsl(var(--primary))" />
-              <rect x={x + l + 2} y={base - ho} width={l} height={ho} rx={2} fill="hsl(var(--primary))" opacity={0.35} />
-              <text x={x + l + 1} y={base + 16} textAnchor="middle" fontSize="10" fill="hsl(var(--muted-foreground))">{MOIS[k]}</text>
-            </g>
-          );
-        })}
-        <line x1={8} y1={base} x2={W - 4} y2={base} stroke="hsl(var(--border))" />
-      </svg>
-      <p className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-primary" />nos réceptions PCH</span>
-        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-primary/35" />distribution aux hôpitaux</span>
-      </p>
-    </div>
-  );
-}
+type Onglet = "vue" | "stocks" | "terrain" | "prescripteurs" | "marketing" | "adpro" | "reglementaire" | "documents";
 
 /** Les cellules des tableaux de la fiche (au téléphone, le tableau défile et sa 1re colonne reste visible). */
 const TH = "whitespace-nowrap px-3 py-2 font-medium";
 const TD = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
+const THEAD = "bg-muted/40 text-left text-xs text-muted-foreground";
+const LETTRES_AFFICHEES: Lettre360[] = ["H", "A", "B", "C", "D"];
+const ROLE_P = (n: number | null) => (n === null ? "—" : `P${n}`);
 
-function ListeSurveiller({ items }: { items: ASurveiller[] }) {
-  if (!items.length) return <Vide>Rien à signaler.</Vide>;
+function ListeATraiter({ items }: { items: ASurveiller[] }) {
+  if (!items.length) return <Vide>Rien à traiter.</Vide>;
   return (
     <ul className="divide-y divide-border">
       {items.map((s, i) => (
-        <li key={i} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5">
+        <li key={i} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 text-sm">
           <Point ton={s.ton as Ton} />
           <div className="min-w-0"><b className="block font-medium">{s.titre}</b><small className="block truncate text-xs text-muted-foreground">{s.detail}</small></div>
           {s.href && <Link href={s.href} className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary">Voir</Link>}
@@ -110,499 +61,464 @@ function Dl({ items }: { items: [string, React.ReactNode][] }) {
   );
 }
 
+function Lettres({ lettres, sansReponse }: { lettres: Partial<Record<Lettre360, number>>; sansReponse?: boolean }) {
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {LETTRES_AFFICHEES.map((l) => <LettreChip key={l} lettre={l} n={lettres[l] ?? 0} />)}
+      {sansReponse && (lettres.NA ?? 0) > 0 && <span className="ml-1 text-xs text-muted-foreground">{lettres.NA} sans réponse</span>}
+    </span>
+  );
+}
+
+const tonMois = (m: number | null) => (m === null ? "" : m < 1 ? "text-destructive" : m < 3 ? "text-warning" : "");
+
+function TableStocks({ f, complet }: { f: NonNullable<Fiche360["stock"]>; complet?: boolean }) {
+  const lieux = complet ? f.lieux : f.lieux.slice(0, 6);
+  if (!lieux.length) return <Vide>Aucun relevé.</Vide>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Où</th>{complet && <th className={TH}>Relevé</th>}<th className={`${TH} text-right`}>Boîtes</th><th className={`${TH} text-right`}>Mois</th></tr></thead>
+        <tbody>{lieux.map((l) => (
+          <tr key={l.cle} className="border-t border-border/60">
+            <td className="sticky left-0 max-w-[12rem] truncate bg-card px-3 py-2">{l.lieu}</td>
+            {complet && <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{jour(l.date)} · {l.portee}</td>}
+            <td className={`${TD} ${l.rupture ? "text-destructive" : ""}`}>{entier(l.quantite)}</td>
+            <td className={`${TD} ${tonMois(l.mois)}`}>{l.mois !== null ? decimal(l.mois) : <span className="text-muted-foreground">n/d</span>}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function TableKams({ t }: { t: NonNullable<Fiche360["terrain"]> }) {
+  if (!t.kams.length) return <Vide>Aucun délégué affecté ni visite ce cycle.</Vide>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Délégué</th><th className={TH}>Priorité</th><th className={`${TH} text-right`}>Visites</th><th className={`${TH} text-right`}>Messages</th></tr></thead>
+        <tbody>{t.kams.map((k) => (
+          <tr key={k.repId} className="border-t border-border/60">
+            <td className="sticky left-0 max-w-[12rem] truncate bg-card px-3 py-2">{k.nom}</td>
+            <td className="px-3 py-2">{k.position !== null ? <Pastille ton={k.position === 1 ? "info" : "neutral"}>{ROLE_P(k.position)}</Pastille> : <span className="text-xs text-muted-foreground">hors plan</span>}</td>
+            <td className={`${TD} ${k.position === 1 && k.visites === 0 ? "text-warning" : ""}`}>{k.visites}</td>
+            <td className={TD}>{k.messages}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function TableAdPro({ a, limite }: { a: NonNullable<Fiche360["adpro"]>; limite?: number }) {
+  const actions = limite ? a.actions.slice(0, limite) : a.actions;
+  if (!actions.length) return <Vide>Aucune action Ad & Pro imputée sur 12 mois.</Vide>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Action</th>{!limite && <th className={TH}>Date</th>}<th className={`${TH} text-right`}>Montant</th><th className={TH}>Médecins</th></tr></thead>
+        <tbody>{actions.map((x) => (
+          <tr key={x.cle} className="border-t border-border/60">
+            <td className="sticky left-0 max-w-[14rem] truncate bg-card px-3 py-2">{x.href ? <Link href={x.href} className="hover:underline">{x.libelle}</Link> : x.libelle}{!limite && <small className="block text-xs text-muted-foreground">{x.nature}</small>}</td>
+            {!limite && <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{jour(x.date)}</td>}
+            <td className={TD}>{montantCourt(x.montant)}</td>
+            <td className="whitespace-nowrap px-3 py-2">{x.medecins ? <span className="flex gap-1">{(["H", "A", "B", "C", "D", "NA", "NC"] as Lettre360[]).filter((l) => x.lettres[l]).map((l) => <LettreChip key={l} lettre={l} n={x.lettres[l]} />)}</span> : <span className="text-xs text-muted-foreground">non nominatif</span>}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function Chronologie({ items, id }: { items: Fiche360["chronologie"]; id: string }) {
+  if (!items.length) return <Vide>Aucun événement sur 12 mois.</Vide>;
+  return (
+    <ol className="space-y-0 px-4 py-3 text-sm">
+      {items.map((e, i) => (
+        <li key={i} className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-2 border-l-2 border-border py-1.5 pl-3">
+          <span className="text-xs tabular-nums text-muted-foreground">{jj(e.date)}</span>
+          <span className="min-w-0"><Point ton={(e.ton === "success" ? "success" : e.ton) as Ton} /> {e.href ? <Link href={e.href.startsWith("?") ? `/produits/${id}${e.href}` : e.href} className="hover:underline">{e.texte}</Link> : e.texte}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function PointsEssentiel({ points, parLuna }: { points: PointEssentiel[]; parLuna: boolean }) {
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-border bg-violet-500/5 px-4 py-3 text-sm">
+      <span className="flex items-center gap-1 font-semibold text-violet-600 dark:text-violet-300">
+        Luna — l&apos;essentiel ce mois
+        <InfoBulle label="D'où viennent ces points ?">{parLuna ? "Luna choisit et formule trois points à partir des chiffres calculés de cette fiche, ceux que vous voyez ; chaque point dit sa source. Aucun chiffre ne vient d'elle." : "Les trois faits les plus urgents de la fiche, tels que calculés (Luna indisponible ou coupée)."}</InfoBulle>
+      </span>
+      {points.length === 0 ? <span className="text-muted-foreground">Rien de saillant ce mois.</span> : points.map((p, i) => (
+        <span key={i}>• {p.texte} <small className="text-xs text-muted-foreground">({p.sources.join(", ")})</small></span>
+      ))}
+    </div>
+  );
+}
+
+async function EssentielLuna({ f, userId }: { f: Fiche360; userId: string }) {
+  const e = await essentielDuProduit({ productId: f.identite.id, faits: f.faits, userId });
+  return <PointsEssentiel points={e.points} parLuna={e.parLuna} />;
+}
+
 /**
- * LA FICHE PRODUIT 360 — LA page du produit (Direction, 07/10) : identité, cycle de vie, cinq chiffres, et un onglet par
- * métier. Le dossier réglementaire et son stock y vivent : la fiche du « catalogue produits » de Regulatory renvoie ici.
- * Chaque chiffre, chaque onglet n'apparaît qu'à qui a son module (`vues-360-acces.ts`).
+ * LA FICHE PRODUIT 360 (version 2, Direction 10/2026) — la santé d'un produit : stocks, terrain, visites, prescripteurs,
+ * marketing, Ad & Pro, réglementaire et qualité. Une note sur 100 (détail au clic), six chiffres, l'essentiel du mois par
+ * Luna, et un onglet par métier. Chaque chiffre, chaque onglet n'apparaît qu'à qui a son module (`vues-360-acces.ts`).
  */
-export default async function Produit360Page({ params, searchParams }: { params: { id: string }; searchParams?: { onglet?: string; annee?: string; dossier?: string } }) {
+export default async function Produit360Page({ params, searchParams }: { params: { id: string }; searchParams?: { onglet?: string; dossier?: string } }) {
   const user = await requireModule("PRODUCTS");
   const voit = sections360(user);
-  const maintenant = new Date();
-  const f = await fiche360(user, params.id, maintenant);
+  const f = await fiche360(user, params.id);
   if (!f) notFound();
   const id = f.identite.id;
 
   const onglets: { cle: Onglet; label: string; visible: boolean }[] = [
     { cle: "vue", label: "Vue d'ensemble", visible: true },
-    { cle: "ventes", label: "Ventes & marchés", visible: true },
-    { cle: "terrain", label: "Terrain & marketing", visible: voit.forceDeVente || voit.segmentation || voit.marketing || voit.terrain || voit.adpro || voit.materiel },
+    { cle: "stocks", label: "Stocks", visible: voit.stock },
+    { cle: "terrain", label: "Terrain & visites", visible: voit.terrain || voit.forceDeVente },
+    { cle: "prescripteurs", label: "Prescripteurs", visible: voit.segmentation || voit.terrain },
+    { cle: "marketing", label: "Marketing", visible: f.marketing !== null },
+    { cle: "adpro", label: "Ad & Pro", visible: voit.adpro },
     { cle: "reglementaire", label: "Réglementaire & qualité", visible: voit.reglementaire || voit.pharmacovigilance },
-    { cle: "stock", label: "Stock", visible: voit.stock },
-    { cle: "couts", label: "Coûts", visible: voit.finances },
     { cle: "documents", label: "Documents", visible: voit.reglementaire && f.dossiers.length > 0 },
   ];
   const visibles = onglets.filter((o) => o.visible);
   const demande = (searchParams?.dossier ? "documents" : searchParams?.onglet) as Onglet | undefined;
   const onglet: Onglet = visibles.some((o) => o.cle === demande) ? demande! : "vue";
-  const annee = Number(searchParams?.annee) || maintenant.getUTCFullYear();
-
-  const debut12 = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - 11, 1));
-  const besoinP360 = onglet === "vue" || onglet === "ventes" || onglet === "terrain";
-  const [p360, segmentation, adpro12, consommation, attribution, canonique] = await Promise.all([
-    besoinP360 ? produit360ParId(id) : Promise.resolve(null),
-    voit.segmentation ? segmentationDuProduit(id) : Promise.resolve([]),
-    voit.adpro
-      ? prisma.adProProductAllocation.findMany({ where: { productId: id, item: { createdAt: { gte: debut12 } } }, select: { sharePct: true, amountAllocated: true, item: { select: { amountGranted: true } } } })
-      : Promise.resolve(null),
-    onglet === "ventes" && voit.consommation ? consommationDuProduit(id) : Promise.resolve(null),
-    onglet === "couts" && voit.finances ? attributionProduit(id, annee) : Promise.resolve(null),
-    onglet === "reglementaire" && voit.reglementaire ? chargerProduitCanonique(user, id) : Promise.resolve(null),
-  ]);
-  // Ventes PCH (droit Ventes PCH, porté par `f.ventes`) : la chaîne des contrats, la distribution par territoire, la fraîcheur.
-  const v = f.ventes;
-  const [contrats, territoires, fraicheur] = onglet === "ventes" && v
-    ? await Promise.all([chainesContratsPch(null, [id]), territoiresPch(v.periode, { productId: id }), fraicheurPch()])
-    : [null, null, null];
-  const peutImporter = userCan(user, "PCH_VENTES", "UPLOAD");
-  const periodePch = v ? `${moisCourt(v.periode.debut)} → ${moisCourt(v.periode.fin)}` : "";
-  const qPch = v ? `p=12m&m=${v.periode.fin}&produit=${id}` : "";
-
-  // ── Les cinq chiffres ──
-  const prescripteursAC = voit.segmentation && segmentation.length ? segmentation.reduce((s, x) => s + x.repartition.A + x.repartition.C, 0) : null;
-  const investi = adpro12 ? adpro12.reduce((s, a) => s + (a.amountAllocated !== null ? toNumber(a.amountAllocated) : a.sharePct !== null && a.item.amountGranted !== null ? Math.round(toNumber(a.item.amountGranted) * toNumber(a.sharePct) / 100) : 0), 0) : null;
-  const chiffres: React.ReactNode[] = [];
-  // Ventes = nos réceptions à la PCH (sell-in), seul client d'Adventum : en DZD au coût PCH, et en boîtes.
-  if (v) {
-    chiffres.push(<Chiffre key="v" label="Ventes 12 mois"
-      valeur={v.recuNous <= 0 ? "—" : v.recuValeur !== null ? montantCourt(v.recuValeur) : `${entier(v.recuNous)} bt`}
-      contexte={v.sansFournisseur ? "fournisseur à régler" : [v.recuValeur !== null && v.recuNous > 0 ? `${entier(v.recuNous)} bt` : null, v.evolRecu !== null ? signe(v.evolRecu) : "sans comparaison"].filter(Boolean).join(" · ")}
-      ton={v.evolRecu === null ? null : v.evolRecu >= 0 ? "ok" : "ko"} />);
-    chiffres.push(<Chiffre key="m" label="Part de marché" valeur={v.partPct !== null ? `${nombre(v.partPct)} %` : "—"} contexte={v.recuMarche > 0 ? "réceptions PCH" : "aucune réception PCH"} />);
-  }
-  if (prescripteursAC !== null || voit.segmentation) chiffres.push(<Chiffre key="s" label="Prescripteurs A + C" valeur={prescripteursAC !== null ? String(prescripteursAC) : "—"} contexte="segmentation" />);
-  if (f.stock) chiffres.push(<Chiffre key="k" label="Stock" valeur={f.stock.couvertureMois !== null ? `${nombre(f.stock.couvertureMois)} mois` : f.stock.lieux ? `${f.stock.unites.toLocaleString("fr-FR")}` : "—"} contexte={f.stock.lieux ? `${f.stock.unites.toLocaleString("fr-FR")} boîtes` : "aucun relevé"} ton={f.stock.couvertureMois !== null && f.stock.couvertureMois < 2 ? "ko" : null} />);
-  if (investi !== null) chiffres.push(<Chiffre key="a" label="Investi Ad & Pro" valeur={montantCourt(investi)} contexte="12 mois" />);
-
-  // ── À surveiller : ce que la fiche calcule, plus les AO attribués ──
-  const aSurveiller: ASurveiller[] = f.aSurveiller.map((s) => ({ ...s, href: s.href?.startsWith("?") ? `/produits/${id}${s.href}` : s.href }));
-  if (voit.marches && p360) {
-    for (const m of p360.marches.filter((x) => x.statut === "WON").slice(0, 2)) {
-      aSurveiller.push({ ton: "info", titre: `AO ${m.marche} attribué`, detail: `${m.quantiteUnites.toLocaleString("fr-FR")} unités${m.prixAttributionDzd !== null ? ` · ${dzd(m.prixAttributionDzd)}/u` : ""}`, href: `/pch/${m.marcheId}` });
-    }
-  }
-
-  const sousTitre = [`DCI ${f.identite.dci}`, f.identite.dosage, f.identite.forme?.toLowerCase(), f.identite.conditionnement, f.identite.societe].filter(Boolean).join(" · ");
   const lienOnglet = (o: Onglet) => (o === "vue" ? `/produits/${id}` : `/produits/${id}?onglet=${o}`);
+  const aTraiter = f.aTraiter.map((s) => ({ ...s, href: s.href?.startsWith("?") ? `/produits/${id}${s.href}` : s.href }));
+  const canonique = onglet === "reglementaire" && voit.reglementaire ? await chargerProduitCanonique(user, id) : null;
+
+  // ── Les six chiffres (chacun seulement avec son module) ──
+  const c = f.chiffres;
+  const chiffres: React.ReactNode[] = [];
+  if (c.stock) chiffres.push(<Chiffre key="k" label="Couverture du stock" valeur={c.stock.couvertureMois !== null ? `${decimal(c.stock.couvertureMois)} mois` : null} contexte="PCH + hôpitaux" ton={c.stock.couvertureMois !== null && c.stock.couvertureMois < 2 ? "ko" : c.stock.couvertureMois !== null && c.stock.couvertureMois < 3 ? "w" : null} />);
+  if (c.visites) chiffres.push(<Chiffre key="v" label="Visites (cycle)" valeur={String(c.visites.cycle)} contexte={c.visites.evolutionPct !== null ? `${signe(c.visites.evolutionPct)} % vs cycle préc.` : "sans comparaison"} ton={c.visites.evolutionPct === null ? null : c.visites.evolutionPct >= 0 ? "ok" : "ko"} />);
+  if (c.cibles) chiffres.push(<Chiffre key="c" label="Cibles H·A·B vues" valeur={c.cibles.pct !== null ? `${c.cibles.pct} %` : null} contexte={c.cibles.cibles ? `à fréquence · ${c.cibles.vues}/${c.cibles.cibles}` : "aucune cible"} />);
+  if (c.prescripteurs) chiffres.push(<Chiffre key="p" label="Prescripteurs A" valeur={c.prescripteurs.segmentes ? String(c.prescripteurs.a) : null} contexte={c.prescripteurs.mouvementNet !== null ? `${signe(c.prescripteurs.mouvementNet)} ce cycle` : c.prescripteurs.segmentes ? `sur ${c.prescripteurs.segmentes} segmentés` : "non segmenté"} ton={c.prescripteurs.mouvementNet ? (c.prescripteurs.mouvementNet > 0 ? "ok" : "ko") : null} />);
+  if (c.adpro) chiffres.push(<Chiffre key="a" label="Investi Ad & Pro" valeur={montantCourt(c.adpro.montant)} contexte={`12 mois${c.adpro.partHabPct !== null ? ` · ${c.adpro.partHabPct} % sur H·A·B` : ""}`} />);
+  if (c.pv) chiffres.push(<Chiffre key="q" label="Pharmacovigilance" valeur={String(c.pv.ouverts)} contexte={c.pv.ouverts > 1 ? "cas ouverts" : "cas ouvert"} ton={c.pv.ouverts > 0 ? "ko" : null} />);
+
+  const sousTitre = [f.identite.dosage, f.identite.forme?.toLowerCase(), f.identite.conditionnement].filter(Boolean).join(" · ");
+  const ligne2 = [
+    f.bus.length ? f.bus.map((b) => b.nom).join(" / ") : null,
+    f.identite.decision ? `DE ${f.identite.decision.reference} du ${jour(f.identite.decision.date)}` : null,
+    f.identite.decision ? `commercialisable depuis ${moisCourtDe(f.identite.decision.date)}` : null,
+  ].filter(Boolean).join(" · ");
+  const p = f.pastilles;
+  const cycleTxt = `${jour(f.cycle.debut)} → ${jour(f.cycle.fin)}`;
 
   return (
     <div className="space-y-4">
       <BackLink href="/produits"><ArrowLeft className="h-4 w-4" /> Produits 360</BackLink>
 
-      <section className="surface overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-4 p-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-lg font-bold text-primary">{f.identite.nom.trim().charAt(0).toUpperCase()}</span>
-            <div className="min-w-0">
-              <h1 className="break-words text-lg font-semibold sm:text-xl">{f.identite.nom}</h1>
-              <p className="text-sm text-muted-foreground">{sousTitre}</p>
-              {f.bus.length > 0 && (
-                <p className="text-xs text-muted-foreground">BU : {f.bus.map((b, i) => <span key={b.id}>{i > 0 && ", "}<Link href={`/business-units/${b.id}`} className="hover:underline">{b.nom}</Link></span>)} · <span className="font-mono">{f.identite.code}</span></p>
-              )}
+      <section className="surface">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 p-4">
+          <div className="min-w-0">
+            <h1 className="break-words text-lg font-semibold sm:text-xl">{f.identite.nom}{sousTitre && <span className="font-normal text-muted-foreground"> · {sousTitre}</span>}</h1>
+            {ligne2 && <p className="text-sm text-muted-foreground">{ligne2}</p>}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {p.p1 !== null && <Pastille ton={p.p1 > 0 ? "info" : "neutral"}>{p.p1 > 0 ? `P1 chez ${p.p1} délégué${p.p1 > 1 ? "s" : ""}` : "P1 chez aucun délégué"}</Pastille>}
+              {p.messagesActifs !== null && <Pastille ton={p.messagesActifs > 0 ? "success" : "neutral"}>{p.messagesActifs} message{p.messagesActifs > 1 ? "s" : ""} actif{p.messagesActifs > 1 ? "s" : ""}</Pastille>}
+              {p.echeance && <Pastille ton={p.echeance.ton as TonFiche}>{p.echeance.texte}</Pastille>}
             </div>
           </div>
-          <FriseCycle etape={f.identite.etape} />
+          <AnneauSante score={f.sante.score} composantes={f.sante.composantes} />
         </div>
         {chiffres.length > 0 && (
-          <div className={`grid grid-cols-2 border-t border-border ${chiffres.length >= 5 ? "lg:grid-cols-5" : chiffres.length === 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>{chiffres}</div>
+          <div className={`grid grid-cols-2 border-t border-border ${chiffres.length >= 6 ? "lg:grid-cols-6" : chiffres.length === 5 ? "lg:grid-cols-5" : chiffres.length === 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>{chiffres}</div>
         )}
-        <div className="px-2">
-          <Onglets label="Facettes du produit" actif={onglet} items={visibles.map((o) => ({ cle: o.cle, label: o.label, href: lienOnglet(o.cle) }))} />
-        </div>
+        <Suspense fallback={<PointsEssentiel points={essentielDeterministe(f.faits)} parLuna={false} />}>
+          <EssentielLuna f={f} userId={user.id} />
+        </Suspense>
+      </section>
 
-        <div className="space-y-4 p-4">
-          {onglet === "vue" && (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-              {v ? (
-                <Carte titre="Réceptions PCH et distribution" sousTitre={`${periodePch} · boîtes`}>
-                  <BarresMensuelles mois={v.mois} sellIn={v.sellIn} sellOut={v.sellOut} />
-                </Carte>
-              ) : (
-                <Carte titre="Identité">
-                  <Dl items={[["DCI", f.identite.dci], ["Dosage", f.identite.dosage], ["Forme", f.identite.forme], ["Conditionnement", f.identite.conditionnement], ["Code", f.identite.code], ["Alias", f.identite.alias.join(", ") || "—"]]} />
-                </Carte>
-              )}
-              <Carte titre="À surveiller"><ListeSurveiller items={aSurveiller} /></Carte>
-            </div>
-          )}
+      <Onglets label="Facettes du produit" actif={onglet} items={visibles.map((o) => ({ cle: o.cle, label: o.label, href: lienOnglet(o.cle) }))} />
 
-          {onglet === "ventes" && (
-            <>
-              {v && contrats && territoires && (v.recuMarche + v.distribue + v.nonServi === 0 && contrats.length === 0 ? (
-                <Carte titre="Ventes PCH">
-                  <Vide>Aucune donnée PCH pour ce produit sur {periodePch}.{peutImporter && <> <Link href="/sales/importer" className="text-primary hover:underline">Importer des fichiers</Link></>}</Vide>
-                </Carte>
-              ) : (
-                <>
-                  <Carte titre="Réceptions PCH et distribution" sousTitre={<>{periodePch} · boîtes <InfoBulle>Nos réceptions = les réceptions fournisseur (FO) de la PCH centrale venant de nos fournisseurs : nos ventes (sell-in), valorisées au coût d&apos;achat PCH. Distribution = ce que les directions régionales ont livré aux hôpitaux, toutes origines (sell-out).</InfoBulle></>}
-                    action={<Link href={`/sales?p=12m&m=${v.periode.fin}`} className="text-primary hover:underline">Ventes PCH</Link>}>
-                    <Dl items={[
-                      ["Nos réceptions", `${entier(v.recuNous)} boîtes${v.recuValeur !== null ? ` · ${dzd(v.recuValeur)}` : ""}`],
-                      ["12 mois précédents", `${entier(v.recuNousPrecedent)} boîtes${v.evolRecu !== null ? ` · ${signe(v.evolRecu)}` : ""}`],
-                      ["Distribuées aux hôpitaux", `${entier(v.distribue)} boîtes`],
-                    ]} />
-                    {v.sansFournisseur && <p className="border-t border-border px-4 py-2 text-xs text-warning">Aucun fournisseur « à nous » réglé : nos réceptions ne se lisent pas.{userCan(user, "PCH_VENTES", "UPDATE") && <> <Link href="/sales/importer" className="underline">Régler</Link></>}</p>}
-                    <div className="border-t border-border"><BarresMensuelles mois={v.mois} sellIn={v.sellIn} sellOut={v.sellOut} /></div>
-                  </Carte>
-
-                  <Carte titre="Contrats PCH" sousTitre={<>unités du marché <InfoBulle>Attribué : les lignes du contrat (avenants compris), à défaut la quantité gagnée à l&apos;appel d&apos;offres. BC cumulés : les bons de commande de la PCH, hors annulés. Livré : les bons de livraison datés. Barre : clair = commandé, foncé = livré, orange = au-delà de l&apos;attribué.</InfoBulle></>}
-                    action={<Link href="/sales/contrats" className="text-primary hover:underline">Tous les contrats</Link>}>
-                    {contrats.length === 0 ? <Vide>Aucun marché gagné ni contrat.</Vide> : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr>
-                            <th className={`sticky left-0 bg-card ${TH}`}>Marché · contrat</th><th className={TH}>Avancement</th>
-                            <th className={`${TH} text-right`}>Attribué</th><th className={`${TH} text-right`}>BC cumulés</th><th className={`${TH} text-right`}>Livré</th><th className={`${TH} text-right`}>Reste</th>
-                          </tr></thead>
-                          <tbody>{[...contrats].sort((a, b) => Number(b.chaine.reste > 0) - Number(a.chaine.reste > 0)).map((c) => (
-                            <tr key={c.cle} className="border-t border-border/60">
-                              <td className="sticky left-0 max-w-[14rem] bg-card px-3 py-2">
-                                <span className="block truncate">{c.marche ? (voit.marches ? <Link href={`/pch/${c.marche.id}`} className="text-primary hover:underline">{c.marche.reference}</Link> : c.marche.reference) : "—"}</span>
-                                <small className="block truncate text-xs text-muted-foreground">{c.contrat ? [c.contrat.reference, c.contrat.titre].filter(Boolean).join(" · ") : "sans contrat"}</small>
-                              </td>
-                              <td className="px-3 py-2">
-                                <BarreContrat attribue={c.chaine.attribue} commande={c.chaine.commande} livre={c.chaine.livre} className="w-28" />
-                                <small className="mt-1 block whitespace-nowrap text-xs text-muted-foreground">{c.chaine.pctCommande !== null ? `${nombre(c.chaine.pctCommande)} % commandé` : "attribué inconnu"} · {c.bcs} BC</small>
-                              </td>
-                              <td className={TD}>{entier(c.chaine.attribue)}</td>
-                              <td className={TD}>{entier(c.chaine.commande)}{c.chaine.avenant && <> <Pastille ton="warning">avenant{c.bcAvenants ? ` · ${c.bcAvenants} BC` : ""}</Pastille></>}</td>
-                              <td className={TD}>{entier(c.chaine.livre)}</td>
-                              <td className={TD}>{c.chaine.depassement > 0 ? <span className="text-warning">+{entier(c.chaine.depassement)}</span> : entier(c.chaine.reste)}</td>
-                            </tr>
-                          ))}</tbody>
-                        </table>
-                      </div>
-                    )}
-                  </Carte>
-
-                  <Carte titre="Distribution hospitalière" sousTitre={`${periodePch} · boîtes`} action={<Link href={`/sales/territoires?${qPch}`} className="text-primary hover:underline">Territoires</Link>}>
-                    {v.nonServi > 0 && (
-                      <p className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2 text-sm">
-                        <span>Demande non servie : <b className="font-medium text-warning">{entier(v.nonServi)} boîtes</b> · {v.etablissementsNonServis} établissement{v.etablissementsNonServis > 1 ? "s" : ""}</span>
-                        <Link href={`/sales/non-servi?${qPch}`} className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary">Voir</Link>
-                      </p>
-                    )}
-                    {territoires.etablissements.length === 0 ? <Vide>Aucune distribution aux hôpitaux sur la période.</Vide> : (
-                      <>
-                        <div className="grid grid-cols-1 lg:grid-cols-2">
-                          {([["Direction régionale", territoires.parDr], ["Wilaya", territoires.parWilaya.slice(0, 12)]] as const).map(([titre, lignes]) => (
-                            <div key={titre} className="overflow-x-auto border-border lg:odd:border-r">
-                              <table className="w-full text-sm">
-                                <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className={`sticky left-0 bg-card ${TH}`}>{titre}</th><th className={`${TH} text-right`}>Livré</th><th className={`${TH} text-right`}>Non servi</th><th className={`${TH} text-right`}>Étab.</th></tr></thead>
-                                <tbody>{lignes.map((t) => (
-                                  <tr key={t.cle} className="border-t border-border/60"><td className="sticky left-0 max-w-[12rem] truncate bg-card px-3 py-2">{t.libelle}</td><td className={TD}>{entier(t.livre)}</td><td className={TD}>{t.nonServi > 0 ? <span className="text-warning">{entier(t.nonServi)}</span> : "—"}</td><td className={TD}>{t.etablissements}</td></tr>
-                                ))}</tbody>
-                              </table>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="overflow-x-auto border-t border-border">
-                          <table className="w-full text-sm">
-                            <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className={`sticky left-0 bg-card ${TH}`}>Établissement</th><th className={TH}>Wilaya</th><th className={TH}>DR</th><th className={`${TH} text-right`}>Livré</th><th className={`${TH} text-right`}>Non servi</th></tr></thead>
-                            <tbody>{territoires.etablissements.slice(0, 10).map((e) => (
-                              <tr key={`${e.dr}|${e.cle}`} className="border-t border-border/60">
-                                <td className="sticky left-0 max-w-[16rem] truncate bg-card px-3 py-2"><Link href={`/sales/territoires?${qPch}&etab=${encodeURIComponent(e.cle)}`} className="hover:underline">{e.nom}</Link></td>
-                                <td className="whitespace-nowrap px-3 py-2">{e.wilaya ?? "—"}</td><td className="whitespace-nowrap px-3 py-2">{e.dr}</td>
-                                <td className={TD}>{entier(e.livre)}</td><td className={TD}>{e.nonServi > 0 ? <span className="text-warning">{entier(e.nonServi)}</span> : "—"}</td>
-                              </tr>
-                            ))}</tbody>
-                          </table>
-                        </div>
-                      </>
-                    )}
-                  </Carte>
-                </>
-              ))}
-
-              {voit.marches && p360 && (
-                <Carte titre="Appels d'offres → marchés" sousTitre={COUVERTURE_LABELS[p360.rattachement.couverture]}>
-                  {p360.rattachement.anomalies.map((a, i) => <p key={i} className="border-b border-border px-4 py-2 text-xs text-warning">{a.message}</p>)}
-                  {p360.rattachement.marche && (
-                    <p className="border-b border-border px-4 py-2 text-sm">Marché : <Link href={`/legal/${p360.rattachement.marche.contratId}`} className="text-primary hover:underline">{p360.rattachement.marche.contratReference ?? p360.rattachement.marche.contratTitre}</Link></p>
-                  )}
-                  {p360.marches.length === 0 ? <Vide>Nommé dans aucun appel d&apos;offres.</Vide> : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className="sticky left-0 bg-card px-3 py-2 font-medium">Appel d&apos;offres</th><th className="px-3 py-2 font-medium">Ligne</th><th className="px-3 py-2 font-medium">Statut</th><th className="px-3 py-2 text-right font-medium">Unités</th><th className="px-3 py-2 text-right font-medium">Prix attribué</th></tr></thead>
-                        <tbody>{p360.marches.slice(0, 15).map((m) => (
-                          <tr key={m.ligneId} className="border-t border-border/60">
-                            <td className="sticky left-0 max-w-[14rem] truncate bg-card px-3 py-2"><Link href={`/pch/${m.marcheId}`} className="text-primary hover:underline">{m.marche}</Link></td>
-                            <td className="max-w-[16rem] truncate px-3 py-2 text-muted-foreground">{m.designation}</td>
-                            <td className="whitespace-nowrap px-3 py-2">{PCH_LINE_STATUS[m.statut]?.label ?? m.statut}</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{m.quantiteUnites.toLocaleString("fr-FR")}</td>
-                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{m.prixAttributionDzd !== null ? dzd(m.prixAttributionDzd) : "—"}</td>
-                          </tr>
-                        ))}</tbody>
-                      </table>
-                    </div>
-                  )}
-                </Carte>
-              )}
-
-              {consommation && (
-                <Carte titre="Consommation hospitalière" action={<Link href={`/consommation/affinite?p=${id}`} className="text-primary hover:underline">Affinité</Link>}>
-                  {consommation.parEtablissement.length === 0 ? <Vide>Aucune consommation validée.</Vide> : (
-                    <ul className="divide-y divide-border text-sm">
-                      {consommation.parEtablissement.slice(0, 10).map((c) => (
-                        <li key={`${c.institutionId}${c.unite}`} className="flex justify-between gap-3 px-4 py-2"><span className="min-w-0 truncate">{c.nom}</span><span className="whitespace-nowrap tabular-nums text-muted-foreground">{c.quantite.toLocaleString("fr-FR")} {c.unite?.toLowerCase() ?? ""}{c.affinite !== null ? ` · affinité ${pct(c.affinite)}` : ""}</span></li>
-                      ))}
-                    </ul>
-                  )}
-                </Carte>
-              )}
-
-              {(v || f.voitMarche) && (
-                <Carte titre="Marché" sousTitre={v ? <>réceptions FO de la PCH · {periodePch} <InfoBulle>Toutes les réceptions fournisseur (FO) de la PCH centrale sur les postes de ce produit : même molécule, dosage et forme. Nos fournisseurs en vert ; ils se règlent dans Ventes PCH → Importer.</InfoBulle></> : null}>
-                  {v && (v.fournisseurs.length === 0 ? <Vide>Aucune réception FO sur la période.</Vide> : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className={`sticky left-0 bg-card ${TH}`}>Fournisseur</th><th className={`${TH} text-right`}>Quantité</th><th className={`${TH} text-right`}>Part</th></tr></thead>
-                        <tbody>{v.fournisseurs.slice(0, 15).map((x) => (
-                          <tr key={x.fournisseur} className={`border-t border-border/60 ${x.nous ? "bg-success/5" : ""}`}>
-                            <td className={`sticky left-0 max-w-[16rem] truncate px-3 py-2 ${x.nous ? "bg-card font-semibold text-success" : "bg-card"}`}>{x.fournisseur}</td>
-                            <td className={TD}>{entier(x.qte)}</td>
-                            <td className={TD}>{x.partPct !== null ? `${nombre(x.partPct)} %` : "—"}</td>
-                          </tr>
-                        ))}</tbody>
-                      </table>
-                    </div>
-                  ))}
-                  {f.voitMarche && (f.marche ? (
-                    <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
-                      IQVIA ville + hôpital ({f.marche.source.periode}, {LIBELLE_PERIMETRE[f.marche.perimetre]}) : notre part {f.marche.partPct !== null ? `${nombre(f.marche.partPct)} %` : "non identifiée"} · marché {dzd(f.marche.totalDzd)}
-                    </p>
-                  ) : !v && <Vide>Molécule absente des données de marché.</Vide>)}
-                  {f.voitMarche && f.marche && f.marche.generiquesRecents.length > 0 && (
-                    <div className="border-t border-border px-4 py-3 text-sm">
-                      <p className="mb-1 text-xs font-medium text-muted-foreground">Enregistrés depuis moins d&apos;un an</p>
-                      {f.marche.generiquesRecents.map((g, i) => <p key={i}>{g.lab} · {g.marque} · <span className="text-muted-foreground">{jour(g.date)} · {g.origine.toLowerCase()}</span></p>)}
-                    </div>
-                  )}
-                </Carte>
-              )}
-
-              {fraicheur && (
-                <p className="text-xs text-muted-foreground">
-                  Données PCH : {fraicheur.sources.filter((s) => s.source !== SOURCE_RECEPTIONS).map((s) => `${s.source} ${s.dernier ? moisCourt(s.dernier) : "—"}`).join(" · ") || "aucune DR"}
-                  {(() => { const r = fraicheur.sources.find((s) => s.source === SOURCE_RECEPTIONS); return r ? ` · réceptions ${r.dernier ? `jusqu'à ${moisCourt(r.dernier)}` : "—"}${r.manquants.length ? ` (${r.manquants.length} mois manquant${r.manquants.length > 1 ? "s" : ""})` : ""}` : ""; })()}
-                  {peutImporter && <> · <Link href="/sales/importer" className="text-primary hover:underline">Importer</Link></>}
-                </p>
-              )}
-
-              <Carte titre="Prix" sousTitre={<InfoBulle>L&apos;Explorateur produits donne le prix observé (IQVIA ville : valeur ÷ boîtes ; réceptions PCH : prix unitaire). Une saisie l&apos;emporte à partir de sa date d&apos;effet ; l&apos;historique garde chaque ligne.</InfoBulle>}>
-                <PrixProduit productId={id} prix={f.prix} historique={f.historiquePrix} peutModifier={peutModifierLesPrix(user)} />
-              </Carte>
-            </>
-          )}
-
-          {onglet === "terrain" && (
-            <>
-              {voit.forceDeVente && p360 && (
-                <Carte titre="Qui le porte" sousTitre={`${p360.portefeuille.filter((x) => x.enCours).length} en cours`}>
-                  {p360.portefeuille.filter((x) => x.enCours).length === 0 ? <Vide>Personne ne porte ce produit actuellement.</Vide> : (
-                    <ul className="divide-y divide-border text-sm">
-                      {p360.portefeuille.filter((x) => x.enCours).map((a, i) => (
-                        <li key={i} className="flex flex-wrap justify-between gap-2 px-4 py-2"><span>{a.personne} <span className="text-muted-foreground">· {ROLES[a.role] ?? a.role}{a.territoire ? ` · ${a.territoire}` : ""}</span></span><span className="text-xs text-muted-foreground">{a.quotitePct !== null ? `${nombre(a.quotitePct)} % · ` : ""}depuis le {jour(a.depuis)}</span></li>
-                      ))}
-                    </ul>
-                  )}
-                </Carte>
-              )}
-
-              {voit.segmentation && (
-                <Carte titre="Segmentation" action={<Link href="/segmentation" className="text-primary hover:underline">Studio</Link>}>
-                  {segmentation.length === 0 ? <Vide>Classé dans aucune stratégie active.</Vide> : (
-                    <ul className="divide-y divide-border text-sm">
-                      {segmentation.map((s) => {
-                        const total = (["A", "B", "C", "D", "EN_ATTENTE", "NON_CIBLE"] as const).reduce((t, k) => t + s.repartition[k], 0) || 1;
-                        return (
-                          <li key={s.strategieId} className="space-y-1.5 px-4 py-2.5">
-                            <p><Link href={`/segmentation?s=${s.strategieId}`} className="font-medium text-primary hover:underline">{s.strategie}</Link> <span className="text-xs text-muted-foreground">· BU {s.businessUnit} · produit n°{s.rang} · {s.h} décideur(s) H</span></p>
-                            <div className="flex h-2 overflow-hidden rounded-full bg-muted" aria-hidden>
-                              {(["A", "B", "C", "D"] as const).map((k, i) => <i key={k} className="block h-full bg-primary" style={{ width: `${(s.repartition[k] / total) * 100}%`, opacity: 1 - i * 0.2 }} />)}
-                            </div>
-                            <p className="text-xs text-muted-foreground">{(["A", "B", "C", "D", "EN_ATTENTE", "NON_CIBLE"] as const).map((k) => `${ETAT_LABELS[k]} ${s.repartition[k]}`).join(" · ")}</p>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </Carte>
-              )}
-
-              {f.messages && (
-                <Carte titre="Messages" sousTitre={`${f.messages.filter((m) => m.actif).length} actif(s)`}>
-                  {f.messages.length === 0 ? <Vide>Aucun message pré-défini pour ce produit.</Vide> : (
-                    <ul className="divide-y divide-border text-sm">{f.messages.map((m) => <li key={m.id} className={`px-4 py-2 ${m.actif ? "" : "text-muted-foreground line-through"}`}>{m.titre}</li>)}</ul>
-                  )}
-                </Carte>
-              )}
-
-              {voit.terrain && p360 && (
-                <Carte titre="Activité terrain" sousTitre={`${p360.terrain.nombreDeVisites} visite(s)${p360.terrain.derniereVisite ? ` · dernière le ${jour(p360.terrain.derniereVisite)}` : ""}`}>
-                  {p360.terrain.parDelegue.length === 0 ? <Vide>Présenté dans aucune visite.</Vide> : (
-                    <ul className="divide-y divide-border text-sm">{p360.terrain.parDelegue.slice(0, 10).map((d) => <li key={d.delegue} className="flex justify-between px-4 py-2"><span>{d.delegue}</span><span className="tabular-nums text-muted-foreground">{d.visites}</span></li>)}</ul>
-                  )}
-                </Carte>
-              )}
-
-              {voit.adpro && p360 && (
-                <Carte titre="Investissement Ad & Pro" sousTitre={`${dzd(p360.investissementAdPro.montantImputeDzd)} imputés · ${p360.investissementAdPro.nombreDePostes} poste(s)`}>
-                  {p360.investissementAdPro.detail.length === 0 ? <Vide>Aucune dépense imputée à ce produit.</Vide> : (
-                    <ul className="divide-y divide-border text-sm">{p360.investissementAdPro.detail.slice(0, 12).map((a) => (
-                      <li key={a.itemId} className="flex flex-wrap justify-between gap-2 px-4 py-2"><span className="min-w-0 truncate">{a.poste}</span><span className="whitespace-nowrap tabular-nums text-muted-foreground">{a.partPct !== null ? `${nombre(a.partPct)} % · ` : ""}{a.montantDzd !== null ? dzd(a.montantDzd) : "part non saisie"}</span></li>
-                    ))}</ul>
-                  )}
-                  {p360.investissementAdPro.postesSansPart > 0 && <p className="border-t border-border px-4 py-2 text-xs text-warning">{p360.investissementAdPro.postesSansPart} imputation(s) sans part ni montant : non comptée(s).</p>}
-                </Carte>
-              )}
-
-              {f.materiel && (
-                <Carte titre="Matériel promotionnel" sousTitre={`${f.materiel.filter((m) => m.actif).length} article(s) actif(s)`}>
-                  {f.materiel.length === 0 ? <Vide>Aucun matériel promotionnel pour ce produit.</Vide> : (
-                    <ul className="divide-y divide-border text-sm">{f.materiel.map((m) => <li key={m.id} className={`px-4 py-2 ${m.actif ? "" : "text-muted-foreground"}`}>{m.nom}</li>)}</ul>
-                  )}
-                </Carte>
-              )}
-            </>
-          )}
-
-          {onglet === "reglementaire" && (
-            <>
-              {voit.reglementaire && (f.dossiers.length === 0 ? <Carte titre="Dossier réglementaire"><Vide>Aucun dossier visible.</Vide></Carte> : f.dossiers.map((d) => (
-                <Carte key={d.id} titre={`Dossier ${d.reference}`} sousTitre={<Pastille ton={REGULATORY_STATUS[d.statut]?.tone === "success" ? "success" : REGULATORY_STATUS[d.statut]?.tone === "danger" ? "danger" : "info"}>{REGULATORY_STATUS[d.statut]?.label ?? d.statut}</Pastille>} action={<Link href={`/regulatory/${d.id}`} className="text-primary hover:underline">Ouvrir le dossier</Link>}>
-                  <Dl items={[
-                    ["Nom commercial", d.nomCommercial],
-                    ["Détenteur de la DE", d.detenteurDe],
-                    ["Décision d'enregistrement", d.dateDecision ? jour(d.dateDecision) : d.statut === "DECISION_OBTAINED" ? "date non renseignée" : "—"],
-                    ["Renouvellement", d.echeance ? `dépôt avant le ${jour(d.echeance.depotAvant)} · expire le ${jour(d.echeance.expiration)}` : "—"],
-                    ["Cible d'enregistrement", d.cibleEnregistrement ? jour(d.cibleEnregistrement) : "—"],
-                    ["Laboratoire partenaire", d.laboPartenaire],
-                    ["Classe thérapeutique", d.classeTherapeutique],
-                    ["Fabrication", `${MANUFACTURING_STATUS[d.statutFabrication] ?? d.statutFabrication}${d.fabricant ? ` · ${d.fabricant}` : ""}`],
-                  ]} />
-                  {d.variations.length > 0 && (
-                    <div className="border-t border-border px-4 py-3 text-sm">
-                      <p className="mb-1 text-xs font-medium text-muted-foreground">Variations</p>
-                      {d.variations.map((v) => <p key={v.id}>{MANUFACTURING_STATUS[v.vers] ?? v.vers} · {VARIATION_STATUS[v.statut]?.label ?? v.statut}{v.depot ? ` · déposée le ${jour(v.depot)}` : ""}{v.decision ? ` · décision le ${jour(v.decision)}` : ""}</p>)}
-                    </div>
-                  )}
-                  {d.demandesInfoMed.length > 0 && (
-                    <div className="border-t border-border px-4 py-3 text-sm">
-                      <p className="mb-1 text-xs font-medium text-muted-foreground">Information médicale — demandes</p>
-                      {d.demandesInfoMed.map((r) => <p key={r.id}><span className="font-mono text-xs text-muted-foreground">{r.reference}</span> {r.sujet} · <span className="text-muted-foreground">{REG_REQUEST_STATUS[r.statut]?.label ?? r.statut}</span></p>)}
-                    </div>
-                  )}
-                </Carte>
-              )))}
-              {voit.reglementaire && f.dossiersMasques > 0 && <p className="text-xs text-muted-foreground">{f.dossiersMasques} autre(s) dossier(s) hors de votre portée.</p>}
-
-              {f.pv && (
-                <Carte titre="Pharmacovigilance" sousTitre={`${f.pv.filter((c) => c.statut !== "CLOS").length} ouvert(s)`}>
-                  {f.pv.length === 0 ? <Vide>Aucun cas signalé.</Vide> : (
-                    <ul className="divide-y divide-border text-sm">{f.pv.map((c) => (
-                      <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
-                        <span><Link href={c.href} className="font-mono text-xs text-primary hover:underline">{c.reference}</Link> <span className="text-muted-foreground">· survenu le {jour(c.survenu)}{c.gravite && estGravitePv(c.gravite) ? ` · ${GRAVITE_PV[c.gravite].label.toLowerCase()}` : ""}</span></span>
-                        {estStatutPv(c.statut) && <Pastille ton={c.statut === "CLOS" ? "neutral" : "warning"}>{STATUT_PV[c.statut].label}</Pastille>}
-                      </li>
-                    ))}</ul>
-                  )}
-                </Carte>
-              )}
-
-              {canonique && (
-                <Carte titre="Identité, alias et historique" sousTitre={<InfoBulle>L&apos;identité (DCI, dosage, forme, conditionnement) se corrige sur le dossier : le produit suit. Ici se règlent le nom et les alias — un alias retrouve le produit juste après sa référence.</InfoBulle>}>
-                  <Dl items={[["DCI", canonique.dci], ["Dosage", f.identite.dosage], ["Forme", f.identite.forme], ["Conditionnement", canonique.packaging], ["Code", canonique.code], ["Profils BU", canonique.produitsBu.map((b) => b.bu ? `${b.name} (${b.bu})` : b.name).join(", ") || "—"]]} />
-                  <div className="space-y-3 border-t border-border px-4 py-3">
-                    {userCan(user, "REGULATORY", "UPDATE") ? (
-                      <>
-                        <RenommerProduit id={canonique.id} nom={canonique.canonicalName} />
-                        <AliasProduit id={canonique.id} aliases={canonique.aliases.map((a) => ({ id: a.id, label: a.label }))} />
-                      </>
-                    ) : <p className="text-sm">Alias : {canonique.aliases.map((a) => a.label).join(", ") || "aucun"}</p>}
+      {onglet === "vue" && (
+        <>
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+            {f.stock && (
+              <Carte titre="Stocks" sousTitre="derniers relevés" action={<Link href={lienOnglet("stocks")} className="text-primary hover:underline">Détail</Link>}>
+                <TableStocks f={f.stock} />
+                {f.stock.lots?.slice(0, 1).map((l, i) => (
+                  <div key={i} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-t border-border px-4 py-2.5 text-sm">
+                    <Point ton="warning" /><div className="min-w-0"><b className="block font-medium">Lot {l.lot ?? "sans numéro"} périme en {moisCourtDe(l.peremption)}</b><small className="text-xs text-muted-foreground">{entier(l.quantite)} {l.unite}{(f.stock?.lots?.length ?? 0) > 1 ? ` · ${(f.stock?.lots?.length ?? 1) - 1} autre(s)` : ""}</small></div>
                   </div>
-                  {canonique.historique.length > 0 && (
-                    <details className="border-t border-border">
-                      <summary className="cursor-pointer px-4 py-2 text-xs font-medium text-muted-foreground">Historique ({canonique.historique.length})</summary>
-                      <ul className="divide-y divide-border px-4 pb-2 text-sm">{canonique.historique.map((h) => <li key={h.id} className="py-1.5">{h.summary}<span className="block text-xs text-muted-foreground">{h.createdAt.toLocaleDateString("fr-FR")}{h.acteur ? ` · ${h.acteur}` : ""}</span></li>)}</ul>
-                    </details>
-                  )}
-                </Carte>
-              )}
-            </>
-          )}
+                ))}
+              </Carte>
+            )}
+            {(f.terrain || f.segmentation) && (
+              <Carte titre="Terrain" sousTitre="ce cycle" action={<Link href={lienOnglet("terrain")} className="text-primary hover:underline">Détail</Link>}>
+                {f.terrain && <TableKams t={{ ...f.terrain, kams: f.terrain.kams.slice(0, 5) }} />}
+                {f.segmentation && (
+                  <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5 text-sm">
+                    <Lettres lettres={f.segmentation.lettres} sansReponse />
+                  </div>
+                )}
+              </Carte>
+            )}
+            <Carte titre="À traiter"><ListeATraiter items={aTraiter} /></Carte>
+          </div>
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+            {f.marketing && (
+              <Carte titre="Marketing" action={<Link href={lienOnglet("marketing")} className="text-primary hover:underline">Détail</Link>}>
+                {(f.marketing.messages ?? []).filter((m) => m.actif).length === 0 && !(f.marketing.materiel ?? []).length ? <Vide>Aucun message actif ni matériel.</Vide> : (
+                  <ul className="divide-y divide-border text-sm">
+                    {(f.marketing.messages ?? []).filter((m) => m.actif).slice(0, 3).map((m) => (
+                      <li key={m.id} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-4 py-2.5">
+                        <Point ton={m.portes > 0 ? "success" : "warning"} />
+                        <div className="min-w-0"><b className="block truncate font-medium">« {m.titre} »</b><small className="text-xs text-muted-foreground">porté {m.portes} fois · {m.delegues} délégué{m.delegues > 1 ? "s" : ""}{f.marketing!.deleguesAssignes ? ` sur ${f.marketing!.deleguesAssignes}` : ""}</small></div>
+                      </li>
+                    ))}
+                    {(f.marketing.materiel ?? []).filter((m) => m.actif).length > 0 && (
+                      <li className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-4 py-2.5">
+                        <Point ton="info" />
+                        <div className="min-w-0"><b className="block font-medium">Matériel promotionnel</b><small className="block truncate text-xs text-muted-foreground">{(f.marketing.materiel ?? []).filter((m) => m.actif).slice(0, 3).map((m) => `${m.nom} ${entier(m.stock)}`).join(" · ")}</small></div>
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </Carte>
+            )}
+            {f.adpro && (
+              <Carte titre="Ad & Pro · 12 mois" sousTitre={montantCourt(f.adpro.montant)} action={<Link href={lienOnglet("adpro")} className="text-primary hover:underline">Détail</Link>}>
+                <TableAdPro a={f.adpro} limite={4} />
+              </Carte>
+            )}
+            <Carte titre="La vie du produit"><Chronologie items={f.chronologie} id={id} /></Carte>
+          </div>
+        </>
+      )}
 
-          {onglet === "stock" && f.stock && (
-            <Carte titre="Stock" sousTitre={<>{f.stock.date ? `dernier relevé le ${jour(f.stock.date)}` : "aucun relevé"} <InfoBulle>Le stock d&apos;un produit = le dernier relevé de chaque lieu (PCH, hôpitaux, annexes) de ses dossiers, dans votre portée. Couverture = stock ÷ écoulement mensuel : la distribution aux hôpitaux par les DR de la PCH (moyenne des 3 derniers mois reçus), à défaut les ventes saisies ou la consommation hospitalière en boîtes.</InfoBulle></>} action={<Link href="/stocks" className="text-primary hover:underline">Stocks</Link>}>
-              <Dl items={[
-                ["Niveau actuel", `${f.stock.unites.toLocaleString("fr-FR")} boîtes · ${f.stock.lieux} lieu(x)`],
-                ["Couverture", f.stock.couvertureMois !== null ? `${nombre(f.stock.couvertureMois)} mois` : "—"],
-                ["Écoulement mensuel", f.stock.ecoulementMensuel !== null ? `${f.stock.ecoulementMensuel.toLocaleString("fr-FR")} boîtes · ${f.stock.sourceEcoulement === "PCH" ? "distribution PCH" : f.stock.sourceEcoulement === "VENTES" ? "ventes" : "consommation"}` : "—"],
-              ]} />
-              {f.stock.releves.length > 0 && (
-                <div className="overflow-x-auto border-t border-border">
+      {onglet === "stocks" && f.stock && (
+        <>
+          <Carte titre="Stocks" sousTitre={<>{f.stock.date ? `dernier relevé le ${jour(f.stock.date)}` : "aucun relevé"} <InfoBulle>Le stock = le dernier relevé de chaque lieu (PCH, hôpitaux, annexes) des dossiers du produit, dans votre portée. Couverture = stock ÷ écoulement mensuel : la distribution aux hôpitaux par les DR de la PCH (3 derniers mois reçus), à défaut les ventes saisies ou la consommation hospitalière en boîtes. Mois d&apos;un hôpital = son stock ÷ sa propre consommation importée.</InfoBulle></>} action={<Link href="/stocks" className="text-primary hover:underline">Stocks</Link>}>
+            <Dl items={[
+              ["Niveau actuel", `${entier(f.stock.unites)} boîtes · ${f.stock.lieux.length} lieu(x)`],
+              ["Couverture", f.stock.couvertureMois !== null ? `${decimal(f.stock.couvertureMois)} mois` : "n/d"],
+              ["Écoulement mensuel", f.stock.ecoulementMensuel !== null ? `${entier(f.stock.ecoulementMensuel)} boîtes · ${f.stock.sourceEcoulement === "PCH" ? "distribution PCH" : f.stock.sourceEcoulement === "VENTES" ? "ventes" : "consommation"}` : "n/d"],
+            ]} />
+            <div className="border-t border-border"><TableStocks f={f.stock} complet /></div>
+          </Carte>
+          {f.stock.lots && (
+            <Carte titre="Lots sous 6 mois" sousTitre={<InfoBulle>Lots et péremptions lus sur les bons de livraison de la PCH, quand le bon les donne.</InfoBulle>}>
+              {f.stock.lots.length === 0 ? <Vide>Aucun lot livré ne périme dans les 6 mois.</Vide> : (
+                <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className="sticky left-0 bg-card px-3 py-2 font-medium">Date</th><th className="px-3 py-2 font-medium">Lieu</th><th className="px-3 py-2 font-medium">Portée</th><th className="px-3 py-2 text-right font-medium">Quantité</th></tr></thead>
-                    <tbody>{f.stock.releves.map((r) => (
-                      <tr key={r.id} className="border-t border-border/60"><td className="sticky left-0 whitespace-nowrap bg-card px-3 py-2">{jour(r.date)}</td><td className="whitespace-nowrap px-3 py-2">{r.lieu}</td><td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.portee}</td><td className="px-3 py-2 text-right tabular-nums">{r.quantite.toLocaleString("fr-FR")}</td></tr>
+                    <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Lot</th><th className={TH}>Péremption</th><th className={`${TH} text-right`}>Quantité</th></tr></thead>
+                    <tbody>{f.stock.lots.map((l, i) => (
+                      <tr key={i} className="border-t border-border/60"><td className="sticky left-0 bg-card px-3 py-2 font-mono text-xs">{l.lot ?? "—"}</td><td className="whitespace-nowrap px-3 py-2 text-warning">{jour(l.peremption)}</td><td className={TD}>{entier(l.quantite)} {l.unite}</td></tr>
                     ))}</tbody>
                   </table>
                 </div>
               )}
             </Carte>
           )}
-
-          {onglet === "couts" && attribution && (
-            <CoutsProduit id={id} annee={annee} attribution={attribution} peutRepartir={userCan(user, "FINANCES", "VALIDATE")} bus={f.bus} />
+          {f.stock.releves.length > 0 && (
+            <Carte titre="Historique des relevés">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Date</th><th className={TH}>Lieu</th><th className={TH}>Portée</th><th className={`${TH} text-right`}>Quantité</th></tr></thead>
+                  <tbody>{f.stock.releves.map((r) => (
+                    <tr key={r.id} className="border-t border-border/60"><td className="sticky left-0 whitespace-nowrap bg-card px-3 py-2">{jour(r.date)}</td><td className="whitespace-nowrap px-3 py-2">{r.lieu}</td><td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{r.portee}</td><td className={TD}>{entier(r.quantite)}</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </Carte>
           )}
-
-          {onglet === "documents" && (
-            <>
-              {await Promise.all(f.dossiers.map(async (d, i) => (
-                <Carte key={d.id} titre={`Fichiers — ${d.reference}`}>
-                  <div className="p-4">
-                    <ProductDriveExplorer user={user} rootId={await dossierDriveAffiche({ id: d.id, reference: d.reference, dci: f.identite.dci })}
-                      folderId={i === 0 ? searchParams?.dossier ?? null : null} basePath={`/produits/${id}`} canEdit={userCan(user, "REGULATORY", "UPDATE")} />
-                  </div>
-                </Carte>
-              )))}
-            </>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-/** Les coûts attribués (direct, alloué, non alloué) et la répartition des coûts partagés de chaque BU — l'existant. */
-async function CoutsProduit({ id, annee, attribution, peutRepartir, bus }: {
-  id: string; annee: number; attribution: NonNullable<Awaited<ReturnType<typeof attributionProduit>>>; peutRepartir: boolean; bus: { id: string; nom: string }[];
-}) {
-  const repartitions = peutRepartir && bus.length
-    ? await Promise.all(bus.map(async (b) => ({
-        id: b.id, nom: b.nom,
-        produits: (await prisma.promoProduct.findMany({ where: { businessUnitId: b.id, productId: { not: null } }, select: { productId: true, canonicalProduct: { select: { canonicalName: true } } } }))
-          .filter((x, i, a) => a.findIndex((y) => y.productId === x.productId) === i).map((x) => ({ productId: x.productId!, nom: x.canonicalProduct?.canonicalName ?? x.productId! })),
-        parts: Object.fromEntries((await prisma.coutRepartitionBu.findMany({ where: { businessUnitId: b.id, annee }, select: { productId: true, pct: true } })).map((r) => [r.productId, String(Number(r.pct))])),
-      })))
-    : [];
-  return (
-    <Carte titre={`Coûts attribués — ${annee}`} action={
-      <span className="flex gap-1">{[annee - 1, annee, annee + 1].map((a) => <Link key={a} href={`/produits/${id}?onglet=couts&annee=${a}`} className={`rounded-md border px-2 py-0.5 ${a === annee ? "border-primary text-primary" : "border-border"}`}>{a}</Link>)}</span>
-    }>
-      <Dl items={[
-        ["Coûts directs", dzd(attribution.direct)],
-        ["Coûts alloués", dzd(attribution.alloue)],
-        ["Total attribué", dzd(attribution.attribue)],
-        ["Non alloué (BU)", dzd(attribution.nonAlloueBu)],
-      ]} />
-      {attribution.lignes.length > 0 && (
-        <ul className="divide-y divide-border border-t border-border text-sm">{attribution.lignes.map((l) => (
-          <li key={`${l.itemId}${l.nature}`} className="flex flex-wrap justify-between gap-2 px-4 py-2"><span className="min-w-0">{l.nature === "DIRECT" ? "Direct" : "Alloué"} · {l.libelle} <span className="text-xs text-muted-foreground">{l.detail}</span></span><span className="whitespace-nowrap tabular-nums">{dzd(l.montant)}</span></li>
-        ))}</ul>
+        </>
       )}
-      {attribution.limites.map((l, i) => <p key={i} className="border-t border-border px-4 py-2 text-xs text-warning">{l}</p>)}
-      {repartitions.length > 0 && <div className="px-4 pb-3">{repartitions.map((r) => <RepartitionBu key={r.id} businessUnitId={r.id} nom={r.nom} annee={annee} produits={r.produits} parts={r.parts} />)}</div>}
-    </Carte>
+
+      {onglet === "terrain" && (
+        <>
+          {f.terrain ? (
+            <Carte titre="Délégués" sousTitre={<>cycle {cycleTxt} <InfoBulle>Priorité : l&apos;affectation du cycle promotionnel du mois (P1, P2, P3). Visites : visites terminées où le produit a été présenté, dans votre portée. Messages : messages du produit retenus en visite.</InfoBulle></>}>
+              <TableKams t={f.terrain} />
+            </Carte>
+          ) : <Carte titre="Délégués"><Vide>Visites hors de votre portée.</Vide></Carte>}
+          {f.segmentation && (
+            <Carte titre="Couverture des cibles" sousTitre={<>ce cycle <InfoBulle>Cible vue à fréquence : au moins autant de visites terminées ce cycle que sa fréquence requise (règles de segmentation). Décideur H d&apos;abord, puis segments A et B du produit.</InfoBulle></>}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Cibles</th><th className={`${TH} text-right`}>Nombre</th><th className={`${TH} text-right`}>Vues à fréquence</th><th className={`${TH} text-right`}>%</th></tr></thead>
+                  <tbody>{f.segmentation.couverture.map((x) => (
+                    <tr key={x.lettre} className="border-t border-border/60"><td className="sticky left-0 bg-card px-3 py-2"><LettreChip lettre={x.lettre} /></td><td className={TD}>{x.cibles}</td><td className={TD}>{x.vues}</td><td className={TD}>{x.cibles ? `${Math.round((x.vues / x.cibles) * 100)} %` : "n/d"}</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </Carte>
+          )}
+          {f.terrain && (
+            <Carte titre="Visites récentes">
+              {f.terrain.recentes.length === 0 ? <Vide>Présenté dans aucune visite récente.</Vide> : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Date</th><th className={TH}>Médecin</th><th className={TH}>Lettre</th><th className={TH}>Délégué</th></tr></thead>
+                    <tbody>{f.terrain.recentes.map((v, i) => (
+                      <tr key={i} className="border-t border-border/60"><td className="sticky left-0 whitespace-nowrap bg-card px-3 py-2">{jour(v.date)}</td><td className="max-w-[14rem] truncate px-3 py-2">{v.medecin ?? "—"}</td><td className="px-3 py-2">{v.lettre ? <LettreChip lettre={v.lettre} /> : <span className="text-muted-foreground">—</span>}</td><td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{v.delegue ?? "—"}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </Carte>
+          )}
+        </>
+      )}
+
+      {onglet === "prescripteurs" && (
+        <>
+          {f.segmentation ? (
+            <Carte titre="Prescripteurs" sousTitre={<>{f.segmentation.strategies.map((s) => s.nom).join(", ")} <InfoBulle>Lettre du produit : H = décideur, puis le segment A–D calculé par la segmentation. Mouvement : comparé à l&apos;instantané du dernier cycle ouvert{f.segmentation.cycleComparaison ? ` (« ${f.segmentation.cycleComparaison} »)` : ""}.</InfoBulle></>} action={<Link href={`/segmentation?s=${f.segmentation.strategies[0]?.id ?? ""}`} className="text-primary hover:underline">Studio</Link>}>
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                <Lettres lettres={f.segmentation.lettres} sansReponse />
+                {f.segmentation.mouvement && <span className="text-muted-foreground"><b className="font-medium text-success">{f.segmentation.mouvement.bVersA}</b> de B à A · <b className="font-medium text-destructive">{f.segmentation.mouvement.aPerdus}</b> A perdu{f.segmentation.mouvement.aPerdus > 1 ? "s" : ""}</span>}
+              </div>
+              {f.segmentation.decideurs.length > 0 && (
+                <div className="overflow-x-auto border-t border-border">
+                  <table className="w-full text-sm">
+                    <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Décideur H</th><th className={TH}>Établissement</th><th className={`${TH} text-right`}>Vu / requis</th></tr></thead>
+                    <tbody>{f.segmentation.decideurs.map((d) => (
+                      <tr key={d.doctorId} className="border-t border-border/60"><td className="sticky left-0 max-w-[14rem] truncate bg-card px-3 py-2"><Link href={`/praticiens/${d.doctorId}`} className="hover:underline">{d.nom}</Link></td><td className="max-w-[16rem] truncate px-3 py-2 text-muted-foreground">{d.etablissement ?? "—"}</td><td className={`${TD} ${d.vus < d.requis ? "text-warning" : ""}`}>{d.vus} / {d.requis}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </Carte>
+          ) : voit.segmentation ? <Carte titre="Prescripteurs"><Vide>Classé dans aucune stratégie de segmentation active.</Vide></Carte> : null}
+          {f.voix && (
+            <Carte titre="Voix du terrain" sousTitre={<>{f.voix.rapports} rapport{f.voix.rapports > 1 ? "s" : ""} · 60 jours <InfoBulle>Comptes rendus des visites où le produit a été présenté, rangés par mots-clés ; la citation est copiée mot pour mot.</InfoBulle></>}>
+              {f.voix.groupes.length === 0 ? <Vide>Aucun rapport à ranger.</Vide> : (
+                <ul className="divide-y divide-border text-sm">{f.voix.groupes.map((g) => (
+                  <li key={g.categorie} className="px-4 py-2.5"><b className="font-medium first-letter:uppercase">{CATEGORIE_VOIX_LABELS[g.categorie]}</b> <span className="text-xs text-muted-foreground">· {g.rapports} rapport{g.rapports > 1 ? "s" : ""} · {g.delegues} délégué{g.delegues > 1 ? "s" : ""}</span>{g.citation && <span className="block text-muted-foreground">« {g.citation.texte}{g.citation.coupe ? "…" : ""} »</span>}</li>
+                ))}</ul>
+              )}
+            </Carte>
+          )}
+        </>
+      )}
+
+      {onglet === "marketing" && f.marketing && (
+        <>
+          {f.marketing.messages && (
+            <Carte titre="Messages" sousTitre={<>cycle {cycleTxt} <InfoBulle>Porté : nombre de visites de ce cycle où le message a été retenu, dans votre portée.</InfoBulle></>} action={<Link href="/marketing-cockpit" className="text-primary hover:underline">Cockpit</Link>}>
+              {f.marketing.messages.length === 0 ? <Vide>Aucun message pré-défini pour ce produit.</Vide> : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Message</th><th className={`${TH} text-right`}>Porté</th><th className={`${TH} text-right`}>Délégués</th></tr></thead>
+                    <tbody>{f.marketing.messages.map((m) => (
+                      <tr key={m.id} className={`border-t border-border/60 ${m.actif ? "" : "text-muted-foreground"}`}><td className="sticky left-0 max-w-[18rem] truncate bg-card px-3 py-2">{m.titre}{!m.actif && " (inactif)"}</td><td className={TD}>{m.portes}</td><td className={TD}>{m.delegues}{f.marketing!.deleguesAssignes ? ` / ${f.marketing!.deleguesAssignes}` : ""}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </Carte>
+          )}
+          {f.marketing.materiel && (
+            <Carte titre="Matériel promotionnel" action={<Link href="/stock-promotionnel" className="text-primary hover:underline">Stock promotionnel</Link>}>
+              {f.marketing.materiel.length === 0 ? <Vide>Aucun matériel promotionnel pour ce produit.</Vide> : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className={THEAD}><tr><th className={`sticky left-0 bg-card ${TH}`}>Article</th><th className={`${TH} text-right`}>En stock</th><th className={`${TH} text-right`}>Remis ce cycle</th></tr></thead>
+                    <tbody>{f.marketing.materiel.map((m) => (
+                      <tr key={m.id} className={`border-t border-border/60 ${m.actif ? "" : "text-muted-foreground"}`}><td className="sticky left-0 max-w-[18rem] truncate bg-card px-3 py-2">{m.nom}</td><td className={TD}>{entier(m.stock)}</td><td className={TD}>{entier(m.remisCycle)}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </Carte>
+          )}
+        </>
+      )}
+
+      {onglet === "adpro" && f.adpro && (
+        <Carte titre="Ad & Pro · 12 mois" sousTitre={<>{montantCourt(f.adpro.montant)} DZD{f.adpro.partHabPct !== null ? ` · ${f.adpro.partHabPct} % sur H·A·B` : ""} <InfoBulle>Montant : la part imputée au produit (saisie, ou part × montant accordé — jamais une estimation). Médecins : ceux reliés à la demande et les invités du congrès, par lettre du produit. Part H·A·B : montant des actions nominatives × part de leurs médecins H, A ou B.</InfoBulle></>}>
+          <TableAdPro a={f.adpro} />
+          {f.adpro.postesSansMontant > 0 && <p className="border-t border-border px-4 py-2 text-xs text-warning">{f.adpro.postesSansMontant} poste(s) sans part ni montant : non compté(s).</p>}
+        </Carte>
+      )}
+
+      {onglet === "reglementaire" && (
+        <>
+          {voit.reglementaire && (f.dossiers.length === 0 ? <Carte titre="Dossier réglementaire"><Vide>Aucun dossier visible.</Vide></Carte> : f.dossiers.map((d) => (
+            <Carte key={d.id} titre={`Dossier ${d.reference}`} sousTitre={<Pastille ton={REGULATORY_STATUS[d.statut]?.tone === "success" ? "success" : REGULATORY_STATUS[d.statut]?.tone === "danger" ? "danger" : "info"}>{REGULATORY_STATUS[d.statut]?.label ?? d.statut}</Pastille>} action={<Link href={`/regulatory/${d.id}`} className="text-primary hover:underline">Ouvrir le dossier</Link>}>
+              <Dl items={[
+                ["Nom commercial", d.nomCommercial],
+                ["Détenteur de la DE", d.detenteurDe],
+                ["Décision d'enregistrement", d.dateDecision ? jour(d.dateDecision) : d.statut === "DECISION_OBTAINED" ? "date non renseignée" : "—"],
+                ["Renouvellement", d.echeance ? `dépôt avant le ${jour(d.echeance.depotAvant)} · expire le ${jour(d.echeance.expiration)}` : "—"],
+                ["Cible d'enregistrement", d.cibleEnregistrement ? jour(d.cibleEnregistrement) : "—"],
+                ["Laboratoire partenaire", d.laboPartenaire],
+                ["Classe thérapeutique", d.classeTherapeutique],
+                ["Fabrication", `${MANUFACTURING_STATUS[d.statutFabrication] ?? d.statutFabrication}${d.fabricant ? ` · ${d.fabricant}` : ""}`],
+              ]} />
+              {d.variations.length > 0 && (
+                <div className="border-t border-border px-4 py-3 text-sm">
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">Variations</p>
+                  {d.variations.map((v) => <p key={v.id}>{MANUFACTURING_STATUS[v.vers] ?? v.vers} · {VARIATION_STATUS[v.statut]?.label ?? v.statut}{v.depot ? ` · déposée le ${jour(v.depot)}` : ""}{v.decision ? ` · décision le ${jour(v.decision)}` : ""}</p>)}
+                </div>
+              )}
+              {d.demandesInfoMed.length > 0 && (
+                <div className="border-t border-border px-4 py-3 text-sm">
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">Information médicale — demandes</p>
+                  {d.demandesInfoMed.map((r) => <p key={r.id}><span className="font-mono text-xs text-muted-foreground">{r.reference}</span> {r.sujet} · <span className="text-muted-foreground">{REG_REQUEST_STATUS[r.statut]?.label ?? r.statut}</span></p>)}
+                </div>
+              )}
+            </Carte>
+          )))}
+          {voit.reglementaire && f.dossiersMasques > 0 && <p className="text-xs text-muted-foreground">{f.dossiersMasques} autre(s) dossier(s) hors de votre portée.</p>}
+
+          {f.pv && (
+            <Carte titre="Pharmacovigilance" sousTitre={`${f.pv.filter((x) => x.statut !== "CLOS").length} ouvert(s)`}>
+              {f.pv.length === 0 ? <Vide>Aucun cas signalé.</Vide> : (
+                <ul className="divide-y divide-border text-sm">{f.pv.map((x) => (
+                  <li key={x.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
+                    <span><Link href={x.href} className="font-mono text-xs text-primary hover:underline">{x.reference}</Link> <span className="text-muted-foreground">· survenu le {jour(x.survenu)}{x.gravite && estGravitePv(x.gravite) ? ` · ${GRAVITE_PV[x.gravite].label.toLowerCase()}` : ""}</span></span>
+                    {estStatutPv(x.statut) && <Pastille ton={x.statut === "CLOS" ? "neutral" : "warning"}>{STATUT_PV[x.statut].label}</Pastille>}
+                  </li>
+                ))}</ul>
+              )}
+            </Carte>
+          )}
+
+          {canonique && (
+            <Carte titre="Identité, alias et historique" sousTitre={<InfoBulle>L&apos;identité (DCI, dosage, forme, conditionnement) se corrige sur le dossier : le produit suit. Ici se règlent le nom et les alias — un alias retrouve le produit juste après sa référence.</InfoBulle>}>
+              <Dl items={[["DCI", canonique.dci], ["Dosage", f.identite.dosage], ["Forme", f.identite.forme], ["Conditionnement", canonique.packaging], ["Code", canonique.code], ["Profils BU", canonique.produitsBu.map((b) => b.bu ? `${b.name} (${b.bu})` : b.name).join(", ") || "—"]]} />
+              <div className="space-y-3 border-t border-border px-4 py-3">
+                {userCan(user, "REGULATORY", "UPDATE") ? (
+                  <>
+                    <RenommerProduit id={canonique.id} nom={canonique.canonicalName} />
+                    <AliasProduit id={canonique.id} aliases={canonique.aliases.map((a) => ({ id: a.id, label: a.label }))} />
+                  </>
+                ) : <p className="text-sm">Alias : {canonique.aliases.map((a) => a.label).join(", ") || "aucun"}</p>}
+              </div>
+              {canonique.historique.length > 0 && (
+                <details className="border-t border-border">
+                  <summary className="cursor-pointer px-4 py-2 text-xs font-medium text-muted-foreground">Historique ({canonique.historique.length})</summary>
+                  <ul className="divide-y divide-border px-4 pb-2 text-sm">{canonique.historique.map((h) => <li key={h.id} className="py-1.5">{h.summary}<span className="block text-xs text-muted-foreground">{h.createdAt.toLocaleDateString("fr-FR")}{h.acteur ? ` · ${h.acteur}` : ""}</span></li>)}</ul>
+                </details>
+              )}
+            </Carte>
+          )}
+        </>
+      )}
+
+      {onglet === "documents" && (
+        <>
+          {await Promise.all(f.dossiers.map(async (d, i) => (
+            <Carte key={d.id} titre={`Fichiers — ${d.reference}`}>
+              <div className="p-4">
+                <ProductDriveExplorer user={user} rootId={await dossierDriveAffiche({ id: d.id, reference: d.reference, dci: f.identite.dci })}
+                  folderId={i === 0 ? searchParams?.dossier ?? null : null} basePath={`/produits/${id}`} canEdit={userCan(user, "REGULATORY", "UPDATE")} />
+              </div>
+            </Carte>
+          )))}
+        </>
+      )}
+    </div>
   );
 }

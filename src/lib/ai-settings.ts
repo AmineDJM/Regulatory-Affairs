@@ -54,7 +54,13 @@ export type AiFeature =
    * LA CAMPAGNE BUDGÉTAIRE (Budgets 2027, 10/2026) : Luna rédige un brouillon de justification d'écart et résume ce qui a
    * changé entre deux versions d'une proposition. Jamais un montant. Suit la bascule de l'assistant.
    */
-  | "budget_campagne";
+  | "budget_campagne"
+  /**
+   * LE GRAPHE D'INFLUENCE (Intelligence terrain, console d'administration, Super Admin seul — 10/2026) : Luna lit les
+   * rapports de visite NOUVEAUX et repère les liens d'influence entre médecins, chacun prouvé par une citation mot pour mot,
+   * PROPOSÉ jamais appliqué. Suit la bascule des rapports terrain.
+   */
+  | "influence";
 
 export interface AiSettingsView {
   masterEnabled: boolean;
@@ -105,6 +111,7 @@ const FEATURE_KEY: Record<AiFeature, keyof AiSettingsView> = {
   voix_terrain: "fieldReportAiEnabled",
   produit_360: "assistantEnabled",
   budget_campagne: "assistantEnabled",
+  influence: "fieldReportAiEnabled",
 };
 
 /**

@@ -99,7 +99,7 @@
 > **08/10** : le module rejoint le pôle **Operations & Sales** et gagne deux onglets réservés à la chaîne
 > d'approvisionnement — **Stocks de la chaîne** (couverture par BU, lue sur Ventes PCH) et **Stock PCH central saisi à
 > la main** depuis le mail de la PCH (mêmes `StockSnapshot`, même écrivain `ecrireEtatDuJour`). Règles : section
-> « Operations & Sales — cockpit, Ventes PCH, chaîne, réclamations (08/10) ».
+> « Operations & Sales — cockpit, Ventes PCH, chaîne (08/10) ».
 
 - **Principe** : plus d'entrées/sorties — un **état daté** par (produit, lieu, jour) : « à cette date, il reste X ».
   Ressaisir la même date **corrige** la valeur (remplacement jour). Lieux : `PCH` | `HOSPITAL` | `ANNEX` ;
@@ -944,6 +944,18 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   vérifié en direct (`verifierReferenceRegistre`) : un numéro libre est accepté, plus haut il fait avancer le compteur,
   pris il est refusé ; laissé tel quel, le prochain libre est attribué (`saisieEffective`). 2026 commence à `040/DG/2026`,
   chaque année repart à `001`. Les autres sociétés gardent leur numérotation (ordre de mission `NNN/DPG/AAAA`).
+- **Le BROUILLON du BC — « à vérifier par le demandeur » (08-09/10)** — règle pure `lib/bons-de-commande/brouillon.ts`
+  (+ tests ; partagée par le poste Ad & Pro et le devis de matériel promotionnel, `promo-material/bc-brouillon-promo.ts`).
+  Générer un BC ne l'émet plus : un **aperçu** se dépose sur le devis (`AdProDevis.bcBrouillon`, `PromoQuote.bcBrouillon`,
+  JSON — migrations `20270117131000_bc_brouillon`, `20270117150000_promo_bc_brouillon_article_libre`) ; le demandeur le
+  relit et corrige (lignes, objet, notes, contact ; `components/ad-pro/apercu-bc-poste.tsx`,
+  `promo-material/[id]/apercu-bc-promo.tsx`) ; un brouillon dont les lignes validées du devis ont bougé est **périmé**
+  (empreinte `signature`). Tant qu'il existe : **aucun numéro**, aucune pièce au registre, rien chez les Finances.
+  **« Valider et envoyer aux Finances »** (le demandeur, ou le Super Admin) attribue le numéro NNN/DG/AAAA (prérempli,
+  modifiable : `numeroChoisi`), produit le Word et le PDF définitifs et lance la marche existante (visa du centre,
+  signature). Côté matériel promotionnel, le brouillon se crée **automatiquement** à la dernière validation des lignes
+  retenues. Les devis téléversés sont cliquables. Historique : départ fixé d'abord à 037 (`20270117130500`), puis
+  **040/DG/2026** pour Adventum, Pharmagène et AMD (`20270117140000_bc_numerotation_040`, jamais à reculons).
 - **La mise en page est du code, et c'est celle des pièces de la maison** (`build.ts` → `word.ts`). Deux modèles,
   relevés sur deux pièces réelles fournies par la Direction. La **FACTURE** (modèle Pharmagène) : émetteur et
   « Facture » face à face avec numéro de client, numéro et date ; bande « Facturer à : » ; bloc client et RC / NIF /

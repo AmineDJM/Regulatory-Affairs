@@ -1,5 +1,52 @@
 ## 🧾 Journal des évolutions récentes
 
+### WILAYA PIVOT, BC EN BROUILLON ET REGISTRE NNN/DG/AAAA, NOTIFICATIONS À L'ACTION EXACTE, COCKPITS « TERRAIN », PRODUITS 360 V2, CAMPAGNE BUDGÉTAIRE, ORGANIGRAMME SOURCE UNIQUE, INTELLIGENCE TERRAIN (2026-10-09)
+
+Commits `b06dcfb1`, `e8928d0b`, `3af65afa`, `c149c5ed`, `ae1e4fdf`, `4d950789`, `9ddcc340`, `1ebbd379`, `fd90e82e`.
+Migrations additives et idempotentes : `20270117110500_wilaya_pivot`, `20270117120500_ventes_pch_periode`,
+`20270117130500_bc_numerotation`, `20270117131000_bc_brouillon`, `20270117140000_bc_numerotation_040`,
+`20270117150000_promo_bc_brouillon_article_libre`, `20270117160000_registre_dg`, `20270117183000_besoins_services`,
+`20270118100000_campagne_budgetaire`, `20270118120000_intelligence_terrain`.
+
+- **Territoires** : **wilaya pivot** choisie par territoire KAM (menu des 58 wilayas, `SalesSector.wilayaPivot`) — elle
+  décide l'In / Out de la segmentation (`lib/segmentation/in-out.ts`) ; un nom occupé seulement par un ancien secteur
+  désactivé est libéré (l'ancien devient « … (ancien) »).
+- **Médecins concernés des demandes Ad & Pro** (`AdProMedecin`) : sponsoring, événements, congrès, matériel, autres
+  demandes reliés aux praticiens de l'annuaire — lus par le Marketing cockpit, la fiche praticien, Produits 360, le ROI.
+- **Terrain** : plans de tournée **brouillons supprimables** (jamais si une visite est rapportée) ; Ma journée : CTA
+  « rapport terrain » ; **Ventes PCH** : mois / année choisis par fichier à l'import ; **masse salariale** Operations &
+  Sales : la Direction des opérations s'ajoute aux BU.
+- **Bons de commande** : générer dépose un **brouillon à vérifier par le demandeur** (aucun numéro, rien aux Finances) ;
+  « Valider et envoyer aux Finances » attribue le numéro ; **registre commun NNN/DG/AAAA** (BC, ordres de mission,
+  lettres de demande de devis, pièces au motif /DG/) — un compteur par société et par an, numéro **modifiable**,
+  2026 démarre à **040/DG/2026** pour Adventum, Pharmagène et AMD ; devis téléversés cliquables.
+- **Notifications** : 82 liens corrigés à la source vers l'action exacte ; les anciennes notifications sont réécrites
+  à l'affichage (`lib/notifications/lien-actuel.ts`) — plus de 404.
+- **Matériel promotionnel** : fiche refondue (frise de huit étapes, cinq chiffres, une chose à faire, devis côte à
+  côte), BC en brouillon automatique à la dernière validation, « Autre article » hors catalogue.
+- **Marketing cockpit — « Ce qui dépend vraiment du terrain »** : décideurs engagés, conversions B → A, affinité Q2/Q1,
+  nos lots chez les hôpitaux, **besoins annuels des services** (`BesoinAnnuelService`), **voix du terrain** (Luna,
+  citations mot pour mot). **Cockpit Opérations** : l'équipe aujourd'hui, visites du jour, ruptures signalées, stocks
+  relevés dans les hôpitaux, score KPI, semaine.
+- **Retours & réclamations retiré** (module, écran, actions, règles ; la table `Reclamation` reste).
+- **Budget Regulatory** (4 chiffres, graphiques, Prochains BV) et **Moyens généraux** (3 chiffres, dépenses par mois,
+  panneau) allégés.
+- **Produits 360 v2** : **note de santé /100** (Stock 25 · Terrain 25 · Prescripteurs 20 · Réglementaire 15 · Qualité
+  15, composante sans donnée exclue et renormalisée), anneau cliquable, portefeuille trié par santé, comparer 2 à 4
+  produits, « Luna — l'essentiel ce mois ».
+- **Campagne budgétaire** (`/budget-campagne`, `BUDGET_CAMPAIGN`) : propositions par pôle pré-remplies, examen ligne
+  par ligne, allers-retours versionnés, **cadrage DG privé**, **validation DG + Super Admin**, pas de révision sans
+  autorisation du Super Admin, enveloppes ouvertes automatiquement (idempotent).
+- **Organigramme, seule source** : le département de la fiche salarié fait foi (libellé et compte dérivés) ;
+  **contrôle de cohérence** Super Admin avec corrections d'un clic.
+- **Intelligence terrain** (`/admin/intelligence-terrain`, **Super Admin seul**) : graphe d'influence hospitalière
+  (liens structurels + liens proposés par Luna, confirmés à la main ; score 0–100 explicable ; analyse quotidienne) et
+  **ROI Ad & Pro** (différence des différences contre des médecins semblables, fourchette, seuil de données).
+
+Documentation : panorama, rôles, sommaire, référence des circuits (nouvelles sections Campagne budgétaire,
+Organigramme source unique, Intelligence terrain, Notifications ; Produits 360, Operations & Sales, Business Units,
+Marketing cockpit, Fabrique de documents, Budgets des pôles, Moyens généraux réécrits), carte du code, modèle de données.
+
 ### OPERATIONS & SALES, MARKETING SÉPARÉ, CATALOGUE UNIQUE, IMPORT DE SEGMENTATION EN UN FICHIER, BUSINESS UNITS, BUDGETS DES PÔLES, KPI SANS CODE, MISSIONS RELIÉES AU PROFIL (2026-10-08/09)
 
 Commits `2fd508ad`, `88c1a130`, `ac6565ec`, `f5a34ea0`. Migrations additives et idempotentes :
@@ -45,7 +92,7 @@ Commits `2fd508ad`, `88c1a130`, `ac6565ec`, `f5a34ea0`. Migrations additives et 
   Adventum », **Mon espace › Mes missions** (`/missions` y renvoie) — l'ordre de mission passe par le **N+1** puis les RH,
   transport / hébergement / matériel / note de frais seulement à la demande ; « Frais de l'équipe » intégrés au budget à
   la clôture, à la main.
-- En cours (autre lot) : **Produits 360 › Ventes & marchés lit les données Ventes PCH** (réceptions PCH, distribution
+- Puis (lot suivant) : **Produits 360 › Ventes & marchés lit les données Ventes PCH** (réceptions PCH, distribution
   DR, part de marché fournisseurs, chaîne contrat).
 
 Documentation : panorama, rôles (directeur des opérations, Direction Marketing, Regulatory), référence des circuits

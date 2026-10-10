@@ -610,6 +610,13 @@ email-intelligence), `src/lib/assistant/adam-tools.ts` (19 outils), `src/app/api
 
 ### Matériel promotionnel — circuit 2 : devis retranscrits, lignes retenues, BC générés
 
+> **Fiche refondue (09/10, maquette validée)** — `/promo-material/[id]`, calculs purs `lib/promo-material/fiche.ts`
+> (+ tests) : frise de huit étapes, cinq chiffres d'argent, **UNE chose à faire** (« où — chez qui » et le seul geste
+> utile à qui regarde), articles demandés et prestations couvertes, devis côte à côte (une ligne par article ×
+> prestation, meilleur prix en vert). Les BC naissent **en brouillon automatique** à la dernière validation (voir
+> « Le BROUILLON du BC », Fabrique de documents) ; un article absent du catalogue se saisit librement (« Autre article »,
+> `PromoCatalogueArticle.horsCatalogue`, archivé jusqu'à son ajout au catalogue).
+
 La demande de la Direction, dans ses mots : le demandeur fait sa demande ; **il demande les devis**, qui partent à
 **l'assistante de direction** ; elle a **un tableau à elle** pour les **retranscrire** (référence, unité, prix
 unitaire, prix total, par fournisseur) ; le demandeur **valide un devis entier ou des lignes de plusieurs devis** ;
