@@ -4,6 +4,7 @@ import { choisirEntree } from "@/lib/segmentation/lettre-requise";
 import { CLE_EXECUTION, chargerContexteInfluence, type BilanAnalyse } from "@/lib/influence-luna";
 import { chefsDuService, libelleCourt, type TypeRelation } from "@/lib/influence/relations";
 import { ordreDEntree, suggererInfluenceur, type EtapeEntree, type Raison } from "@/lib/influence/score";
+import { partsDeNosLotsEtablissement, type VuePartsLots } from "@/lib/queries/parts-lots";
 
 /**
  * LE GRAPHE D'INFLUENCE — la lecture de la console (Super Admin seul). Les scores et les liens sont ceux que l'analyse a
@@ -83,6 +84,8 @@ export interface VueInfluence {
   top: LigneInfluenceur[];
   file: LienPropose[];
   detail: DetailReseau | null;
+  /** La part de nos lots livrés à l'établissement montré — `null` si la lecture a échoué ou qu'aucun établissement n'est choisi. */
+  partsLots: VuePartsLots | null;
 }
 
 const MAX_NOEUDS = 14;
@@ -218,9 +221,12 @@ export async function vueInfluence(opts: { etabId?: string | null; serviceId?: s
     };
   }
 
+  // LA PART DE NOS LOTS de l'établissement montré (niveau le plus fin des fichiers de la PCH : pas de volume par service).
+  const partsLots = etabId ? await partsDeNosLotsEtablissement(etabId, produit?.id ?? null).catch(() => null) : null;
+
   return {
     analyse: { le: execution?.derniereExecution ?? null, bilan: (execution?.bilan as unknown as BilanAnalyse | null) ?? null },
     etablissements, services, produits: produits.map((p) => ({ id: p.id, nom: p.canonicalName })),
-    etabId, serviceId, produit, graphes, top: lignesTop, file, detail,
+    etabId, serviceId, produit, graphes, top: lignesTop, file, detail, partsLots,
   };
 }

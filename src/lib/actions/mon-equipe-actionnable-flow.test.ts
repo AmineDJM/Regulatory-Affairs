@@ -102,7 +102,7 @@ async function pageOuvrable(u: CurrentUser, href: string): Promise<boolean> {
     return e !== null && (await entitePermisePourFiche(u.id, e.companyId));
   }
   if (href.startsWith("/mon-espace")) return module("WORKSPACE"); // `mon-espace/page.tsx` : requireModule("WORKSPACE").
-  if (href === "/formations") return true; // `formations/page.tsx` : requireUser seul.
+  if (href === "/formations" || href.startsWith("/formations?")) return true; // `formations/page.tsx` : requireUser seul (`?formation=` ouvre la ligne).
   throw new Error(`Lien sans garde rejouée dans ce banc : ${href}`);
 }
 
@@ -504,7 +504,7 @@ suite("Mon Équipe : ce qui m'attend, qui manque, et des liens qui s'ouvrent", (
     // Un `every` sur une liste vide ne prouverait rien (§118.17) : le décor pose au moins huit liens.
     expect(liens.length).toBeGreaterThanOrEqual(8);
     // Toutes les sortes de liens du décor sont là — sans quoi une garde ci-dessus ne serait jamais exercée.
-    for (const forme of [/^\/recrutement\//, /^\/demandes\//, /^\/medical\/plan-de-tournee\?plan=/, /^\/rh\//, /^\/mon-espace/, /^\/formations$/]) {
+    for (const forme of [/^\/recrutement\//, /^\/demandes\//, /^\/medical\/plan-de-tournee\?plan=/, /^\/rh\//, /^\/mon-espace/, /^\/formations(\?formation=|$)/]) {
       expect(liens.some((l) => forme.test(l.href)), `aucun lien ${forme}`).toBe(true);
     }
     for (const l of liens) {

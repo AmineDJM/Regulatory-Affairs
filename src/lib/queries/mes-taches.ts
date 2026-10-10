@@ -17,6 +17,7 @@ import {
 import type { ModuleTab } from "@/components/shared/module-tabs";
 import type { TaskCommentItem } from "@/app/(app)/mon-espace/taches/[id]/comments";
 import type { DocItem } from "@/components/documents/document-list";
+import { invitationsMissionAAccepter, ordresMissionAValider, type InvitationMissionDTO, type OrdreAValiderDTO } from "@/lib/queries/missions";
 
 /**
  * L'ONGLET « TÂCHES » DE MON ESPACE — la lecture (Direction, 07/10).
@@ -72,9 +73,22 @@ export interface LigneTache {
 
 export interface DetailTache { fil: TaskCommentItem[]; pieces: DocItem[] }
 
+/**
+ * CE QUI ATTEND MA RÉPONSE SANS ÊTRE UNE TÂCHE — rangé sous « À accepter » avec les demandes de tâches, mais
+ * d'un TYPE À PART (jamais un `Task` déguisé : ni échéance, ni fil, ni panneau de travail, et la réponse passe par
+ * les actions des missions, pas par `respondTaskRequest`). Deux sortes : l'invitation à une mission
+ * (Je confirme / Je décline) et l'ordre de mission de mon équipe à valider comme N+1 (Valider / Refuser).
+ * Mes missions les montre toujours ; ici elles ne sont qu'un second chemin vers le même geste.
+ */
+export type LigneMissionAAccepter =
+  | { type: "INVITATION_MISSION"; cle: string; invitation: InvitationMissionDTO }
+  | { type: "ORDRE_MISSION_N1"; cle: string; ordre: OrdreAValiderDTO };
+
 export interface OngletTaches {
   vue: VueTaches;
   aAccepter: LigneTache[];
+  /** Invitations à une mission et ordres de mission à valider (N+1) — des lignes typées, distinctes des tâches. */
+  aAccepterMissions: LigneMissionAAccepter[];
   lignes: LigneTache[];
   compteurs: CompteursTaches;
   compteOnglet: number;
@@ -241,7 +255,7 @@ export async function lireOngletTaches(user: SessionUser, vue: VueTaches, page =
   const refusDepuis = new Date(now.getTime() - REFUS_VISIBLE_JOURS * JOUR_MS);
   const verifDepuis = new Date(now.getTime() - A_VERIFIER_JOURS * JOUR_MS);
 
-  const [ouvertes, personnes] = await Promise.all([
+  const [ouvertes, personnes, invitations, ordresN1] = await Promise.all([
     prisma.task.findMany({
       where: {
         AND: [
@@ -260,7 +274,14 @@ export async function lireOngletTaches(user: SessionUser, vue: VueTaches, page =
       take: 400,
     }),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    // Une lecture manquée des missions ne doit pas vider l'onglet des tâches : elles restent sur « Mes missions ».
+    invitationsMissionAAccepter(me).catch(() => [] as InvitationMissionDTO[]),
+    ordresMissionAValider(me).catch(() => [] as OrdreAValiderDTO[]),
   ]);
+  const aAccepterMissions: LigneMissionAAccepter[] = [
+    ...ordresN1.map((ordre): LigneMissionAAccepter => ({ type: "ORDRE_MISSION_N1", cle: `om-${ordre.requestId}`, ordre })),
+    ...invitations.map((invitation): LigneMissionAAccepter => ({ type: "INVITATION_MISSION", cle: `inv-${invitation.id}`, invitation })),
+  ];
   const noms = new Map(personnes.map((p) => [p.id, p.name]));
 
   const ranges = ouvertes.map((t) => ({ t, r: rangerTache(t, me, now.getTime()) }));
@@ -286,7 +307,7 @@ export async function lireOngletTaches(user: SessionUser, vue: VueTaches, page =
 
   const details = await lireDetails([...aAccepter, ...lignes].map((l) => l.id), me);
   return {
-    vue, aAccepter, lignes, compteurs, compteOnglet: compteOnglet(compteurs), details, pagination,
+    vue, aAccepter, aAccepterMissions, lignes, compteurs, compteOnglet: compteOnglet(compteurs), details, pagination,
     personnes: personnes.filter((p) => p.id !== me),
   };
 }

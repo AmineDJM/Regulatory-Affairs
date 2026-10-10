@@ -62,7 +62,7 @@ export function entityHref(type: string | null | undefined, id: string | null | 
     // (§118.63). Trouvé en montant le fil de discussion sur les sept natures.
     case "AD_PRO_OTHER": return `/ad-pro/autres/${id}`;
     case "RECRUITMENT_REQUEST": return `/recrutement/${id}`;
-    case "TRAINING": return "/formations";
+    case "TRAINING": return `/formations?formation=${encodeURIComponent(id)}`;
 
     // ── Les registres ──
     case "MAIL_ENTRY": return `/courriers/${id}`;

@@ -131,7 +131,15 @@ export interface PropositionKpi {
 }
 
 export interface ApercuKpi {
-  colonnes: { nom: string; unite: UniteKpi; cibleProposee: number | null; moyenne: number | null; meilleur: number | null }[];
+  colonnes: {
+    nom: string; unite: UniteKpi; cibleProposee: number | null; moyenne: number | null; meilleur: number | null;
+    /** Pourquoi cette cible : la lecture de Luna sur l'historique, ou la règle fixe qui s'est appliquée. Null = cible posée par la définition. */
+    justification: string | null;
+    /** Vrai quand la cible vient de Luna (historique de 3 à 6 mois), faux quand c'est la règle fixe. */
+    parLuna: boolean;
+  }[];
+  /** Un mot sur la source des cibles (Luna indisponible, historique trop court…) ; null quand tout s'est passé normalement. */
+  noteCibles: string | null;
   lignes: { nom: string; valeurs: { affichage: string; couleur: Couleur }[] }[];
   periodes: string[];
 }

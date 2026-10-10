@@ -13,7 +13,7 @@ import { STATUT_PV, GRAVITE_PV, estStatutPv, estGravitePv } from "@/lib/pharmaco
 import { CATEGORIE_VOIX_LABELS } from "@/lib/voix-terrain/pur";
 import { montantCourt } from "@/lib/products/fiche-360";
 import { decimal, moisCourtDe, type Lettre360 } from "@/lib/products/sante";
-import { REGULATORY_STATUS, MANUFACTURING_STATUS, VARIATION_STATUS, REG_REQUEST_STATUS } from "@/lib/labels";
+import { REGULATORY_STATUS, MANUFACTURING_STATUS, VARIATION_STATUS, MEDICAL_INFO_STATUS } from "@/lib/labels";
 import { BackLink } from "@/components/shared/back-link";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { ProductDriveExplorer, dossierDriveAffiche } from "@/components/documents/product-drive-explorer";
@@ -196,7 +196,7 @@ export default async function Produit360Page({ params, searchParams }: { params:
   // ── Les six chiffres (chacun seulement avec son module) ──
   const c = f.chiffres;
   const chiffres: React.ReactNode[] = [];
-  if (c.stock) chiffres.push(<Chiffre key="k" label="Couverture du stock" valeur={c.stock.couvertureMois !== null ? `${decimal(c.stock.couvertureMois)} mois` : null} contexte="PCH + hôpitaux" ton={c.stock.couvertureMois !== null && c.stock.couvertureMois < 2 ? "ko" : c.stock.couvertureMois !== null && c.stock.couvertureMois < 3 ? "w" : null} />);
+  if (c.stock) chiffres.push(<Chiffre key="k" label="Couverture du stock" valeur={c.stock.couvertureMois !== null ? `${decimal(c.stock.couvertureMois)} mois` : null} contexte="PCH, DR + hôpitaux" ton={c.stock.couvertureMois !== null && c.stock.couvertureMois < 2 ? "ko" : c.stock.couvertureMois !== null && c.stock.couvertureMois < 3 ? "w" : null} />);
   if (c.visites) chiffres.push(<Chiffre key="v" label="Visites (cycle)" valeur={String(c.visites.cycle)} contexte={c.visites.evolutionPct !== null ? `${signe(c.visites.evolutionPct)} % vs cycle préc.` : "sans comparaison"} ton={c.visites.evolutionPct === null ? null : c.visites.evolutionPct >= 0 ? "ok" : "ko"} />);
   if (c.cibles) chiffres.push(<Chiffre key="c" label="Cibles H·A·B vues" valeur={c.cibles.pct !== null ? `${c.cibles.pct} %` : null} contexte={c.cibles.cibles ? `à fréquence · ${c.cibles.vues}/${c.cibles.cibles}` : "aucune cible"} />);
   if (c.prescripteurs) chiffres.push(<Chiffre key="p" label="Prescripteurs A" valeur={c.prescripteurs.segmentes ? String(c.prescripteurs.a) : null} contexte={c.prescripteurs.mouvementNet !== null ? `${signe(c.prescripteurs.mouvementNet)} ce cycle` : c.prescripteurs.segmentes ? `sur ${c.prescripteurs.segmentes} segmentés` : "non segmenté"} ton={c.prescripteurs.mouvementNet ? (c.prescripteurs.mouvementNet > 0 ? "ok" : "ko") : null} />);
@@ -462,15 +462,25 @@ export default async function Produit360Page({ params, searchParams }: { params:
                   {d.variations.map((v) => <p key={v.id}>{MANUFACTURING_STATUS[v.vers] ?? v.vers} · {VARIATION_STATUS[v.statut]?.label ?? v.statut}{v.depot ? ` · déposée le ${jour(v.depot)}` : ""}{v.decision ? ` · décision le ${jour(v.decision)}` : ""}</p>)}
                 </div>
               )}
-              {d.demandesInfoMed.length > 0 && (
-                <div className="border-t border-border px-4 py-3 text-sm">
-                  <p className="mb-1 text-xs font-medium text-muted-foreground">Information médicale — demandes</p>
-                  {d.demandesInfoMed.map((r) => <p key={r.id}><span className="font-mono text-xs text-muted-foreground">{r.reference}</span> {r.sujet} · <span className="text-muted-foreground">{REG_REQUEST_STATUS[r.statut]?.label ?? r.statut}</span></p>)}
-                </div>
-              )}
             </Carte>
           )))}
           {voit.reglementaire && f.dossiersMasques > 0 && <p className="text-xs text-muted-foreground">{f.dossiersMasques} autre(s) dossier(s) hors de votre portée.</p>}
+
+          {f.declarationsInfoMed && (
+            <Carte titre="Information médicale" sousTitre={`${f.declarationsInfoMed.length} déclaration${f.declarationsInfoMed.length > 1 ? "s" : ""}`}>
+              {f.declarationsInfoMed.length === 0 ? <Vide>Aucune déclaration liée à ce produit.</Vide> : (
+                <ul className="divide-y divide-border text-sm">{f.declarationsInfoMed.map((x) => (
+                  <li key={x.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
+                    <span>
+                      <Link href={`/information-medicale/${x.id}`} className="font-mono text-xs text-primary hover:underline">{x.reference}</Link>{" "}
+                      {x.label} <span className="text-muted-foreground">· {x.nature} · {jour(x.date)}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">{MEDICAL_INFO_STATUS[x.statut]?.label ?? x.statut}</span>
+                  </li>
+                ))}</ul>
+              )}
+            </Carte>
+          )}
 
           {f.pv && (
             <Carte titre="Pharmacovigilance" sousTitre={`${f.pv.filter((x) => x.statut !== "CLOS").length} ouvert(s)`}>

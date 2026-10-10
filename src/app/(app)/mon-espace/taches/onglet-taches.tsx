@@ -24,7 +24,10 @@ import { DocumentList } from "@/components/documents/document-list";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { VUES_TACHES, ONGLET_TACHES_HREF, type VueTaches } from "@/lib/tasks/onglet-taches";
 import { cn, formatDate } from "@/lib/utils";
-import type { LigneTache, OngletTaches as Donnees } from "@/lib/queries/mes-taches";
+import type { LigneTache, LigneMissionAAccepter, OngletTaches as Donnees } from "@/lib/queries/mes-taches";
+import type { InvitationMissionDTO, OrdreAValiderDTO } from "@/lib/queries/missions";
+import { repondreMission, deciderOrdreMissionN1 } from "@/lib/actions/mission-actions";
+import { MISSION_ROLE } from "@/lib/labels";
 import { TaskWorkPanel } from "./[id]/work-panel";
 import { TaskComments } from "./[id]/comments";
 
@@ -90,7 +93,9 @@ export function OngletTaches({ data, champsComplets, peutCreer, ouvrir }: {
 
   return (
     <div className="space-y-4">
-      {data.aAccepter.length > 0 && <AAccepter lignes={data.aAccepter} ouvrir={setOuverte} />}
+      {(data.aAccepter.length > 0 || data.aAccepterMissions.length > 0) && (
+        <AAccepter lignes={data.aAccepter} missions={data.aAccepterMissions} ouvrir={setOuverte} />
+      )}
 
       <Card>
         {peutCreer && <BarreCreation personnes={data.personnes} champsComplets={champsComplets} />}
@@ -123,19 +128,119 @@ export function OngletTaches({ data, champsComplets, peutCreer, ouvrir }: {
 
 // ─── À accepter ────────────────────────────────────────────────────────────────────────────
 
-function AAccepter({ lignes, ouvrir }: { lignes: LigneTache[]; ouvrir: (id: string) => void }) {
+function AAccepter({ lignes, missions, ouvrir }: { lignes: LigneTache[]; missions: LigneMissionAAccepter[]; ouvrir: (id: string) => void }) {
   return (
     <Card>
       <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">À accepter <span className="ml-1 text-muted-foreground">{lignes.length}</span></h2>
+        <h2 className="text-sm font-semibold">À accepter <span className="ml-1 text-muted-foreground">{lignes.length + missions.length}</span></h2>
         <InfoBulle label="À accepter">
           On vous demande ces tâches. En acceptant, elles passent dans « À faire » ; refuser se fait avec un motif court, facultatif.
+          {missions.length > 0 && <> Les invitations à une mission et les ordres de mission de votre équipe y figurent aussi : ce ne sont pas des tâches, leur réponse est celle de « Mes missions ».</>}
         </InfoBulle>
       </header>
       <ul className="divide-y divide-border">
+        {missions.map((m) => m.type === "ORDRE_MISSION_N1"
+          ? <LigneOrdreMissionN1 key={m.cle} ordre={m.ordre} />
+          : <LigneInvitationMission key={m.cle} invitation={m.invitation} />)}
         {lignes.map((l) => <LigneAAccepter key={l.id} l={l} ouvrir={ouvrir} />)}
       </ul>
     </Card>
+  );
+}
+
+const periodeMission = (d: string | null, f: string | null) =>
+  d ? `${formatDate(d)}${f && f.slice(0, 10) !== d.slice(0, 10) ? ` → ${formatDate(f)}` : ""}` : "dates à préciser";
+
+/** Une invitation à une mission — même geste que sur « Mes missions » (`repondreMission`). */
+function LigneInvitationMission({ invitation: m }: { invitation: InvitationMissionDTO }) {
+  const { ferme, busy, err, run } = useGeste();
+  const [refus, setRefus] = React.useState(false);
+  const [motif, setMotif] = React.useState("");
+  const sousTitre = [
+    MISSION_ROLE[m.role]?.label ?? m.role, periodeMission(m.dateDepart, m.dateRetour), m.ville,
+    m.organiserName ? `par ${m.organiserName}` : null,
+  ].filter(Boolean).join(" · ");
+  return (
+    <li className="bg-warning/5 px-4 py-3 last:rounded-b-[var(--radius)]">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <span className="block break-words font-medium">
+            <span className={cn("mr-2 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium", TON_PILL.info)}>Invitation mission</span>
+            <Link href={m.parentPath} className="hover:underline">{m.parentLabel}</Link>
+          </span>
+          <span className="block text-xs text-muted-foreground">{sousTitre}</span>
+        </div>
+        {!refus && (
+          <div className="flex shrink-0 gap-2">
+            <Button size="sm" variant="outline" className="text-success" disabled={ferme}
+              onClick={() => run(() => repondreMission(fd({ id: m.id, decision: "CONFIRMER" })))}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Je confirme
+            </Button>
+            <Button size="sm" variant="outline" className="text-destructive" disabled={ferme} onClick={() => setRefus(true)}>
+              <X className="h-3.5 w-3.5" /> Je décline
+            </Button>
+          </div>
+        )}
+      </div>
+      {refus && (
+        <form
+          className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center"
+          onSubmit={(e) => { e.preventDefault(); void run(() => repondreMission(fd({ id: m.id, decision: "DECLINER", motif: motif.trim() }))); }}
+        >
+          <Input value={motif} onChange={(e) => setMotif(e.target.value)} required placeholder="Pourquoi ? (garde, congé, autre mission…)" aria-label="Motif du refus" className="h-9 sm:max-w-sm" autoFocus />
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" variant="destructive" disabled={ferme || !motif.trim()}>Confirmer le refus</Button>
+            <Button type="button" size="sm" variant="ghost" disabled={ferme} onClick={() => setRefus(false)}>Annuler</Button>
+          </div>
+        </form>
+      )}
+      {err && <p className="mt-1 text-xs text-destructive">{err}</p>}
+    </li>
+  );
+}
+
+/** L'ordre de mission d'un membre de mon équipe, à valider comme N+1 — même geste que « Mes missions » (`deciderOrdreMissionN1`). */
+function LigneOrdreMissionN1({ ordre: o }: { ordre: OrdreAValiderDTO }) {
+  const { ferme, busy, err, run } = useGeste();
+  const [refus, setRefus] = React.useState(false);
+  const [motif, setMotif] = React.useState("");
+  const sousTitre = [periodeMission(o.dates.depart, o.dates.retour), o.destination].filter(Boolean).join(" · ");
+  return (
+    <li className="bg-warning/5 px-4 py-3 last:rounded-b-[var(--radius)]">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <span className="block break-words font-medium">
+            <span className={cn("mr-2 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium", TON_PILL.info)}>Ordre de mission à valider</span>
+            {o.employeeName} — {o.mission}
+          </span>
+          <span className="block text-xs text-muted-foreground">{sousTitre}</span>
+        </div>
+        {!refus && (
+          <div className="flex shrink-0 gap-2">
+            <Button size="sm" variant="outline" className="text-success" disabled={ferme}
+              onClick={() => run(() => deciderOrdreMissionN1(fd({ requestId: o.requestId, decision: "VALIDER" })))}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Valider
+            </Button>
+            <Button size="sm" variant="outline" className="text-destructive" disabled={ferme} onClick={() => setRefus(true)}>
+              <X className="h-3.5 w-3.5" /> Refuser
+            </Button>
+          </div>
+        )}
+      </div>
+      {refus && (
+        <form
+          className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center"
+          onSubmit={(e) => { e.preventDefault(); void run(() => deciderOrdreMissionN1(fd({ requestId: o.requestId, decision: "REFUSER", motif: motif.trim() }))); }}
+        >
+          <Input value={motif} onChange={(e) => setMotif(e.target.value)} required placeholder="Motif du refus" aria-label="Motif du refus" className="h-9 sm:max-w-sm" autoFocus />
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" variant="destructive" disabled={ferme || !motif.trim()}>Confirmer le refus</Button>
+            <Button type="button" size="sm" variant="ghost" disabled={ferme} onClick={() => setRefus(false)}>Annuler</Button>
+          </div>
+        </form>
+      )}
+      {err && <p className="mt-1 text-xs text-destructive">{err}</p>}
+    </li>
   );
 }
 

@@ -23,7 +23,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
 import {
   CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton, DeclareDecisionCard, SlipsCard,
-  AuthorityLocked, DemanderPieceBouton, RelancerPieceButton,
+  AuthorityLocked, DemanderPieceBouton, RelancerPieceButton, ProduitDeclarationForm,
 } from "./panels";
 import { Frise } from "./frise";
 import { CIRCUIT_LABEL, DECLARATION_KIND_LABEL, isDeclarationKind } from "@/lib/medical-info/circuits";
@@ -104,7 +104,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const amount = decl.amount != null ? toNumber(decl.amount) : null;
   const pendingCount = decl.requests.filter((r) => r.status === "PENDING").length;
 
-  const [documents, users, comments, sourceDocuments, requesterUser, relances, produits] = await Promise.all([
+  const [documents, users, comments, sourceDocuments, requesterUser, relances, produits, nosProduits] = await Promise.all([
     prisma.document.findMany({
       where: { entityType: "MEDICAL_INFO_DECLARATION", entityId: decl.id },
       include: { uploadedBy: { select: { name: true } } },
@@ -130,6 +130,10 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
     decl.requesterId ? prisma.user.findUnique({ where: { id: decl.requesterId }, select: { name: true } }) : Promise.resolve(null),
     pendingCount > 0 ? dernieresRelancesPieces(decl.id) : Promise.resolve(new Map<string, Date>()),
     produitsDesDossiers([decl]),
+    // NOS PRODUITS, pour corriger celui de la déclaration — seulement pour qui peut le faire.
+    canManage && decl.status !== "VALIDATED"
+      ? prisma.product.findMany({ where: { isActive: true }, select: { id: true, canonicalName: true }, orderBy: { canonicalName: "asc" }, take: 1000 })
+      : Promise.resolve([]),
   ]);
   const produit = produits.get(decl.id) ?? null;
 
@@ -388,6 +392,10 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
                   {produit && produit.autres > 0 && <span className="font-normal text-muted-foreground"> +{produit.autres}</span>}
                 </span>
               </div>
+              {/* Le produit est repris de la source à la création ; le pharmacien le corrige ici, parmi nos produits. */}
+              {nosProduits.length > 0 && (
+                <ProduitDeclarationForm id={decl.id} productId={decl.productId} produits={nosProduits.map((p) => ({ id: p.id, nom: p.canonicalName }))} />
+              )}
               <Row label="Pharmacien responsable" value={decl.pharmacist?.name ?? "Non assigné"} />
               <Row label="Créé le" value={formatDate(decl.createdAt.toISOString())} />
               {decl.authorityRef && <Row label="Référence ministère" value={decl.authorityRef} />}

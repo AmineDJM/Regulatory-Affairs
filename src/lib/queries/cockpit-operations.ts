@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { userCan, type SessionUser } from "@/lib/rbac";
-import { isRetiredModule } from "@/lib/modules-retired";
 import { resolveRepScope } from "@/lib/sfe";
 import { busDuPerimetre, chargerPilotage, type Pilotage } from "@/lib/queries/force-de-vente";
 import {
@@ -16,7 +15,7 @@ import { filtreDuPerimetre } from "@/lib/adventum/perimetre";
 import { ageEnJours } from "@/lib/stocks/pch-central";
 import { CHEMIN_STOCKS_CHAINE, CHEMIN_STOCK_PCH } from "@/lib/chemins/stocks";
 import {
-  aTraiterAvenants, aTraiterBcEnRetard, aTraiterBrain, aTraiterFichiersPch, aTraiterHopitauxEnRupture, aTraiterLogistique,
+  aTraiterAvenants, aTraiterBcEnRetard, aTraiterBrain, aTraiterFichiersPch, aTraiterHopitauxEnRupture,
   aTraiterRuptures, aTraiterStockPch, bcEnRetard, couvertureLaPlusCourte, cumulLivre, cumulNonServi, evolutionLivre,
   executionDesMarches, ligneCouverture, marcheEnCours, rupturesA60Jours, selectionnerATraiter,
   type ATraiter, type ChaineMarche, type CumulLivre, type Execution, type LigneCouverture, type NonServiProduit,
@@ -150,7 +149,7 @@ export async function chargerCockpitOperations(user: SessionUser, buDemandee: st
   // ── La couverture de la chaîne ──────────────────────────────────────────────────────────────
   const couvertures = chaine.map((l) => ligneCouverture({
     productId: l.productId, label: l.label, buId: l.buId, buNom: l.buNom,
-    adventum: l.adventum?.quantite ?? null, pch: l.pch?.quantite ?? null, hopitaux: l.hopitaux?.quantite ?? null,
+    pch: l.pch?.quantite ?? null, directions: l.directions?.quantite ?? null, hopitaux: l.hopitaux?.quantite ?? null,
     conso: consos.get(l.productId) ?? null,
   }));
   const ruptures = rupturesA60Jours(couvertures, buId);
@@ -199,7 +198,7 @@ export async function chargerCockpitOperations(user: SessionUser, buDemandee: st
   const items: ATraiter[] = [];
   if (acces.chaine) {
     items.push(...aTraiterRuptures(ruptures.enRupture, (l) => (l.buId ? `${CHEMIN_STOCKS_CHAINE}?bu=${encodeURIComponent(l.buId)}` : CHEMIN_STOCKS_CHAINE)));
-    const dates = chaine.map((l) => l.pch?.date).filter((x): x is string => !!x).sort();
+    const dates = chaine.flatMap((l) => [l.pch?.date, l.directions?.plusRecent]).filter((x): x is string => !!x).sort();
     items.push(...aTraiterStockPch(ageEnJours(dates.at(-1) ?? null, maintenant), produitsStock.length, CHEMIN_STOCK_PCH));
   }
   if (acces.pch) {
@@ -249,15 +248,7 @@ export async function chargerCockpitOperations(user: SessionUser, buDemandee: st
     const ouverts = risques.filter((r) => (r.status === "NOUVEAU" || r.status === "PRIS_EN_CHARGE") && !r.resolvedAt && !(r.snoozedUntil && new Date(r.snoozedUntil) > maintenant));
     items.push(...aTraiterBrain(ouverts, "/adventum-brain"));
   }
-  // LOGISTIQUE : son module est retiré du service (`modules-retired.ts`) — le signal n'est lu que s'il y revient.
-  if (!isRetiredModule("LOGISTICS") && userCan(user, "LOGISTICS", "VIEW") && !buId) {
-    const commandes = await prisma.logisticsOrder.findMany({
-      where: { status: { in: ["CUSTOMS", "BLOCKED"] } },
-      select: { id: true, reference: true, product: true, status: true, customsDate: true, updatedAt: true },
-      take: 50,
-    });
-    items.push(...aTraiterLogistique(commandes.map((c) => ({ id: c.id, reference: c.reference, produit: c.product, statut: c.status, depuis: c.customsDate ?? c.updatedAt })), maintenant));
-  }
+  // LOGISTIQUE : retirée du service (Direction : « on ne réactive pas la logistique ») — plus aucun signal ici, les données restent intactes.
 
   return {
     moisCourant, bus, buId, acces,

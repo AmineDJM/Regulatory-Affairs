@@ -8,6 +8,7 @@ import { recruitmentScope } from "@/lib/recruitment/access";
 import { canDecideStep, CONTRACT_LABEL, type RecruitmentContract, type RecruitmentStage } from "@/lib/recruitment/request-flow";
 import { STATUT_PLAN_LABELS, clausePlansADecider, type StatutPlan } from "@/lib/sfe/tournee";
 import { lienDeLigne, type LienDeLigne } from "@/lib/queries/lien-ouvrable";
+import { lienFormation } from "@/lib/chemins/formations";
 import {
   aujourdhuiAlger, chevauchementsDe, couvreLeJour, jourDuConge, minuitUtc, periodesCommunes,
   type AbsenceDEquipe, type PeriodeCommune,
@@ -371,7 +372,8 @@ export async function getMyTeam(user: SessionUser, opts: { maintenant?: Date } =
     amount: toNumber(f.amount) || null,
     createdAt: f.createdAt.toISOString(),
     deadline: iso(f.startDate),
-    href: "/formations",
+    // La ligne de CETTE formation, dépliée (`?formation=`), pas la liste de toutes.
+    href: lienFormation(f.id),
     sansLien: null,
     chevauchements: [],
   }));

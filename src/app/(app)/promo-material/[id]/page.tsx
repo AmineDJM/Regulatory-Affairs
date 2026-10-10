@@ -59,6 +59,8 @@ import { RetirerDemandeDevis } from "./retirer-demande-devis";
 import { etatRetraitDemandeDevis } from "@/lib/promo-material/retrait-devis";
 import { PromoExecutionCard, PromoVisaCard, type ExecutionAffichee, type NatureAffichee } from "./execution-card";
 import { PromoArticlesCard } from "./articles-card";
+import { DateBesoin } from "./date-besoin";
+import { materielLivre } from "@/lib/promo-material/date-besoin";
 import type { GenerationLettre } from "./demande-devis-card";
 import { MenuDossier } from "@/components/shared/menu-dossier";
 import { AttachToSourceButtons, type NaturePieceLiee } from "@/components/shared/attach-to-source";
@@ -622,6 +624,16 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           : <StatusBadge map={PROMO_MATERIAL_STATUS} value={pm.status} />}
         {menuDossier}
       </PageHeader>
+      {/* « BESOIN POUR LE … » — la date posée par le demandeur, en orange sous 15 jours tant que le matériel n'est pas livré. */}
+      <DateBesoin
+        id={pm.id}
+        neededBy={pm.neededBy ? pm.neededBy.toISOString() : null}
+        livre={materielLivre({
+          circuitState, status: pm.status,
+          etatsLignes: executions.flatMap((e) => e.factures.flatMap((f) => f.detail?.lignes.map((l) => l.etat) ?? [])),
+        })}
+        peutModifier={flags.isMarketing && pm.status !== "CANCELLED" && circuitState !== "REFUSED" && circuitState !== "COMPLETED"}
+      />
 
       {/* LE CIRCUIT — ce que chacun voit ici dépend de qui il est : la chaîne entière pour PDG /
           Super Admin, l'étape en cours pour les autres (règle `seesFullCircuit`, tranchée côté serveur). */}

@@ -94,7 +94,7 @@ suite("Bons de commande — module à part, accès donnés par le Super Admin", 
     expect((await etatDuBC(docId))?.etape).toBe("A_SIGNER");
   };
   const prevenu = async (userId: string, suffix: string) =>
-    (await prisma.notification.count({ where: { userId, link: CHEMIN_BC_A_SIGNER, body: { contains: `${TAG}${suffix}` } } })) > 0;
+    (await prisma.notification.count({ where: { userId, link: { startsWith: CHEMIN_BC_A_SIGNER }, body: { contains: `${TAG}${suffix}` } } })) > 0;
   const pieceLegale = (kind: "INVOICE" | "CONTRACT", suffix: string) =>
     prisma.legalDocument.create({ data: { title: `${TAG} ${suffix}`, kind, createdById: auteurId }, select: { id: true, kind: true } })
       .then((d) => { docs.push(d.id); return d; });

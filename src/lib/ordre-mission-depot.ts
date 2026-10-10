@@ -8,6 +8,7 @@ import { docxToPdf } from "@/lib/payslip/to-pdf";
 import { nomOrdreMission, refusOrdreMission, remplirOrdreDeMission, type ChampsOrdreMission } from "@/lib/hr/ordre-mission/modele";
 import { synchroniserOrdreEmis } from "@/lib/missions-equipe/serveur";
 import { refusTraitementRh } from "@/lib/missions-equipe/etat";
+import { marquerDemandeRhTraitee } from "@/lib/hr-demande-traitee";
 import { saisieEffective } from "@/lib/references/registre";
 import { anneeDuRegistre, attribuerAuRegistre, registreDe } from "@/lib/references/registre-serveur";
 
@@ -113,6 +114,7 @@ export async function genererEtRemettreOrdreDeMission(
     });
   }
   await prisma.hrDocumentRequest.update({ where: { id: requestId }, data: { status: "READY", handledById: acteurId } });
+  await marquerDemandeRhTraitee(requestId); // brique KPI « demandes traitées »
   // La mission Ad & Pro reliée passe « ordre émis » — le PDF paraît aussi dans « Mes missions ».
   await synchroniserOrdreEmis(requestId, acteurId);
   if (demande.employee.userId) {

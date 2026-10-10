@@ -6,7 +6,7 @@
  *
  * ── CINQ COMPOSANTES, CHACUNE RAMENÉE À 0–100 ───────────────────────────────────────────────
  *
- *   Stock (25)            mois de couverture de la chaîne (PCH + hôpitaux) : ≥ 3 mois → 100, linéaire jusqu'à 0 à 0 mois ;
+ *   Stock (25)            mois de couverture de la chaîne (PCH central + directions régionales + hôpitaux — pas de stock Adventum) : ≥ 3 mois → 100, linéaire jusqu'à 0 à 0 mois ;
  *                         −10 par lot qui périme dans moins de 6 mois (au plus −30).
  *   Couverture terrain (25) part des cibles H·A·B (décideurs, segments A et B) vues À FRÉQUENCE ce cycle.
  *   Prescripteurs (20)    part des praticiens segmentés en A : 25 % de A → 80 points (au-delà, plafonné) ; plus la

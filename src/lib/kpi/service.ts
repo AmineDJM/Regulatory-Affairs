@@ -12,12 +12,13 @@ import {
   type DefinitionKpi, type LigneDeRevue, type MesureKpi, type NiveauGrille,
 } from "./definition";
 import {
-  afficherValeur, cibleSurFenetre, couleur, fenetre, fenetreCourante, fenetresPrecedentes, normaliser, proposerCible,
+  afficherValeur, cibleSurFenetre, clePeriode, couleur, fenetre, fenetreCourante, fenetresPrecedentes, normaliser, proposerCible,
   scoreGlobal, seuilsEffectifs, type Fenetre,
 } from "./score";
 import { peutCreerPourEquipe, peutGererCatalogue, peutGererPersonne, peutModifierDefinition, peutVoirBilan, type FaitsKpi } from "./droits";
 import { ChargeurBriques } from "./briques-calcul";
 import { MODULE_FEEDBACK_KPI, resumeProposition, type KpiPourCommentaire, type SourceEvaluation } from "./luna-pur";
+import { MOIS_HISTORIQUE_MAX, justificationDeLaRegle, statistiquesCible, type CibleLuna, type EntreeCible, type HistoriqueCible } from "./luna-cible";
 import type { ApercuKpi, BilanKpi, ColonneKpi, KpiDuBilan, LigneDetail, LigneKpi, PreuveLuna, TableauKpi } from "./types";
 
 /**
@@ -539,7 +540,37 @@ export async function sourcesEvaluation(userId: string, f: Fenetre): Promise<Sou
 
 // ── L'aperçu sur les 3 derniers mois réels (rien n'est enregistré) ──────────────────────────
 
-export async function apercuDefinitions(user: SessionUser, defs: readonly DefinitionKpi[]): Promise<ApercuKpi> {
+/** L'année et le mois (1..12) situés `avant` mois avant la date donnée. */
+const anneeMois = (maintenant: Date, avant: number): [number, number] => {
+  const d = new Date(maintenant.getFullYear(), maintenant.getMonth() - avant, 1);
+  return [d.getFullYear(), d.getMonth() + 1];
+};
+
+/** Les valeurs MENSUELLES d'un KPI sur les derniers mois complets : la moyenne de l'équipe (échantillon borné) et, si elle est visée, celle d'une personne. */
+async function historiqueMensuel(c: ChargeurBriques, d: DefLue, echantillon: readonly PersonneKpi[], pourId: string | null, mois: readonly Fenetre[], libelles: readonly string[]): Promise<HistoriqueCible> {
+  const equipe: (number | null)[] = [];
+  const personne: (number | null)[] = [];
+  for (const f of mois) {
+    const ids = [...new Set([...echantillon.map((p) => p.userId), ...(pourId ? [pourId] : [])])];
+    const vals = new Map<string, number | null>();
+    for (let i = 0; i < ids.length; i += 6) {
+      await Promise.all(ids.slice(i, i + 6).map(async (u) => { vals.set(u, (await calculerMesuree(c, d, u, f)).valeur); }));
+    }
+    const eq = echantillon.map((p) => vals.get(p.userId) ?? null).filter((v): v is number => v !== null);
+    equipe.push(eq.length ? Math.round((eq.reduce((s, v) => s + v, 0) / eq.length) * 10) / 10 : null);
+    personne.push(pourId ? vals.get(pourId) ?? null : null);
+  }
+  return { mois: [...libelles], equipe, personne: pourId ? personne : null };
+}
+
+/** Une cible proposée pour chaque KPI à cible vide : (historique mensuel par KPI) → Luna, ou null. */
+export type ChoisirCibles = (entrees: (EntreeCible | null)[]) => Promise<{ cibles: (CibleLuna | null)[]; note: string | null }>;
+
+export async function apercuDefinitions(
+  user: SessionUser,
+  defs: readonly DefinitionKpi[],
+  opts: { pour?: string | null; cibler?: ChoisirCibles } = {},
+): Promise<ApercuKpi> {
   const { equipe } = await faitsKpi(user);
   const personnes = equipe.slice(0, 40);
   const maintenant = new Date();
@@ -553,15 +584,54 @@ export async function apercuDefinitions(user: SessionUser, defs: readonly Defini
   for (const d of calculables) {
     for (const p of personnes) valeurs.set(cleV(d.id, p.userId), (await calculerMesuree(c, d, p.userId, f)).valeur);
   }
-  const colonnes = lues.map((d) => {
+  // La règle fixe (repli) : à mi-chemin entre la moyenne et le meilleur de l'équipe, sur la fenêtre de trois mois.
+  const regles = lues.map((d) => {
     const additive = d.def.numerateur ? BRIQUE_PAR_ID[d.def.numerateur.brique].additive && d.def.nature === "CALCULE" : false;
     const hist = personnes.map((p) => { const v = valeurs.get(cleV(d.id, p.userId)); return v === undefined || v === null ? null : additive ? v / 3 : v; });
-    const prop = calculables.includes(d) ? proposerCible(hist, d.def.sens, d.def.unite) : null;
-    return { nom: d.def.nom, unite: d.def.unite, cibleProposee: d.def.cible ?? prop?.cible ?? null, moyenne: prop?.moyenne ?? null, meilleur: prop?.meilleur ?? null };
+    return calculables.includes(d) ? { prop: proposerCible(hist, d.def.sens, d.def.unite), nb: hist.filter((v) => v !== null).length } : { prop: null, nb: 0 };
+  });
+  // Luna : l'historique MENSUEL de 3 à 6 mois de l'équipe et de la personne visée, pour les seuls KPI sans cible.
+  let luna: (CibleLuna | null)[] = lues.map(() => null);
+  let statsLuna: (ReturnType<typeof statistiquesCible> | null)[] = lues.map(() => null);
+  let noteCibles: string | null = null;
+  const aCibler = lues.map((d, i) => (calculables.includes(d) && d.def.cible === null ? i : -1)).filter((i) => i >= 0);
+  if (opts.cibler && aCibler.length > 0) {
+    try {
+      const pourId = opts.pour && equipe.some((p) => p.userId === opts.pour) ? opts.pour : null;
+      const echantillon = personnes.slice(0, 25);
+      const mois = Array.from({ length: MOIS_HISTORIQUE_MAX }, (_, k) => fenetre(clePeriode("MENSUELLE", ...anneeMois(maintenant, MOIS_HISTORIQUE_MAX - k)))!);
+      const libelles = mois.map((f, k) => `M-${MOIS_HISTORIQUE_MAX - k} · ${f.debut.toLocaleDateString("fr-FR", { month: "long" })}`);
+      const entrees: (EntreeCible | null)[] = [];
+      for (let i = 0; i < lues.length; i++) {
+        const d = lues[i]!;
+        entrees.push(aCibler.includes(i)
+          ? { nom: d.def.nom, unite: d.def.unite, sens: d.def.sens, periode: d.def.periode, historique: await historiqueMensuel(c, d, echantillon, pourId, mois, libelles) }
+          : null);
+      }
+      const r = await opts.cibler(entrees);
+      luna = r.cibles; noteCibles = r.note;
+      statsLuna = entrees.map((e) => (e ? statistiquesCible(e.historique, e.sens) : null));
+    } catch (e) {
+      console.error("[kpi] cibles Luna", e);
+      noteCibles = "L'historique mensuel n'a pas pu être lu : la cible suit la règle fixe.";
+    }
+  }
+  const colonnes = lues.map((d, i) => {
+    const l = luna[i] ?? null;
+    const { prop, nb } = regles[i]!;
+    const cibleProposee = d.def.cible ?? l?.cible ?? prop?.cible ?? null;
+    return {
+      nom: d.def.nom, unite: d.def.unite, cibleProposee,
+      moyenne: l ? statsLuna[i]?.moyenneEquipe ?? null : prop?.moyenne ?? null,
+      meilleur: l ? statsLuna[i]?.meilleurMoisEquipe ?? null : prop?.meilleur ?? null,
+      justification: d.def.cible !== null ? null : l ? l.justification : prop ? justificationDeLaRegle(prop.moyenne, prop.meilleur, d.def.sens, nb) : null,
+      parLuna: l !== null,
+    };
   });
   return {
     colonnes,
     periodes: [`${debut.toLocaleDateString("fr-FR", { month: "long" })} → ${new Date(fin.getTime() - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`],
+    noteCibles,
     lignes: personnes.map((p) => ({
       nom: p.nom,
       valeurs: lues.map((d, i) => {

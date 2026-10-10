@@ -7,6 +7,9 @@ import {
   type KpiPourCommentaire, type ReponseDefinitions, type SourceEvaluation,
 } from "@/lib/kpi/luna-pur";
 import type { NiveauGrille } from "@/lib/kpi/definition";
+import {
+  CONSIGNE_CIBLE, SCHEMA_CIBLE, entreePourLuna, historiqueSuffisant, lireReponseCibles, type CibleLuna, type EntreeCible,
+} from "@/lib/kpi/luna-cible";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -87,6 +90,29 @@ export async function proposerNiveau(
   const lue = lireReponseEvaluation(data, entree.sources, entree.grille.length);
   if (!lue) return { ok: false, raison: "Luna n'a pas pu appuyer un niveau sur des extraits vérifiables : notez vous-même." };
   return { ok: true, ...lue };
+}
+
+/**
+ * (b) LES CIBLES PROPOSÉES d'après l'historique mensuel (3 à 6 mois) de l'équipe et de la personne visée. Une seule
+ * requête pour tous les KPI de l'aperçu. Les données voyagent comme DONNÉES (`wrapUntrusted`). Ne lève jamais : toute
+ * garde qui cède (porte fermée, délai, JSON illisible, chiffre étranger à l'historique) rend `null` pour le KPI, et
+ * l'appelant retombe sur la règle fixe (`score.ts › proposerCible`).
+ */
+export async function proposerCibles(
+  entrees: readonly (EntreeCible | null)[],
+  userId: string,
+): Promise<{ cibles: (CibleLuna | null)[]; note: string | null }> {
+  const vide = entrees.map(() => null);
+  const utiles = entrees.map((e, i) => (e && historiqueSuffisant(e.historique) ? i : -1)).filter((i) => i >= 0);
+  if (utiles.length === 0) return { cibles: vide, note: "Moins de trois mois d'historique : la cible suit la règle fixe (moyenne et meilleur de l'équipe)." };
+  const p = await porte();
+  if (!p.ouverte) return { cibles: vide, note: `${p.raison} La cible suit la règle fixe.` };
+  const donnees = JSON.stringify(utiles.map((i) => entreePourLuna(i, entrees[i]!)));
+  const user = `KPI À CIBLER (historique mensuel réel, du plus ancien au plus récent) :\n${wrapUntrusted(donnees, { source: "plateforme", kind: "historique de KPI", maxChars: 12_000 })}`;
+  const { data } = await appeler({ system: CONSIGNE_CIBLE, user, schema: SCHEMA_CIBLE as unknown as { name: string; schema: Record<string, unknown> }, max: 1800 }, userId);
+  const cibles = lireReponseCibles(data, entrees);
+  const lues = cibles.filter(Boolean).length;
+  return { cibles, note: lues === 0 ? "Luna n'a pas pu appuyer une cible sur l'historique : la cible suit la règle fixe." : null };
 }
 
 /** (d) LE BROUILLON DU COMMENTAIRE de la revue. Repli : un commentaire écrit depuis les seuls chiffres. */

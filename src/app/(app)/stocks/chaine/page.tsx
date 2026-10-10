@@ -19,9 +19,11 @@ export const metadata = { title: "Stocks de la chaîne — AMD Internal OS" };
 
 /**
  * LES STOCKS DE LA CHAÎNE, PAR BU (Direction, 08/10 — maquette « Stocks de la chaîne ») : pour chacun de nos produits,
- * notre stock, le stock PCH central (saisi depuis le mail de la PCH) et la somme des derniers relevés des hôpitaux, avec
- * l'âge de chaque relevé (orange au-delà de 30 jours). La couverture = ce stock ÷ la consommation mensuelle lue dans
- * « Ventes PCH » (moyenne des 3 derniers mois complets distribués aux hôpitaux) : rouge sous 2 mois, orange sous 3.
+ * le stock PCH central et celui des directions régionales (saisis depuis les relevés de la PCH) et la somme des derniers
+ * relevés des hôpitaux (les KAM), avec l'âge de chaque relevé (orange au-delà de 30 jours). Direction, 10/2026 : « les
+ * stocks Adventum proviennent de deux sources, la PCH et les hôpitaux » — pas de colonne Adventum. La couverture = ce stock
+ * ÷ la consommation mensuelle lue dans « Ventes PCH » (moyenne des 3 derniers mois complets distribués aux hôpitaux) :
+ * rouge sous 2 mois, orange sous 3.
  */
 
 export default async function StocksChainePage({ searchParams }: { searchParams?: { bu?: string } }) {
@@ -34,16 +36,15 @@ export default async function StocksChainePage({ searchParams }: { searchParams?
   const bu = searchParams?.bu && bus.some(([id]) => id === searchParams.bu) ? searchParams.bu : null;
   const visibles = bu ? lignes.filter((l) => (l.buId ?? "-") === bu) : lignes;
   const groupes = bus.filter(([id]) => !bu || id === bu).map(([id, nom]) => ({ id, nom, lignes: visibles.filter((l) => (l.buId ?? "-") === id) }));
-  const sansStockPropre = lignes.every((l) => l.adventum === null);
 
   return (
     <div className="space-y-4">
       <ModuleTabs tabs={ongletsStocks(true)} />
-      <PageHeader title="Stocks de la chaîne" description="Adventum · PCH central · hôpitaux, par BU">
+      <PageHeader title="Stocks de la chaîne" description="PCH central · directions régionales · hôpitaux, par BU">
         <InfoBulle>
-          PCH central : le dernier relevé saisi depuis le mail de la PCH. Hôpitaux : la somme du dernier relevé de chaque
-          hôpital (demandes de stocks). Un relevé de plus de 30 jours passe en orange.
-          {sansStockPropre ? " Adventum : aucun stock initial n'est posé — la colonne reste « — »." : ""}
+          Deux sources : la PCH (relevés reçus par mail — central et directions régionales) et les hôpitaux (relevés des
+          KAM, demandes de stocks). PCH central et Directions rég. : le dernier relevé de chaque lieu. Hôpitaux : la somme
+          du dernier relevé de chaque hôpital. Un relevé de plus de 30 jours passe en orange.
           {" "}Conso / mois : la moyenne des 3 derniers mois complets distribués aux hôpitaux (Ventes PCH). Couverture : le
           stock de la chaîne ÷ cette consommation — rouge sous {SEUIL_RUPTURE_MOIS} mois, orange sous {SEUIL_VIGILANCE_MOIS}.
         </InfoBulle>
@@ -67,8 +68,8 @@ export default async function StocksChainePage({ searchParams }: { searchParams?
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">
                 <th className="sticky left-0 z-10 bg-card px-3 py-2 font-medium">Produit</th>
-                <th className="px-3 py-2 text-right font-medium">Adventum</th>
                 <th className="px-3 py-2 text-right font-medium">PCH central</th>
+                <th className="px-3 py-2 text-right font-medium">Directions rég.</th>
                 <th className="px-3 py-2 text-right font-medium">Hôpitaux</th>
                 <th className="px-3 py-2 text-right font-medium">Conso / mois</th>
                 <th className="px-3 py-2 text-right font-medium">Couverture chaîne</th>
@@ -84,7 +85,7 @@ export default async function StocksChainePage({ searchParams }: { searchParams?
         </div>
       )}
       <p className="text-xs text-muted-foreground">
-        Saisir le stock PCH reçu par mail : <Link href={CHEMIN_STOCK_PCH} className="text-primary hover:underline">Stock PCH central</Link>.
+        Saisir le stock PCH reçu par mail : <Link href={CHEMIN_STOCK_PCH} className="text-primary hover:underline">Stock PCH</Link>.
       </p>
     </div>
   );
@@ -108,15 +109,15 @@ function Groupe({ nom, lignes, avecTitre, consommationMensuelle }: { nom: string
         </tr>
       )}
       {lignes.map((l) => {
-        const total = stockDeLaChaine([l.adventum?.quantite, l.pch?.quantite, l.hopitaux?.quantite]);
+        const total = stockDeLaChaine([l.pch?.quantite, l.directions?.quantite, l.hopitaux?.quantite]);
         const conso = consommationMensuelle(l.productId);
         const couverture = couvertureEnMois(total, conso);
         const niveau = niveauCouverture(couverture);
         return (
           <tr key={`${l.buId ?? "-"}:${l.productId}`} className="border-b border-border last:border-0">
             <td className="sticky left-0 z-10 bg-card px-3 py-2 font-medium">{l.label}</td>
-            <Cellule niveau={l.adventum} />
             <Cellule niveau={l.pch} />
+            <Cellule niveau={l.directions} note={l.directions ? `${l.directions.nb} DR` : undefined} title={l.directions?.parDr.map((d) => `${d.code} ${formatNumber(d.quantite)}`).join(" · ")} />
             <Cellule niveau={l.hopitaux} note={l.hopitaux ? `${l.hopitaux.nb} hôp.` : undefined} />
             <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{conso === null ? "—" : formatNumber(conso)}</td>
             <td className={cn("px-3 py-2 text-right tabular-nums", niveau === "rupture" ? "font-semibold text-destructive" : niveau === "vigilance" ? "font-medium text-warning" : niveau === "ok" ? "" : "text-muted-foreground")}>
@@ -132,11 +133,11 @@ function Groupe({ nom, lignes, avecTitre, consommationMensuelle }: { nom: string
   );
 }
 
-function Cellule({ niveau, note }: { niveau: { quantite: number; date: string } | null; note?: string }) {
+function Cellule({ niveau, note, title }: { niveau: { quantite: number; date: string } | null; note?: string; title?: string }) {
   if (!niveau) return <td className="px-3 py-2 text-right text-muted-foreground">—</td>;
   const age = ageEnJours(niveau.date);
   return (
-    <td className="px-3 py-2 text-right">
+    <td className="px-3 py-2 text-right" title={title}>
       <div className="tabular-nums">{formatNumber(niveau.quantite)}</div>
       <div className={cn("text-xs", estPerime(age) ? "font-medium text-warning" : "text-muted-foreground")}>
         {ilYa(age)}{note ? ` · ${note}` : ""}

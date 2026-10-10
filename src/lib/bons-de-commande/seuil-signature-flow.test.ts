@@ -164,7 +164,8 @@ suite("Seuil des bons de commande et signature des Finances — le flux réel", 
 
     // Les Finances sont PRÉVENUES — la file ne sert à rien si personne ne sait qu'elle bouge.
     const notif = await prisma.notification.findFirst({
-      where: { userId: financeId, link: CHEMIN_BC_A_SIGNER, body: { contains: `${TAG}petit` } },
+      // La notification ouvre la file SUR la ligne du BC (`?bc=<id>`).
+      where: { userId: financeId, link: { startsWith: CHEMIN_BC_A_SIGNER }, body: { contains: `${TAG}petit` } },
     });
     expect(notif, "une notification « à signer » pour les Finances").not.toBeNull();
 
@@ -196,7 +197,7 @@ suite("Seuil des bons de commande et signature des Finances — le flux réel", 
     expect(d.ok, d.ok === false ? d.error : "").toBe(true);
     expect((await etatDuBC(r.id!))?.etape).toBe("A_SIGNER");
     const notif = await prisma.notification.findFirst({
-      where: { userId: financeId, link: CHEMIN_BC_A_SIGNER, body: { contains: `${TAG}valide` } },
+      where: { userId: financeId, link: { startsWith: CHEMIN_BC_A_SIGNER }, body: { contains: `${TAG}valide` } },
     });
     expect(notif, "la validation du centre prévient les Finances").not.toBeNull();
   });

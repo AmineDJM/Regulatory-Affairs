@@ -1242,6 +1242,14 @@ X("OPERATIONS & SALES (Direction, 08/10) — le STOCK PCH CENTRAL saisi depuis l
   + "collage confirmé à l'écran, mail joint). Un geste d'écran, devant le relevé : Adam est en pause de développement, "
   + "aucun geste neuf ne lui est ouvert.", [
   "stock-pch-actions:enregistrerStockPch",
+  // LE RELEVÉ EN FICHIER (Excel / CSV de la PCH) : une LECTURE du fichier déposé à l'écran (rien n'est écrit) — la vérification
+  // et l'enregistrement sont le geste d'écran ci-dessus.
+  "stock-pch-actions:lireReleveStockPch",
+]);
+X("COMPLÉMENTS (Direction, 10/2026) — le produit d'une déclaration d'information médicale (corrigé par le pharmacien dans la "
+  + "déclaration) et la date de besoin d'une demande de matériel promotionnel (modifiée par le demandeur sur sa demande). "
+  + "Des champs d'une fiche, corrigés devant elle : Adam est en pause de développement, aucun geste neuf ne lui est ouvert.", [
+  "medical-info-actions:changerProduitDeclaration", "promo-material-actions:modifierDateBesoinPromo",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "

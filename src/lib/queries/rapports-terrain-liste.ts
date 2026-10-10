@@ -253,11 +253,20 @@ export async function chargerListeRapports(user: SessionUser, filtres: FiltresRa
       ])
     : [[], []];
 
+  // LE DÉLÉGUÉ CHOISI par l'adresse (`?delegue=` — « Voir ses rapports » de Mon Équipe, de la Force de vente) doit se lire
+  // sur la liste même s'il n'a pas de profil de force de vente : sans lui dans le menu, le filtre s'appliquerait en silence.
+  // Seulement pour qui voit les rapports de tous — pour les autres, le filtre est ignoré (la liste reste la leur).
+  const menuDelegues = optionsDelegues.map((u) => ({ id: u.id, nom: u.name }));
+  if (toutVoir && filtres.delegue && !menuDelegues.some((d) => d.id === filtres.delegue)) {
+    const choisi = await prisma.user.findUnique({ where: { id: filtres.delegue }, select: { id: true, name: true } }).catch(() => null);
+    if (choisi) menuDelegues.push({ id: choisi.id, nom: choisi.name });
+  }
+
   return {
     lignes: filtrees.slice(0, PLAFOND),
     filtres,
     toutVoir,
-    delegues: optionsDelegues.map((u) => ({ id: u.id, nom: u.name })),
+    delegues: menuDelegues,
     bus: optionsBus.map((b) => ({ id: b.id, nom: b.name })),
     tronquee: filtrees.length > PLAFOND || visites.length === PLAFOND || comptesRendus.length === PLAFOND || cas.length === PLAFOND,
   };

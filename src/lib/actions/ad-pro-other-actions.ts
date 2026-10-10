@@ -15,6 +15,7 @@ import { companyIdForNew } from "@/lib/company";
 import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { lienLigneCentreAdPro } from "@/lib/chemins/ad-pro";
 
 const PATH = "/ad-pro/autres";
 
@@ -105,7 +106,7 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
     if (visaAutre === "PENDING") {
       await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
         type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — demande au-dessus du seuil",
-        body: `${req.reference} — ${title}`, link: "/centre-ad-pro",
+        body: `${req.reference} — ${title}`, link: lienLigneCentreAdPro(req.id),
       });
     } else {
       await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
@@ -236,14 +237,14 @@ export async function resoumettreAdProOtherRequest(formData: FormData): Promise<
     if (visa.etat === "PENDING") {
       await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
         type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — demande resoumise au-dessus du seuil",
-        body: `${req.reference} — ${req.title}`, link: "/centre-ad-pro",
+        body: `${req.reference} — ${req.title}`, link: lienLigneCentreAdPro(id),
       });
     } else if (visa.etat === "REFUSED") {
       // Sous un REFUS du centre, seul un siège peut la réexaminer : prévenir la Direction, que ce refus
       // bloque, lui demanderait une décision qu'elle ne peut pas prendre (§118.30).
       await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
         type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — demande resoumise : votre refus est à réexaminer",
-        body: `${req.reference} — ${req.title} · ${note}`, link: "/centre-ad-pro",
+        body: `${req.reference} — ${req.title} · ${note}`, link: lienLigneCentreAdPro(id),
       });
     } else {
       await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {

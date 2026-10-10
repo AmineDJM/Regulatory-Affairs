@@ -2,7 +2,7 @@
 
 import { deposerLettreDevis, phraseDepotLettre, societeDeLaLettre } from "@/lib/demande-devis-depot";
 import { CHEMIN_STOCK_PROMO, lienStockPromo } from "@/lib/chemins/stock-promo";
-import { lienPosteAdPro } from "@/lib/chemins/ad-pro";
+import { lienPosteAdPro, lienLigneCentreAdPro } from "@/lib/chemins/ad-pro";
 import { revalidatePath } from "next/cache";
 import type { AdProItemKind, AdProItemOrderStage, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -535,7 +535,7 @@ async function appliquerGesteVisa(
     });
     if (r.count === 0) return null;
     await notifyRoles(SIEGES_CENTRE, {
-      type: "VALIDATION_REQUIRED", title: "Bon de commande à revoir", body: `${cible} — ${geste.motif}`, link: "/centre-ad-pro",
+      type: "VALIDATION_REQUIRED", title: "Bon de commande à revoir", body: `${cible} — ${geste.motif}`, link: lienLigneCentreAdPro(item.id),
     }).catch(() => undefined);
     // Les Finances avaient reçu « à émettre » : sans ce message, l'ordre partirait sous l'ancien visa.
     await notifyRoles(FINANCES_BC, {
@@ -2281,7 +2281,7 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   const posee = await prisma.adProItem.updateMany({ where, data });
   if (posee.count === 0) return { ok: false, error: REFUS_MARCHE_PRISE };
   if (!sousLeSeuil) {
-    await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], notificationDuCentreBC({ ref: demande.ref, label: item.label, montantAccorde: montantAccorde as number })).catch(() => undefined);
+    await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], notificationDuCentreBC({ id: item.id, ref: demande.ref, label: item.label, montantAccorde: montantAccorde as number })).catch(() => undefined);
   }
   await envoyerDemandeBC({ item, owner, ref: demande.ref, montant: montantAccorde, assistante, demandeurId: user.id, note });
   await audit(user, owner.parent, owner.id, "UPDATE", sousLeSeuil
@@ -3956,7 +3956,7 @@ async function traiterLeBCDuPoste(formData: FormData, mode: "APERCU" | "VALIDER"
       const posee = await prisma.adProItem.updateMany({ where: prise.where, data: prise.data });
       if (posee.count === 0) return { ok: false, error: REFUS_MARCHE_PRISE };
       if (!prise.sousLeSeuil) {
-        await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], notificationDuCentreBC({ ref: info.ref, label: item.label, montantAccorde: montantAccorde as number })).catch(() => undefined);
+        await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], notificationDuCentreBC({ id: item.id, ref: info.ref, label: item.label, montantAccorde: montantAccorde as number })).catch(() => undefined);
       }
       marche = { sousLeSeuil: prise.sousLeSeuil, seuilBC: prise.seuilBC };
     }

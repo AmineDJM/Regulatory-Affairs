@@ -26,6 +26,8 @@ import { BudgetSettings } from "./budget-settings";
 import { CreateEnvelopeButton } from "./budget-forms";
 import { NouvelleEnveloppePole } from "./enveloppe-marketing-forms";
 import { VueEnsembleRegulatory } from "./vue-regulatory";
+import { SurlignerCible } from "@/components/shared/surligner-cible";
+import { ancreCategorieBudget } from "@/lib/chemins/budgets";
 
 /**
  * LES ÉCRANS DES BUDGETS, POUR QUATRE PORTÉES (Budget Marketing, puis Budget Regulatory et Budget Operations & Sales,
@@ -37,7 +39,11 @@ import { VueEnsembleRegulatory } from "./vue-regulatory";
  * de pôle se lit mais ne se règle plus : elle dit où elle se gère.
  */
 
-export type ParamsBudget = { env?: string; from?: string; to?: string };
+export type ParamsBudget = {
+  env?: string; from?: string; to?: string;
+  /** Ancre de la ligne dont parle une notification (`categorie-budget-<id>`) : elle vient sous les yeux et s'entoure. */
+  cible?: string;
+};
 
 interface Config { portee: PorteeBudget; base: string; titre: string }
 
@@ -105,10 +111,13 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
   // BUDGET REGULATORY a sa vue d'ensemble allégée (Direction, 09/10) ; les autres portées gardent celle-ci, inchangée.
   if (pole === "REGULATORY") {
     return (
-      <VueEnsembleRegulatory
-        user={user} base={config.base} titre={config.titre} overview={overview} envelopes={envelopes} tabs={tabs}
-        exportHref={`/api/budgets/export?env=${overview.envelope.id}&from=${overview.period.from.slice(0, 10)}&to=${overview.period.to.slice(0, 10)}&portee=regulatory`}
-      />
+      <>
+        <SurlignerCible ids={[searchParams.cible]} />
+        <VueEnsembleRegulatory
+          user={user} base={config.base} titre={config.titre} overview={overview} envelopes={envelopes} tabs={tabs}
+          exportHref={`/api/budgets/export?env=${overview.envelope.id}&from=${overview.period.from.slice(0, 10)}&to=${overview.period.to.slice(0, 10)}&portee=regulatory`}
+        />
+      </>
     );
   }
 
@@ -121,7 +130,7 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
   const barRows = topCats
     .filter((c) => c.allocated > 0 || c.consumed > 0)
     .sort((a, b) => b.consumed - a.consumed)
-    .map((c) => ({ label: c.name, budget: c.allocated, consumed: c.consumed }));
+    .map((c) => ({ id: ancreCategorieBudget(c.id), label: c.name, budget: c.allocated, consumed: c.consumed }));
   // Camembert de tête : plusieurs enveloppes → comment le budget global se répartit entre elles.
   const envSlices = grandTotal.count > 1
     ? foldTail(grandTotal.items.filter((e) => e.total > 0).map((e) => ({ label: e.name, value: e.total })))
@@ -131,6 +140,7 @@ export async function VueEnsembleBudget({ user, searchParams, config }: { user: 
 
   return (
     <div className="space-y-5">
+      <SurlignerCible ids={[searchParams.cible]} />
       <PageHeader title={config.titre} description={description}>
         <a
           href={exportHref}

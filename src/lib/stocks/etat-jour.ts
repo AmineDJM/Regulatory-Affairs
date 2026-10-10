@@ -12,6 +12,8 @@ export interface EtatDuJour {
   scope: "PCH" | "HOSPITAL" | "ANNEX";
   /** Le lieu (hôpital ou annexe) — nul pour la PCH. */
   annexId: string | null;
+  /** La direction régionale de la PCH (« DRA »…) : scope ANNEX, `annexId` nul. Nul partout ailleurs. */
+  drCode?: string | null;
   productId: string;
   date: Date;
   quantity: number;
@@ -23,8 +25,9 @@ export async function ecrireEtatDuJour(e: EtatDuJour): Promise<{ id: string; cre
   const dayStart = new Date(e.date); dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
   const quantity = Math.round(e.quantity);
+  const drCode = e.drCode ?? null;
   const existing = await prisma.stockSnapshot.findFirst({
-    where: { scope: e.scope, annexId: e.annexId, productId: e.productId, date: { gte: dayStart, lt: dayEnd } },
+    where: { scope: e.scope, annexId: e.annexId, drCode, productId: e.productId, date: { gte: dayStart, lt: dayEnd } },
     select: { id: true },
   });
   if (existing) {
@@ -32,7 +35,7 @@ export async function ecrireEtatDuJour(e: EtatDuJour): Promise<{ id: string; cre
     return { id: existing.id, cree: false };
   }
   const cree = await prisma.stockSnapshot.create({
-    data: { scope: e.scope, annexId: e.annexId, productId: e.productId, date: e.date, quantity, companyId: e.companyId, createdById: e.createdById },
+    data: { scope: e.scope, annexId: e.annexId, drCode, productId: e.productId, date: e.date, quantity, companyId: e.companyId, createdById: e.createdById },
     select: { id: true },
   });
   return { id: cree.id, cree: true };

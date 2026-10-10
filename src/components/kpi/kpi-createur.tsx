@@ -16,7 +16,7 @@ import { submitFeedback } from "@/lib/actions/feedback-actions";
 import { PastilleKpi } from "@/components/kpi/kpi-commun";
 
 type Bulle = { de: "moi" | "luna"; texte: string };
-interface Proposee { def: DefinitionKpi; explication: string | null; retenue: boolean }
+interface Proposee { def: DefinitionKpi; explication: string | null; retenue: boolean; justificationCible?: string | null; cibleParLuna?: boolean }
 
 /**
  * NOUVEAU KPI — l'assistant (maquette validée) : une phrase → des définitions proposées par Luna, contraintes aux
@@ -62,6 +62,8 @@ export function KpiCreateur({ personnes, roles = [], onAjoute }: {
     if (retenues.length === 0) return;
     setBusy("apercu"); setMsg(null);
     const fd = new FormData(); fd.set("definitions", JSON.stringify(retenues.map((p) => p.def)));
+    // La cible se lit sur l'historique de la personne visée (en plus de celui de l'équipe).
+    if (pour !== "EQUIPE" && !pour.startsWith("ROLE:")) fd.set("pour", pour);
     const r = await apercuKpi(fd).catch(() => null);
     setBusy(null);
     if (r?.ok) {
@@ -72,9 +74,10 @@ export function KpiCreateur({ personnes, roles = [], onAjoute }: {
         return ps.map((p) => {
           if (!p.retenue) return p;
           const c = r.apercu.colonnes[i++];
-          return c && p.def.cible === null && c.cibleProposee !== null ? { ...p, def: { ...p.def, cible: c.cibleProposee } } : p;
+          return c && p.def.cible === null && c.cibleProposee !== null ? { ...p, def: { ...p.def, cible: c.cibleProposee }, justificationCible: c.justification, cibleParLuna: c.parLuna } : p;
         });
       });
+      if (r.apercu.noteCibles) setMsg({ ok: true, texte: r.apercu.noteCibles });
     } else setMsg({ ok: false, texte: r && !r.ok ? r.error : "L'aperçu n'a pas pu se calculer." });
   };
 
@@ -133,12 +136,16 @@ export function KpiCreateur({ personnes, roles = [], onAjoute }: {
           {p.explication && (<><span className="text-muted-foreground">Pourquoi</span><span className="text-muted-foreground">{p.explication}</span></>)}
           {p.def.grille && (<><span className="text-muted-foreground">Grille</span><span>{p.def.grille.map((n, k) => `${k + 1}. ${n.libelle}`).join(" · ")}</span></>)}
           <span className="text-muted-foreground">Cible</span>
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center gap-2">
             <input
               value={p.def.cible ?? ""} onChange={(e) => changerCible(i, e.target.value)} inputMode="decimal" aria-label="Cible"
               className="h-8 w-24 rounded-md border border-input bg-background px-2"
             />
             <span className="text-xs text-muted-foreground">{p.def.unite === "POURCENT" ? "%" : p.def.unite === "NIVEAU" ? `niveau sur ${p.def.grille?.length ?? 4}` : p.def.periode === "TRIMESTRE" ? "par trimestre" : "par mois"}</span>
+            {p.cibleParLuna && <Sparkles className="h-3.5 w-3.5 text-purple-500" aria-label="Cible proposée par Luna" />}
+            {p.justificationCible && (
+              <InfoBulle align="left">{p.cibleParLuna ? "Cible proposée par Luna d'après l'historique des derniers mois. " : ""}{p.justificationCible}</InfoBulle>
+            )}
           </span>
         </div>
       ))}
@@ -147,7 +154,7 @@ export function KpiCreateur({ personnes, roles = [], onAjoute }: {
         <section className="surface min-w-0 rounded-xl">
           <h3 className="flex items-center gap-1 border-b border-border px-4 py-2.5 text-sm font-semibold">
             Aperçu · {apercu.periodes[0]}
-            <InfoBulle align="left">Données réelles de votre équipe ; rien n&apos;est encore enregistré. La cible proposée se place entre la moyenne et le meilleur de l&apos;équipe.</InfoBulle>
+            <InfoBulle align="left">Données réelles de votre équipe ; rien n&apos;est encore enregistré. Luna propose la cible d&apos;après l&apos;historique mensuel (3 à 6 mois) de l&apos;équipe et de la personne choisie ; sans historique suffisant ou sans Luna, elle se place entre la moyenne et le meilleur de l&apos;équipe. La justification s&apos;ouvre à côté de la cible.</InfoBulle>
           </h3>
           <Table className="min-w-[28rem]">
             <TableHeader>

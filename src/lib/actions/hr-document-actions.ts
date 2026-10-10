@@ -34,6 +34,7 @@ import { etatDuRegistre } from "@/lib/references/registre-serveur";
 import type { ReferenceProchaine } from "@/lib/references/registre";
 import { synchroniserOrdreEmis } from "@/lib/missions-equipe/serveur";
 import { refusTraitementRh } from "@/lib/missions-equipe/etat";
+import { estEtatRhTraite, marquerDemandeRhTraitee } from "@/lib/hr-demande-traitee";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
@@ -546,6 +547,7 @@ export async function processHrRequest(formData: FormData): Promise<ActionResult
     data: { status, hrNote: fdStr(formData, "hrNote"), handledById: user.id },
     include: { employee: { select: { fullName: true, userId: true } } },
   });
+  if (estEtatRhTraite(status)) await marquerDemandeRhTraitee(id); // brique KPI « demandes traitées »
 
   // Congé ANNUEL approuvé (READY) : débit UNIQUE du solde de congés de l'employé.
   // (Les congés/absences passent normalement par decideHrLeave ; garde de compat.)
@@ -639,6 +641,7 @@ export async function decideHrLeave(formData: FormData): Promise<ActionResult> {
     where: { id },
     data: { status: approved ? "APPROVED" : "REJECTED", handledById: user.id, ...(note ? { hrNote: note } : {}) },
   });
+  await marquerDemandeRhTraitee(id); // brique KPI « demandes traitées »
 
   // Congé annuel accordé : débit du solde (idempotent). Autres congés/absences : pas de solde.
   const debited = approved ? await applyAnnualLeaveBalance(req, user.id, req.employee.fullName) : 0;
@@ -756,6 +759,7 @@ export async function confirmHrMeeting(formData: FormData): Promise<ActionResult
     where: { id },
     data: { meetingConfirmedAt: new Date(), status: "READY", ...(isHr && !isOwner ? { handledById: user.id } : {}) },
   });
+  if (isHr && !isOwner) await marquerDemandeRhTraitee(id); // brique KPI « demandes traitées » (confirmée par les RH)
 
   // Rendez-vous au calendrier des deux parties (organisateur = côté RH).
   const employeeUserId = req.employee.userId;

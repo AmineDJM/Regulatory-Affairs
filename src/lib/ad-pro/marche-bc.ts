@@ -1,5 +1,6 @@
 import { getAppSettings } from "@/lib/settings";
 import { validationRequiseBC, motifSousLeSeuil } from "@/lib/bons-de-commande/regle";
+import { lienLigneCentreAdPro } from "@/lib/chemins/ad-pro";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -55,9 +56,10 @@ export async function lireLaMarcheDuBC(i: {
 }
 
 /** TOUT BC NÉ D'AD & PRO AU-DESSUS DU SEUIL PASSE PAR LE CENTRE DE VALIDATION AD & PRO (§118.148) : ce que le centre lit. */
-export function notificationDuCentreBC(i: { ref: string; label: string; montantAccorde: number }) {
+export function notificationDuCentreBC(i: { id?: string; ref: string; label: string; montantAccorde: number }) {
   return {
     type: "VALIDATION_REQUIRED" as const, title: "Bon de commande à valider",
-    body: `${i.ref} — « ${i.label} » (${i.montantAccorde.toLocaleString("fr-FR")} DZD)`, link: "/centre-ad-pro",
+    // La ligne du poste dans le centre (`?ligne=<id du poste>`) : la notification arrive sur CE bon de commande.
+    body: `${i.ref} — « ${i.label} » (${i.montantAccorde.toLocaleString("fr-FR")} DZD)`, link: lienLigneCentreAdPro(i.id),
   };
 }

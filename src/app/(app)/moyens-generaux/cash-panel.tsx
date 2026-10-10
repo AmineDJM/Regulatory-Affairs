@@ -25,6 +25,7 @@ import {
 } from "@/lib/actions/petty-cash-actions";
 import type { GeneralMeansView, GeneralMeansRemittance } from "@/lib/queries/general-means";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { ancreRemise, ancreRallonge } from "@/lib/chemins/moyens-generaux";
 
 /**
  * LA CAISSE D'AVANCE, À L'ÉCRAN — une seule, continue.
@@ -122,7 +123,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
               le fond : le centre doit les autoriser, puis les Finances les verser. La détentrice
               confirmera leur réception à ce moment-là, et pas avant. */}
           {enAttente.map((r) => (
-            <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-secondary/30 p-3 text-sm">
+            <div key={r.id} id={ancreRemise(r.id)} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-secondary/30 p-3 text-sm">
               <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 <strong>{formatCurrency(r.amount)}</strong> demandés le {formatDate(r.remittedAt)}
@@ -136,7 +137,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           {/* CONFIRMER LA RÉCEPTION, REMISE PAR REMISE. Une somme décidée n'est pas une somme
               détenue : tant que la personne n'a pas dit l'avoir reçue, elle n'est pas dépensable. */}
           {aConfirmer.map((r) => (
-            <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
+            <div key={r.id} id={ancreRemise(r.id)} className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
               <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
               <span className="min-w-0 flex-1">
                 <strong>{formatCurrency(r.amount)}</strong> ont été versés pour votre caisse (remise du {formatDate(r.remittedAt)}) —
@@ -336,7 +337,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           </h3>
           <ul className="divide-y divide-border rounded-xl border border-border">
             {view.topUps.map((t) => (
-              <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+              <li key={t.id} id={ancreRallonge(t.id)} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
                 <span className="min-w-0 flex-1">
                   <span className="font-medium tabular-nums">+{formatCurrency(t.amountRequested)} demandés</span>
                   {t.reason && <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{t.reason}</span>}
@@ -417,7 +418,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           </summary>
           <div className="space-y-3 border-t border-border p-3">
             {cash && cash.remittances.length > 0 && (
-              <RemittanceList title={`Remises en cours (${cash.remittances.length})`} rows={cash.remittances} />
+              <RemittanceList title={`Remises en cours (${cash.remittances.length})`} rows={cash.remittances} dejaAncrees={new Set([...enAttente, ...aConfirmer].map((r) => r.id))} />
             )}
             {view.history.length > 0 && (
               <RemittanceList title="Remises soldées" rows={view.history} muted />
@@ -429,7 +430,11 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
   );
 }
 
-function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMeansRemittance[]; muted?: boolean }) {
+function RemittanceList({ title, rows, muted, dejaAncrees }: {
+  title: string; rows: GeneralMeansRemittance[]; muted?: boolean;
+  /** Les remises déjà montrées plus haut (en attente, à confirmer) portent leur ancre là-bas : un identifiant ne se pose qu'une fois. */
+  dejaAncrees?: ReadonlySet<string>;
+}) {
   return (
     <div className="space-y-1.5">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
@@ -447,7 +452,7 @@ function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMe
           </TableHeader>
           <TableBody className={muted ? "text-muted-foreground" : ""}>
             {rows.map((r) => (
-              <TableRow key={r.id}>
+              <TableRow key={r.id} id={dejaAncrees?.has(r.id) ? undefined : ancreRemise(r.id)}>
                 <TableCell className="sm:py-1.5" data-sans-etiquette>
                   <div className="min-w-0">
                     <span className="font-medium sm:font-normal">{formatDate(r.remittedAt)}</span>

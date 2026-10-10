@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { CHEMIN_FORMATIONS, lienFormation } from "@/lib/chemins/formations";
 import { getAppSettings } from "@/lib/settings";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { companyIdForNew } from "@/lib/company";
@@ -24,7 +25,7 @@ import {
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { refusAnnulationFormation } from "@/lib/annulations/regles";
 
-const PATH = "/formations";
+const PATH = CHEMIN_FORMATIONS;
 
 /**
  * FORMATIONS — actions serveur.
@@ -135,11 +136,11 @@ export async function requestTraining(_prev: ActionResult | undefined, formData:
   if (stage === "MANAGER" && managerUserId) {
     await notifyUser({
       userId: managerUserId, type: "VALIDATION_REQUIRED", title: "Formation à valider (votre équipe)",
-      body: `${user.name} — ${title}`, link: PATH,
+      body: `${user.name} — ${title}`, link: lienFormation(created.id),
     });
   } else {
     await notifyRoles(chainNotifyRoles("HR") as UserRole[], {
-      type: "VALIDATION_REQUIRED", title: "Demande de formation", body: `${user.name} — ${title}`, link: PATH,
+      type: "VALIDATION_REQUIRED", title: "Demande de formation", body: `${user.name} — ${title}`, link: lienFormation(created.id),
     });
   }
   await recordAudit({
@@ -193,7 +194,7 @@ export async function createHrTraining(_prev: ActionResult | undefined, formData
 
   await notifyRoles(chainNotifyRoles("DG") as UserRole[], {
     type: "VALIDATION_REQUIRED", title: "Formation à valider (direction)",
-    body: `${title} — ${amount} DZD`, link: PATH,
+    body: `${title} — ${amount} DZD`, link: lienFormation(created.id),
   });
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "TRAINING", entityId: created.id,
@@ -285,7 +286,7 @@ export async function decideTraining(formData: FormData): Promise<ActionResult> 
     if (roles.length) {
       await notifyRoles(roles, {
         type: "VALIDATION_REQUIRED", title: "Formation à valider",
-        body: `${training.title} — ${CHAIN_STAGE_LABELS[next.stage]}`, link: PATH,
+        body: `${training.title} — ${CHAIN_STAGE_LABELS[next.stage]}`, link: lienFormation(id),
       });
     }
   }
@@ -295,7 +296,7 @@ export async function decideTraining(formData: FormData): Promise<ActionResult> 
       title: next.status === "PENDING" ? "Formation : une étape de plus"
         : next.status === "APPROVED" ? "Formation accordée" : "Formation refusée",
       body: `${training.title}${note ? ` — ${note}` : ""}`,
-      link: PATH,
+      link: lienFormation(id),
     });
   }
   await recordAudit({
@@ -372,7 +373,7 @@ export async function inviteTrainingParticipants(formData: FormData): Promise<Ac
       userId, type: "ASSIGNMENT",
       title: attendance === "MANDATORY" ? "Formation — vous êtes convoqué" : "Invitation à une formation",
       body: `${training.title}${attendance === "VOLUNTARY" ? " — acceptez ou déclinez depuis Formations." : ""}`,
-      link: PATH,
+      link: lienFormation(trainingId),
     });
   }
   await recordAudit({
@@ -411,7 +412,7 @@ export async function respondToTrainingInvitation(formData: FormData): Promise<A
     await notifyUser({
       userId: participant.training.requesterId, type: "GENERIC",
       title: answer === "ACCEPTED" ? "Formation : participation acceptée" : "Formation : participation déclinée",
-      body: `${user.name} — ${participant.training.title}`, link: PATH,
+      body: `${user.name} — ${participant.training.title}`, link: lienFormation(participant.training.id),
     });
   }
   await revalidateTraining(participant.training.id);
@@ -450,11 +451,11 @@ export async function annulerFormation(formData: FormData): Promise<ActionResult
   if (training.status === "PENDING" && training.stage === "MANAGER" && training.managerId) {
     const chef = await prisma.employee.findUnique({ where: { id: training.managerId }, select: { userId: true } });
     if (chef?.userId && chef.userId !== user.id) {
-      await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Formation annulée", body: corps, link: PATH }).catch(() => undefined);
+      await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Formation annulée", body: corps, link: lienFormation(id) }).catch(() => undefined);
     }
   } else {
     const roles = (training.status === "APPROVED" ? ["DIRECTION", "SUPER_ADMIN", ...rolesWithModule("TRAINING", "UPDATE")] : chainNotifyRoles(training.stage as ChainStage)) as UserRole[];
-    if (roles.length) await notifyRoles([...new Set(roles)], { type: "GENERIC", title: "Formation annulée", body: corps, link: PATH }).catch(() => undefined);
+    if (roles.length) await notifyRoles([...new Set(roles)], { type: "GENERIC", title: "Formation annulée", body: corps, link: lienFormation(id) }).catch(() => undefined);
   }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "TRAINING", entityId: id,

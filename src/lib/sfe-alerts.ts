@@ -17,8 +17,12 @@
  *     l'on peut encore rattraper ; au 28, l'alerte n'est plus qu'un constat.
  *  3. **COUVERTURE** — en fin de mois, une part du panel jamais vue. Un KAM peut faire son
  *     compte de visites en tournant sur dix praticiens : le volume est bon, le panel est mort.
- *  4. **NON ARMÉ** — un KAM sans panel ou sans affectation ne PEUT pas travailler. Celle-là ne
- *     vise pas le KAM : elle vise celui qui configure, et elle est adressée en conséquence.
+ *  4. **NON ARMÉ** — un KAM sans panel, ou dont la segmentation ne demande aucune visite (requis
+ *     nul), ne PEUT pas travailler. Celle-là ne vise pas le KAM : elle vise celui qui configure.
+ *
+ * LA RÉFÉRENCE EST UNE (Direction) : le REQUIS de la segmentation (lettre × fréquence du secteur,
+ * `segmentation/lettre-requise.ts`). Les visites planifiées par les affectations ne jugent plus
+ * personne : elles s'affichent en information à côté du requis.
  *
  * ── CE QUE CES RÈGLES NE FONT PAS ───────────────────────────────────────────────────────────
  *
@@ -53,7 +57,9 @@ export interface RepSnapshot {
   repId: string;
   repName: string;
   panelSize: number;
+  /** Visites planifiées par les affectations du cycle — INFORMATION SECONDAIRE, jamais le critère. */
   plannedVisits: number;
+  /** LE REQUIS de la segmentation (une seule référence : lettre × fréquence du secteur) — le critère de toute alerte. */
   requiredVisits: number;
   realVisits: number;
   coveredDoctors: number;
@@ -103,11 +109,12 @@ export function alertsForRep(
   const day = today.getDate();
 
   // 4. NON ARMÉ — la configuration d'abord : tant qu'elle manque, les autres alertes
-  //    accuseraient un homme d'un défaut d'outil.
-  if (rep.panelSize === 0 || rep.plannedVisits === 0) {
-    const quoi = rep.panelSize === 0 && rep.plannedVisits === 0 ? "ni panel ni affectation"
+  //    accuseraient un homme d'un défaut d'outil. Le critère est LE REQUIS de la segmentation (Direction : une seule
+  //    référence) ; les visites planifiées par les affectations n'en sont qu'une information.
+  if (rep.panelSize === 0 || rep.requiredVisits === 0) {
+    const quoi = rep.panelSize === 0 && rep.requiredVisits === 0 ? "ni panel ni requis de segmentation"
       : rep.panelSize === 0 ? "aucun praticien dans son panel"
-        : "aucune affectation de produit ce cycle";
+        : "aucune visite requise par la segmentation pour son panel (lettres ou fréquence du secteur à renseigner)";
     return [{
       kind: "NON_ARME", repId: rep.repId, repName: rep.repName, severity: "warning",
       title: `${rep.repName} n'est pas armé pour ce cycle`,
@@ -133,13 +140,15 @@ export function alertsForRep(
   }
 
   // 2. RETARD À MI-MOIS — pendant qu'on peut encore rattraper.
-  const cible = rep.plannedVisits || rep.requiredVisits;
+  //    La cible est LE REQUIS (segmentation) ; le planifié ne s'ajoute qu'en information.
+  const cible = rep.requiredVisits;
   const realPct = pct(rep.realVisits, cible);
   if (day >= th.midMonthDay && day < th.lateMonthDay && cible > 0 && realPct < th.midMonthPct) {
     out.push({
       kind: "RETARD", repId: rep.repId, repName: rep.repName, severity: "warning",
-      title: `${rep.repName} — ${realPct} % du plan à mi-mois`,
-      body: `${rep.realVisits} visites sur ${cible} attendues, au ${day} du mois.`,
+      title: `${rep.repName} — ${realPct} % du requis à mi-mois`,
+      body: `${rep.realVisits} visites sur ${cible} requises par la segmentation, au ${day} du mois.`
+        + (rep.plannedVisits > 0 ? ` (${rep.plannedVisits} planifiées par les affectations.)` : ""),
       key: alertKey("RETARD", today), audience: "supervisor",
     });
   }
@@ -179,10 +188,10 @@ export function fieldAlerts(
 export function monthlyReviewLine(reps: readonly RepSnapshot[]): string {
   if (reps.length === 0) return "Aucun KAM dans votre périmètre.";
   const visites = reps.reduce((s, r) => s + r.realVisits, 0);
-  const cible = reps.reduce((s, r) => s + (r.plannedVisits || r.requiredVisits), 0);
+  const cible = reps.reduce((s, r) => s + r.requiredVisits, 0);
   const panel = reps.reduce((s, r) => s + r.panelSize, 0);
   const couverts = reps.reduce((s, r) => s + r.coveredDoctors, 0);
-  const faibles = reps.filter((r) => pct(r.realVisits, r.plannedVisits || r.requiredVisits) < 60).length;
-  return `${visites} visites réalisées sur ${cible} attendues (${pct(visites, cible)} %) · panel couvert à ${pct(couverts, panel)} %`
+  const faibles = reps.filter((r) => pct(r.realVisits, r.requiredVisits) < 60).length;
+  return `${visites} visites réalisées sur ${cible} requises (${pct(visites, cible)} %) · panel couvert à ${pct(couverts, panel)} %`
     + (faibles > 0 ? ` · ${faibles} KAM sous 60 %` : " · aucun KAM sous 60 %");
 }

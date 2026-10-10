@@ -102,15 +102,16 @@ describe("ce que la demande ne porte PLUS (décision du 01/10) — lu sur les fa
     const contrat = CONTRAT_PAR_ID.get("promo-material-actions:createPromoMaterial");
     expect(contrat, "prémisse : l'action est décrite").toBeDefined();
     const champs = (contrat!.champs ?? []).map((c) => c.nom).sort();
-    expect(champs).toEqual(["description", "lignes", "title"]);
+    // + la DATE DE BESOIN (Direction, 10/2026) : « besoin pour le … », facultative.
+    expect(champs).toEqual(["description", "lignes", "neededBy", "title"]);
     for (const r of RETIRES) expect(champs, r).not.toContain(r);
   });
 
-  it("le FORMULAIRE n'envoie que le titre, le brief et les lignes", () => {
+  it("le FORMULAIRE n'envoie que le titre, le brief, la date de besoin et les lignes", () => {
     const src = sansCommentaires(readFileSync(path.join(process.cwd(), "src/components/ad-pro/demande-materiel-form.tsx"), "utf8"));
     // PRÉMISSE : la lecture voit bien les clés qu'il envoie — sans cela, l'absence ci-dessous ne
     // prouverait rien (un fichier vide ne contiendrait aucune clé retirée non plus).
-    expect(src).toMatch(/\["title", "description"\]/);
+    expect(src).toMatch(/\["title", "description", "neededBy"\]/);
     expect(src).toMatch(/fd\.set\("lignes", JSON\.stringify\(envoi\)\)/);
     for (const r of RETIRES) expect(src, `le formulaire envoie encore « ${r} »`).not.toMatch(new RegExp(`["'\`]${r}["'\`]`));
   });

@@ -19,6 +19,8 @@ import {
   requestTraining, createHrTraining, decideTraining, inviteTrainingParticipants, respondToTrainingInvitation, annulerFormation,
 } from "@/lib/actions/training-actions";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { SurlignerCible } from "@/components/shared/surligner-cible";
+import { ancreFormation } from "@/lib/chemins/formations";
 
 export interface TrainingParticipantRow {
   id: string;
@@ -63,7 +65,7 @@ export interface TrainingRow {
  * en dix lignes, et changer d'écran pour les lire ferait perdre la file.
  */
 export function TrainingBoard({
-  rows, canOrganise, isDg, people, departments, counts,
+  rows, canOrganise, isDg, people, departments, counts, formationAOuvrir,
 }: {
   rows: TrainingRow[];
   canOrganise: boolean;
@@ -71,11 +73,15 @@ export function TrainingBoard({
   people: { id: string; name: string }[];
   departments: { id: string; name: string }[];
   counts: ParticipantCounts[];
+  /** La formation dont parle la notification (`?formation=`) : sa ligne s'ouvre, vient sous les yeux et s'entoure. */
+  formationAOuvrir?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
-  const [open, setOpen] = React.useState<string | null>(null);
+  const [open, setOpen] = React.useState<string | null>(
+    formationAOuvrir && rows.some((r) => r.id === formationAOuvrir) ? formationAOuvrir : null,
+  );
   const [form, setForm] = React.useState<"none" | "request" | "organise">("none");
   const [granted, setGranted] = React.useState<Record<string, string>>({});
   const [note, setNote] = React.useState<Record<string, string>>({});
@@ -90,6 +96,7 @@ export function TrainingBoard({
 
   return (
     <div className="space-y-3">
+      <SurlignerCible ids={[formationAOuvrir ? ancreFormation(formationAOuvrir) : null]} />
       <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={() => setForm(form === "request" ? "none" : "request")}>
           <Plus className="h-4 w-4" /> Demander une formation
@@ -190,7 +197,7 @@ export function TrainingBoard({
             const c = counts[i] ?? countParticipants(t.participants);
             const expanded = open === t.id;
             return (
-              <li key={t.id}>
+              <li key={t.id} id={ancreFormation(t.id)}>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-sm">
                   <button
                     type="button" onClick={() => setOpen(expanded ? null : t.id)}

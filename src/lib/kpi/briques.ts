@@ -32,6 +32,11 @@ export const BRIQUE_IDS = [
   "TACHES_A_TEMPS",
   "VALIDATIONS_REPONDUES",
   "DELAI_VALIDATIONS",
+  "DEMANDES_TRAITEES",
+  "DELAI_DEMANDES",
+  "LIVRE_PCH",
+  "NON_SERVI_PCH",
+  "EXECUTION_MARCHES",
 ] as const;
 export type BriqueId = (typeof BRIQUE_IDS)[number];
 
@@ -68,6 +73,7 @@ export interface Brique {
 const PERSONNE_PERIODE: Dimension[] = ["personne", "periode"];
 const PANEL: Dimension[] = ["personne", "periode", "bu", "lettre"];
 const VISITES: Dimension[] = ["personne", "periode", "bu", "produit", "lettre"];
+const PERSONNE_PERIODE_BU: Dimension[] = ["personne", "periode", "bu"];
 
 export const BRIQUES: readonly Brique[] = [
   {
@@ -188,6 +194,41 @@ export const BRIQUES: readonly Brique[] = [
     source: "Validations transversales (étape créée le → décidée le)",
     dimensions: PERSONNE_PERIODE, parametres: [],
     motsCles: ["delai", "temps de reponse", "reactivite", "validation"],
+  },
+  {
+    id: "DEMANDES_TRAITEES", libelle: "Demandes traitées", unite: "NOMBRE", additive: true, metier: "TOUS",
+    definition: "Demandes que la personne a traitées dans la période : support (première réponse ou clôture par le répondant), demandes RH (prête, remise, accordée, refusée) et demandes administratives terminées. Une demande ancienne sans date de traitement ne compte pas.",
+    source: "Support (SupportRequest : répondant, traitée le), demandes RH (HrDocumentRequest : traitant, traitée le), demandes administratives (AdministrativeRequest : assigné, terminée le)",
+    dimensions: PERSONNE_PERIODE, parametres: [],
+    motsCles: ["demande", "demandes", "traitee", "traitees", "support", "tickets", "assistante", "rh"],
+  },
+  {
+    id: "DELAI_DEMANDES", libelle: "Délai de traitement des demandes", unite: "HEURES", additive: false, metier: "TOUS",
+    definition: "Médiane, en heures, entre le dépôt d'une demande (support, RH, administrative) et son traitement par la personne, sur les demandes traitées dans la période. Seules les demandes datées des deux bouts comptent.",
+    source: "Support, demandes RH et demandes administratives (créée le → traitée / terminée le)",
+    dimensions: PERSONNE_PERIODE, parametres: [],
+    motsCles: ["delai", "temps de traitement", "reactivite", "demande", "demandes", "support", "rh"],
+  },
+  {
+    id: "LIVRE_PCH", libelle: "Livré PCH (secteur / BU)", unite: "NOMBRE", additive: true, metier: "KAM",
+    definition: "Quantités livrées par la PCH aux hôpitaux sur la période, pour nos produits : celles des établissements du secteur du KAM ; à défaut de secteur, celles de la BU qu'il dirige ou supervise (ou la BU choisie). Rien n'est estimé : sans import PCH sur la période, la mesure est absente.",
+    source: "Ventes PCH (PchVenteLigne : livré, établissement, mois) × secteurs (SalesSectorInstitution) ou produits de la BU",
+    dimensions: PERSONNE_PERIODE_BU, parametres: ["buId"],
+    motsCles: ["pch", "livre", "livre pch", "livraison", "hopitaux", "secteur", "sell out"],
+  },
+  {
+    id: "NON_SERVI_PCH", libelle: "Demande non servie PCH (secteur / BU)", unite: "NOMBRE", additive: true, metier: "KAM",
+    definition: "Quantités demandées par les hôpitaux et NON servies par la PCH sur la période, pour nos produits : établissements du secteur du KAM ; à défaut, BU qu'il dirige ou supervise (ou la BU choisie). Un signal de rupture : plus bas = mieux. Sans import PCH sur la période, la mesure est absente.",
+    source: "Ventes PCH (PchVenteLigne : statut NON_SERVIE, quantité commandée) × secteurs ou produits de la BU",
+    dimensions: PERSONNE_PERIODE_BU, parametres: ["buId"],
+    motsCles: ["non servi", "non servie", "rupture", "pch", "demande non servie", "hopitaux"],
+  },
+  {
+    id: "EXECUTION_MARCHES", libelle: "Exécution des marchés (BU)", unite: "POURCENT", additive: false, metier: "KAM",
+    definition: "Part livrée de ce que les marchés PCH ont attribué à la BU : unités livrées (bons de commande livrés) ÷ unités attribuées, sur les marchés de ses produits. État cumulé au jour du calcul, indépendant de la période. BU = celle choisie, sinon celle que la personne dirige, supervise ou dans laquelle elle est rattachée.",
+    source: "Marchés PCH (chaîne attribué → commandé → livré par produit : PchContractLine, PchTenderLine, PchOrderLine, livraisons)",
+    dimensions: PERSONNE_PERIODE_BU, parametres: ["buId"],
+    motsCles: ["marche", "marches", "execution", "attribue", "appel d'offres", "pch", "taux de livraison"],
   },
 ];
 

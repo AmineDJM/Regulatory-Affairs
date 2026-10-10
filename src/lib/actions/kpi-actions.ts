@@ -22,7 +22,7 @@ import {
   apercuDefinitions, chargerBilanKpi, colonnesDefinition, definitionParId, definitionsActives, detailKpi, faitsKpi,
   kpisPourCommentaire, lignesAFiger, nouvelleFamille, sourcesEvaluation,
 } from "@/lib/kpi/service";
-import { proposerDefinitions, proposerNiveau, redigerCommentaire } from "@/lib/kpi-luna";
+import { proposerCibles, proposerDefinitions, proposerNiveau, redigerCommentaire } from "@/lib/kpi-luna";
 import type { ApercuKpi, BilanKpi, LigneDetail } from "@/lib/kpi/types";
 import type { HorsBriques } from "@/lib/kpi/luna-pur";
 
@@ -112,14 +112,18 @@ export async function proposerKpiDepuisPhrase(formData: FormData): Promise<{
   return { ok: true, ...r };
 }
 
-/** L'aperçu sur les 3 derniers mois réels de l'équipe — rien n'est enregistré. */
+/**
+ * L'aperçu sur les 3 derniers mois réels de l'équipe — rien n'est enregistré. Les cibles vides sont PROPOSÉES par Luna
+ * d'après l'historique mensuel (3 à 6 mois) de l'équipe et de la personne visée (`pour`), avec leur justification ;
+ * sans Luna ou sans historique, c'est la règle fixe (moyenne ↔ meilleur de l'équipe).
+ */
 export async function apercuKpi(formData: FormData): Promise<{ ok: true; apercu: ApercuKpi } | { ok: false; error: string }> {
   const user = await enLecture(requireUser);
   const { faits } = await faitsKpi(user);
   if (!peutCreerPourEquipe(faits)) return { ok: false, error: "Réservé à qui encadre une équipe." };
   const lu = lireDefinitions(fdStr(formData, "definitions"));
   if (!lu.ok) return lu;
-  return { ok: true, apercu: await apercuDefinitions(user, lu.defs) };
+  return { ok: true, apercu: await apercuDefinitions(user, lu.defs, { pour: fdStr(formData, "pour"), cibler: (entrees) => proposerCibles(entrees, user.id) }) };
 }
 
 /**

@@ -7,6 +7,7 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { lienDemandeBudgetDepartement } from "@/lib/chemins/budgets";
 import { saveFile, deleteFileByKey } from "@/lib/storage";
 import { validateAttachments } from "@/lib/attach-files";
 import {
@@ -254,7 +255,7 @@ export async function requestDepartmentBudget(formData: FormData): Promise<Actio
     type: "VALIDATION_REQUIRED",
     title: "Budget départemental — dotation à valider",
     body: `${department.name} · ${DEPT_BUDGET_LABEL[kind]} ${year} : +${amount} DZD${reason ? ` — ${reason}` : ""}`,
-    link: PATH,
+    link: lienDemandeBudgetDepartement(created.id, year),
   });
   revalidatePath(PATH);
   return { ok: true, id: created.id };
@@ -282,7 +283,7 @@ export async function annulerDemandeBudgetDepartement(formData: FormData): Promi
   const libelle = `${req.department.name} · ${DEPT_BUDGET_LABEL[req.kind as DeptBudgetKind]} ${req.year} : +${Number(req.amount)} DZD`;
   await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
     type: "GENERIC", title: "Demande de budget retirée",
-    body: `${libelle} — retirée par ${user.name}, il n'y a plus rien à trancher.`, link: PATH,
+    body: `${libelle} — retirée par ${user.name}, il n'y a plus rien à trancher.`, link: lienDemandeBudgetDepartement(id, req.year),
   }).catch(() => undefined);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: req.departmentId,
@@ -338,7 +339,7 @@ export async function decideDepartmentBudgetRequest(formData: FormData): Promise
       userId: req.requestedById, type: "GENERIC",
       title: decision === "APPROVED" ? "Dotation accordée" : "Dotation refusée",
       body: `${req.department.name} · ${DEPT_BUDGET_LABEL[req.kind as DeptBudgetKind]} ${req.year} : ${amount} DZD${note ? ` — ${note}` : ""}`,
-      link: PATH,
+      link: lienDemandeBudgetDepartement(id, req.year),
     });
   }
   await recordAudit({

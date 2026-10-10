@@ -6,6 +6,8 @@ import { vueInfluence, type VueInfluence } from "@/lib/queries/influence";
 import { vueRoi, type VueRoi, type ActionRoi } from "@/lib/queries/roi-adpro";
 import { FENETRES_MOIS, LIBELLE_APPARIEMENT, lireFenetre, type Effet } from "@/lib/roi-adpro/mesure";
 import { LIBELLE_RELATION } from "@/lib/influence/relations";
+import { LIBELLE_RAISON_ND } from "@/lib/influence/parts-lots";
+import type { VuePartsLots } from "@/lib/queries/parts-lots";
 import { LETTRES, STATUT_LABELS, type Lettre, type Statut } from "@/lib/segmentation/regles";
 import { LIBELLE_ROLE_MEDECIN, TYPES_MEDECINS_CONCERNES, LIBELLE_NATURE_DEMANDE } from "@/lib/ad-pro/medecins-concernes";
 import { LettreBadge } from "@/app/(app)/segmentation/lettre-badge";
@@ -108,6 +110,56 @@ function Carte({ titre, info, droite, children, className }: { titre: React.Reac
 
 const SELECT = "h-9 min-w-0 rounded-lg border border-border bg-card px-2 text-sm";
 
+// ─────────────────────────── Part de nos lots ───────────────────────────
+
+/**
+ * LA PART DE NOS LOTS dans ce que les DR de la PCH ont livré à l'établissement (12 derniers mois reçus). Le niveau le plus fin
+ * des fichiers de la PCH est l'ÉTABLISSEMENT : aucun volume par service — c'est dit sur la carte. « n/d » quand le lot manque.
+ */
+function PartsLots({ p }: { p: VuePartsLots }) {
+  const periode = p.periode ? `${p.periode.debut} → ${p.periode.fin}` : "";
+  if (!p.periode) {
+    return (
+      <Carte titre={<>Part de nos lots — {p.etablissement}</>}>
+        <p className="px-4 py-4 text-sm text-muted-foreground">n/d — aucune vente PCH de nos produits n&apos;est rattachée à cet établissement (fichiers Ventes PCH).</p>
+      </Carte>
+    );
+  }
+  return (
+    <Carte titre={<>Part de nos lots — {p.etablissement}</>}
+      info={`Boîtes livrées à l'établissement par les directions régionales de la PCH (${periode}), dont le numéro de lot est l'un de ceux de nos livraisons à la PCH. Seules les lignes qui portent un lot comptent ; « n/d » quand les fichiers n'en donnent pas ou que nos numéros de lot ne sont pas renseignés. Les fichiers de la PCH s'arrêtent à l'établissement : aucun volume par service n'existe.`}
+      droite={<span className="text-xs text-muted-foreground">établissement · pas de volume par service</span>}>
+      <div className="overflow-x-auto [-webkit-overflow-scrolling:touch]">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40"><tr className="border-b border-border">
+            <th className={cn(TH, "sticky left-0 z-[1] bg-card")}>Produit</th><th className={cn(TH, "text-right")}>Livré (bt)</th>
+            <th className={cn(TH, "text-right")}>Lot renseigné</th><th className={cn(TH, "text-right")}>De nos lots</th><th className={cn(TH, "text-right")}>Part</th>
+          </tr></thead>
+          <tbody>
+            {p.lignes.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-muted-foreground">Aucune livraison de nos produits à cet établissement sur la période.</td></tr>}
+            {p.lignes.map((l) => (
+              <tr key={l.productId} className="border-b border-border last:border-b-0">
+                <td className={cn(TD, "sticky left-0 z-[1] bg-card font-medium")}>{l.nom}</td>
+                <td className={cn(TD, "text-right tabular-nums")}>{nb(l.livre)}</td>
+                <td className={cn(TD, "text-right tabular-nums")}>{l.couvertureLot === null ? "n/d" : `${l.couvertureLot} %`}</td>
+                <td className={cn(TD, "text-right tabular-nums")}>{l.part === null ? "n/d" : nb(l.livreNosLots)}</td>
+                <td className={cn(TD, "text-right")} title={l.raison ? LIBELLE_RAISON_ND[l.raison] : undefined}>
+                  {l.part === null
+                    ? <span className="text-muted-foreground">n/d{l.raison ? <span className="block text-[11px]">{LIBELLE_RAISON_ND[l.raison]}</span> : null}</span>
+                    : <span className="font-semibold tabular-nums">{l.part} %</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+        {nb(p.lotsRenseignes)} ligne(s) de livraison de nos commandes portent un numéro de lot. Les fichiers de la PCH s&apos;arrêtent à l&apos;établissement : pas de volume par service.
+      </p>
+    </Carte>
+  );
+}
+
 // ─────────────────────────── Influence ───────────────────────────
 
 function OngletInfluence({ v }: { v: VueInfluence }) {
@@ -182,6 +234,8 @@ function OngletInfluence({ v }: { v: VueInfluence }) {
           </Carte>
         </div>
       ))}
+
+      {v.partsLots && <PartsLots p={v.partsLots} />}
 
       {v.detail && (
         <Carte titre={<>Son réseau — {v.detail.nom}</>} droite={

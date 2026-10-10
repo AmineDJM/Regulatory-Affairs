@@ -14,6 +14,8 @@ import { LIBELLE_CENTRE_BC } from "@/lib/bons-de-commande/regle";
 import type { LigneBCFinances } from "@/lib/queries/bons-de-commande";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { SurlignerCible } from "@/components/shared/surligner-cible";
+import { ancreBonDeCommande } from "@/lib/chemins/bons-de-commande";
 
 /**
  * LA FILE DES SIGNATAIRES — chaque BC avec ce qu'il faut pour le signer en connaissance de cause :
@@ -25,7 +27,7 @@ import { BoutonDecisif } from "@/components/ui/bouton-decisif";
  * dépendance serveur (CLAUDE.md, frontière client / serveur).
  */
 export function FileBonsDeCommande({
-  aSigner, renvoyes, signes, peutSigner, refus, tronquee,
+  aSigner, renvoyes, signes, peutSigner, refus, tronquee, bcAOuvrir,
 }: {
   aSigner: LigneBCFinances[];
   renvoyes: LigneBCFinances[];
@@ -33,9 +35,12 @@ export function FileBonsDeCommande({
   peutSigner: boolean;
   refus: string | null;
   tronquee: boolean;
+  /** Le BC dont parle la notification (`?bc=`) : sa ligne vient sous les yeux et s'entoure. */
+  bcAOuvrir?: string | null;
 }) {
   return (
     <div className="space-y-5">
+      <SurlignerCible ids={[bcAOuvrir ? ancreBonDeCommande(bcAOuvrir) : null]} />
       <Card>
         <CardHeader>
           <CardTitle>À signer</CardTitle>
@@ -77,7 +82,7 @@ export function FileBonsDeCommande({
           <CardContent>
             <ul className="divide-y divide-border">
               {renvoyes.map((l) => (
-                <li key={l.id} className="space-y-1 py-2 text-sm">
+                <li key={l.id} id={ancreBonDeCommande(l.id)} className="space-y-1 py-2 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="min-w-0 [overflow-wrap:anywhere] sm:truncate">
                       <Link href={`/legal/${l.id}`} className="font-medium hover:underline">{l.reference ?? l.title}</Link>
@@ -106,7 +111,7 @@ export function FileBonsDeCommande({
           ) : (
             <ul className="divide-y divide-border">
               {signes.map((l) => (
-                <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <li key={l.id} id={ancreBonDeCommande(l.id)} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                   <span className="min-w-0 [overflow-wrap:anywhere] sm:truncate">
                     <Link href={`/legal/${l.id}`} className="font-medium hover:underline">{l.reference ?? l.title}</Link>
                     {l.counterparty ? <span className="text-muted-foreground"> — {l.counterparty}</span> : null}
@@ -147,7 +152,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
   const [copie, setCopie] = React.useState<File | null>(null);
   const jours = Math.floor((Date.now() - new Date(l.creeLe).getTime()) / 86_400_000);
   return (
-    <li className="surface space-y-3 p-3 sm:p-4">
+    <li id={ancreBonDeCommande(l.id)} className="surface space-y-3 p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
           <p className="font-medium [overflow-wrap:anywhere] sm:truncate">

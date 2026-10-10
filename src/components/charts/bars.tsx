@@ -11,6 +11,8 @@ import { STATUS } from "./palette";
  */
 
 export interface BarRow {
+  /** Identifiant de la ligne dans la page : une notification peut y mener (`?cible=`), `SurlignerCible` l'entoure. */
+  id?: string;
   label: string;
   budget: number;
   consumed: number;
@@ -30,7 +32,7 @@ export function Bars({ rows, format, max: maxProp }: { rows: BarRow[]; format: (
         const pct = r.budget > 0 ? Math.round((r.consumed / r.budget) * 100) : 0;
         const tone = toneOf(pct);
         return (
-          <li key={r.label} className="space-y-1">
+          <li key={r.label} id={r.id} className="space-y-1">
             <div className="flex items-baseline justify-between gap-3 text-sm">
               <span className="min-w-0 truncate font-medium">{r.label}</span>
               <span className="shrink-0 text-xs tabular-nums text-muted-foreground">

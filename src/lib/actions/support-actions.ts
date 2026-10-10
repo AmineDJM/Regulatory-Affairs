@@ -110,7 +110,8 @@ export async function answerSupportRequest(formData: FormData): Promise<ActionRe
 
   // Quand un répondant répond : il prend la demande (s'il n'y a pas d'assigné) et le statut passe à « Répondu ».
   if (responder) {
-    await prisma.supportRequest.update({ where: { id }, data: { status: "ANSWERED", ...(r.assignedToId ? {} : { assignedToId: user.id }) } });
+    // `resolvedAt` : posé à la PREMIÈRE réponse, jamais écrasé (brique KPI « demandes traitées »).
+    await prisma.supportRequest.update({ where: { id }, data: { status: "ANSWERED", ...(r.assignedToId ? {} : { assignedToId: user.id }), ...(r.resolvedAt ? {} : { resolvedAt: new Date() }) } });
     if (r.requesterId && r.requesterId !== user.id) await notifyUser({ userId: r.requesterId, type: "GENERIC", title: "Support — réponse reçue", body: `${r.reference} — ${r.subject}`, link: `${PATH}/${id}` });
   } else {
     // Relance du demandeur : notifie le répondant assigné (ou le pool ciblé).
@@ -138,7 +139,9 @@ export async function updateSupportStatus(formData: FormData): Promise<ActionRes
   // La clôture est ouverte au demandeur et au répondant ; les autres statuts au répondant.
   if (status !== "CLOSED" && !responder) return { ok: false, error: "Réservé au destinataire de la demande." };
 
-  await prisma.supportRequest.update({ where: { id }, data: { status } });
+  // Traitée = répondue, ou clôturée PAR LE RÉPONDANT (une clôture du seul demandeur n'est pas un traitement).
+  const traite = !r.resolvedAt && (status === "ANSWERED" || (status === "CLOSED" && responder));
+  await prisma.supportRequest.update({ where: { id }, data: { status, ...(traite ? { resolvedAt: new Date() } : {}) } });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Support", entityType: "SUPPORT_REQUEST", entityId: id, summary: `Statut → ${status} (${r.reference})` });
   revalidate(id);
   return { ok: true };
