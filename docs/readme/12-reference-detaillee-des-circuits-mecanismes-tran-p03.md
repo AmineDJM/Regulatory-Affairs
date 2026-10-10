@@ -129,6 +129,11 @@ corbeille dans la liste. La laisser « pour la trace » ne préserve rien — el
 le budget et le solde de caisse, qui se lisent tous deux sur ces mêmes lignes. C'est le
 **journal d'audit** qui garde la trace, avec le montant d'avant et l'auteur de la correction.
 
+**Écran allégé (09/10)** : en tête **3 chiffres** du mois, une répartition par nature (graphique), puis les dépenses
+**rangées par mois** (titres « Octobre 2026 », mois lus en UTC comme les séries des budgets ; une dépense sans
+catégorie = « Non classé ») ; un clic ouvre la dépense dans un **panneau** latéral (`expense-panel.tsx`), les filtres
+et le menu d'en-tête sont regroupés (`entete-menu.tsx`). Règles pures `lib/general-means/ecran.ts` (+ tests).
+
 - **Droit** (`canAmendExpense`) : les mêmes que pour créer — celui qui **tient** le budget, ou
   celui qui **achète** sur son propre département. Obliger à remonter à l'administration pour
   corriger un montant garantit surtout que personne ne corrige, et qu'on vit avec un budget faux.
@@ -441,6 +446,16 @@ autre (lecture seule, blocage) devient un **blocage** — personne ne perd le mo
 adresses : `/planning/business-units` (`?etape=secteurs` → Secteurs, autres étapes et `?bu=` suivent) et
 `/planning/parametres` redirigent.
 
+**WILAYA PIVOT PAR TERRITOIRE KAM (08-09/10)** : sur la ligne du territoire propre d'un KAM (étape Secteurs,
+`wilaya-pivot.tsx`, `territoire-kam.tsx`), un **menu des 58 wilayas** fixe `SalesSector.wilayaPivot` ; à défaut, la
+wilaya se déduit de la ville pivot (`city`). Règle PURE `lib/segmentation/in-out.ts` (+ `pivot-secteur.test.ts`) :
+un praticien est **IN** si sa wilaya (la sienne, sinon celle de son établissement, sinon celle que le nom de
+l'établissement nomme) est la wilaya pivot d'un KAM qui le couvre, **OUT** si les KAM qui le couvrent ont une wilaya
+pivot et qu'aucune n'est la sienne, **inconnu** sinon (rien n'est deviné : la fréquence générale s'applique). Migration
+`20270117110500_wilaya_pivot` (reprise : une `city` qui EST une wilaya devient la wilaya pivot). **Noms de territoires
+(09/10)** : un nom occupé seulement par un ancien secteur **désactivé** (« Centre », « Est »…) est libéré — l'ancien
+devient « Centre (ancien) » — au lieu d'être refusé comme homonyme (`sales-planning-actions.ts`).
+
 ### Marketing cockpit — le tableau de la Direction Marketing (refonte du 07/10)
 
 Module `MARKETING_COCKPIT` (à part de la Force de vente, réglé personne par personne dans la console). **Une page**,
@@ -470,6 +485,25 @@ budgets et les données marché (`lib/marketing-cockpit/donnees.ts` ; calculs pu
   Development) — décision de ne pas élargir l'accès au marché, pas d'aguiche.
 - **Investissements** : Ad & Pro engagé (direct, part allouée par `CoutRepartitionBu`, matériel au devis retenu), par
   lettre des praticiens nommés, et l'enveloppe — seulement pour qui lit Budgets ou Ad & Pro (`peutVoirArgentCockpit`).
+- **Médecins concernés par une demande Ad & Pro (08/10)** : sponsoring, événement, congrès national / international,
+  matériel promotionnel, autre demande portent désormais des **praticiens de l'annuaire** (`AdProMedecin`, rôle
+  Bénéficiaire · Orateur · Invité · Autre ; carte `components/ad-pro/medecins-concernes.tsx` sur chaque fiche, actions
+  `ad-pro-medecins-actions.ts`, règles pures `lib/ad-pro/medecins-concernes.ts`, lecture `queries/ad-pro-medecins.ts`).
+  Pour un congrès, invités et prises en charge s'additionnent sans doublon (rien n'est copié). Le cockpit (dépenses par
+  praticien), la fiche praticien, Produits 360 et le ROI Ad & Pro lisent ce lien.
+- **« Ce qui dépend vraiment du terrain » (09/10, maquette validée)** — en marché d'AO, la part de réceptions PCH ne
+  mesure pas l'effort marketing ; calculs purs `lib/marketing-cockpit/terrain.ts` (+ tests), lecture
+  `terrain-donnees.ts` : **décideurs engagés** (H vus ≥ 2 fois dans le cycle), **conversions B → A / A → B** depuis le
+  cycle figé, **affinité moyenne Q2/Q1** et sa tendance, **nos lots chez les hôpitaux** (numéros de lot normalisés
+  croisés avec la distribution des DR — `repartitionParLots`) et les segments des décideurs de chaque établissement.
+  **Besoins annuels des services** (`BesoinAnnuelService`, une ligne produit × établissement × service × année ; règle
+  pure `lib/besoins-services/regles.ts`) : le KAM saisit à la visite du décideur le besoin annoncé pour l'année qui
+  vient (en boîtes, facultatif, 0 = « ne commandera pas ») ; le cockpit le montre (`previsions-services.tsx`) et la
+  Direction Marketing, le chef de produit et la Direction le corrigent (`besoins-services-actions.ts`). **La voix du
+  terrain** (`components/shared/voix-terrain.tsx`, pur `lib/voix-terrain/pur.ts`, Luna `lib/voix-terrain-luna.ts`) :
+  les rapports des derniers jours rangés en cinq familles (objection, approvisionnement, opportunité, concurrence,
+  pharmacovigilance), avec une citation **mot pour mot** par famille (un extrait introuvable est refusé) ; sans Luna, repli
+  par mots-clés, dit à l'écran ; cache du jour `VoixTerrainCache`. Migration `20270117183000_besoins_services`.
 
 Onglets gardés par `nav-tabs.ts` (règles `marche-cockpit` / `argent-cockpit` : le module PUIS la règle). Anciennes
 adresses : `/marketing-cockpit/messages` → `?vue=messages` (produit compris), `/marketing-cockpit/specialites` →
@@ -508,6 +542,13 @@ signalements selon `clauseCasPvVisibles`, et seulement pour qui signale ou reço
 (`medical/rapports/liste-rapports.tsx`) est un **tableau, au téléphone aussi** (date collée à gauche) ; une ligne ouvre
 le rapport dans une feuille latérale, d'où s'ouvre la fiche du compte rendu ou du cas.
 
+**Journée du KAM et plans (09/10)** : **Ma journée** (`medical/ma-journee/emploi-du-temps.tsx`) porte un appel à
+l'action « rapport terrain » sur chaque visite à rapporter, et le rapport de visite d'un décideur accueille le **besoin
+annuel du service** (voir Marketing cockpit). **Un plan de tournée en brouillon se supprime** (« Supprimer » puis
+« Confirmer », `plan-de-tournee/supprimer-plan.tsx` → `supprimerPlanTourneeBrouillon`, `tour-plan-actions.ts`) : seul
+un brouillon (un plan soumis, validé ou rejeté garde sa trace de décision), dans le périmètre, et jamais si une de ses
+visites est déjà rapportée — le refus le dit et le plan reste ; les visites planifiées partent avec lui (audité).
+
 ### Mon espace › Tâches — un seul endroit pour toutes les tâches (07/10)
 
 Cinq listes dispersées dans Mon espace (demandées, mes tâches, où je participe, en lecture, que j'ai demandées,
@@ -545,10 +586,28 @@ dossiers (`RegulatoryProduct.productId`) en sont l'enregistrement et portent le 
 dossier : stock du produit = somme des derniers relevés de chaque lieu de ses dossiers) ; `PromoProduct` et `BdProduct`
 restent des tables internes rattachées au même `productId` (`lib/queries/produits-360.ts`).
 
-- **Liste** `/produits` (menu « Produits 360 ») : onglets **Commercialisés** (dossier terminé — ventes, tendance, part
-  de marché, mois de stock, **UN signal** : PV ouvert > stock bas (< 2 mois de couverture) > générique fraîchement
-  enregistré > échéance de la DE à 6 mois — `signalPrincipal`) et **En enregistrement**. Menu ⋯ : « Vérifier le
-  catalogue » (Super Admin) et « Rapprocher un produit BD / BU » (voir plus bas).
+- **Liste** `/produits` (menu « Produits 360 ») — **portefeuille v2 (09/10)** : onglet **Commercialisés** = le tableau
+  trié par **note de santé** (ce qui va mal d'abord), filtrable par BU (`portefeuille.tsx`, client, n'importe que des
+  modules purs) — santé, mois de couverture, visites du cycle et leur évolution, prescripteurs A, Ad & Pro engagé et
+  **UNE alerte** (`alertePrincipale`) ; **« Comparer »** : 2 à 4 produits cochés côte à côte (la sélection est dans
+  l'URL, rendue par le serveur). Onglet **En enregistrement** (le pipeline). Chaque colonne n'apparaît qu'à qui a son
+  module. Menu ⋯ : « Vérifier le catalogue » (Super Admin) et « Rapprocher un produit BD / BU » (voir plus bas).
+- **LA NOTE DE SANTÉ /100 (09/10)** — module PUR `lib/products/sante.ts` (+ tests `sante.test.ts`), poids
+  `POIDS_SANTE` **25 / 25 / 20 / 15 / 15** : **Stock** (couverture de la chaîne PCH + hôpitaux : ≥ 3 mois = 100, 0 mois
+  = 0 ; −10 par lot qui périme sous 6 mois, au plus −30), **Couverture terrain** (part des cibles H·A·B vues à fréquence
+  ce cycle), **Prescripteurs** (25 % de A = 80 points, plafonné, + dynamique ±5 par A net gagné / perdu depuis le
+  dernier cycle, 10 neutres), **Réglementaire** (échéance du renouvellement de la DE : dépassée −60, ≤ 90 j −45, ≤ 6
+  mois −25 ; −15 par variation en attente, au plus −30), **Qualité** (cas de PV ouverts : décès −60, grave −40, gravité
+  inconnue −25, non grave −15). Une composante **sans donnée** (module non visible, aucun relevé…) n'est pas un zéro :
+  elle est exclue (« n/d ») et les poids restants sont renormalisés. L'**anneau** (`components/produits/anneau-sante.tsx`)
+  ouvre au clic le détail des cinq composantes (note, poids, fait, règle). Lectures multi-produits
+  `lib/queries/produits-360-sante.ts` (segmentation, Promotion médicale, Ad & Pro par les médecins concernés, lots PCH)
+  — appelées seulement pour les modules que la personne voit.
+- **« Luna — l'essentiel ce mois » (09/10)** sur la fiche : part pure `lib/products/essentiel-360.ts` (consigne,
+  schéma, relecture stricte : chaque point CITE ses faits et tout nombre écrit doit y figurer, sinon il tombe), appel
+  `lib/produit-360-luna.ts` (cache du jour → interrupteur général → bascule `produit_360` → clé → appel borné 15 s →
+  `logAiUsage`) ; cache d'un jour dans `VoixTerrainCache` (clé `produit360|` + empreinte des faits : Luna ne lit que
+  des faits que la personne voit). Tout échec retombe sur le repli déterministe (les trois faits les plus urgents).
 - **Fiche** `/produits/[id]` = **LA page du produit** : identité, frise du cycle de vie (étude → enregistrement →
   commercialisé → fin de vie), cinq chiffres, « À surveiller » (dont AO attribués), onglets **Vue d'ensemble · Ventes &
   marchés · Terrain & marketing · Réglementaire & qualité · Stock · Coûts · Documents**. Échéance DE : validité 5 ans,
@@ -588,12 +647,12 @@ restent des tables internes rattachées au même `productId` (`lib/queries/produ
 - **Ventes & marchés** lit les données **Ventes PCH** (réceptions PCH, distribution DR, part de marché fournisseurs,
   chaîne contrat).
 
-### Operations & Sales — cockpit, Ventes PCH, chaîne, réclamations (08/10)
+### Operations & Sales — cockpit, Ventes PCH, chaîne (08/10)
 
 **LE PÔLE** : « sépare Marketing et Sales » puis « Stocks et Logistique rejoignent Operations & Sales » — `NAV_POLES`
 (`lib/navigation.ts`) n'a plus `SALES_MARKETING` ni `SUPPLY_CHAIN` ; le pôle `OPERATIONS_SALES` range Cockpit
 Opérations, Promotion médicale, Force de vente, Business Units, Marchés PCH, Ventes PCH, Stocks, Logistique (toujours
-retirée, `modules-retired.ts`), Retours & réclamations, Budget Operations & Sales. **Consommation** n'a plus d'entrée
+retirée, `modules-retired.ts`), Budget Operations & Sales (Retours & réclamations, retiré le 09/10). **Consommation** n'a plus d'entrée
 (écrans, données et module `CONSUMPTION` intacts : affinité de segmentation, Produits 360).
 
 **COCKPIT OPÉRATIONS** (`/operations`, `COCKPIT_OPERATIONS`, lecture seule — Voir = l'ouvrir ; défaut : directeur des
@@ -604,6 +663,13 @@ marchés**, **demande non servie**, **ruptures à 60 jours** (couverture de la c
 BU » (`?bu=`) ; « À traiter » (avenants, BC en retard, fichiers PCH manquants, hôpitaux en rupture, stock PCH périmé,
 logistique, risques Brain du périmètre — `filtreDuPerimetre`). **Rien n'est ressaisi** : ventes PCH, chaîne des contrats,
 stocks de la chaîne, force de vente, Brain. `AccesCockpit` : un signal dont la personne ne voit pas l'écran n'est pas lu.
+**Enrichi le 09/10 (maquette validée, « le terrain »)** — calculs purs `lib/cockpit-operations/terrain.ts` (+ tests),
+lecture `lib/queries/cockpit-operations-terrain.ts` : **l'équipe aujourd'hui** (`statutDuJour` : congé approuvé >
+mission qui couvre le jour > terrain avec la ville la plus fréquente des praticiens à voir > « rien de prévu »), les
+**visites du jour** (prévues / réalisées), le **score KPI de l'équipe**, les **ruptures signalées** dans les rapports
+des KAM (`signaleUneRupture`, croisées avec le stock PCH central) et les **plans de tournée à valider** versés dans
+« À traiter », les **stocks relevés dans les hôpitaux** par les délégués, et « Cette semaine » (événements des 7
+jours). Une donnée absente rend `null`, jamais zéro.
 
 **VENTES PCH** (`/sales`, `PCH_VENTES`, `VENTES_PCH_TABS` — remplace l'ancienne saisie `SALES`, retirée, dont
 l'historique se lit en lecture seule dans `/sales/historique`). **Deux natures de fichiers** (`lib/ventes-pch/lecture.ts`,
@@ -613,7 +679,11 @@ servie**, livrée négative = **retour**) et les **réceptions de la PCH central
 NOM_FOUR, CODE_PRO, QTE, TYPE_RECEP…). Le CODE_PRO des réceptions est le POSTE des ventes. **Import**
 (`/sales/importer`, Téléverser ; `lib/ventes-pch/service.ts`) : aperçu sans écriture → application ; même fichier
 (empreinte) = rien ; un fichier plus récent **remplace** sa tranche DR × mois (ou réceptions × mois), l'annuel ses
-douze mois (`planRemplacement`, `calculs.ts`) ; l'original est gardé (`/api/ventes-pch/fichier/[id]`). **Tout connecté**
+douze mois (`planRemplacement`, `calculs.ts`) ; l'original est gardé (`/api/ventes-pch/fichier/[id]`). **Période
+choisie par fichier (09/10)** : à l'import, chaque fichier reçoit son **mois et son année** (ou « annuel » : chaque
+ligne garde son mois, ramené à l'année choisie — `ChoixPeriode`, `moisSelonChoix`) ; sans choix, la période se lit sur
+les dates du fichier. Colonnes `PchVenteImport.periodeAnnee` / `periodeMois` / `periodeChoisie` (migration
+`20270117120500_ventes_pch_periode`, les imports d'avant reprennent leurs mois enregistrés). **Tout connecté**
 (`correspondance.ts`) : client → établissement de l'annuaire (mémoire `PchEtablissementMemoire`, sinon nom normalisé
 désignant UN établissement), **poste PCH → produit** (mémoire `PchPoste`, sinon la présentation — molécule, dose,
 forme, UC — doit désigner UN de nos produits ; une molécule qui n'est pas à nous reste donnée de marché), fournisseurs
@@ -639,21 +709,17 @@ DR** (lieu `StockAnnex` de type ANNEX, jamais un nom libre), nos produits seulem
 tableau » (règles pures partagées `lib/stocks/pch-central.ts`), mail ou PDF joint (entityType `STOCK_PCH_RELEVE`) ; les
 quantités s'écrivent par `ecrireEtatDuJour` — un état par produit, lieu et jour, ressaisir corrige.
 
-**RETOURS & RÉCLAMATIONS** (`/retours-reclamations`, `RETOURS_RECLAMATIONS`) : `Reclamation` (type RETOUR ·
-RECLAMATION_QUALITE · RAPPEL_LOT ; produit, BU, lot, quantité, établissement ou site PCH, date, description ;
-référence `REC-…`). Déclarée par le terrain (lien « Réclamation » dans l'en-tête de la journée du KAM, si
-`declareDesReclamations`) ou par les opérations ; le **responsable** est prévenu et instruit **OUVERTE → EN_ANALYSE →
-CLOTUREE** (conclusion exigée à la clôture ; `refusTransition`). Qui lit : portée TOUT (ou Super Admin) = toutes ;
-sinon celles qu'on a déclarées ou dont on est responsable (`clauseReclamationsVisibles`, `lib/reclamations/acces.ts`) ;
-instruire = Modifier ; fil et pièces polymorphes (entityType `RECLAMATION`, `accesALaReclamation`). Règles pures
-`lib/reclamations/regles.ts` (+ tests). Défauts : opérations, Direction, DG gèrent ; Head of Regulatory, assistante
-réglementaire, pharmacien responsable lisent ; le KAM déclare (Voir/Créer/Téléverser, portée « ses lignes »).
-Migration `20270116143000_retours_reclamations`.
+**RETOURS & RÉCLAMATIONS — RETIRÉ (09/10)** : le module `RETOURS_RECLAMATIONS`, l'écran `/retours-reclamations`, ses
+actions, ses règles (`lib/reclamations/`), ses chemins, son entrée de menu et son lien dans la journée du KAM n'existent
+plus. **Les données sont gardées** : le modèle `Reclamation` et la migration `20270116143000_retours_reclamations`
+restent en base (rien n'est supprimé, un retour éventuel retrouverait l'historique). Les anciennes notifications
+(« réclamation déclarée… ») ne mènent plus à un 404 : `/retours-reclamations` est réécrit vers `/mon-espace`
+(`lib/notifications/lien-actuel.ts`, voir « Notifications »).
 
 **DROITS DU DIRECTEUR DES OPÉRATIONS** (« → oui ») : Force de vente et Business Units en **gestion** (portée tout),
 Marketing cockpit en lecture, et **Adventum Brain borné à son périmètre** (`ADVENTUM_BRAIN` VIEW/UPDATE ;
 `lib/adventum/perimetre.ts`, pur + tests : catégories PCH, FIELD, MEDICAL, QUALITY, SALES, STOCKS, LOGISTICS,
-RECLAMATIONS, ou un module des opérations — un module qui nomme un autre domaine, Ad & Pro, marketing, réglementaire,
+ou un module des opérations — un module qui nomme un autre domaine, Ad & Pro, marketing, réglementaire,
 RH, finances, budget…, l'emporte). Hors Super Admin, `/adventum-brain` n'offre que « Ce matin » (sans briefing) et
 « Risques », filtrés par `lireRisques(…, filtreDuPerimetre(false))` ; ni question libre, ni historique, ni seuils.
 
