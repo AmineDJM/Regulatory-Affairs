@@ -3,6 +3,7 @@ import { buildRef } from "@/lib/refs";
 import { prisma } from "./prisma";
 import { anyRoleFilter } from "./rbac";
 import { notifyRoles } from "./notify";
+import { produitDeLaSource } from "./medical-info/produits";
 
 export async function nextDeclarationRef(): Promise<string> {
   const year = new Date().getFullYear();
@@ -66,6 +67,8 @@ export async function createMedicalInfoDeclaration(input: CreateDeclarationInput
       budgetCategoryId: input.budgetCategoryId ?? null,
       pharmacistId: pharmacist?.id ?? null,
       declarationKind: input.declarationKind ?? null,
+      // LE PRODUIT, repris de la source (sponsoring, congrès, événement, matériel promotionnel) — corrigeable dans la déclaration.
+      productId: await produitDeLaSource(input.sourceType, input.sourceId),
     },
   });
 

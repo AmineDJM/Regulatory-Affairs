@@ -9,7 +9,7 @@ import type { ChevauchementDEquipe } from "@/lib/queries/my-team";
 import type { ApercuEquipe, EvenementEquipe } from "@/lib/queries/my-team-overview";
 import { GENRE, jourCourt } from "./equipe-commun";
 
-const PRIORITE: Record<EvenementEquipe["genre"], number> = { CONGE: 0, MISSION: 1, FORMATION: 2 };
+const PRIORITE: Record<EvenementEquipe["genre"], number> = { CONGE: 0, ABSENCE: 0, MISSION: 1, FORMATION: 2 };
 const INITIALE = ["D", "L", "M", "M", "J", "V", "S"];
 
 /**
@@ -56,7 +56,8 @@ export function VueCalendrier({ apercu, chevauchements, chevauchementsNonMontres
             </Link>
           </div>
           <InfoBulle>
-            Congés accordés en couleur pleine, en attente en pâle. Le type de congé n&apos;est pas affiché : un encadrant voit qui manque, pas pourquoi.
+            Accordé en couleur pleine, en attente en pâle. « Congé » : congé annuel, sans solde ou récupération ; « Absent » : toute autre absence
+            (maladie, maternité, événement familial…). Un encadrant voit qui manque, pas pourquoi : seules les RH lisent le type précis.
             Missions : congrès et événements auxquels la personne est assignée. Formations : participations et demandes accordées.
           </InfoBulle>
         </div>
@@ -116,7 +117,7 @@ export function VueCalendrier({ apercu, chevauchements, chevauchementsNonMontres
           </table>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border px-4 py-3 text-xs text-muted-foreground">
-          {(["CONGE", "MISSION", "FORMATION"] as const).map((g) => (
+          {(["CONGE", "ABSENCE", "MISSION", "FORMATION"] as const).map((g) => (
             <span key={g} className="inline-flex items-center gap-1.5"><span className={cn("h-3 w-3 rounded-sm", GENRE[g].cellule)} />{GENRE[g].label}</span>
           ))}
           <span className="inline-flex items-center gap-1.5"><span className={cn("h-3 w-3 rounded-sm opacity-40", GENRE.CONGE.cellule)} />En attente</span>

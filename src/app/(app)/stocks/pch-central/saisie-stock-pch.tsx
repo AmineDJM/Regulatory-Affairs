@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronRight, ClipboardPaste, Loader2, Paperclip, Save } from "lucide-react";
-import { enregistrerStockPch } from "@/lib/actions/stock-pch-actions";
+import { ChevronDown, ChevronRight, ClipboardPaste, FileSpreadsheet, Loader2, Paperclip, Save } from "lucide-react";
+import { enregistrerStockPch, lireReleveStockPch } from "@/lib/actions/stock-pch-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
@@ -10,7 +10,7 @@ import { ageEnJours, analyserCollage, cleReleve, estPerime, ilYa, type LigneColl
 import { cn, formatDate, formatNumber } from "@/lib/utils";
 
 interface ProduitDTO { id: string; label: string; buId: string | null; buNom: string; noms: string[] }
-interface EtatDTO { id: string; productId: string; scope: string; annexId: string | null; date: string; quantity: number }
+interface EtatDTO { id: string; productId: string; scope: string; annexId: string | null; drCode: string | null; date: string; quantity: number }
 interface ReleveDTO { cle: string; lignes: number; pieces: { id: string; name: string }[] }
 
 const aujourdhui = () => new Date().toISOString().slice(0, 10);
@@ -23,12 +23,14 @@ const QUALITE: Record<LigneCollee["qualite"], { label: string; cls: string }> = 
 };
 
 /**
- * LA SAISIE D'UN RELEVÉ PCH — une ligne par produit, groupée par BU : le dernier relevé du lieu choisi (avec son âge) et
- * la nouvelle quantité. « Coller le tableau » reconnaît nos produits dans un collage Excel ou le texte du mail, et
- * demande CONFIRMATION avant de remplir les cases. Un seul geste principal : « Enregistrer le relevé ».
+ * LA SAISIE D'UN RELEVÉ PCH — une ligne par produit, groupée par BU : le dernier relevé du lieu choisi (la PCH centrale ou
+ * une direction régionale : DRA, DRB, DRBE, DRC, DRO, DRTAM — avec son âge) et la nouvelle quantité. « Coller le tableau » et
+ * « Importer le fichier » (Excel / CSV de la PCH) reconnaissent nos produits — et la direction régionale quand le fichier la
+ * porte —, et demandent CONFIRMATION avant de remplir les cases. Un seul geste principal : « Enregistrer le relevé ».
  */
-export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }: {
+export function SaisieStockPch({ produits, directions, annexes, etats, releves, peutSaisir }: {
   produits: ProduitDTO[];
+  directions: { code: string; libelle: string }[];
   annexes: { id: string; name: string }[];
   etats: EtatDTO[];
   releves: ReleveDTO[];
@@ -36,7 +38,9 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
 }) {
   const { enCours, rafraichir } = useRafraichir();
   const [date, setDate] = React.useState(aujourdhui);
-  const [annexId, setAnnexId] = React.useState("");
+  // Le lieu choisi : "" = PCH centrale, "dr:DRA" = une direction régionale, "annex:<id>" = une annexe héritée.
+  const [lieu, setLieu] = React.useState("");
+  // Les quantités saisies, par LIEU puis produit : "<lieu>|<dossier>" — un fichier peut porter plusieurs directions à la fois.
   const [quantites, setQuantites] = React.useState<Record<string, string>>({});
   const [ouvert, setOuvert] = React.useState<string | null>(null);
   const [collage, setCollage] = React.useState<{ texte: string; lignes: LigneCollee[] | null } | null>(null);
@@ -44,9 +48,14 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
   const [erreur, setErreur] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
   const fichiers = React.useRef<HTMLInputElement>(null);
+  const releveFichier = React.useRef<HTMLInputElement>(null);
 
-  // Le lieu choisi : la PCH centrale (scope PCH) ou une annexe (scope ANNEX + son lieu).
-  const duLieu = React.useCallback((e: EtatDTO) => (annexId ? e.scope === "ANNEX" && e.annexId === annexId : e.scope === "PCH" && !e.annexId), [annexId]);
+  const duLieu = React.useCallback((e: EtatDTO) => {
+    if (lieu.startsWith("dr:")) return e.scope === "ANNEX" && e.drCode === lieu.slice(3);
+    if (lieu.startsWith("annex:")) return e.scope === "ANNEX" && !e.drCode && e.annexId === lieu.slice(6);
+    return e.scope === "PCH" && !e.annexId;
+  }, [lieu]);
+  const nomDuLieu = (v: string) => (v.startsWith("dr:") ? v.slice(3) : v.startsWith("annex:") ? annexes.find((a) => a.id === v.slice(6))?.name ?? "Annexe" : "PCH centrale");
   const historique = React.useMemo(() => {
     const m = new Map<string, EtatDTO[]>();
     for (const e of etats) if (duLieu(e)) (m.get(e.productId) ?? m.set(e.productId, []).get(e.productId)!).push(e);
@@ -75,7 +84,7 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
   function appliquer() {
     if (!collage?.lignes) return;
     const suivantes = { ...quantites };
-    for (const l of collage.lignes) if (l.productId && l.quantite !== null) suivantes[l.productId] = String(l.quantite);
+    for (const l of collage.lignes) if (l.productId && l.quantite !== null) suivantes[`${l.dr === "CENTRAL" ? "" : l.dr ? `dr:${l.dr}` : lieu}|${l.productId}`] = String(l.quantite);
     setQuantites(suivantes);
     setCollage(null);
     setMessage(null);
@@ -85,10 +94,11 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
     setBusy(true); setErreur(null); setMessage(null);
     const fd = new FormData();
     fd.set("date", date);
-    if (annexId) fd.set("annexId", annexId);
-    for (const [productId, q] of Object.entries(quantites)) {
+    for (const [cle, q] of Object.entries(quantites)) {
       if (!q.trim()) continue;
-      fd.append("productId", productId);
+      const i = cle.lastIndexOf("|");
+      fd.append("lieu", cle.slice(0, i));
+      fd.append("productId", cle.slice(i + 1));
       fd.append("quantity", q.trim());
     }
     for (const f of Array.from(fichiers.current?.files ?? [])) fd.append("files", f);
@@ -101,6 +111,26 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
     rafraichir();
   }
 
+  /** LE FICHIER EXCEL / CSV DE LA PCH : lu par le serveur (produit par code PCH ou désignation, lieu par colonne ou onglet), vérifié ici. */
+  async function importer(e: React.ChangeEvent<HTMLInputElement>) {
+    const fichier = e.target.files?.[0];
+    e.target.value = "";
+    if (!fichier) return;
+    setBusy(true); setErreur(null); setMessage(null);
+    const fd = new FormData();
+    fd.set("file", fichier);
+    const r = await lireReleveStockPch(fd);
+    setBusy(false);
+    if (!r.ok || !r.lignes) { setErreur(r.error ?? "Fichier illisible."); return; }
+    setCollage({ texte: "", lignes: r.lignes });
+  }
+
+  // Les quantités saisies, comptées par lieu : on voit d'un coup d'œil ce que « Enregistrer » va écrire.
+  const parLieu = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [cle, q] of Object.entries(quantites)) if (q.trim()) m.set(cle.slice(0, cle.lastIndexOf("|")), (m.get(cle.slice(0, cle.lastIndexOf("|"))) ?? 0) + 1);
+    return [...m.entries()];
+  }, [quantites]);
   const occupe = busy || enCours;
   const lignesCollees = collage?.lignes ?? null;
   const reconnues = lignesCollees?.filter((l) => l.productId && l.quantite !== null).length ?? 0;
@@ -115,9 +145,16 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
           </div>
           <div className="min-w-[180px] space-y-1">
             <Label htmlFor="lieu-pch">Lieu</Label>
-            <Select id="lieu-pch" value={annexId} onChange={(e) => setAnnexId(e.target.value)}>
+            <Select id="lieu-pch" value={lieu} onChange={(e) => setLieu(e.target.value)}>
               <option value="">PCH centrale</option>
-              {annexes.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              <optgroup label="Directions régionales">
+                {directions.map((d) => <option key={d.code} value={`dr:${d.code}`}>{d.libelle !== d.code ? `${d.code} — ${d.libelle}` : d.code}</option>)}
+              </optgroup>
+              {annexes.length > 0 && (
+                <optgroup label="Annexes">
+                  {annexes.map((a) => <option key={a.id} value={`annex:${a.id}`}>{a.name}</option>)}
+                </optgroup>
+              )}
             </Select>
           </div>
           <div className="min-w-[200px] flex-1 space-y-1">
@@ -127,6 +164,10 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
           <Button type="button" variant="outline" onClick={() => setCollage({ texte: "", lignes: null })} disabled={occupe}>
             <ClipboardPaste className="h-4 w-4" /> Coller le tableau
           </Button>
+          <input ref={releveFichier} type="file" accept=".xlsx,.xls,.xlsm,.csv,.tsv" className="sr-only" aria-label="Relevé Excel ou CSV de la PCH" tabIndex={-1} onChange={importer} />
+          <Button type="button" variant="outline" onClick={() => releveFichier.current?.click()} disabled={occupe}>
+            <FileSpreadsheet className="h-4 w-4" /> Importer le fichier
+          </Button>
           <Button type="button" onClick={enregistrer} disabled={occupe || !date}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Enregistrer le relevé{saisies ? ` (${saisies})` : ""}
           </Button>
@@ -134,6 +175,11 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
       )}
       {erreur && <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{erreur}</p>}
       {message && <p className="rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm">{message}</p>}
+      {parLieu.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          À enregistrer : {parLieu.map(([v, n]) => `${nomDuLieu(v)} (${n})`).join(" · ")}
+        </p>
+      )}
 
       {collage && (
         <div className="surface space-y-3 rounded-xl p-3">
@@ -154,6 +200,7 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
                   <thead>
                     <tr className="border-b border-border text-left text-xs text-muted-foreground">
                       <th className="px-2 py-1.5 font-medium">Collé</th>
+                      <th className="px-2 py-1.5 font-medium">Lieu</th>
                       <th className="px-2 py-1.5 text-right font-medium">Quantité</th>
                       <th className="px-2 py-1.5 font-medium">Produit</th>
                       <th className="px-2 py-1.5 font-medium" />
@@ -163,6 +210,7 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
                     {lignesCollees.map((l, i) => (
                       <tr key={i} className="border-b border-border last:border-0">
                         <td className="max-w-[240px] truncate px-2 py-1.5 text-muted-foreground" title={l.texte}>{l.libelle}</td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-xs text-muted-foreground">{l.dr === "CENTRAL" ? "PCH centrale" : l.dr ?? nomDuLieu(lieu)}</td>
                         <td className="px-2 py-1.5 text-right tabular-nums">{l.quantite === null ? "—" : formatNumber(l.quantite)}</td>
                         <td className="px-2 py-1.5">
                           <Select aria-label={`Produit pour ${l.libelle}`} value={l.productId ?? ""} onChange={(e) => choisir(i, e.target.value)}>
@@ -192,7 +240,7 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <th className="sticky left-0 z-10 bg-card px-3 py-2 font-medium">Produit</th>
               <th className="px-3 py-2 text-right font-medium">Dernier relevé</th>
-              {peutSaisir && <th className="px-3 py-2 text-right font-medium">Quantité au {date ? formatDate(date) : "—"}</th>}
+              {peutSaisir && <th className="px-3 py-2 text-right font-medium">{nomDuLieu(lieu)} au {date ? formatDate(date) : "—"}</th>}
             </tr>
           </thead>
           <tbody>
@@ -230,7 +278,7 @@ export function SaisieStockPch({ produits, annexes, etats, releves, peutSaisir }
                           <td className="px-3 py-2 text-right">
                             <Input
                               aria-label={`Quantité ${p.label}`} inputMode="numeric" className="ml-auto h-9 w-28 text-right tabular-nums"
-                              value={quantites[p.id] ?? ""} onChange={(e) => setQuantites({ ...quantites, [p.id]: e.target.value })}
+                              value={quantites[`${lieu}|${p.id}`] ?? ""} onChange={(e) => setQuantites({ ...quantites, [`${lieu}|${p.id}`]: e.target.value })}
                             />
                           </td>
                         )}

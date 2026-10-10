@@ -3759,6 +3759,10 @@ model MedicalInfoDeclaration {
   /// CE QUE LE PRIM OUVRE LUI-MÊME : MIP | AD_VISA | PAYMENT_SLIP. `null` = le dossier vient d'un
   /// événement ou du matériel promotionnel, et c'est sa source qui dit le circuit.
   declarationKind         String?
+  /// LE PRODUIT CONCERNÉ (Direction, 10/2026) : repris de la source (sponsoring, congrès, événement, matériel promotionnel)
+  /// à la création, corrigeable dans la déclaration. Nul = produit non précisé. Voir `medical-info/produits.ts`.
+  productId               String?
+  product                 Product?                @relation("MedicalInfoDeclarationProduit", fields: [productId], references: [id], onDelete: SetNull)
   createdById             String?
   slips                   MedicalInfoSlip[]
   requests                MedicalInfoDocRequest[]
@@ -3768,6 +3772,7 @@ model MedicalInfoDeclaration {
   @@unique([sourceType, sourceId])
   @@index([status])
   @@index([pharmacistId])
+  @@index([productId])
 }
 
 /// UN BON DE VERSEMENT — un par MATÉRIEL, dans le circuit du matériel promotionnel.
@@ -3967,6 +3972,10 @@ model SupportRequest {
   assignedToId String? // répondant ayant pris en charge
   assignedTo   User?            @relation("SupportAssignee", fields: [assignedToId], references: [id])
   messages     SupportMessage[]
+  /// LE MOMENT OÙ LA DEMANDE A ÉTÉ TRAITÉE : la première réponse du répondant, ou sa clôture. Posé UNE fois
+  /// (jamais écrasé par une relance) — il alimente la brique KPI « demandes traitées » et son délai médian.
+  /// Nul = pas encore traitée, ou antérieure à ce champ sans trace pour la dater (jamais estimée).
+  resolvedAt   DateTime?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
@@ -5544,6 +5553,10 @@ model HrDocumentRequest {
   details     String? // précisions du demandeur
   hrNote      String? // note des RH
   handledById String?
+  /// LE MOMENT OÙ LES RH ONT TRAITÉ la demande (prête, remise, accordée ou refusée) — posé UNE fois, jamais
+  /// écrasé. Il alimente la brique KPI « demandes traitées » et son délai médian. Nul = pas encore traitée,
+  /// ou antérieure à ce champ sans trace pour la dater (jamais estimée).
+  handledAt   DateTime?
   fulfilment  EmployeeDocument? @relation("RequestFulfilment")
 
   // Note de frais : mois concerné (« YYYY-MM »), mois d'imputation retenu par les RH
@@ -7170,6 +7183,9 @@ model PromoMaterial {
   /// Les précisions du demandeur pour l'assistante de direction (§118.204) — saisies dans « Articles
   /// demandés » à la création, envoyées avec la demande de devis quand elle part.
   precisionsDevis      String?
+  /// LA DATE DE BESOIN (Direction, 10/2026) : « besoin pour le … » — saisie par le demandeur, modifiable par lui tant que
+  /// le matériel n'est pas livré. Nulle = pas de date demandée.
+  neededBy             DateTime?
   /// Les devis RETRANSCRITS par l'assistante de direction — un par agence ou partenaire.
   quotes               PromoQuote[]
   /// LES ARTICLES DEMANDÉS (§118.165) — ce que le demandeur veut faire faire, pioché dans le
@@ -9568,9 +9584,13 @@ model StockSnapshot {
   id            String                  @id @default(cuid())
   companyId     String? // entité (Adventum / Pharmagène / …)
   company       Company?                @relation(fields: [companyId], references: [id])
-  scope         String // PCH | HOSPITAL (ANNEX = legacy, plus écrit)
+  scope         String // PCH (central) | HOSPITAL | ANNEX (une annexe nommée, ou une DIRECTION RÉGIONALE de la PCH — `drCode`)
   annexId       String?
   annex         StockAnnex?             @relation(fields: [annexId], references: [id], onDelete: Cascade)
+  /// LA DIRECTION RÉGIONALE de la PCH (« DRA », « DRBE »… — le code des fichiers Ventes PCH, `PchDirectionRegionale`) quand le
+  /// relevé est celui du stock d'une DR : `scope` ANNEX, `annexId` nul. Direction, 10/2026 : les stocks Adventum viennent de
+  /// la PCH (central + DR) et des hôpitaux (relevés des KAM) — nous n'avons pas de stock propre. Nul pour tout autre lieu.
+  drCode        String?
   productId     String
   product       RegulatoryProduct       @relation(fields: [productId], references: [id], onDelete: Cascade)
   date          DateTime
@@ -9581,6 +9601,7 @@ model StockSnapshot {
   demandeLignes StockCountRequestLine[]
 
   @@index([productId, scope, annexId, date])
+  @@index([scope, drCode, date])
 }
 
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -14380,6 +14401,8 @@ model Product {
   prixSaisis           ProductPrice[]
   /// VENTES PCH — ses postes PCH, ses lignes de vente des DR, ses réceptions PCH, ses fournisseurs « à nous ».
   postesPch            PchPoste[]                     @relation("PchPosteProduit")
+  /// SES DÉCLARATIONS D'INFORMATION MÉDICALE (Réglementaire & qualité, Produits 360).
+  declarationsInfoMed  MedicalInfoDeclaration[]       @relation("MedicalInfoDeclarationProduit")
   ventesPch            PchVenteLigne[]                @relation("PchVenteProduit")
   receptionsPch        PchReceptionLigne[]            @relation("PchReceptionProduit")
   fournisseursPch      PchFournisseurProduit[]        @relation("PchFournisseurProduit")

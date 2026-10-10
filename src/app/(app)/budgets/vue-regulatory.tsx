@@ -14,6 +14,7 @@ import { Bars } from "@/components/charts/bars";
 import { Projection } from "@/components/charts/projection";
 import { formatCurrency } from "@/lib/utils";
 import { BudgetContextBar } from "./budget-context-bar";
+import { ancreCategorieBudget } from "@/lib/chemins/budgets";
 
 /**
  * BUDGET REGULATORY — LA VUE D'ENSEMBLE ALLÉGÉE (Direction, 09/10). Quatre chiffres, une alerte au plus, une courbe, les
@@ -56,7 +57,7 @@ export async function VueEnsembleRegulatory({ user, base, titre, overview, envel
 
   const categories = overview.categories
     .filter((c) => c.parentId === null && (c.allocated > 0 || c.consumed > 0))
-    .map((c) => ({ label: c.name, budget: c.allocated, consumed: c.consumed }));
+    .map((c) => ({ id: ancreCategorieBudget(c.id), label: c.name, budget: c.allocated, consumed: c.consumed }));
 
   const anneeDebut = overview.period.from.slice(0, 4);
   const anneeFin = overview.period.to.slice(0, 4);

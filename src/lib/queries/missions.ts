@@ -248,6 +248,51 @@ export async function getMyMissions(userId: string): Promise<MissionAssignmentDT
   return hydrate(rows);
 }
 
+/**
+ * UNE INVITATION À UNE MISSION, LUE LÉGÈRE — pour la ligne « À accepter » de Mon espace › Tâches. Ni pièces, ni fil,
+ * ni circuits liés (`getMyMissions` les lit pour la page Mes missions) : seulement de quoi répondre en connaissance de cause.
+ */
+export interface InvitationMissionDTO {
+  id: string;
+  parentLabel: string;
+  parentPath: string;
+  role: MissionRole;
+  dateDepart: string | null;
+  dateRetour: string | null;
+  ville: string | null;
+  organiserName: string | null;
+}
+
+/** Mes invitations en attente de réponse, la plus ancienne en tête. */
+export async function invitationsMissionAAccepter(userId: string): Promise<InvitationMissionDTO[]> {
+  const rows = await prisma.missionAssignment.findMany({
+    where: { userId, archivedAt: null, response: "INVITEE" },
+    select: SELECT,
+    orderBy: { createdAt: "asc" },
+    take: 50,
+  });
+  if (rows.length === 0) return [];
+  const organisateurs = Array.from(new Set(rows.map((r) => r.createdById).filter((x): x is string => Boolean(x))));
+  const [parents, personnes] = await Promise.all([
+    resolveParents(rows),
+    organisateurs.length ? prisma.user.findMany({ where: { id: { in: organisateurs } }, select: { id: true, name: true } }) : Promise.resolve([]),
+  ]);
+  const nom = new Map(personnes.map((p) => [p.id, p.name]));
+  return rows.map((r) => {
+    const parent = parents.get(`${r.entityType}:${r.entityId}`);
+    return {
+      id: r.id,
+      parentLabel: parent?.label ?? "Mission",
+      parentPath: pathFor(r.entityType, r.entityId),
+      role: r.role,
+      dateDepart: iso(r.dateDepart ?? parent?.debut ?? null),
+      dateRetour: iso(r.dateRetour ?? parent?.fin ?? null),
+      ville: r.ville ?? parent?.ville ?? null,
+      organiserName: r.createdById ? nom.get(r.createdById) ?? null : null,
+    };
+  });
+}
+
 /** Les invitations qui attendent ma réponse — pour les compteurs. */
 export async function compteInvitationsMission(userId: string): Promise<number> {
   return prisma.missionAssignment.count({ where: { userId, archivedAt: null, response: "INVITEE" } });

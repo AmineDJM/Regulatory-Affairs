@@ -15,6 +15,8 @@ import { approveAdProItemOrder } from "@/lib/actions/ad-pro-item-actions";
 import type { LigneCentre, FormePorte, FormeBC } from "@/lib/ad-pro/centre";
 import type { VisaTranche } from "@/lib/queries/ad-pro-centre";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { SurlignerCible } from "@/components/shared/surligner-cible";
+import { ancreLigneCentre } from "@/lib/chemins/ad-pro";
 
 /**
  * LE PLAN DE TRAVAIL DU CENTRE.
@@ -49,8 +51,10 @@ const estBC = (r: LigneCentre) => r.forme === "BC_POSTE" || r.forme === "BC_LEGA
  * distincts, réglés chacun sur cet écran. Les mêler ferait lire « au-dessus du seuil » sur un BC
  * jugé contre l'autre chiffre — une raison fausse, affichée à celui qui décide.
  */
-export function CentreAdProBoard({ rows, seuil, seuilBC, tranches }: {
+export function CentreAdProBoard({ rows, seuil, seuilBC, tranches, ligneAOuvrir }: {
   rows: LigneCentre[]; seuil: number; seuilBC: number; tranches: { lignes: VisaTranche[]; total: number };
+  /** La ligne dont parle la notification (`?ligne=`) : elle vient sous les yeux et s'entoure. */
+  ligneAOuvrir?: string | null;
 }) {
   const demandes = rows.filter((r) => !estBC(r));
   const bcs = rows.filter(estBC);
@@ -59,6 +63,7 @@ export function CentreAdProBoard({ rows, seuil, seuilBC, tranches }: {
     : "tous, quel que soit leur montant (aucun seuil fixé)";
   return (
     <div className="space-y-5">
+      <SurlignerCible ids={[ligneAOuvrir ? ancreLigneCentre(ligneAOuvrir) : null]} />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <SeuilForm seuil={seuil} />
         <SeuilBCForm seuil={seuilBC} />
@@ -142,7 +147,7 @@ function LigneTranchee({ t }: { t: VisaTranche }) {
   const [error, setError] = React.useState<string | null>(null);
   const [note, setNote] = React.useState("");
   return (
-    <li className="space-y-2 rounded-xl border border-border p-3">
+    <li id={ancreLigneCentre(t.entityId)} className="space-y-2 rounded-xl border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link href={t.href} className="inline-flex min-w-0 items-center gap-1 text-sm font-medium text-primary hover:underline [overflow-wrap:anywhere]">
           {t.reference ? `${t.reference} — ` : ""}{t.intitule} <ExternalLink className="h-3.5 w-3.5 shrink-0" />
@@ -281,7 +286,7 @@ function SeuilBCForm({ seuil }: { seuil: number }) {
 function LigneCard({ row }: { row: LigneCentre }) {
   const jours = Math.floor((Date.now() - new Date(row.depuis).getTime()) / 86_400_000);
   return (
-    <li className="surface space-y-3 p-3 sm:p-4">
+    <li id={ancreLigneCentre(row.entityId)} className="surface space-y-3 p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
           {/* Deux lignes plutôt qu'un intitulé coupé au premier mot au téléphone : c'est lui qu'on arbitre. */}

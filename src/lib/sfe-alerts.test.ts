@@ -23,15 +23,20 @@ describe("NON ARMÉ — la configuration d'abord, et elle ne vise pas le KAM", (
     expect(a[0].body).toMatch(/aucun praticien/i);
   });
 
-  it("sans affectation : même règle — accuser l'homme d'un défaut d'outil serait faux", () => {
-    const a = alertsForRep(rep({ plannedVisits: 0, lastVisitLoggedAt: ilYA(LE_16, 30) }), LE_16);
+  it("sans requis de segmentation : même règle — accuser l'homme d'un défaut d'outil serait faux", () => {
+    const a = alertsForRep(rep({ requiredVisits: 0, lastVisitLoggedAt: ilYA(LE_16, 30) }), LE_16);
     expect(a).toHaveLength(1);
     expect(a[0].kind).toBe("NON_ARME");
-    expect(a[0].body).toMatch(/aucune affectation/i);
+    expect(a[0].body).toMatch(/aucune visite requise par la segmentation/i);
+  });
+
+  it("l'absence d'affectation ne désarme plus : la référence est le requis, le planifié n'est qu'une information", () => {
+    const a = alertsForRep(rep({ plannedVisits: 0, lastVisitLoggedAt: ilYA(LE_16, 1) }), LE_16);
+    expect(a.map((x) => x.kind)).not.toContain("NON_ARME");
   });
 
   it("elle COUPE les autres : un KAM non armé ne reçoit pas d'alerte de silence en plus", () => {
-    const a = alertsForRep(rep({ panelSize: 0, plannedVisits: 0, realVisits: 0 }), LE_27);
+    const a = alertsForRep(rep({ panelSize: 0, requiredVisits: 0, realVisits: 0 }), LE_27);
     expect(a.map((x) => x.kind)).toEqual(["NON_ARME"]);
   });
 });
@@ -67,15 +72,26 @@ describe("SILENCE — « on ne sait pas », jamais « il ne fait rien »", () =>
 
 describe("RETARD & COUVERTURE — au bon moment du mois, pas tous les jours", () => {
   it("le retard se juge à MI-MOIS : rien le 5, alerte le 16", () => {
-    const base = { realVisits: 10, lastVisitLoggedAt: ilYA(LE_16, 1) }; // 10/55 = 18 %
+    const base = { realVisits: 10, lastVisitLoggedAt: ilYA(LE_16, 1) }; // 10/50 requis = 20 %
     expect(alertsForRep(rep(base), LE_5).map((x) => x.kind)).not.toContain("RETARD");
     const a = alertsForRep(rep(base), LE_16);
     expect(a.map((x) => x.kind)).toContain("RETARD");
-    expect(a.find((x) => x.kind === "RETARD")!.title).toMatch(/18 %/);
+    expect(a.find((x) => x.kind === "RETARD")!.title).toMatch(/20 % du requis/);
+  });
+
+  it("le RETARD se juge sur le REQUIS, jamais sur le planifié ; le planifié s'affiche à côté", () => {
+    // 20 visites : 40 % du requis (50) mais 36 % du planifié (55) — seul le requis compte.
+    const limite = alertsForRep(rep({ realVisits: 20, requiredVisits: 50, plannedVisits: 90, lastVisitLoggedAt: ilYA(LE_16, 1) }), LE_16);
+    expect(limite.map((x) => x.kind)).not.toContain("RETARD"); // 40 % n'est pas < 40 % ; avec 90 planifiées (22 %) il aurait sonné
+    const a = alertsForRep(rep({ realVisits: 19, requiredVisits: 50, plannedVisits: 90, lastVisitLoggedAt: ilYA(LE_16, 1) }), LE_16);
+    const r = a.find((x) => x.kind === "RETARD")!;
+    expect(r.title).toMatch(/38 % du requis/);
+    expect(r.body).toMatch(/19 visites sur 50 requises/);
+    expect(r.body).toMatch(/90 planifiées/);
   });
 
   it("réalisation correcte à mi-mois : pas d'alerte", () => {
-    const a = alertsForRep(rep({ realVisits: 30, lastVisitLoggedAt: ilYA(LE_16, 1) }), LE_16); // 55 %
+    const a = alertsForRep(rep({ realVisits: 30, lastVisitLoggedAt: ilYA(LE_16, 1) }), LE_16); // 60 %
     expect(a.map((x) => x.kind)).not.toContain("RETARD");
   });
 
@@ -116,7 +132,8 @@ describe("cycle et agrégat", () => {
       rep({ repId: "a", realVisits: 50, plannedVisits: 55, panelSize: 40, coveredDoctors: 30 }),
       rep({ repId: "b", realVisits: 20, plannedVisits: 55, panelSize: 40, coveredDoctors: 15 }),
     ]);
-    expect(l).toMatch(/70 visites réalisées sur 110 attendues \(64 %\)/);
+    // Sur le REQUIS (2 × 50), pas sur le planifié (2 × 55).
+    expect(l).toMatch(/70 visites réalisées sur 100 requises \(70 %\)/);
     expect(l).toMatch(/panel couvert à 56 %/);
     expect(l).toMatch(/1 KAM sous 60 %/);
     expect(monthlyReviewLine([])).toMatch(/aucun kam/i);

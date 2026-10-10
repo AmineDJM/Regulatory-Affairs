@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { lienRemiseCaisse } from "@/lib/chemins/moyens-generaux";
 import {
   sitsOnPaymentCentre, applyDecision, applyResubmission, canResubmit, memeBeneficiaire,
   CENTRAL_DECISION_LABEL, CENTRAL_STATUS_LABEL,
@@ -64,7 +65,7 @@ async function suitesDuRefus(orderId: string, motif: string): Promise<void> {
       await notifyUser({
         userId: remise.holderId, type: "GENERIC", title: "Remise de caisse refusée",
         body: `${Number(remise.amount).toLocaleString("fr-FR")} DZD annoncés pour la caisse ${remise.department.name} : refusés par le centre de paiement — ${motif.slice(0, 200)}`,
-        link: "/moyens-generaux",
+        link: lienRemiseCaisse(remise.id),
       });
     }
     revalidatePath("/moyens-generaux");

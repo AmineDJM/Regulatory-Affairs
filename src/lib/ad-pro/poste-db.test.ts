@@ -10,6 +10,7 @@ import { getAccess, userCan, type SessionUser } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder } from "@/lib/actions/ad-pro-item-actions";
 import { PIECE_SECRETARIAT } from "./pieces-secretariat";
+import { lienLigneCentreAdPro } from "@/lib/chemins/ad-pro";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -253,7 +254,8 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
       select: { link: true },
     });
     expect(pourLeCentre.length, "le centre Ad & Pro est prévenu").toBeGreaterThanOrEqual(1);
-    expect(pourLeCentre[0].link).toBe("/centre-ad-pro");
+    // …et le lien ouvre le centre SUR la ligne de ce poste (`?ligne=`), pas en tête de file.
+    expect(pourLeCentre[0].link).toBe(lienLigneCentreAdPro(autre.id));
   });
 
   it("une nature INCONNUE est refusée en nommant celles qui existent", async () => {

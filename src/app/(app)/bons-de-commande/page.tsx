@@ -29,7 +29,7 @@ export const metadata = { title: "Bons de commande à signer — AMD Internal OS
  * sur le papier en-tête de la société est aussi ici, avec les mêmes droits que dans Legal
  * (`compositionDesPieces`) — une pièce composée ici passe par le même circuit qu'ailleurs.
  */
-export default async function BonsDeCommandePage() {
+export default async function BonsDeCommandePage({ searchParams }: { searchParams: { bc?: string } }) {
   const user = await requireModule("PURCHASE_ORDERS");
   const [file, composition] = await Promise.all([fileBonsDeCommande(user), compositionDesPieces(user)]);
   if (!file) notFound();
@@ -89,6 +89,7 @@ export default async function BonsDeCommandePage() {
         peutSigner={peutSigner}
         refus={peutSigner ? null : REFUS_SIGNATURE_BC}
         tronquee={file.tronquee}
+        bcAOuvrir={searchParams.bc ?? null}
       />
     </div>
   );

@@ -45,10 +45,11 @@ export const SEUIL_STOCK_BAS_MOIS = 2;
  * Un relevé est un « il reste X à cette date » : additionner deux relevés du même lieu compterait
  * deux fois les mêmes boîtes.
  */
-export function stockActuel(releves: readonly { productId: string; scope: string; annexId: string | null; date: Date | string; quantity: number }[]): { unites: number; date: Date | null; lieux: number } {
+export function stockActuel(releves: readonly { productId: string; scope: string; annexId: string | null; drCode?: string | null; date: Date | string; quantity: number }[]): { unites: number; date: Date | null; lieux: number } {
   const dernier = new Map<string, { t: number; q: number }>();
   for (const r of releves) {
-    const k = `${r.productId}|${r.scope}|${r.annexId ?? ""}`;
+    // Une direction régionale de la PCH est un lieu à part entière (scope ANNEX, annexId nul, `drCode`).
+    const k = `${r.productId}|${r.scope}|${r.annexId ?? ""}|${r.drCode ?? ""}`;
     const t = new Date(r.date).getTime();
     const cur = dernier.get(k);
     if (!cur || t > cur.t) dernier.set(k, { t, q: r.quantity });

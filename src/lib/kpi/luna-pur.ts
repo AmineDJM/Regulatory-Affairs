@@ -27,7 +27,7 @@ RÈGLES IMPÉRATIVES
 - Si c'est un fait que la personne peut prouver par une pièce (formation suivie, congrès organisé) : propose un KPI "DECLARE".
 - Si rien de cela ne convient (une donnée que la plateforme ne tient pas) : ne propose rien pour cette partie et remplis "horsBriques" (intention, données nécessaires, fréquence, exemple) pour qu'elle remonte au Super Admin comme une demande de nouvelle mesure.
 - Lettres de segmentation : ${LETTRES_KPI.join(", ")} (H = décideurs). "seuilN" = au moins N visites par mois. "heures" = délai en heures.
-- "sens" : PLUS_HAUT sauf pour un délai (PLUS_BAS). "periode" : MOIS, ou TRIMESTRE pour ce qui est rare. "cible" : null si tu ne la connais pas (elle sera proposée d'après l'historique réel).
+- "sens" : PLUS_HAUT sauf pour un délai ou une demande non servie (PLUS_BAS). "periode" : MOIS, ou TRIMESTRE pour ce qui est rare. "cible" : null si tu ne la connais pas (elle sera proposée d'après l'historique réel).
 - "message" : une ou deux phrases au manager, sobres.
 
 CATALOGUE DES BRIQUES
@@ -164,6 +164,20 @@ export function propositionsDeSecours(phrase: string): ReponseDefinitions {
   }
   if (a("validation")) {
     pousser({ nom: "Délai de réponse aux validations", nature: "CALCULE", numerateur: { brique: "DELAI_VALIDATIONS" }, sens: "PLUS_BAS", periode: "MOIS" }, "Médiane des heures entre l'arrivée d'une validation et sa décision.");
+  }
+  if (a(" demandes traitees", " demande traitee", "tickets", " support ", "demandes rh", "demandes administratives")) {
+    pousser({ nom: "Demandes traitées", nature: "CALCULE", numerateur: { brique: "DEMANDES_TRAITEES" }, sens: "PLUS_HAUT", periode: "MOIS" }, "Demandes support, RH et administratives traitées par la personne dans le mois.");
+    if (a("delai", "rapidite", "temps de traitement", "reactivite")) {
+      pousser({ nom: "Délai de traitement des demandes", nature: "CALCULE", numerateur: { brique: "DELAI_DEMANDES" }, sens: "PLUS_BAS", periode: "MOIS" }, "Médiane des heures entre le dépôt d'une demande et son traitement.");
+    }
+  }
+  if (a("non servi", "non servie", "rupture pch")) {
+    pousser({ nom: "Demande non servie PCH", nature: "CALCULE", numerateur: { brique: "NON_SERVI_PCH" }, sens: "PLUS_BAS", periode: "MOIS" }, "Quantités demandées par les hôpitaux de son territoire (secteur ou BU) et non servies par la PCH.");
+  } else if (a(" pch ", "livre pch", "livraisons pch", "hopitaux")) {
+    pousser({ nom: "Livré PCH", nature: "CALCULE", numerateur: { brique: "LIVRE_PCH" }, sens: "PLUS_HAUT", periode: "MOIS" }, "Quantités livrées par la PCH aux hôpitaux de son territoire (secteur ou BU).");
+  }
+  if (a("execution des marches", "execution marches", "marches pch", "marches attribues")) {
+    pousser({ nom: "Exécution des marchés", nature: "CALCULE", numerateur: { brique: "EXECUTION_MARCHES" }, sens: "PLUS_HAUT", periode: "TRIMESTRE" }, "Part livrée de ce que les marchés PCH ont attribué à la BU (état cumulé).");
   }
   if (a("visite", "visites") && out.length === 0) {
     pousser({ nom: "Visites réalisées", nature: "CALCULE", numerateur: { brique: "VISITES_REALISEES" }, sens: "PLUS_HAUT", periode: "MOIS" }, "Visites au statut réalisée dans le mois.");

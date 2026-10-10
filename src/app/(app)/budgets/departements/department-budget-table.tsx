@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 import { DepartmentAccessSheet } from "./access-sheet";
+import { SurlignerCible } from "@/components/shared/surligner-cible";
+import { ancreDemandeBudget } from "@/lib/chemins/budgets";
 
 /**
  * Le tableau des budgets départementaux.
@@ -30,7 +32,7 @@ import { DepartmentAccessSheet } from "./access-sheet";
  * budgets se remplit en tabulant d'une case à l'autre.
  */
 export function DepartmentBudgetTable({
-  rows, year, totals, requests, canDecide, canManageAccess, generalGrant, users,
+  rows, year, totals, requests, canDecide, canManageAccess, generalGrant, users, demandeAOuvrir,
 }: {
   rows: DeptBudgetViewRow[];
   year: number;
@@ -40,6 +42,8 @@ export function DepartmentBudgetTable({
   canManageAccess: boolean;
   generalGrant: DeptBudgetGrant | null;
   users: { id: string; name: string }[];
+  /** La demande dont parle la notification (`?demande=`) : sa ligne vient sous les yeux et s'entoure. */
+  demandeAOuvrir?: string | null;
 }) {
   const router = useRouter();
   const [err, setErr] = React.useState<string | null>(null);
@@ -59,6 +63,7 @@ export function DepartmentBudgetTable({
 
   return (
     <div className="space-y-4">
+      <SurlignerCible ids={[demandeAOuvrir ? ancreDemandeBudget(demandeAOuvrir) : null]} />
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-muted-foreground">Exercice</span>
         {years.map((y) => (
@@ -483,7 +488,7 @@ function RequestList({ requests, canDecide, onError }: {
   return (
     <ul className="divide-y divide-border rounded-xl border border-border">
       {requests.map((q) => (
-        <li key={q.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+        <li key={q.id} id={ancreDemandeBudget(q.id)} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
           <span className="min-w-0 flex-1 basis-[12rem]">
             <span className="font-medium">{q.departmentName}</span>
             <span className="ml-2 text-xs text-muted-foreground">{DEPT_BUDGET_LABEL[q.kind]} · {q.year}</span>

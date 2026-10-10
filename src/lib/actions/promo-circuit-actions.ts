@@ -22,7 +22,7 @@ import {
 import { totauxDeLaSelection, formatDzd } from "@/lib/promo-material/devis";
 import { verdictDuChantierPromo, executionDuDossier } from "@/lib/queries/promo-execution";
 import { notifierSignatairesBC } from "@/lib/bons-de-commande/signataires";
-import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
+import { lienBonDeCommande } from "@/lib/chemins/bons-de-commande";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { hasGlobalView } from "@/lib/rbac";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
@@ -695,6 +695,8 @@ export async function relancerPromo(formData: FormData): Promise<ActionResult> {
   let ids: string[] = [];
   let roles: Parameters<typeof notifyRoles>[0] = [];
   let signataires = false;
+  /** Le BC à signer dont on relance la signature : la relance arrive sur sa ligne. */
+  let bcASigner: string | null = null;
   let qui = "";
   const etat = pm.circuitState as PromoState;
   if (attendSaCorrection({ circuitState: etat, returnedAt: pm.returnedAt })) {
@@ -716,7 +718,7 @@ export async function relancerPromo(formData: FormData): Promise<ActionResult> {
     const execution = await executionDuDossier(id);
     const bcs = execution.filter((e) => e.lignesRetenues > 0 && e.bc);
     const factures = execution.flatMap((e) => e.factures);
-    if (bcs.some((e) => e.bc?.etape === "A_SIGNER")) { signataires = true; qui = "les Finances (signature des BC)"; }
+    if (bcs.some((e) => e.bc?.etape === "A_SIGNER")) { signataires = true; bcASigner = bcs.find((e) => e.bc?.etape === "A_SIGNER")?.bc?.id ?? null; qui = "les Finances (signature des BC)"; }
     else if (bcs.some((e) => e.bc?.etape === "A_VALIDER" || e.bc?.etape === "SANS_PORTE")) { roles = ["GENERAL_MANAGER", "SUPER_ADMIN"]; qui = "le centre de validation"; }
     else if (factures.some((f) => f.paiementDemande && !f.reglee)) { roles = ["FINANCE_BUDGET_MANAGER"]; qui = "les Finances (paiement)"; }
     else { ids = pm.requesterId ? [pm.requesterId] : []; qui = "le demandeur"; }
@@ -736,7 +738,7 @@ export async function relancerPromo(formData: FormData): Promise<ActionResult> {
   const avis = { type: "LATE" as const, title: `Relance — ${pm.reference}`, body: `${user.name ?? "Le demandeur"} relance : ${pm.title}`, link: path(id) };
   for (const userId of ids) await notifyUser({ userId, ...avis });
   if (roles.length) await notifyRoles(roles, avis);
-  if (signataires) await notifierSignatairesBC({ ...avis, link: CHEMIN_BONS_DE_COMMANDE });
+  if (signataires) await notifierSignatairesBC({ ...avis, link: lienBonDeCommande(bcASigner) });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: id,
     summary: `Relance envoyée à ${qui} (${libelleEtape(etat, 2)}).`,

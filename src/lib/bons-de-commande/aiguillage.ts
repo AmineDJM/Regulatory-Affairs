@@ -8,12 +8,13 @@ import { centreValidatorFrom } from "@/lib/validations/centre";
 import { TYPES_ENTITE_AD_PRO } from "@/lib/ad-pro/unified";
 import { poleDe } from "@/lib/lecteurs/consulting";
 import { getAppSettings } from "@/lib/settings";
-import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
+import { CHEMIN_BONS_DE_COMMANDE, lienBonDeCommande } from "@/lib/chemins/bons-de-commande";
+import { lienLigneCentreAdPro } from "@/lib/chemins/ad-pro";
 import { notifierSignatairesBC } from "./signataires";
 import {
   centreDeLOrigine, etatDepuisPoste, etatDepuisValidation, etatDepuisVisa, gesteAiguillage,
   validationRequiseBC, etapeBC,
-  LIBELLE_CENTRE_BC, CHEMIN_CENTRE_BC,
+  LIBELLE_CENTRE_BC,
   type CentreBC, type EtapeBC, type PorteBC,
 } from "./regle";
 
@@ -352,7 +353,8 @@ async function poser(doc: DocBC, centre: CentreBC, acteurId: string, motif: stri
       type: "VALIDATION_REQUIRED",
       title: motif ? "Bon de commande à revalider" : "Bon de commande à valider",
       body: `${titre} (${montantLisible(montant)})${motif ? ` — ${motif}` : ""}`,
-      link: CHEMIN_CENTRE_BC.AD_PRO,
+      // La ligne du BC dans le centre (`?ligne=<pièce Legal>`) : la notification arrive sur LUI.
+      link: lienLigneCentreAdPro(doc.id),
     }).catch(() => undefined);
     return true;
   }
@@ -435,7 +437,8 @@ export async function notifierSignatairesBCASigner(doc: DocBC): Promise<void> {
     type: "VALIDATION_REQUIRED",
     title: "Bon de commande à signer",
     body: `${intitule(doc)} (${montantLisible(montantDe(doc))})`,
-    link: CHEMIN_BC_A_SIGNER,
+    // La ligne du BC dans la file (`?bc=<pièce Legal>`) : on arrive sur celui qu'on doit signer.
+    link: lienBonDeCommande(doc.id),
   }).catch(() => undefined);
 }
 

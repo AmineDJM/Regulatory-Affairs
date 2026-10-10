@@ -24,6 +24,19 @@
 export const CHEMIN_BONS_DE_COMMANDE = "/bons-de-commande";
 
 /**
+ * La file ouverte SUR UN BC (`?bc=<id de la pièce Legal>`) : la ligne « à signer » dont parle la
+ * notification vient sous les yeux et s'entoure (`ancreBonDeCommande`). Un BC déjà signé ou renvoyé
+ * garde son ancre dans les listes du dessous ; sans identifiant, la file s'ouvre en tête.
+ */
+export function ancreBonDeCommande(docId: string): string {
+  return `bc-${docId}`;
+}
+
+export function lienBonDeCommande(docId?: string | null): string {
+  return docId ? `${CHEMIN_BONS_DE_COMMANDE}?bc=${encodeURIComponent(docId)}` : CHEMIN_BONS_DE_COMMANDE;
+}
+
+/**
  * Le chemin du MENU, tel qu'une phrase le nomme (« … depuis Administration › Bons de commande »).
  * Une phrase qui nomme un chemin qui n'existe pas fait chercher (§118.128) : il vit ici, à côté de
  * l'adresse, pour changer avec elle.

@@ -10,7 +10,7 @@ vi.mock("@/lib/drive-storage", () => ({ getBlob: async () => Buffer.from("PDF") 
 
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
-import { voitLesSalaires } from "@/lib/hr/confidentialite";
+import { voitLesSalaires, natureDeLAbsence, voitLeTypeDesAbsences } from "@/lib/hr/confidentialite";
 import { getRhData } from "@/lib/queries/hr";
 import { GET as telechargerPieceRh } from "@/app/api/rh/document/[id]/route";
 
@@ -21,6 +21,51 @@ import { GET as telechargerPieceRh } from "@/app/api/rh/document/[id]/route";
  * Opérations n'a des RH que la lecture) et un gestionnaire RH rattaché à UNE société.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+
+/**
+ * « CONGÉ » OU « ABSENT » — ce qu'un encadrant lit d'une absence dans Mon Équipe (§118.184). Pur : sans base.
+ * Un arrêt maladie ne s'affiche plus « Congé » (on croirait la personne en vacances), sans que la maladie soit dite.
+ */
+describe("Mon Équipe — la nature d'une absence, sans la nature médicale", () => {
+  const sansRh = { id: "u", role: "VIEWER", secondaryRole: null, access: { modules: new Map() } } as unknown as SessionUser;
+  const gereLesRh = {
+    id: "h", role: "VIEWER", secondaryRole: null,
+    access: { modules: new Map([["RH", { actions: new Set(["VIEW", "UPDATE"]) }]]) },
+  } as unknown as SessionUser;
+
+  it("le congé annuel (et sans solde, récupération) se dit « Congé » ; toute autre absence se dit « Absent »", () => {
+    expect(natureDeLAbsence("ANNUAL")).toBe("CONGE");
+    expect(natureDeLAbsence("UNPAID")).toBe("CONGE");
+    expect(natureDeLAbsence("RECOVERY")).toBe("CONGE");
+    for (const t of ["SICK", "MATERNITY", "SPECIAL", "OTHER"]) expect(natureDeLAbsence(t), t).toBe("ABSENCE");
+  });
+
+  it("dans le doute, on en dit le moins : un type inconnu ou absent se dit « Absent »", () => {
+    expect(natureDeLAbsence("QUELQUE_CHOSE_DE_NOUVEAU")).toBe("ABSENCE");
+    expect(natureDeLAbsence(null)).toBe("ABSENCE");
+    expect(natureDeLAbsence(undefined)).toBe("ABSENCE");
+  });
+
+  it("« Absent » ne dit pas « malade » : plusieurs natures s'y confondent", () => {
+    const natures = new Set(["SICK", "MATERNITY", "SPECIAL", "OTHER"].map(natureDeLAbsence));
+    expect([...natures]).toEqual(["ABSENCE"]);
+  });
+
+  it("le type précis ne se lit que pour qui gère les RH — la règle de la paie", () => {
+    expect(voitLeTypeDesAbsences(gereLesRh)).toBe(true);
+    expect(voitLeTypeDesAbsences(gereLesRh)).toBe(voitLesSalaires(gereLesRh));
+    expect(voitLeTypeDesAbsences(sansRh)).toBe(false);
+  });
+
+  it("POINTS D'APPEL : l'aperçu n'envoie le libellé précis qu'aux RH, et le type n'est jamais sérialisé tel quel", () => {
+    const src = readFileSync("src/lib/queries/my-team-overview.ts", "utf8");
+    expect(src).toMatch(/genre: natureDeLAbsence\(c\.type\)/);
+    expect(src).toMatch(/libelle: typePrecis \? LEAVE_TYPE\[c\.type\] \?\? null : null/);
+    expect(src, "le type brut ne doit pas être poussé dans un événement").not.toMatch(/\btype: c\.type\b/);
+    const my = readFileSync("src/lib/queries/my-team.ts", "utf8");
+    expect(my, "my-team.ts ne lit toujours pas le type du congé").not.toMatch(/select: \{[^}]*\btype: true/);
+  });
+});
 
 const TAG = "__hrconf__";
 let dbOk = false;

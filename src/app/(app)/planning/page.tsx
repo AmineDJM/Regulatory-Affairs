@@ -10,6 +10,8 @@ import {
   ETAT_PLAN_LABELS, cyclesSansVisite, libelleRetardCible, pointsSparkline, sensTendance, type EtatPlan,
 } from "@/lib/force-de-vente/calculs";
 import { peutAdministrerLeCoaching } from "@/lib/coaching/acces";
+import { viewsAllReports } from "@/lib/queries/field-reports";
+import { lienRapportsDeDelegue } from "@/lib/chemins/rapports-terrain";
 import { InfoBulle } from "@/components/ui/info-bulle";
 import { LettreBadge } from "@/app/(app)/segmentation/lettre-badge";
 import { EnteteFdv, lireParametres, lienFdv } from "./entete";
@@ -41,6 +43,8 @@ export default async function PilotagePage({ searchParams }: { searchParams?: { 
   const fiche = searchParams?.kam ? await chargerFicheDelegue(pilotage, searchParams.kam, year, month) : null;
   const peutCoacher = !scope.lectureSeule && (scope.canConfigure || scope.mode === "team" || peutAdministrerLeCoaching(user));
   const ecrire = userCan(user, "MESSAGING", "VIEW");
+  // « Voir ses rapports » : la liste des Rapports filtrée sur ce délégué — le filtre n'existe que pour qui voit les rapports de tous.
+  const voirRapports = userCan(user, "FIELD_REPORTS", "VIEW") && viewsAllReports(user);
   const enCours = jour > 0 && jour < total;
 
   return (
@@ -152,7 +156,7 @@ export default async function PilotagePage({ searchParams }: { searchParams?: { 
 
       {fiche && (
         <PanneauAdresse titre={fiche.ligne.nom} description={[fiche.ligne.buNom, fiche.ligne.secteurNom, fiche.superviseur ? `superviseur ${fiche.superviseur}` : null].filter(Boolean).join(" · ")} fermer={lienFdv("/planning", p)}>
-          <FicheDelegueVue fiche={fiche} jour={jour} enCours={enCours} peutCoacher={peutCoacher && fiche.ligne.repId !== user.id} ecrire={ecrire && fiche.ligne.repId !== user.id} />
+          <FicheDelegueVue fiche={fiche} jour={jour} enCours={enCours} peutCoacher={peutCoacher && fiche.ligne.repId !== user.id} ecrire={ecrire && fiche.ligne.repId !== user.id} voirRapports={voirRapports} />
         </PanneauAdresse>
       )}
 
@@ -278,7 +282,7 @@ function joursDepuis(d: Date | null): string {
   return j <= 0 ? "aujourd'hui" : `il y a ${j} j`;
 }
 
-function FicheDelegueVue({ fiche, jour, enCours, peutCoacher, ecrire }: { fiche: FicheDelegue; jour: number; enCours: boolean; peutCoacher: boolean; ecrire: boolean }) {
+function FicheDelegueVue({ fiche, jour, enCours, peutCoacher, ecrire, voirRapports }: { fiche: FicheDelegue; jour: number; enCours: boolean; peutCoacher: boolean; ecrire: boolean; voirRapports: boolean }) {
   const l: LigneDelegue = fiche.ligne;
   const coachingVieux = !fiche.dernierCoaching || Date.now() - fiche.dernierCoaching.getTime() > 60 * 86_400_000;
   return (
@@ -338,6 +342,7 @@ function FicheDelegueVue({ fiche, jour, enCours, peutCoacher, ecrire }: { fiche:
 
       <div className="flex flex-wrap gap-2 border-t border-border pt-4">
         <LienAction principal href={l.plan.planId ? `/medical/plan-de-tournee?plan=${l.plan.planId}` : "/medical/plan-de-tournee"}>Voir son plan</LienAction>
+        {voirRapports && <LienAction href={lienRapportsDeDelegue(l.repId)}>Voir ses rapports</LienAction>}
         {peutCoacher && <LienAction href={`/medical/coaching/nouvelle?collaborateur=${l.repId}`}>Planifier un coaching</LienAction>}
         {ecrire && <BoutonEcrire userId={l.repId} />}
       </div>

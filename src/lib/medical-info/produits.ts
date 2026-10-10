@@ -25,7 +25,50 @@ export function mentionsProduits(texte: string | null | undefined): string[] {
     .filter((s) => s.length > 1);
 }
 
+/**
+ * LE PRODUIT POSÉ SUR LA DÉCLARATION (Direction, 10/2026 — `MedicalInfoDeclaration.productId`) l'emporte sur celui déduit de
+ * la source : il est repris de la source à la création, puis corrigeable dans la déclaration. Une déclaration encore sans
+ * produit posé mais dont la source se résout est RATTRAPÉE ici (une écriture idempotente, `productId` nul seulement) : c'est
+ * ce qui fait remonter les anciennes déclarations dans Produits 360 sans script à lancer.
+ */
 export async function produitsDesDossiers(
+  decls: readonly { id: string; sourceType: string; sourceId: string; productId?: string | null }[],
+  options: { rattraper?: boolean } = {},
+): Promise<Map<string, ProduitDossier>> {
+  const deduits = await produitsDeduitsDesSources(decls);
+  const poses = [...new Set(decls.map((d) => d.productId).filter((x): x is string => !!x))];
+  const noms = poses.length
+    ? new Map((await prisma.product.findMany({ where: { id: { in: poses } }, select: { id: true, canonicalName: true } })).map((p) => [p.id, p.canonicalName]))
+    : new Map<string, string>();
+  const out = new Map<string, ProduitDossier>();
+  const aRattraper: { id: string; productId: string }[] = [];
+  for (const d of decls) {
+    const deduit = deduits.get(d.id);
+    if (d.productId && noms.has(d.productId)) {
+      out.set(d.id, { nom: noms.get(d.productId)!, id: d.productId, autres: deduit?.id === d.productId ? deduit.autres : 0 });
+      continue;
+    }
+    if (deduit) out.set(d.id, deduit);
+    if (!d.productId && deduit?.id) aRattraper.push({ id: d.id, productId: deduit.id });
+  }
+  if (options.rattraper !== false && aRattraper.length) {
+    // Jamais bloquant : un rattrapage qui échoue laisse la lecture intacte (il se refera à la prochaine ouverture).
+    await Promise.all(aRattraper.map((r) => prisma.medicalInfoDeclaration.updateMany({ where: { id: r.id, productId: null }, data: { productId: r.productId } }).catch(() => null)));
+  }
+  return out;
+}
+
+/** Le produit canonique d'une source, au moment de créer la déclaration — nul si la source n'en nomme aucun ou ne se résout pas. */
+export async function produitDeLaSource(sourceType: string, sourceId: string): Promise<string | null> {
+  try {
+    const m = await produitsDesDossiers([{ id: "_", sourceType, sourceId }], { rattraper: false });
+    return m.get("_")?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function produitsDeduitsDesSources(
   decls: readonly { id: string; sourceType: string; sourceId: string }[],
 ): Promise<Map<string, ProduitDossier>> {
   const ids = (t: string) => decls.filter((d) => d.sourceType === t).map((d) => d.sourceId);

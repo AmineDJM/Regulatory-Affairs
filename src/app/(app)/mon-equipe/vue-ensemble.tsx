@@ -34,7 +34,7 @@ const ECHEANCE: Record<TeamPending["kind"], string> = {
 const periode = (debut: string, fin: string) => (debut === fin ? `le ${jourCourt(debut)}` : `du ${jourCourt(debut)} au ${jourCourt(fin)}`);
 /** Une échéance de la file — un jour écrit à minuit UTC, lu en UTC (§118.196, M21). */
 const dateLisible = (iso: string) => formatDate(iso, { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
-const GENRE_MOT:Record<EvenementEquipe["genre"], string> = { CONGE: "congé", MISSION: "mission", FORMATION: "formation" };
+const GENRE_MOT:Record<EvenementEquipe["genre"], string> = { CONGE: "congé", ABSENCE: "absent", MISSION: "mission", FORMATION: "formation" };
 const SURVEILLER_MONTRES = 8;
 
 /**

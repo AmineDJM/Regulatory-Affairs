@@ -104,7 +104,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
     setErr(null);
     const saisie = new FormData(e.currentTarget);
     const fd = new FormData();
-    for (const cle of ["title", "description"]) {
+    for (const cle of ["title", "description", "neededBy"]) {
       const v = saisie.get(cle);
       if (typeof v === "string") fd.set(cle, v);
     }
@@ -142,6 +142,16 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
       <div className="space-y-1.5">
         <Label htmlFor="mp-description">Brief / description</Label>
         <Textarea id="mp-description" name="description" rows={3} />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="mp-needed-by" className="inline-flex items-center gap-1">
+          Date de besoin
+          <InfoBulle label="Date de besoin" align="left">
+            Le jour où vous avez besoin du matériel. Elle s&apos;affiche en haut de la demande, en orange quand il reste moins de 15 jours
+            et que le matériel n&apos;est pas livré. Vous pourrez la modifier.
+          </InfoBulle>
+        </Label>
+        <Input id="mp-needed-by" name="neededBy" type="date" min={new Date().toISOString().slice(0, 10)} className="sm:max-w-[12rem]" />
       </div>
 
       <fieldset className="space-y-3">

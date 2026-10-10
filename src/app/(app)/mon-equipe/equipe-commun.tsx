@@ -15,6 +15,8 @@ export const prenom = (nom: string) => nom.trim().split(/\s+/)[0] ?? nom;
 /** Les couleurs des événements — les mêmes dans la semaine, le calendrier et sa légende. */
 export const GENRE: Record<GenreEvenement | "ANNIVERSAIRE", { label: string; puce: string; cellule: string }> = {
   CONGE: { label: "Congé", puce: "bg-warning/15 text-warning border-warning/25", cellule: "bg-warning/70" },
+  // « Absent » : maladie, maternité, événement familial… — dit sans sa nature (§118.184) ; les RH y lisent le type précis (`libelle`).
+  ABSENCE: { label: "Absent", puce: "bg-destructive/10 text-destructive border-destructive/20", cellule: "bg-destructive/60" },
   MISSION: { label: "Mission", puce: "bg-primary/10 text-primary border-primary/20", cellule: "bg-primary/70" },
   FORMATION: { label: "Formation", puce: "bg-purple-500/10 text-purple-700 border-purple-500/20 dark:text-purple-300", cellule: "bg-purple-500/70" },
   ANNIVERSAIRE: { label: "Anniversaire", puce: "bg-success/10 text-success border-success/20", cellule: "bg-success/70" },
@@ -31,6 +33,8 @@ export const POINT_TON: Record<TonAlerte, string> = {
 export function statutDuJour(l: LigneEquipe): { texte: string; tone: "success" | "warning" | "info" | "purple" } {
   const a = l.aujourdhui;
   if (a.genre === "CONGE") return { texte: `Congé → ${a.jusquAu ? jourCourt(a.jusquAu) : "—"}`, tone: "warning" };
+  // `libelle` n'est rempli que pour qui gère les RH (le type précis) ; pour un encadrant, c'est simplement « Absent ».
+  if (a.genre === "ABSENCE") return { texte: `Absent${a.libelle ? ` (${a.libelle.toLowerCase()})` : ""} → ${a.jusquAu ? jourCourt(a.jusquAu) : "—"}`, tone: "warning" };
   if (a.genre === "MISSION") return { texte: `Mission${a.libelle ? ` ${a.libelle}` : ""}`, tone: "info" };
   if (a.genre === "FORMATION") return { texte: "Formation", tone: "purple" };
   return { texte: "Présent", tone: "success" };

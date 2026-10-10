@@ -7,6 +7,7 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { lienRemiseCaisse, lienRallongeCaisse, lienCaisseAvance } from "@/lib/chemins/moyens-generaux";
 import { saveFile } from "@/lib/storage";
 import { validateAttachments } from "@/lib/attach-files";
 import { normalizeAmount, normalizeYear } from "@/lib/department-budget";
@@ -122,7 +123,7 @@ export async function allotPettyCash(formData: FormData): Promise<ActionResult> 
     userId: holder, type: "GENERIC",
     title: premiere ? "Caisse d'avance annoncée" : "Nouvelle remise en caisse d'avance annoncée",
     body: `${amount} DZD demandés au centre de paiement le ${new Date().toLocaleDateString("fr-FR")} — vous serez prévenue au versement, et confirmerez alors la réception.`,
-    link: PATH,
+    link: lienRemiseCaisse(remise.id),
   });
   revalidatePath(PATH);
   revalidatePath("/centre-de-paiement");
@@ -313,7 +314,7 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
       type: "GENERIC",
       title: "Caisse d'avance presque épuisée",
       body: `Il reste ${Math.max(0, after.remaining)} DZD en caisse.`,
-      link: PATH,
+      link: lienCaisseAvance(),
     });
   }
 
@@ -355,8 +356,9 @@ export async function requestPettyCashTopUp(formData: FormData): Promise<ActionR
   if (already > 0) return { ok: false, error: "Une demande de rallonge est déjà en attente sur cette caisse." };
 
   const reason = fdStr(formData, "reason");
-  await prisma.pettyCashTopUpRequest.create({
+  const demandee = await prisma.pettyCashTopUpRequest.create({
     data: { allotmentId: cashId, amountRequested: amount, reason, requestedById: user.id },
+    select: { id: true },
   });
 
   // CE QUI RESTE, C'EST LE FOND — pas ce qui reste sur la remise à laquelle la demande
@@ -366,7 +368,7 @@ export async function requestPettyCashTopUp(formData: FormData): Promise<ActionR
     type: "VALIDATION_REQUIRED",
     title: "Rallonge de caisse d'avance à trancher",
     body: `${cash.department.name} : +${amount} DZD demandés (il reste ${Math.max(0, remaining)} DZD en caisse)${reason ? ` — ${reason}` : ""}`,
-    link: PATH,
+    link: lienRallongeCaisse(demandee.id),
   });
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Budgets", entityType: "BUDGET", entityId: cash.departmentId,
@@ -399,7 +401,7 @@ export async function annulerRallongeCaisse(formData: FormData): Promise<ActionR
     type: "GENERIC",
     title: "Rallonge de caisse retirée",
     body: `${req.allotment.department.name} : la demande de +${toNumber(req.amountRequested)} DZD est retirée par ${user.name} — il n'y a plus rien à trancher.`,
-    link: PATH,
+    link: lienRallongeCaisse(id),
   }).catch(() => undefined);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: req.allotment.departmentId,
@@ -495,7 +497,7 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
       body: decision === "APPROVED"
         ? `${granted} DZD accordés, envoyés au centre de paiement${reference ? ` (${reference})` : ""} : ils rejoindront la caisse une fois versés${note ? ` — ${note}` : ""}`
         : `Demande refusée${note ? ` — ${note}` : ""}`,
-      link: PATH,
+      link: lienRallongeCaisse(id),
     });
   }
   await recordAudit({
@@ -548,7 +550,7 @@ export async function setPettyCashPlan(formData: FormData): Promise<ActionResult
   if (holderId) {
     await notifyUser({
       userId: holderId, type: "GENERIC", title: "Caisse d'avance — réglage mensuel",
-      body: `${monthlyAmount} DZD vous seront remis le ${rechargeDay} de chaque mois.`, link: PATH,
+      body: `${monthlyAmount} DZD vous seront remis le ${rechargeDay} de chaque mois.`, link: lienCaisseAvance(),
     });
   }
   revalidatePath(PATH);
@@ -579,7 +581,7 @@ export async function runPettyCashRechargeReminders(now = new Date()): Promise<n
       type: "GENERIC",
       title: "Caisse d'avance — rechargement dans 48 h",
       body: `${plan.department.name} : ${toNumber(plan.monthlyAmount)} DZD à remettre le ${r.at.toLocaleDateString("fr-FR")}. La remise passe par le centre de paiement : envoyez-la dès maintenant pour qu'elle soit autorisée et versée à temps.`,
-      link: PATH,
+      link: lienCaisseAvance(),
     });
     await prisma.pettyCashPlan.update({ where: { id: plan.id }, data: { lastReminderPeriod: r.period } });
     sent += 1;

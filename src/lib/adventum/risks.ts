@@ -5,6 +5,7 @@ import { getRiskThresholds, type RiskThresholds } from "./risk-settings";
 import { kamsQuiCouvrent } from "@/lib/queries/panel-kam";
 import { lienRapportTerrain } from "@/lib/chemins/rapports-terrain";
 import { lienOrdreAPayer } from "@/lib/chemins/finances";
+import { lienCibleEnveloppe, ancreCategorieBudget } from "@/lib/chemins/budgets";
 import { DETECTEURS_PLUS } from "./risks-plus";
 
 /**
@@ -328,6 +329,7 @@ async function budgetRisks(th: RiskThresholds): Promise<Risk[]> {
     const ratio = consumed / allocated;
     if (ratio < th.budgetWarnPct / 100) continue;
     const level: RiskLevel = ratio >= 1 ? "critical" : ratio >= 0.95 ? "high" : "medium";
+    const lienBudget = lienCibleEnveloppe("/budgets", envelope.id, ancreCategorieBudget(l.id));
     out.push({
       id: `budget-${l.id}`, level, category: "BUDGET", module: "Budgets",
       title: ratio >= 1 ? "Budget dépassé" : "Budget à surveiller", object: l.name,
@@ -336,10 +338,11 @@ async function budgetRisks(th: RiskThresholds): Promise<Risk[]> {
       probableCause: "Consommation élevée des dépenses attribuées.",
       recommendation: ratio >= 1 ? "Arbitrer : réallouer ou geler les engagements." : "Surveiller et anticiper les prochains engagements.",
       evidence: [`Consommé : ${formatCurrency(consumed)} / ${formatCurrency(allocated)} (${Math.round(ratio * 100)} %)`],
-      href: `/budgets`, at: new Date().toISOString(),
+      // L'enveloppe ET la catégorie visée : la notification arrive sur sa barre, pas en tête d'un écran de budget.
+      href: lienBudget, at: new Date().toISOString(),
       actions: [
-        { label: "Notifier Direction", icon: "Bell", payload: { kind: "notify", role: "DIRECTION", title: "Alerte budget", body: `${l.name} consommé à ${Math.round(ratio * 100)} %`, link: `/budgets` } },
-        { label: "Ouvrir budgets", icon: "ExternalLink", href: `/budgets` },
+        { label: "Notifier Direction", icon: "Bell", payload: { kind: "notify", role: "DIRECTION", title: "Alerte budget", body: `${l.name} consommé à ${Math.round(ratio * 100)} %`, link: lienBudget } },
+        { label: "Ouvrir budgets", icon: "ExternalLink", href: lienBudget },
       ],
     });
   }

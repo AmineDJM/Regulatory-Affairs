@@ -94,7 +94,9 @@ export default async function RapportsPage({ searchParams }: { searchParams?: Re
 
       <section className="space-y-2">
         <h2 className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {liste.toutVoir ? "Tous les rapports" : "Mes rapports"} ({liste.lignes.length})
+          {liste.toutVoir
+            ? (liste.filtres.delegue ? `Rapports de ${liste.delegues.find((d) => d.id === liste.filtres.delegue)?.nom ?? "ce délégué"}` : "Tous les rapports")
+            : "Mes rapports"} ({liste.lignes.length})
           <InfoBulle label="Ce que la liste contient" align="left" className="normal-case tracking-normal">
             Les visites rapportées (planifiées ou hors plan), les comptes rendus vocaux sans visite
             {signalements ? " et les signalements de pharmacovigilance" : ""}. Les rapports se font depuis le Plan de tournée.

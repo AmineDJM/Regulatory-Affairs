@@ -11,6 +11,7 @@ import { ordreAFacture } from "@/lib/finance/facture-ordre";
 import { nextFinanceRef } from "@/lib/finance/next-ref";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { lienRemiseCaisse } from "@/lib/chemins/moyens-generaux";
 import { canDisburse, blockedReason, type CentralStatus } from "@/lib/payments/authorization";
 import { checkDeferral } from "@/lib/finance/settlement";
 import { budgetGate } from "@/lib/finance/settle-budget";
@@ -226,7 +227,7 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
       await notifyUser({
         userId: remise.holderId, type: "ASSIGNMENT", title: "Caisse d'avance versée",
         body: `${Number(remise.amount).toLocaleString("fr-FR")} DZD versés pour la caisse ${remise.department.name} — confirmez leur réception dans Moyens généraux.`,
-        link: "/moyens-generaux",
+        link: lienRemiseCaisse(remise.id),
       });
     }
   }

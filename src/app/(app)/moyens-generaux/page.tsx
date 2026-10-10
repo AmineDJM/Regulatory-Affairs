@@ -20,6 +20,8 @@ import { ExpensePanel } from "./expense-panel";
 import { ServiceSwitch, ChangerDeService } from "./service-switch";
 import { EnteteMenu } from "./entete-menu";
 import { ExpenseTable } from "./expense-table";
+import { SurlignerCible } from "@/components/shared/surligner-cible";
+import { ANCRE_CAISSE_AVANCE } from "@/lib/chemins/moyens-generaux";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Moyens généraux — AMD Internal OS" };
@@ -41,7 +43,7 @@ export const metadata = { title: "Moyens généraux — AMD Internal OS" };
  */
 export default async function MoyensGenerauxPage({
   searchParams,
-}: { searchParams: { year?: string } }) {
+}: { searchParams: { year?: string; cible?: string } }) {
   // DEUX VISAGES SUR LE MÊME ÉCRAN, et c'est le sujet de cette page.
   //
   // Demander un achat est un geste de TOUT employé : un délégué qui a besoin de cartouches n'a
@@ -175,6 +177,9 @@ export default async function MoyensGenerauxPage({
 
   return (
     <div className="space-y-5">
+      {/* Arrivé par une notification (`?cible=remise-…` / `rallonge-…`) : la remise ou la rallonge visée vient
+          sous les yeux ; si elle n'est plus affichée (soldée, repliée), c'est la caisse d'avance qui s'entoure. */}
+      <SurlignerCible ids={searchParams.cible ? [searchParams.cible, ANCRE_CAISSE_AVANCE] : []} />
       {/* EN-TÊTE (Direction, 09/10) : la société et l'année, UN geste principal (« Ajouter une dépense »), le reste dans ⋯.
           La caisse, les dépenses et le choix du service ne sont pas retirés : ils vivent dans la page, sous l'en-tête. */}
       <PageHeader
@@ -242,7 +247,7 @@ export default async function MoyensGenerauxPage({
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
+        <Card id={ANCRE_CAISSE_AVANCE}>
           <CardHeader className="flex-row items-center justify-between gap-2 p-4 pb-2">
             <CardTitle>Caisse d&apos;avance</CardTitle>
             <InfoBulle label="À propos de la caisse d'avance">

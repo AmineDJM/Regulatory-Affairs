@@ -63,7 +63,8 @@ export async function snapshotMonth(
       select: { id: true, closedAt: true },
     });
     if (existing?.closedAt) continue; // clos : on n'y touche plus, jamais
-    const cible = r.plannedVisits || r.requiredVisits;
+    // La cible est LE REQUIS de la segmentation ; le planifié reste stocké à part, en information.
+    const cible = r.requiredVisits;
     const data = {
       buId: r.buId,
       panelSize: r.panelSize,

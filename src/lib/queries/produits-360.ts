@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { userCan, hasGlobalView, regulatoryLockWhere, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, regulatoryLockWhere, scopeMedicalInfo, type SessionUser } from "@/lib/rbac";
 import { STATUTS_REGULATORY_TERMINES } from "@/lib/products/termines";
 import { dernierMoisPch, indicateursProduitsPch, type Bornes, type IndicateursProduitPch } from "@/lib/ventes-pch/requetes";
 import { decalerMois } from "@/lib/ventes-pch/calculs";
@@ -9,9 +9,10 @@ import { sections360 } from "@/lib/vues-360-acces";
 import { clauseCasPvVisibles, voitTousLesCasPv } from "@/lib/pharmacovigilance/acces";
 import { chargerPorteeStock, clauseRelevesDePortee } from "@/lib/queries/stock-portee";
 import { keepVisibleSnapshots, STOCK_SCOPE_LABEL, type StockScope } from "@/lib/stocks/scopes";
-import { platformScope } from "@/lib/company";
+import { companyScopedWhere, platformScope } from "@/lib/company";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
-import { PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+import { PHARMA_FORM, DOSAGE_UNIT, ENTITY_TYPE_LABELS } from "@/lib/labels";
+import { DECLARATION_KIND_LABEL, isDeclarationKind } from "@/lib/medical-info/circuits";
 import { manquesIdentite } from "@/lib/products/identity";
 import { titreACompleter } from "@/lib/products/produit-du-dossier";
 import { regrouperParMotsCles, texteDuRapport, type VoixTerrain } from "@/lib/voix-terrain/pur";
@@ -163,18 +164,21 @@ async function relevesDeStock(user: SessionUser, dossierIds: string[]) {
   const releves = await prisma.stockSnapshot.findMany({
     where: { AND: [await platformScope(user.id), clauseRelevesDePortee(portee), { productId: { in: dossierIds } }] },
     orderBy: { date: "desc" }, take: 5000,
-    select: { id: true, productId: true, scope: true, annexId: true, date: true, quantity: true, annex: { select: { name: true, institutionId: true, institution: { select: { name: true } } } } },
+    select: { id: true, productId: true, scope: true, annexId: true, drCode: true, date: true, quantity: true, annex: { select: { name: true, institutionId: true, institution: { select: { name: true } } } } },
   });
   const viewer = { canSeeSupplyChain: userCan(user, "PCH", "VIEW"), hasGlobalView: hasGlobalView(user) };
   return keepVisibleSnapshots(viewer, releves);
 }
 type Releve = Awaited<ReturnType<typeof relevesDeStock>>[number];
 
-/** Le dernier relevé de chaque lieu (portée × annexe), tous dossiers du produit confondus. */
+/** La clé d'un lieu de stock : portée × annexe, ou portée × direction régionale de la PCH. */
+const lieuReleve = (r: { scope: string; annexId: string | null; drCode: string | null }) => `${r.scope}|${r.annexId ?? ""}|${r.drCode ?? ""}`;
+
+/** Le dernier relevé de chaque lieu (portée × annexe / direction régionale), tous dossiers du produit confondus. */
 function derniersParLieu(releves: readonly Releve[]): Releve[] {
   const parLieu = new Map<string, Map<string, Releve>>();
   for (const r of releves) {
-    const lieu = `${r.scope}|${r.annexId ?? ""}`;
+    const lieu = lieuReleve(r);
     const m = parLieu.get(lieu) ?? parLieu.set(lieu, new Map()).get(lieu)!;
     const cur = m.get(r.productId);
     if (!cur || r.date > cur.date) m.set(r.productId, r);
@@ -441,8 +445,12 @@ export interface Fiche360 {
     classeTherapeutique: string | null; fabricant: string | null; statutFabrication: string; dateDecision: string | null;
     echeance: { expiration: string; depotAvant: string; joursAvantDepot: number } | null; cibleEnregistrement: string | null;
     variations: { id: string; vers: string; statut: string; depot: string | null; decision: string | null }[];
-    demandesInfoMed: { id: string; reference: string; sujet: string; statut: string }[];
   }[];
+  /**
+   * LES DÉCLARATIONS D'INFORMATION MÉDICALE du produit (`MedicalInfoDeclaration.productId`, repris de la source puis corrigé par
+   * le pharmacien) — `null` quand la personne ne voit pas le module Information médicale.
+   */
+  declarationsInfoMed: { id: string; reference: string; label: string; statut: string; nature: string; date: string }[] | null;
   dossiersMasques: number;
   sante: NoteSante;
   chiffres: Chiffres360;
@@ -514,7 +522,6 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
             manufacturer: true, manufacturingStatus: true, workflow: true, targetDate: true,
             dci: true, dosage: true, dosageUnit: true, pharmaceuticalForm: true, packaging: true,
             variations: { select: { id: true, toStatus: true, status: true, depotDate: true, decisionDate: true }, orderBy: { createdAt: "desc" } },
-            regRequests: { select: { id: true, reference: true, subject: true, status: true }, orderBy: { createdAt: "desc" }, take: 10 },
           },
         })
       : Promise.resolve([]),
@@ -529,6 +536,14 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
       : Promise.resolve(null),
     voit.forceDeVente ? prioritesDuMois([p.id], maintenant) : Promise.resolve(null),
   ]);
+  // Les déclarations d'information médicale du produit — la même portée que la liste du module (entité + droits).
+  const declarations = userCan(user, "MEDICAL_INFO", "VIEW")
+    ? await prisma.medicalInfoDeclaration.findMany({
+        where: { AND: [await companyScopedWhere(user.id, scopeMedicalInfo(user)), { productId: p.id }] },
+        select: { id: true, reference: true, label: true, status: true, sourceType: true, declarationKind: true, createdAt: true },
+        orderBy: { createdAt: "desc" }, take: 30,
+      })
+    : null;
 
   const segP = seg ? seg.get(p.id) ?? null : undefined;
   const fenetre = segP?.fenetre ?? fenetreCycle(maintenant);
@@ -550,8 +565,8 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
     const lieux: LieuStock[] = derniersParLieu(releves).map((r) => {
       const conso = r.scope === "HOSPITAL" && r.annex?.institutionId ? consoHop.get(r.annex.institutionId) ?? null : r.scope === "PCH" && !r.annexId ? e?.parMois ?? null : null;
       return {
-        cle: `${r.scope}|${r.annexId ?? ""}`,
-        lieu: r.scope === "PCH" && !r.annexId ? "PCH central" : r.annex?.institution?.name ?? r.annex?.name ?? "—",
+        cle: lieuReleve(r),
+        lieu: r.scope === "PCH" && !r.annexId ? "PCH central" : r.drCode ? `PCH · ${r.drCode}` : r.annex?.institution?.name ?? r.annex?.name ?? "—",
         portee: STOCK_SCOPE_LABEL[r.scope as StockScope] ?? r.scope, quantite: r.quantity, date: ymd(r.date)!,
         mois: moisDeCouverture(r.quantity, conso), rupture: r.quantity === 0,
       };
@@ -564,7 +579,7 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
       ecoulementMensuel: e ? Math.round(e.parMois) : null, sourceEcoulement: e?.source ?? null,
       releves: releves.slice(0, 30).map((r) => ({
         id: r.id, date: r.date.toISOString().slice(0, 10),
-        lieu: r.annex?.institution?.name ?? r.annex?.name ?? "PCH",
+        lieu: r.drCode ? `PCH · ${r.drCode}` : r.annex?.institution?.name ?? r.annex?.name ?? "PCH",
         portee: STOCK_SCOPE_LABEL[r.scope as StockScope] ?? r.scope, quantite: r.quantity,
       })),
       lots: lots ? lots.map((l) => ({ lot: l.lot, peremption: ymd(l.peremption)!, quantite: l.quantite, unite: l.unite })) : null,
@@ -581,7 +596,6 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
       dateDecision: ymd(dd), cibleEnregistrement: ymd(d.targetDate),
       echeance: e ? { expiration: ymd(e.expiration)!, depotAvant: ymd(e.depotAvant)!, joursAvantDepot: e.joursAvantDepot } : null,
       variations: d.variations.map((v) => ({ id: v.id, vers: v.toStatus, statut: v.status, depot: ymd(v.depotDate), decision: ymd(v.decisionDate) })),
-      demandesInfoMed: d.regRequests.map((r) => ({ id: r.id, reference: r.reference, sujet: r.subject, statut: r.status })),
     };
   });
   const echeance = dossiers.map((d) => d.echeance ? { ...d.echeance, reference: d.reference, id: d.id } : null).filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => a.joursAvantDepot - b.joursAvantDepot)[0] ?? null;
@@ -750,7 +764,7 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
   const sousUnMois = blocStock?.lieux.filter((l) => l.cle.startsWith("HOSPITAL") && !l.rupture && l.mois !== null && l.mois < 1) ?? [];
   if (sousUnMois.length) fait(`${sousUnMois.length} hôpital(aux) sous un mois de stock : ${sousUnMois.slice(0, 3).map((l) => l.lieu).join(", ")}.`, "Stocks", 1);
   if (pvOuverts.length) fait(`${pvOuverts.length} cas de pharmacovigilance ouvert(s) : ${pvOuverts.slice(0, 3).map((c) => c.reference).join(", ")}.`, "Pharmacovigilance", 1);
-  if (blocStock?.couvertureMois != null) fait(`Couverture du stock (PCH + hôpitaux) : ${decimal(blocStock.couvertureMois)} mois.`, "Stocks", blocStock.couvertureMois < 2 ? 1 : 6);
+  if (blocStock?.couvertureMois != null) fait(`Couverture du stock (PCH central + directions régionales + hôpitaux) : ${decimal(blocStock.couvertureMois)} mois.`, "Stocks", blocStock.couvertureMois < 2 ? 1 : 6);
   if (lots.length) fait(`Le lot ${lots[0].lot ?? "sans numéro"} (${entier(lots[0].quantite)} ${lots[0].unite}) périme en ${moisCourtDe(lots[0].peremption)}.`, "Stocks", 2);
   if (appro) fait(`${appro.rapports} rapport(s) de visite signalent une rupture ou une tension d'approvisionnement.`, "Terrain", 1);
   if (blocSeg?.hNonVus.length) fait(`${blocSeg.hNonVus.length} décideur(s) H non vu(s) ce cycle.`, "Terrain", 2);
@@ -777,6 +791,12 @@ export async function fiche360(user: SessionUser, productId: string, maintenant 
       decision: decision ? { date: decision.dateDecision!, reference: decision.reference } : null,
     },
     bus, dossiers,
+    declarationsInfoMed: declarations
+      ? declarations.map((d) => ({
+          id: d.id, reference: d.reference, label: d.label, statut: d.status, date: ymd(d.createdAt)!,
+          nature: isDeclarationKind(d.declarationKind) ? DECLARATION_KIND_LABEL[d.declarationKind] : (ENTITY_TYPE_LABELS[d.sourceType] ?? d.sourceType),
+        }))
+      : null,
     dossiersMasques: voit.reglementaire ? Math.max(0, p.regulatoryProfiles.length - dossiers.length) : 0,
     sante: s.sante, chiffres: s.chiffres, pastilles,
     cycle: { debut: ymd(fenetre.debut)!, fin: ymd(fenetre.fin)!, source: fenetre.source },

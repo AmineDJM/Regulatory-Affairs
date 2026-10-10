@@ -35,3 +35,16 @@ export function lienPosteAdPro(type: ParentAdPro, parentId: string, itemId: stri
 
 /** Le centre de validation Ad & Pro (les sièges du centre y tranchent les BC et les dépassements). */
 export const CHEMIN_CENTRE_AD_PRO = "/centre-ad-pro";
+
+/**
+ * Le centre ouvert SUR UNE LIGNE (`?ligne=<id de l'objet>`) : la demande, le contrat, le matériel, le
+ * poste (bon de commande) ou la pièce Legal dont parle la notification. L'écran pose `ancreLigneCentre`
+ * sur la ligne et la fait venir sous les yeux ; sans identifiant, le centre s'ouvre en tête de file.
+ */
+export function ancreLigneCentre(entityId: string): string {
+  return `ligne-centre-${entityId}`;
+}
+
+export function lienLigneCentreAdPro(entityId?: string | null): string {
+  return entityId ? `${CHEMIN_CENTRE_AD_PRO}?ligne=${encodeURIComponent(entityId)}` : CHEMIN_CENTRE_AD_PRO;
+}

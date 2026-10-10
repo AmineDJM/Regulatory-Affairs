@@ -7,6 +7,7 @@ import { userCan, hasGlobalView, getAccess, type SessionUser, type Action } from
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import { lienLigneCentreAdPro } from "@/lib/chemins/ad-pro";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
 import { attachFiles } from "@/lib/attach-files";
@@ -280,14 +281,14 @@ export async function requestConsultingValidation(formData: FormData): Promise<A
       // ferait croire au validateur qu'il peut trancher — il se heurterait au blocage (§118.30).
       await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
         type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — contrat de consulting au-dessus du seuil",
-        body, link: "/centre-ad-pro",
+        body, link: lienLigneCentreAdPro(id),
       });
     } else if (visa?.etat === "REFUSED") {
       // Resoumis sous un REFUS du centre : seul un siège peut le réexaminer. Prévenir le validateur, que
       // ce refus bloque, lui demanderait une décision qu'il ne peut pas prendre (§118.30).
       await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
         type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — contrat resoumis : votre refus est à réexaminer",
-        body, link: "/centre-ad-pro",
+        body, link: lienLigneCentreAdPro(id),
       });
     } else if (validatorId) {
       await notifyUser({ userId: validatorId, type: "VALIDATION_REQUIRED", title: "Contrat de consulting à valider", body, link: `${PATH}/${id}` });
@@ -689,7 +690,7 @@ export async function transfererConsulting(formData: FormData): Promise<ActionRe
     if (porte === "POSEE") {
       await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
         type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — contrat de consulting au-dessus du seuil",
-        body, link: "/centre-ad-pro",
+        body, link: lienLigneCentreAdPro(id),
       });
     } else if (validateurRetire) {
       // La désignation tombée, c'est la Direction qui tranche : on la prévient, comme à une

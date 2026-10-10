@@ -7,7 +7,7 @@ import {
   requestDocument, cancelDocRequest, fulfillDocRequest, validateDeclaration, validateDeclarationByDirection, recordAuthorityDeclaration,
   relancerPieceInfoMed,
   requestDeclareDecision, addMedicalInfoSlip, removeMedicalInfoSlip, requestSlipsValidation,
-  requestSlipPayment, deliverMedicalInfoSlip, skipMedicalInfoBv, createMedicalInfoItem,
+  requestSlipPayment, deliverMedicalInfoSlip, skipMedicalInfoBv, createMedicalInfoItem, changerProduitDeclaration,
 } from "@/lib/actions/medical-info-actions";
 import {
   declareMessage, declareStage, declareStageLabel, DECLARE_INTENT_LABEL, type DeclareInput,
@@ -518,6 +518,29 @@ export function CreateDeclarationButton() {
         </Button>
         <Button type="button" size="sm" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
       </div>
+    </form>
+  );
+}
+
+// ───────────── Pharmacien : le produit de la déclaration ─────────────
+
+/** Le produit de la déclaration, à choisir parmi nos produits — repris de la source à la création, corrigeable ici. */
+export function ProduitDeclarationForm({ id, productId, produits }: { id: string; productId: string | null; produits: { id: string; nom: string }[] }) {
+  const { saving, err, run } = useAction();
+  const [valeur, setValeur] = React.useState(productId ?? "");
+  return (
+    <form
+      action={(fd) => { fd.set("id", id); void run(() => changerProduitDeclaration(fd)); }}
+      className="flex flex-wrap items-center justify-end gap-2"
+    >
+      <Select name="productId" aria-label="Produit de la déclaration" value={valeur} onChange={(e) => setValeur(e.target.value)} className="h-9 w-56 max-w-full">
+        <option value="">— Non précisé —</option>
+        {produits.map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
+      </Select>
+      <Button type="submit" size="sm" variant="outline" disabled={saving || valeur === (productId ?? "")}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Enregistrer
+      </Button>
+      <Err msg={err} />
     </form>
   );
 }

@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { canAccessEntity } from "@/lib/entity-access";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
+import { lienLigneCentreAdPro } from "@/lib/chemins/ad-pro";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { persistUploadedDocument } from "@/lib/documents";
 import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
@@ -19,6 +20,7 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { parseQuantity } from "@/lib/promo/stock";
 import { validerArticleDemande, type ArticleDemandeValide, type FamillePromo } from "@/lib/promo-material/achats";
 import { lireLignesDemande, ligneVide, REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
+import { lireDateBesoin } from "@/lib/promo-material/date-besoin";
 import { aucunPromu, designeUnProduit, type PromusChoisis } from "@/lib/promo-material/promus";
 import { resoudrePromus } from "@/lib/queries/promo-promus";
 import { envoyerDemandeDeDevis, joindreLettreDeDevis } from "@/lib/promo-automatismes";
@@ -249,7 +251,10 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
       if (v.ok && c) lignes.push({ ...v.article, catalogueId: c.id, promus: promus.promus, canoniques: promus.canoniques });
       else if (!v.ok) manques.push(`Ligne ${i + 1} : ${v.error}`);
     }
-    if (manques.length || !title) return { ok: false, error: manques.join(" ") };
+    // LA DATE DE BESOIN (Direction, 10/2026) — facultative : « besoin pour le … », modifiable ensuite par le demandeur.
+    const besoin = lireDateBesoin(fdStr(formData, "neededBy"));
+    if (!besoin.ok) manques.push(besoin.error);
+    if (manques.length || !title || !besoin.ok) return { ok: false, error: manques.join(" ") };
 
     // CE QUE LA DEMANDE NE PORTE PLUS (décision du 01/10). La GAMME : « pas du tout pertinent
     // ici » — le matériel se demande par article du catalogue, pas par Business Unit. Le BUDGET
@@ -272,6 +277,7 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
         reference: await nextPromoRef(),
         title,
         description,
+        neededBy: besoin.date,
         companyId: companyId || null,
         status: "PROSPECTION_REQUESTED",
         circuitState,
@@ -327,6 +333,31 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     console.error("[promo] createPromoMaterial failed", err);
     return { ok: false, error: "La demande n'a pas pu être créée. Réessayez dans un instant." };
   }
+}
+
+/**
+ * CHANGER LA DATE DE BESOIN — le demandeur (ou la Direction), tant que le dossier n'est ni refusé, ni annulé, ni terminé.
+ * Vide = retirer la date. Un geste de la fiche de la demande, devant « besoin pour le … ».
+ */
+export async function modifierDateBesoinPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const pm = await load(id);
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  if (!isMarketing(user, pm)) return { ok: false, error: "Seul le demandeur modifie la date de besoin." };
+  if (pm.status === "CANCELLED" || pm.circuitState === "REFUSED" || pm.circuitState === "COMPLETED") {
+    return { ok: false, error: "Ce dossier est clos : la date de besoin ne change plus." };
+  }
+  const besoin = lireDateBesoin(fdStr(formData, "neededBy"));
+  if (!besoin.ok) return { ok: false, error: besoin.error };
+  const avant = pm.neededBy ? pm.neededBy.toISOString().slice(0, 10) : null;
+  const apres = besoin.date ? besoin.date.toISOString().slice(0, 10) : null;
+  if (avant === apres) return { ok: true };
+  await prisma.promoMaterial.update({ where: { id }, data: { neededBy: besoin.date, updatedById: user.id } });
+  await audit(user, id, "UPDATE", apres ? `Date de besoin : ${apres}${avant ? ` (avant : ${avant})` : ""}` : `Date de besoin retirée (avant : ${avant})`);
+  revalidate(id);
+  return { ok: true };
 }
 
 // ───────────────────────── 2. Assistante : devis déposés ─────────────────────────
@@ -459,7 +490,7 @@ export async function submitBcForFinance(formData: FormData): Promise<ActionResu
   // attend.
   await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED", title: "Matériel promotionnel — bon de commande à valider",
-    body: `${pm.reference} — ${pm.title}`, link: "/centre-ad-pro",
+    body: `${pm.reference} — ${pm.title}`, link: lienLigneCentreAdPro(id),
   });
   await audit(user, id, "UPDATE", `Bon de commande transmis au centre de validation Ad & Pro${attachNote}`);
   revalidate(id);
@@ -484,7 +515,7 @@ export async function remindFinance(formData: FormData): Promise<ActionResult> {
   if (relance.count === 0) return { ok: false, error: ETAT_CHANGE };
   await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED", title: "⏰ Relance — bon de commande à valider (matériel promotionnel)",
-    body: `${pm.reference} — ${pm.title}`, link: "/centre-ad-pro",
+    body: `${pm.reference} — ${pm.title}`, link: lienLigneCentreAdPro(id),
   });
   await audit(user, id, "UPDATE", "Relance du centre de validation Ad & Pro");
   revalidate(id);

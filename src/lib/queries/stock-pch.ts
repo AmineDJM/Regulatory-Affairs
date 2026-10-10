@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { hasGlobalView, regulatoryLockWhere, userCan, type Action, type SessionUser } from "@/lib/rbac";
 import { platformScope } from "@/lib/company";
-import { cleReleve, consommationMoyenne, estCleReleve, type ProduitReconnaissable } from "@/lib/stocks/pch-central";
-import { consommationHospitaliereMensuelle } from "@/lib/ventes-pch/requetes";
+import {
+  DIRECTIONS_PAR_DEFAUT, cleReleve, codeDirection, consommationMoyenne, estCleReleve, reconnaitre, type LigneCollee, type ProduitReconnaissable,
+} from "@/lib/stocks/pch-central";
+import type { LigneReleveFichier } from "@/lib/stocks/pch-releve-fichier";
+import { consommationHospitaliereMensuelle, directionsRegionales } from "@/lib/ventes-pch/requetes";
 import { decalerMois } from "@/lib/ventes-pch/calculs";
+import { indexProduitsPch } from "@/lib/ventes-pch/correspondance";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -79,6 +83,8 @@ export interface EtatPchDTO {
   /** PCH = central ; ANNEX = une annexe / DR. */
   scope: string;
   annexId: string | null;
+  /** Le code de la direction régionale (« DRA ») — nul pour la PCH centrale et les annexes. */
+  drCode: string | null;
   date: string;
   quantity: number;
 }
@@ -95,10 +101,10 @@ export async function chargerHistoriquePch(user: SessionUser, productIds: string
   const rows = await prisma.stockSnapshot.findMany({
     where: { AND: [await platformScope(user.id), { scope: { in: ["PCH", "ANNEX"] }, productId: { in: productIds } }] },
     orderBy: { date: "desc" },
-    take: 3000,
-    select: { id: true, productId: true, scope: true, annexId: true, date: true, quantity: true },
+    take: 8000,
+    select: { id: true, productId: true, scope: true, annexId: true, drCode: true, date: true, quantity: true },
   });
-  const etats = rows.map((r) => ({ id: r.id, productId: r.productId, scope: r.scope, annexId: r.annexId, date: r.date.toISOString(), quantity: r.quantity }));
+  const etats = rows.map((r) => ({ id: r.id, productId: r.productId, scope: r.scope, annexId: r.annexId, drCode: r.drCode, date: r.date.toISOString(), quantity: r.quantity }));
   const parCle = new Map<string, number>();
   for (const e of etats) parCle.set(cleReleve(e.date), (parCle.get(cleReleve(e.date)) ?? 0) + 1);
   const cles = [...parCle.keys()].sort().reverse().slice(0, 60);
@@ -131,9 +137,13 @@ export interface LigneChaine {
   label: string;
   buId: string | null;
   buNom: string;
-  /** Notre stock — `null` tant qu'aucun stock initial n'est posé (aucune donnée de stock propre). */
-  adventum: NiveauDate | null;
+  /** Le dernier relevé de la PCH CENTRALE (saisi depuis le mail de la PCH). */
   pch: NiveauDate | null;
+  /**
+   * La somme du dernier relevé de chaque DIRECTION RÉGIONALE de la PCH ; `date` = le plus ancien de ces derniers relevés.
+   * Adventum n'a pas de stock propre (Direction, 10/2026) : la chaîne = PCH central + DR + hôpitaux.
+   */
+  directions: (NiveauDate & { nb: number; plusRecent: string; parDr: { code: string; quantite: number; date: string }[] }) | null;
   /** La somme des derniers relevés de chaque hôpital ; `date` = le plus ancien de ces derniers relevés. */
   hopitaux: (NiveauDate & { nb: number; ruptures: number; plusRecent: string }) | null;
 }
@@ -142,43 +152,39 @@ export async function chargerChaine(user: SessionUser, produits: ProduitPch[]): 
   const ids = [...new Set(produits.map((p) => p.id))];
   if (ids.length === 0) return [];
   const portee = await platformScope(user.id);
-  const [pch, hop, ouvertures] = await Promise.all([
+  const [pch, dr, hop] = await Promise.all([
     prisma.stockSnapshot.findMany({
       where: { AND: [portee, { scope: "PCH", annexId: null, productId: { in: ids } }] },
       orderBy: { date: "desc" }, distinct: ["productId"],
       select: { productId: true, quantity: true, date: true },
     }),
     prisma.stockSnapshot.findMany({
+      where: { AND: [portee, { scope: "ANNEX", drCode: { not: null }, productId: { in: ids } }] },
+      orderBy: { date: "desc" }, distinct: ["productId", "drCode"],
+      select: { productId: true, drCode: true, quantity: true, date: true },
+    }),
+    prisma.stockSnapshot.findMany({
       where: { AND: [portee, { scope: "HOSPITAL", productId: { in: ids } }] },
       orderBy: { date: "desc" }, distinct: ["productId", "annexId"],
       select: { productId: true, annexId: true, quantity: true, date: true },
     }),
-    prisma.stockOpeningLevel.findMany({
-      where: { productId: { in: ids } }, orderBy: { date: "desc" }, distinct: ["productId"],
-      select: { productId: true, quantity: true, date: true },
-    }),
   ]);
-  // NOTRE STOCK = stock initial + entrées − sorties (± ajustements) depuis ce stock initial. Sans stock initial, les
-  // seules sorties (livraisons PCH) donneraient un chiffre négatif qui ne dit rien : la case reste « — ».
-  const avecOuverture = ouvertures.filter((o): o is typeof o & { productId: string } => Boolean(o.productId));
-  const mouvements = avecOuverture.length
-    ? await prisma.stockMovement.findMany({
-        where: { productId: { in: avecOuverture.map((o) => o.productId) } },
-        select: { productId: true, direction: true, quantity: true, date: true },
-      })
-    : [];
-  const adventum = new Map<string, NiveauDate>();
-  for (const o of avecOuverture) {
-    let q = o.quantity;
-    let derniere = o.date;
-    for (const m of mouvements) {
-      if (m.productId !== o.productId || m.date < o.date) continue;
-      q += m.direction === "OUT" ? -m.quantity : m.quantity;
-      if (m.date > derniere) derniere = m.date;
-    }
-    adventum.set(o.productId, { quantite: q, date: derniere.toISOString() });
-  }
   const pchPar = new Map(pch.map((s) => [s.productId, { quantite: s.quantity, date: s.date.toISOString() }]));
+  const drPar = new Map<string, NonNullable<LigneChaine["directions"]>>();
+  for (const s of dr) {
+    if (!s.drCode) continue;
+    const d = s.date.toISOString();
+    const x = drPar.get(s.productId);
+    const ligne = { code: s.drCode, quantite: s.quantity, date: d };
+    if (!x) drPar.set(s.productId, { quantite: s.quantity, date: d, plusRecent: d, nb: 1, parDr: [ligne] });
+    else {
+      x.quantite += s.quantity;
+      x.nb += 1;
+      x.parDr.push(ligne);
+      if (d < x.date) x.date = d;
+      if (d > x.plusRecent) x.plusRecent = d;
+    }
+  }
   const hopPar = new Map<string, NonNullable<LigneChaine["hopitaux"]>>();
   for (const s of hop) {
     const d = s.date.toISOString();
@@ -194,10 +200,57 @@ export async function chargerChaine(user: SessionUser, produits: ProduitPch[]): 
   }
   return produits.map((p) => ({
     productId: p.id, label: p.label, buId: p.buId, buNom: p.buNom,
-    adventum: adventum.get(p.id) ?? null,
     pch: pchPar.get(p.id) ?? null,
+    directions: drPar.get(p.id) ?? null,
     hopitaux: hopPar.get(p.id) ?? null,
   }));
+}
+
+// ── LES LIEUX D'UN RELEVÉ PCH ──────────────────────────────────────────────────────────────────
+
+export interface DirectionPch { code: string; libelle: string }
+
+/** Les directions régionales proposées : celles déjà lues dans les fichiers Ventes PCH, plus les six connues. */
+export async function chargerDirectionsPch(): Promise<DirectionPch[]> {
+  const lues = await directionsRegionales();
+  const m = new Map<string, DirectionPch>(DIRECTIONS_PAR_DEFAUT.map((c) => [c, { code: c, libelle: c }]));
+  for (const d of lues) {
+    const code = codeDirection(d.code);
+    if (code) m.set(code, { code, libelle: d.libelle && d.libelle.trim() ? d.libelle.trim() : code });
+  }
+  return [...m.values()].sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/**
+ * RAPPROCHE LES LIGNES D'UN RELEVÉ EN FICHIER DE NOS PRODUITS — comme « Ventes PCH » : le code PCH (le poste, mémorisé en
+ * `PchPoste`) d'abord, puis la présentation de la désignation (molécule, dosage, forme), puis les noms du catalogue des BU.
+ * Un dossier (`RegulatoryProduct`) est visé : un poste désigne un produit canonique, qu'on remonte à son dossier.
+ */
+export async function rapprocherLignesReleve(produits: readonly ProduitPch[], lignes: readonly LigneReleveFichier[]): Promise<LigneCollee[]> {
+  const nos = [...new Map(produits.map((p) => [p.id, p])).values()];
+  const canon = await canoniquesDesDossiers(nos.map((p) => p.id));
+  const dossiersDe = new Map<string, string[]>();
+  for (const [dossier, canonique] of canon) if (canonique) (dossiersDe.get(canonique) ?? dossiersDe.set(canonique, []).get(canonique)!).push(dossier);
+  const [postes, catalogue] = await Promise.all([
+    prisma.pchPoste.findMany({ where: { productId: { not: null } }, select: { poste: true, productId: true } }),
+    prisma.product.findMany({ where: { isActive: true }, select: { id: true, canonicalName: true, dci: true, dosage: true, dosageUnit: true, form: true, packaging: true } }),
+  ]);
+  const posteVersProduit = new Map(postes.map((p) => [p.poste, p.productId!]));
+  const resoudre = indexProduitsPch(
+    catalogue.map((p) => ({ id: p.id, nom: p.canonicalName, dci: p.dci, dosage: p.dosage, dosageUnit: p.dosageUnit, form: p.form, packaging: p.packaging })),
+    posteVersProduit,
+  );
+  const reconnaissables = nos.map((p) => ({ id: p.id, noms: p.noms }));
+  return lignes.map((l) => {
+    const base = { texte: l.texte, libelle: l.libelle, quantite: l.quantite, dr: l.lieu };
+    // 1. Le code PCH ou la présentation → un produit canonique → NOTRE dossier (un seul, sinon la personne tranche).
+    const r = l.poste !== null || l.libelle ? resoudre(l.poste, l.libelle, null) : null;
+    const dossiers = r?.productId ? dossiersDe.get(r.productId) ?? [] : [];
+    if (dossiers.length === 1) return { ...base, productId: dossiers[0], qualite: r!.statut === "MEMOIRE" ? "exact" as const : "approche" as const };
+    if (dossiers.length > 1) return { ...base, productId: null, qualite: "ambigu" as const };
+    // 2. À défaut, les noms du catalogue des BU (nom, code, marque, DCI, référence).
+    return { ...base, ...reconnaitre(l.libelle, reconnaissables) };
+  });
 }
 
 // ── LA CONSOMMATION (Ventes PCH) ───────────────────────────────────────────────────────────────

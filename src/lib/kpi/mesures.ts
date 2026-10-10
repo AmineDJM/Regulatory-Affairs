@@ -111,3 +111,18 @@ export function mediane(valeurs: readonly number[]): number | null {
 export function delaisDeReponse(etapes: readonly { creeLe: Date; decideLe: Date | null; arriveeConnue: boolean }[]): number[] {
   return etapes.flatMap((e) => (e.arriveeConnue && e.decideLe ? [Math.max(0, (e.decideLe.getTime() - e.creeLe.getTime()) / MS_H)] : []));
 }
+
+/** Délais de traitement (heures) des demandes datées des deux bouts ; un traitement antérieur au dépôt (donnée incohérente) est écarté. */
+export function delaisDeTraitement(demandes: readonly { creeLe: Date; traiteLe: Date | null }[]): number[] {
+  return demandes.flatMap((d) => (d.traiteLe && d.traiteLe.getTime() >= d.creeLe.getTime() ? [(d.traiteLe.getTime() - d.creeLe.getTime()) / MS_H] : []));
+}
+
+/**
+ * EXÉCUTION DES MARCHÉS d'une BU : unités livrées ÷ unités attribuées, en pourcentage (un livré au-delà de l'attribué
+ * — avenants — est plafonné au attribué de sa chaîne pour que 100 % reste « tout est livré »). Rien d'attribué : null.
+ */
+export function executionDesMarches(chaines: readonly { attribue: number; livre: number }[]): { attribue: number; livre: number; pct: number | null } {
+  const attribue = chaines.reduce((s, c) => s + Math.max(0, c.attribue), 0);
+  const livre = chaines.reduce((s, c) => s + Math.min(Math.max(0, c.livre), Math.max(0, c.attribue)), 0);
+  return { attribue, livre, pct: attribue > 0 ? Math.round((1000 * livre) / attribue) / 10 : null };
+}

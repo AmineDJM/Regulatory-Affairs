@@ -13,6 +13,7 @@ import { AD_PRO_ENTITY_TYPE, AD_PRO_KINDS, type AdProKind } from "@/lib/ad-pro/u
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
 import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
+import { lienLigneCentreAdPro } from "@/lib/chemins/ad-pro";
 import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
 import { demandeurDuVisa, peutResoumettreAuCentre, demandeAttendLeCentre } from "@/lib/queries/ad-pro-centre";
 
@@ -281,7 +282,7 @@ export async function resoumettreAuCentreAdPro(formData: FormData): Promise<Acti
   }
   await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro : demande resoumise après correction",
-    body: historique, link: "/centre-ad-pro",
+    body: historique, link: lienLigneCentreAdPro(entityId),
   }).catch(() => undefined);
   return { ok: true, id: entityId, message: "Resoumise au centre : elle sera revue avec sa correction." };
 }

@@ -2,11 +2,13 @@ import { prisma } from "@/lib/prisma";
 import { algiersYmd } from "@/lib/calendar-tz";
 import { getAppSettings } from "@/lib/settings";
 import { userCan, type SessionUser } from "@/lib/rbac";
-import { CONTRACT_TYPE } from "@/lib/labels";
+import { CONTRACT_TYPE, LEAVE_TYPE } from "@/lib/labels";
+import { natureDeLAbsence, voitLeTypeDesAbsences } from "@/lib/hr/confidentialite";
 import { jobOf, type TeamJob } from "@/lib/hr/team-kpis";
 import { DEFAULT_THRESHOLDS } from "@/lib/sfe-alerts";
 import { panelsDesKams } from "@/lib/queries/panel-kam";
 import { peutOuvrirModule } from "@/lib/queries/lien-ouvrable";
+import { viewsAllReports } from "@/lib/queries/field-reports";
 import { aujourdhuiAlger, jourDuConge, minuitUtc, plusJours } from "@/lib/hr/absences";
 import { toNumber } from "@/lib/utils";
 import type { MyTeam } from "@/lib/queries/my-team";
@@ -23,11 +25,14 @@ import type { MyTeam } from "@/lib/queries/my-team";
  *    praticiens distincts vus / panel `clausePanelDuKam`) pour le terrain ; tâches terminées pour les autres ;
  *  · alertes : fin de contrat, fin de période d'essai, solde de congés, visites sans compte rendu, anniversaire.
  *
- * Ce qui n'en sort JAMAIS : salaire, type de congé (maladie, maternité… — un encadrant a besoin de savoir qui
- * manque, pas pourquoi, §118.184), année de naissance (seul le jour et le mois servent à l'anniversaire).
+ * Ce qui n'en sort JAMAIS : salaire, année de naissance (seul le jour et le mois servent à l'anniversaire), et la
+ * NATURE d'une absence pour un encadrant (§118.184) : il lit « Congé » (annuel, sans solde, récupération) ou « Absent »
+ * (maladie, maternité, événement familial, autre) — qui manque, pas pourquoi. Seul qui gère les RH
+ * (`voitLeTypeDesAbsences`) reçoit le type précis, dans `libelle`.
  */
 
-export type GenreEvenement = "CONGE" | "MISSION" | "FORMATION";
+/** `ABSENCE` : toute absence qui n'est pas un congé « ordinaire » (maladie, maternité…) — dite « Absent », sans sa nature. */
+export type GenreEvenement = "CONGE" | "ABSENCE" | "MISSION" | "FORMATION";
 export type TonAlerte = "danger" | "warning" | "info" | "success";
 
 export interface EvenementEquipe {
@@ -105,7 +110,7 @@ export interface ApercuEquipe {
   anniversaires: { employeeId: string; jour: string }[];
   /** Couverture du panel de l'équipe terrain — null si personne n'a de panel. */
   couverture: { mois: number; moisPrecedent: number | null; objectif: number } | null;
-  droits: { messagerie: boolean; taches: boolean; recrutement: boolean };
+  droits: { messagerie: boolean; taches: boolean; recrutement: boolean; rapports: boolean };
 }
 
 const JOURS_COURTS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
@@ -158,6 +163,9 @@ export async function getMyTeamOverview(
     taches: userCan(user, "WORKSPACE", "CREATE"),
     // Le bouton « Demander un recrutement » rejoue la garde de l'écran visé, module masqué compris.
     recrutement: userCan(user, "RECRUITMENT", "CREATE") && peutOuvrirModule(user, "RECRUITMENT", hiddenModules),
+    // « Voir ses rapports » ouvre la liste des Rapports terrain filtrée sur ce délégué : la liste ne laisse choisir
+    // un délégué qu'à qui voit les rapports de tous (`viewsAllReports`) — le lien ne se propose pas à qui n'y verrait rien de plus.
+    rapports: peutOuvrirModule(user, "FIELD_REPORTS", hiddenModules) && viewsAllReports(user),
   };
 
   const base: Omit<ApercuEquipe, "lignes" | "evenements" | "anniversaires" | "couverture"> = {
@@ -200,10 +208,10 @@ export async function getMyTeamOverview(
         trialEnd: true, trialRenewed: true, trialRenewalEnd: true, leaveBalanceDays: true, birthDate: true,
       },
     }),
-    // Pas le TYPE du congé (§118.184) : qui manque, pas pourquoi.
+    // Le TYPE est lu ici pour n'en garder que la NATURE (« Congé » / « Absent ») — il ne part jamais tel quel (§118.184).
     prisma.leaveRequest.findMany({
       where: { employeeId: { in: employeeIds }, status: { in: ["APPROVED", "PENDING"] }, startDate: { lt: dPlageFinExcl }, endDate: { gte: dPlageDebut } },
-      select: { employeeId: true, startDate: true, endDate: true, status: true },
+      select: { employeeId: true, startDate: true, endDate: true, status: true, type: true },
     }),
     prisma.leaveRequest.groupBy({
       by: ["employeeId"],
@@ -259,9 +267,11 @@ export async function getMyTeamOverview(
   const buDe = new Map(profils.map((p) => [p.repId, p.businessUnit?.name ?? null]));
 
   // ── LES ÉVÉNEMENTS DE LA PLAGE ──────────────────────────────────────────────────────────────
+  const typePrecis = voitLeTypeDesAbsences(user);
   const evenements: EvenementEquipe[] = conges.map((c) => ({
-    employeeId: c.employeeId, genre: "CONGE" as const,
-    debut: jourDuConge(c.startDate), fin: jourDuConge(c.endDate), libelle: null, enAttente: c.status === "PENDING",
+    employeeId: c.employeeId, genre: natureDeLAbsence(c.type),
+    // Le type précis (« Maladie »…) ne part que vers qui gère les RH ; pour tous les autres, `libelle` reste vide.
+    debut: jourDuConge(c.startDate), fin: jourDuConge(c.endDate), libelle: typePrecis ? LEAVE_TYPE[c.type] ?? null : null, enAttente: c.status === "PENDING",
   }));
 
   // Missions : les dates PROPRES à la mission (reprises de la demande, modifiables — Direction 10/2026), sinon celles
@@ -364,7 +374,7 @@ export async function getMyTeamOverview(
 
   // ── LES LIGNES ─────────────────────────────────────────────────────────────────────────────
   const nomDe = new Map(team.members.map((m) => [m.employeeId, m.fullName]));
-  const priorite: Record<GenreEvenement, number> = { CONGE: 0, MISSION: 1, FORMATION: 2 };
+  const priorite: Record<GenreEvenement, number> = { CONGE: 0, ABSENCE: 0, MISSION: 1, FORMATION: 2 };
   const lignes: LigneEquipe[] = team.members.map((m) => {
     const f = ficheDe.get(m.employeeId);
     const metier = metierDe.get(m.employeeId) ?? "GENERIC";

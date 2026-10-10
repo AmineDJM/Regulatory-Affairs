@@ -9,9 +9,10 @@ import type { MesureKpi } from "./definition";
 import type { Fenetre } from "./score";
 import type { LigneDetail } from "./types";
 import {
-  ciblesAFrequence, ciblesVuesN, contacts, delaisDeReponse, mediane, noteCoaching, plansATemps, rapportsDansDelai,
+  ciblesAFrequence, ciblesVuesN, contacts, delaisDeReponse, delaisDeTraitement, mediane, noteCoaching, plansATemps, rapportsDansDelai,
   tachesATemps, type PraticienFenetre,
 } from "./mesures";
+import { calculerBriquePch, detailBriquePch } from "./briques-pch";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -229,7 +230,38 @@ export class ChargeurBriques {
         const d = delaisDeReponse(etapes.map((e) => ({ creeLe: e.createdAt, decideLe: e.decidedAt, arriveeConnue: e.order === 1 || e.request.mode === "PARALLEL" })));
         return ok(mediane(d), "Aucune validation tranchée dont l'heure d'arrivée est connue.");
       }
+      case "DEMANDES_TRAITEES": {
+        const d = await this.demandesTraitees(userId, f);
+        return ok(d.length);
+      }
+      case "DELAI_DEMANDES": {
+        const d = await this.demandesTraitees(userId, f);
+        return ok(mediane(delaisDeTraitement(d)), "Aucune demande traitée et datée sur la période.");
+      }
+      case "LIVRE_PCH":
+      case "NON_SERVI_PCH":
+      case "EXECUTION_MARCHES":
+        return calculerBriquePch(m, userId, f);
     }
+  }
+
+  /**
+   * LES DEMANDES TRAITÉES par une personne dans la fenêtre : support (répondant, première réponse ou clôture), demandes RH
+   * (traitant, prête / remise / accordée / refusée) et demandes administratives terminées (assigné). Une demande sans
+   * date de traitement ne compte pas — jamais de date estimée.
+   */
+  private async demandesTraitees(userId: string, f: Fenetre): Promise<{ libelle: string; creeLe: Date; traiteLe: Date }[]> {
+    const dans = { gte: f.debut, lt: f.fin };
+    const [support, rh, admin] = await Promise.all([
+      prisma.supportRequest.findMany({ where: { assignedToId: userId, resolvedAt: dans }, select: { reference: true, subject: true, createdAt: true, resolvedAt: true }, take: 500 }),
+      prisma.hrDocumentRequest.findMany({ where: { handledById: userId, handledAt: dans }, select: { type: true, createdAt: true, handledAt: true, employee: { select: { fullName: true } } }, take: 500 }),
+      prisma.administrativeRequest.findMany({ where: { assignedToId: userId, status: "DONE", deletedAt: null, completedAt: dans }, select: { reference: true, title: true, createdAt: true, completedAt: true }, take: 500 }),
+    ]);
+    return [
+      ...support.flatMap((r) => (r.resolvedAt ? [{ libelle: `Support · ${r.reference} — ${r.subject}`, creeLe: r.createdAt, traiteLe: r.resolvedAt }] : [])),
+      ...rh.flatMap((r) => (r.handledAt ? [{ libelle: `Demande RH · ${r.employee.fullName} — ${r.type.toLowerCase().replace(/_/g, " ")}`, creeLe: r.createdAt, traiteLe: r.handledAt }] : [])),
+      ...admin.flatMap((r) => (r.completedAt ? [{ libelle: `Demande administrative · ${r.reference} — ${r.title}`, creeLe: r.createdAt, traiteLe: r.completedAt }] : [])),
+    ].sort((a, z) => a.traiteLe.getTime() - z.traiteLe.getTime());
   }
 
   /** « D'OÙ VIENT LE CHIFFRE » — les lignes qui composent la brique (visites, cibles, plans, fiches, tâches…). */
@@ -298,6 +330,13 @@ export class ChargeurBriques {
         compte: t.status === "DONE" && !!t.completedAt && !!t.dueDate && t.completedAt < new Date(t.dueDate.getFullYear(), t.dueDate.getMonth(), t.dueDate.getDate() + 1),
       }));
     }
+    if (b === "DEMANDES_TRAITEES" || b === "DELAI_DEMANDES") {
+      return (await this.demandesTraitees(userId, f)).map((d) => ({
+        date: jour(d.traiteLe), libelle: d.libelle,
+        etat: `traitée en ${Math.max(0, Math.round((d.traiteLe.getTime() - d.creeLe.getTime()) / 3_600_000))} h`, compte: d.traiteLe.getTime() >= d.creeLe.getTime(),
+      }));
+    }
+    if (b === "LIVRE_PCH" || b === "NON_SERVI_PCH" || b === "EXECUTION_MARCHES") return detailBriquePch(m, userId, f);
     const etapes = await prisma.validationStep.findMany({
       where: { validatorId: userId, status: { not: "PENDING" }, decidedAt: { gte: f.debut, lt: f.fin } },
       select: { createdAt: true, decidedAt: true, status: true, order: true, request: { select: { title: true, mode: true } } }, orderBy: { decidedAt: "asc" }, take: 300,

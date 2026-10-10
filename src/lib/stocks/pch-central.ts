@@ -58,6 +58,40 @@ export interface LigneCollee {
   productId: string | null;
   /** exact | approche | aucun | ambigu */
   qualite: "exact" | "approche" | "aucun" | "ambigu";
+  /** Le lieu lu dans la ligne (colonne, onglet) d'un relevé en fichier : un code de DR, « CENTRAL » — nul pour un collage : le lieu choisi s'applique. */
+  dr?: string | null;
+}
+
+// ── LES LIEUX D'UN RELEVÉ : la PCH centrale, une direction régionale, une annexe nommée ─────────────────────
+
+/**
+ * LES DIRECTIONS RÉGIONALES DE LA PCH — les codes des fichiers « Ventes PCH » (colonne ANNEXE), en majuscules sans espace.
+ * Ceux déjà lus dans ces fichiers (`PchDirectionRegionale`) s'y ajoutent ; ceux-ci sont toujours proposés (Direction, 10/2026).
+ */
+export const DIRECTIONS_PAR_DEFAUT = ["DRA", "DRB", "DRBE", "DRC", "DRO", "DRTAM"] as const;
+
+/** Le code d'une DR dans son écriture stable : « DRBe » → « DRBE ». `null` si ça ne ressemble pas à un code de DR. */
+export function codeDirection(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const t = String(v).trim().toUpperCase().replace(/[\s_-]+/g, "");
+  return /^DR[A-Z]{1,6}$/.test(t) ? t : null;
+}
+
+/** Le lieu d'un relevé : "" = PCH centrale ; "dr:DRA" = une direction régionale ; "annex:<id>" = une annexe nommée (héritée). */
+export type LieuReleve = { type: "CENTRAL" } | { type: "DR"; code: string } | { type: "ANNEX"; annexId: string };
+
+export const lieuCentral: LieuReleve = { type: "CENTRAL" };
+
+export function lireLieu(valeur: string | null | undefined): LieuReleve | null {
+  const v = (valeur ?? "").trim();
+  if (!v) return lieuCentral;
+  if (v.startsWith("dr:")) { const code = codeDirection(v.slice(3)); return code ? { type: "DR", code } : null; }
+  if (v.startsWith("annex:") && v.length > 6) return { type: "ANNEX", annexId: v.slice(6) };
+  return null;
+}
+
+export function valeurLieu(l: LieuReleve): string {
+  return l.type === "DR" ? `dr:${l.code}` : l.type === "ANNEX" ? `annex:${l.annexId}` : "";
 }
 
 /** Un nombre écrit à la française ou à l'anglaise : « 1 200 », « 1.200 », « 1,200 », « 1200 ». Entier ≥ 0, sinon null. */
@@ -168,7 +202,10 @@ export function consommationMoyenne(lignes: readonly { mois: string; livre: numb
   return Math.round(retenus.reduce((s, m) => s + parMois.get(m)!, 0) / retenus.length);
 }
 
-/** Le stock de la chaîne : la somme des maillons CONNUS (Adventum, PCH central, hôpitaux) — `null` si aucun ne l'est. */
+/**
+ * Le stock de la chaîne : la somme des maillons CONNUS — PCH central, directions régionales de la PCH, hôpitaux (relevés des
+ * KAM). Adventum n'a pas de stock propre (Direction, 10/2026) : aucun maillon « Adventum ». `null` si aucun n'est connu.
+ */
 export function stockDeLaChaine(maillons: readonly (number | null | undefined)[]): number | null {
   const connus = maillons.filter((x): x is number => typeof x === "number");
   return connus.length ? connus.reduce((a, b) => a + b, 0) : null;

@@ -10,6 +10,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { mirrorEmployeeContractToDrive } from "@/lib/hr-drive-mirror";
 import { synchroniserOrdreEmis } from "@/lib/missions-equipe/serveur";
+import { marquerDemandeRhTraitee } from "@/lib/hr-demande-traitee";
 import { resolveVisibility, shouldMirrorToDrive, visibilityLabel } from "@/lib/hr/document-visibility";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
   // Si le document répond à une demande : la marquer « prête » et prévenir l'employé.
   if (requestId) {
     await prisma.hrDocumentRequest.update({ where: { id: requestId }, data: { status: "READY", handledById: user.id } }).catch(() => undefined);
+    await marquerDemandeRhTraitee(requestId); // brique KPI « demandes traitées »
     // Un ordre de mission joint à la main : la mission Ad & Pro reliée le sait (« émis »).
     await synchroniserOrdreEmis(requestId, user.id);
     if (employee.userId) {

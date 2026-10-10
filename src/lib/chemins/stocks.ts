@@ -12,6 +12,6 @@ export function ongletsStocks(voitLaChaine: boolean): { label: string; href: str
   return [
     { label: "Relevés", href: CHEMIN_STOCKS, show: true },
     { label: "Stocks de la chaîne", href: CHEMIN_STOCKS_CHAINE, show: voitLaChaine },
-    { label: "Stock PCH central", href: CHEMIN_STOCK_PCH, show: voitLaChaine },
+    { label: "Stock PCH", href: CHEMIN_STOCK_PCH, show: voitLaChaine },
   ];
 }

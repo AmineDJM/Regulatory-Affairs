@@ -26,7 +26,7 @@ export const metadata = { title: "Formations — AMD Internal OS" };
  * écrans aurait dédoublé le budget, les pièces et l'historique — et obligé la direction à
  * arbitrer dans deux files distinctes ce qui sort du même budget.
  */
-export default async function FormationsPage() {
+export default async function FormationsPage({ searchParams }: { searchParams: { formation?: string } }) {
   const user = await requireUser();
   const isHr = userCan(user, "TRAINING", "VALIDATE") || userCan(user, "TRAINING", "UPDATE");
   const isDg = hasGlobalView(user);
@@ -161,6 +161,7 @@ export default async function FormationsPage() {
             people={people}
             departments={departments}
             counts={rows.map((r) => countParticipants(r.participants))}
+            formationAOuvrir={searchParams.formation ?? null}
           />
         </CardContent>
       </Card>

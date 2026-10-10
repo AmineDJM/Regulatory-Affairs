@@ -18,6 +18,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { resolveGeneralMeansDepartment } from "./general-means";
 import { getBudgetOverview } from "./budget";
+import { lienRemiseCaisse } from "@/lib/chemins/moyens-generaux";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -175,8 +176,10 @@ describe("Moyens généraux — plus aucune porte vers les autres départements 
 
   it("les notifications de la caisse mènent à la page qui porte le geste (constats 14 et 15 de l'audit du 04/10)", () => {
     for (const f of ["src/lib/actions/expense-actions.ts", "src/lib/actions/payment-centre-actions.ts"]) {
-      expect(sansCommentaires(readFileSync(path.join(RACINE, f), "utf8")), f).toMatch(/link: "\/moyens-generaux"/);
+      // La page qui porte le geste, ouverte SUR la remise visée (`/moyens-generaux?cible=remise-<id>`).
+      expect(sansCommentaires(readFileSync(path.join(RACINE, f), "utf8")), f).toMatch(/link: lienRemiseCaisse\(remise\.id\)/);
     }
+    expect(lienRemiseCaisse("r1")).toMatch(/^\/moyens-generaux\?cible=/);
   });
 
   it("le sélecteur n'existe plus, et personne ne l'importe (une porte cachée vers ce qu'on a retiré de l'écran)", () => {

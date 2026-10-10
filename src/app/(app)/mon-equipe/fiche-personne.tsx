@@ -15,6 +15,7 @@ import type { TeamKpi } from "@/lib/hr/team-kpis";
 import { teamMemberKpis } from "@/lib/actions/my-team-actions";
 import { createDirect } from "@/lib/actions/messaging-actions";
 import { createTask } from "@/lib/actions/task-actions";
+import { lienRapportsDeDelegue } from "@/lib/chemins/rapports-terrain";
 import { Avatar, jourCourt, jourLong, statutDuJour } from "./equipe-commun";
 
 /**
@@ -24,7 +25,7 @@ import { Avatar, jourCourt, jourLong, statutDuJour } from "./equipe-commun";
  */
 export function FichePersonne({ ligne, droits, onClose }: {
   ligne: LigneEquipe | null;
-  droits: { messagerie: boolean; taches: boolean };
+  droits: { messagerie: boolean; taches: boolean; rapports: boolean };
   onClose: () => void;
 }) {
   return (
@@ -34,7 +35,7 @@ export function FichePersonne({ ligne, droits, onClose }: {
   );
 }
 
-function Contenu({ l, droits }: { l: LigneEquipe; droits: { messagerie: boolean; taches: boolean } }) {
+function Contenu({ l, droits }: { l: LigneEquipe; droits: { messagerie: boolean; taches: boolean; rapports: boolean } }) {
   const router = useRouter();
   const { rafraichir } = useRafraichir();
   const [kpis, setKpis] = React.useState<TeamMemberKpis | null>(null);
@@ -171,6 +172,12 @@ function Contenu({ l, droits }: { l: LigneEquipe; droits: { messagerie: boolean;
           <Button size="sm" variant="outline" onClick={() => setTacheOuverte((v) => !v)}>
             <ClipboardList className="h-3.5 w-3.5" /> Assigner une tâche
           </Button>
+        )}
+        {/* Le terrain : ses rapports, la liste des Rapports filtrée sur lui (`?delegue=`). */}
+        {droits.rapports && l.userId && l.terrainMois && (
+          <Link href={lienRapportsDeDelegue(l.userId)} className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs font-medium hover:bg-secondary">
+            Voir ses rapports <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
         )}
         {liens.map((k) => (
           <Link key={k.cle} href={k.href} className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs font-medium hover:bg-secondary">

@@ -959,6 +959,39 @@ export async function validateDeclarationByDirection(formData: FormData): Promis
   return { ok: true };
 }
 
+// ───────────── Le produit de la déclaration ─────────────
+
+/**
+ * CORRIGER LE PRODUIT D'UNE DÉCLARATION (Direction, 10/2026) — repris de la source à la création, il se corrige ici parmi nos
+ * produits ; vide = « non précisé ». C'est lui que lit Produits 360 › Réglementaire & qualité. Réservé à qui instruit le
+ * dossier (pharmacien responsable, vue globale) : le produit d'une déclaration aux autorités ne se change pas à la légère.
+ */
+export async function changerProduitDeclaration(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canManage(user)) return { ok: false, error: "Réservé au pharmacien responsable de l'information médicale." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const productId = fdStr(formData, "productId");
+  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { id }, select: { id: true, reference: true, productId: true } });
+  if (!decl) return { ok: false, error: "Déclaration introuvable." };
+  let nom: string | null = null;
+  if (productId) {
+    const p = await prisma.product.findFirst({ where: { id: productId, isActive: true }, select: { canonicalName: true } });
+    if (!p) return { ok: false, error: "Produit introuvable parmi nos produits actifs : rechargez la page." };
+    nom = p.canonicalName;
+  }
+  if ((decl.productId ?? null) === (productId ?? null)) return { ok: true };
+  await prisma.medicalInfoDeclaration.update({ where: { id }, data: { productId: productId ?? null } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id,
+    field: "Produit", newValue: nom ?? "non précisé", summary: `Produit de la déclaration ${decl.reference} : ${nom ?? "non précisé"}`,
+  });
+  revalidate(id);
+  if (productId) revalidatePath(`/produits/${productId}`);
+  if (decl.productId) revalidatePath(`/produits/${decl.productId}`);
+  return { ok: true };
+}
+
 // ───────────── Espace de discussion (parties prenantes) ─────────────
 
 /** Ajoute un commentaire à la déclaration (toute personne pouvant la consulter). */

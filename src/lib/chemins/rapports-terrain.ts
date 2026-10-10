@@ -20,6 +20,14 @@
 /** L'onglet « Rapports » de la Promotion médicale — la liste. */
 export const CHEMIN_RAPPORTS_TERRAIN = "/medical/rapports";
 
+/**
+ * La liste des rapports d'UN délégué (`?delegue=<id du compte>`) — « Voir ses rapports » de Mon Équipe et de la Force de
+ * vente. Le filtre n'existe que pour qui voit les rapports de tous (`viewsAllReports`) : pour les autres, la liste reste la leur.
+ */
+export function lienRapportsDeDelegue(delegueId: string): string {
+  return `${CHEMIN_RAPPORTS_TERRAIN}?delegue=${encodeURIComponent(delegueId)}`;
+}
+
 /** La fiche d'un compte rendu vocal (`FieldReport`) : relecture, validation, pièces, suppression. */
 export function lienRapportTerrain(id: string): string {
   return `${CHEMIN_RAPPORTS_TERRAIN}/${encodeURIComponent(id)}`;

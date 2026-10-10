@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  aTraiterAvenants, aTraiterBcEnRetard, aTraiterBrain, aTraiterFichiersPch, aTraiterHopitauxEnRupture, aTraiterLogistique,
+  aTraiterAvenants, aTraiterBcEnRetard, aTraiterBrain, aTraiterFichiersPch, aTraiterHopitauxEnRupture,
   aTraiterRuptures, aTraiterStockPch, bcEnRetard, couvertureLaPlusCourte, cumulLivre, cumulNonServi, evolutionLivre,
   executionDesMarches, ligneCouverture, marcheEnCours, rupturesA60Jours, selectionnerATraiter,
   type ATraiter, type BcSuivi, type ChaineMarche, type LigneCouverture,
@@ -94,7 +94,7 @@ describe("les tuiles", () => {
   });
 
   it("ruptures à 60 jours : couverture < 2 mois, un produit à deux BU compté une fois, non mesurable écarté", () => {
-    const base = { adventum: null, hopitaux: null, buNom: "" };
+    const base = { directions: null, hopitaux: null, buNom: "" };
     const lignes: LigneCouverture[] = [
       ligneCouverture({ ...base, productId: "d", label: "Darunavir", buId: "a", pch: 1500, conso: 1000 }),
       ligneCouverture({ ...base, productId: "d", label: "Darunavir", buId: "b", pch: 1500, conso: 1000 }),
@@ -123,12 +123,19 @@ describe("à traiter", () => {
     expect(selectionnerATraiter(items, 3)).toHaveLength(3);
   });
 
+  it("couverture de la chaîne = PCH central + directions régionales + hôpitaux, sans stock Adventum", () => {
+    const l = ligneCouverture({ productId: "d", label: "Darunavir", buId: "a", buNom: "", pch: 300, directions: 1540, hopitaux: 900, conso: 1000 });
+    expect(l.stock).toBe(2740);
+    expect(l.couverture).toBe(2.7);
+    expect(ligneCouverture({ productId: "d", label: "D", buId: "a", buNom: "", pch: null, directions: null, hopitaux: null, conso: 1000 }).couverture).toBeNull();
+  });
+
   it("rupture de la chaîne : le détail du stock et un lien vers la chaîne", () => {
-    const l = ligneCouverture({ productId: "d", label: "Darunavir", buId: "a", buNom: "", adventum: 1540, pch: 300, hopitaux: 900, conso: 1500 });
+    const l = ligneCouverture({ productId: "d", label: "Darunavir", buId: "a", buNom: "", pch: 300, directions: 1540, hopitaux: 900, conso: 1500 });
     const [x] = aTraiterRuptures([l], () => "/stocks/chaine?bu=a");
     expect(x.ton).toBe("ko");
     expect(x.titre).toMatch(/^Darunavir : 1,8 mois de couverture$/);
-    expect(x.detail).toMatch(/Adventum 1.540 · PCH 300 · hôpitaux 900 · conso 1.500\/mois/);
+    expect(x.detail).toMatch(/PCH 300 · DR 1.540 · hôpitaux 900 · conso 1.500\/mois/);
     expect(x.href).toBe("/stocks/chaine?bu=a");
   });
 
@@ -184,9 +191,9 @@ describe("à traiter", () => {
     expect(x.detail).toContain("DRO : août 2026");
     expect(x.detail).toContain("DRC : depuis août 2026");
     expect(aTraiterFichiersPch([sources[2]], "2026-09", "/sales/importer")).toEqual([]);
-    expect(aTraiterStockPch(34, 3, "/stocks/pch-central")[0].titre).toBe("Stock PCH central : dernier relevé il y a 34 j");
+    expect(aTraiterStockPch(34, 3, "/stocks/pch-central")[0].titre).toBe("Stock PCH : dernier relevé il y a 34 j");
     expect(aTraiterStockPch(10, 3, "/stocks/pch-central")).toEqual([]);
-    expect(aTraiterStockPch(null, 3, "/stocks/pch-central")[0].titre).toBe("Stock PCH central jamais saisi");
+    expect(aTraiterStockPch(null, 3, "/stocks/pch-central")[0].titre).toBe("Stock PCH jamais saisi");
     expect(aTraiterStockPch(null, 0, "/stocks/pch-central")).toEqual([]);
   });
 
@@ -194,16 +201,6 @@ describe("à traiter", () => {
     const r = (id: string, level: string, href: string | null = null) => ({ id, level, title: id, object: "o", href });
     const out = aTraiterBrain([r("m", "medium"), r("c", "critical", "/pch/1"), r("h", "high", "https://x"), r("l", "low")], "/adventum-brain");
     expect(out.map((x) => [x.cle, x.ton, x.href])).toEqual([["brain:c", "ko", "/pch/1"], ["brain:h", "w", "/adventum-brain"], ["brain:m", "i", "/adventum-brain"]]);
-  });
-
-  it("logistique : bloquée, ou en douane depuis plus de 7 jours", () => {
-    const r = aTraiterLogistique([
-      { id: "1", reference: "MSC-4471", produit: "Dolutégravir", statut: "CUSTOMS", depuis: new Date("2026-09-29T10:00:00Z") },
-      { id: "2", reference: "MSC-1", produit: "X", statut: "CUSTOMS", depuis: new Date("2026-10-05T10:00:00Z") },
-      { id: "3", reference: "MSC-2", produit: "Y", statut: "BLOCKED", depuis: null },
-    ], maintenant);
-    expect(r.map((x) => x.cle)).toEqual(["logistique:1", "logistique:3"]);
-    expect(r[0].titre).toBe("Commande MSC-4471 en douane depuis 9 j");
   });
 });
 

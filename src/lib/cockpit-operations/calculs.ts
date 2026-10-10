@@ -114,8 +114,10 @@ export interface LigneCouverture {
   label: string;
   buId: string | null;
   buNom: string;
-  adventum: number | null;
+  /** Le stock de la PCH centrale. Adventum n'a pas de stock propre : la chaîne = PCH central + directions régionales + hôpitaux. */
   pch: number | null;
+  /** La somme du dernier relevé de chaque direction régionale de la PCH. */
+  directions: number | null;
   hopitaux: number | null;
   conso: number | null;
   stock: number | null;
@@ -123,7 +125,7 @@ export interface LigneCouverture {
 }
 
 export function ligneCouverture(l: Omit<LigneCouverture, "stock" | "couverture">): LigneCouverture {
-  const stock = stockDeLaChaine([l.adventum, l.pch, l.hopitaux]);
+  const stock = stockDeLaChaine([l.pch, l.directions, l.hopitaux]);
   return { ...l, stock, couverture: couvertureEnMois(stock, l.conso) };
 }
 
@@ -186,8 +188,8 @@ export function selectionnerATraiter(items: readonly ATraiter[], max = MAX_A_TRA
 export function aTraiterRuptures(enRupture: readonly LigneCouverture[], href: (l: LigneCouverture) => string): ATraiter[] {
   return enRupture.map((l) => {
     const parts = [
-      l.adventum !== null ? `Adventum ${nb(l.adventum)}` : null,
       l.pch !== null ? `PCH ${nb(l.pch)}` : null,
+      l.directions !== null ? `DR ${nb(l.directions)}` : null,
       l.hopitaux !== null ? `hôpitaux ${nb(l.hopitaux)}` : null,
       l.conso !== null ? `conso ${nb(l.conso)}/mois` : null,
     ].filter(Boolean);
@@ -299,12 +301,12 @@ export function aTraiterFichiersPch(sources: readonly SourceFraicheur[], dernier
   }];
 }
 
-/** LE STOCK PCH CENTRAL QUI VIEILLIT : le relevé le plus récent a plus de 30 jours — ou il n'y en a jamais eu. */
+/** LE STOCK PCH (central et directions régionales) QUI VIEILLIT : le relevé le plus récent a plus de 30 jours — ou il n'y en a jamais eu. */
 export function aTraiterStockPch(ageDernierReleve: number | null, produits: number, href: string): ATraiter[] {
   if (produits === 0) return [];
-  if (ageDernierReleve === null) return [{ cle: "stock-pch", ton: "i", titre: "Stock PCH central jamais saisi", detail: "la couverture de la chaîne s'en passe", href, action: "Saisir", poids: 0 }];
+  if (ageDernierReleve === null) return [{ cle: "stock-pch", ton: "i", titre: "Stock PCH jamais saisi", detail: "la couverture de la chaîne s'en passe", href, action: "Saisir", poids: 0 }];
   if (!estPerime(ageDernierReleve)) return [];
-  return [{ cle: "stock-pch", ton: "i", titre: `Stock PCH central : dernier relevé il y a ${ageDernierReleve} j`, detail: "au-delà de 30 jours, la couverture vieillit", href, action: "Saisir", poids: ageDernierReleve }];
+  return [{ cle: "stock-pch", ton: "i", titre: `Stock PCH : dernier relevé il y a ${ageDernierReleve} j`, detail: "au-delà de 30 jours, la couverture vieillit", href, action: "Saisir", poids: ageDernierReleve }];
 }
 
 export interface RisqueBrain { id: string; level: string; title: string; object: string; href: string | null }
@@ -320,22 +322,4 @@ export function aTraiterBrain(risques: readonly RisqueBrain[], hrefParDefaut: st
       titre: r.title, detail: r.object, href: r.href && r.href.startsWith("/") ? r.href : hrefParDefaut, action: "Ouvrir",
       poids: 3 - (rang[r.level] ?? 3),
     }));
-}
-
-export interface CommandeLogistique { id: string; reference: string; produit: string; statut: string; depuis: Date | null }
-
-/** LOGISTIQUE (si le module est en service) : une commande bloquée, ou en douane depuis plus de 7 jours. */
-export function aTraiterLogistique(commandes: readonly CommandeLogistique[], maintenant: Date): ATraiter[] {
-  const out: ATraiter[] = [];
-  for (const c of commandes) {
-    const jours = c.depuis ? Math.floor((maintenant.getTime() - c.depuis.getTime()) / JOUR) : null;
-    if (c.statut === "BLOCKED" || (c.statut === "CUSTOMS" && jours !== null && jours > 7)) {
-      out.push({
-        cle: `logistique:${c.id}`, ton: c.statut === "BLOCKED" ? "w" : "i",
-        titre: c.statut === "BLOCKED" ? `Commande ${c.reference} bloquée` : `Commande ${c.reference} en douane depuis ${jours} j`,
-        detail: c.produit, href: `/logistics/${c.id}`, action: "Voir", poids: jours ?? 0,
-      });
-    }
-  }
-  return out;
 }
