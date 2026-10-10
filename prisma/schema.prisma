@@ -16043,3 +16043,58 @@ model VoixTerrainCache {
 
   @@index([jour])
 }
+
+/// INTELLIGENCE TERRAIN (console d'administration, Super Admin seul — Direction, 10/2026) : UN LIEN D'INFLUENCE entre deux
+/// praticiens. Sens : `fromDoctorId` INFLUENCE `toDoctorId`. Trois sources : STRUCTURE (hiérarchie du service, co-orateurs,
+/// pharmacie — recalculée, toujours confirmée), LUNA (extrait d'un rapport, PROPOSÉ avec sa citation mot pour mot) et SAISIE.
+/// Un lien rejeté reste (statut REJETEE) : Luna ne le reproposera pas. Identifiants SANS relation Prisma (convention des
+/// marques de renvoi) : les clés étrangères (cascade) vivent dans la migration `20270118120000_intelligence_terrain`.
+model PraticienRelation {
+  id            String    @id @default(cuid())
+  fromDoctorId  String
+  toDoctorId    String
+  /// HIERARCHIE · PHARMACIE_SERVICE · CO_ORATEUR · SUIT_AVIS · ELEVE_DE · COMITE · DECIDE (`src/lib/influence/relations.ts`)
+  type          String
+  /// STRUCTURE · LUNA · SAISIE
+  source        String
+  /// 0–1 (1 pour un lien structurel ou confirmé à la main).
+  confidence    Float     @default(1)
+  /// La citation, extrait EXACT du rapport.
+  evidence      String?
+  /// Le rapport source : identifiant de FieldReport, ou « visite:<id> » pour le compte rendu écrit d'une visite.
+  reportId      String?
+  /// SUR · A_VERIFIER — le rapprochement des noms écrits avec l'annuaire.
+  rapprochement String?
+  /// PROPOSEE · CONFIRMEE · REJETEE
+  statut        String    @default("PROPOSEE")
+  decideParId   String?
+  decideLe      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([fromDoctorId, toDoctorId, type])
+  @@index([toDoctorId])
+  @@index([statut, source])
+}
+
+/// LE SCORE D'INFLUENCE EN CACHE (0–100) et ses raisons (points expliqués) — recalculé à chaque analyse et après chaque
+/// décision sur un lien. Une donnée de confort : la supprimer fait seulement recalculer.
+model InfluenceScore {
+  doctorId   String   @id
+  score      Int
+  raisons    Json
+  computedAt DateTime @default(now())
+
+  @@index([score])
+}
+
+/// LE FILIGRANE D'UNE ANALYSE INCRÉMENTALE : jusqu'où les rapports ont été lus (`dernierLe` + `dernierId`), quand l'analyse a
+/// tourné, et son bilan. `cle` = « influence:rapports », « influence:visites », « influence:execution ».
+model AnalyseWatermark {
+  cle               String    @id
+  dernierLe         DateTime?
+  dernierId         String?
+  derniereExecution DateTime?
+  bilan             Json?
+  updatedAt         DateTime  @updatedAt
+}

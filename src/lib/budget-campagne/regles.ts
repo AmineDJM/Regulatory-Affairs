@@ -304,14 +304,13 @@ export function diffVersions(avant: readonly LigneInstantane[], apres: readonly 
   };
 }
 
-/** Un montant court, à la française : « 17,5 M », « 850 k », « 1,2 Md ». */
+/**
+ * Un montant EXACT, à la française (« 17 500 000 », « 12 500,50 ») — la plateforme n'arrondit jamais un montant
+ * (décision du 05/10/2026, la même règle que `formatMontant`, recopiée ici pour garder ce module sans import).
+ */
 export function montantCourt(n: number): string {
-  const abs = Math.abs(n);
-  const f = (x: number) => (Math.round(x * 10) / 10).toString().replace(".", ",");
-  if (abs >= 1e9) return `${f(n / 1e9)} Md`;
-  if (abs >= 1e6) return `${f(n / 1e6)} M`;
-  if (abs >= 1e3) return `${Math.round(n / 1e3)} k`;
-  return String(Math.round(n));
+  const entier = Number.isInteger(Math.round(n * 100) / 100);
+  return new Intl.NumberFormat("fr-FR", { minimumFractionDigits: entier ? 0 : 2, maximumFractionDigits: 2 }).format(n);
 }
 
 /** Le résumé EXACT des changements — le repli de Luna, et ce qu'elle doit dire au minimum. */

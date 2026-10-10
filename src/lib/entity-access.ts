@@ -516,6 +516,21 @@ export async function canAccessEntity(
     return action === "VIEW" || (r.status !== "ACCEPTED" && r.status !== "CANCELLED");
   }
 
+  // LES PIÈCES D'UNE PROPOSITION DE LA CAMPAGNE BUDGÉTAIRE (10/2026) : la règle de la campagne, pas le module
+  // Budgets — le responsable du pôle, les valideurs nommés, la vue de la Direction sur la campagne.
+  if (entityType === "BUDGET") {
+    const prop = await prisma.budgetProposal.findUnique({
+      where: { id: entityId },
+      select: { campaign: { select: { validatorIds: true } }, department: { select: { head: { select: { userId: true } }, deputy: { select: { userId: true } } } } },
+    });
+    if (prop) {
+      const tient = prop.department?.head?.userId === user.id || prop.department?.deputy?.userId === user.id;
+      if (user.role === "SUPER_ADMIN" || tient) return true;
+      if (prop.campaign.validatorIds.includes(user.id)) return action === "VIEW";
+      return action === "VIEW" && userCan(user, "BUDGET_CAMPAIGN", "VIEW") && user.access.modules.get("BUDGET_CAMPAIGN")?.scope === "ALL";
+    }
+  }
+
   // UNE DÉCLARATION D'INFORMATION MÉDICALE : la règle de SA FICHE (§118.184 — audit 360°, S12).
   //
   // Ce type tombait dans le `default` — le droit de module suffisait : tout porteur du module téléchargeait

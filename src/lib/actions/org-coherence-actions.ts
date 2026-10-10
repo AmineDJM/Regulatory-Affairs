@@ -33,8 +33,7 @@ export async function alignerCompteSurFiche(formData: FormData): Promise<ActionR
 }
 
 /** Tous les comptes et tous les libellés alignés sur l'organigramme, d'un geste. */
-export async function alignerToutSurOrganigramme(formData: FormData): Promise<ActionResult> {
-  void formData;
+export async function alignerToutSurOrganigramme(): Promise<ActionResult> {
   const user = await requireUser();
   if (user.role !== "SUPER_ADMIN") return REFUS;
   const comptes = await alignerTousLesComptes();

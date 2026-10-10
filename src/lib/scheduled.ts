@@ -20,6 +20,7 @@ import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runPchDeadlineSweep } from "@/lib/pch/deadline-sweep";
 import { runSfeFieldSweep } from "@/lib/sfe-sweep";
 import { rafraichirKpiSiDu } from "@/lib/kpi/service";
+import { analyserInfluenceSiDu } from "@/lib/influence-luna";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
 import { balayerMentions } from "@/lib/fabric";
@@ -155,6 +156,9 @@ export async function runScheduledJobs(): Promise<void> {
     // KPI & BILANS (KPI sans code, Direction 08/10 : « bilan en continu ») : une fois par jour, la période courante de
     // chacun est recalculée et mise en cache — le calcul à la demande reste là entre deux passages.
     await rafraichirKpiSiDu().catch((e) => console.error("[scheduled] rafraîchissement des KPI", e));
+    // INTELLIGENCE TERRAIN (console d'administration, Super Admin seul) : une fois par jour, les liens structurels et les
+    // scores d'influence se recalculent, et Luna lit les rapports NOUVEAUX depuis le filigrane (liens PROPOSÉS, jamais appliqués).
+    await analyserInfluenceSiDu().catch((e) => console.error("[scheduled] graphe d'influence", e));
     // Rappels du Chief of Staff : « rappelle-moi mardi à 10 h », « tous les dimanches relance
     // Regulatory » — pop-up au propriétaire, relance du rôle cible s'il y en a un.
     await runAssistantReminders().catch(() => undefined);

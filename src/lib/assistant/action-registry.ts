@@ -1094,6 +1094,11 @@ X("FORCE DE VENTE › TERRITOIRES (Direction, 07/10) : rattacher en un clic une 
   + "`/planning/territoires` montre ; il ne réaffecte jamais un praticien déjà suivi.", [
   "force-de-vente-actions:affecterAuDelegue",
 ]);
+X("INTELLIGENCE TERRAIN (console d'administration, Direction 10/2026 : « visible uniquement par le Super Administrateur ») : "
+  + "relancer l'analyse d'influence (Luna lit les nouveaux rapports) et confirmer / rejeter un lien proposé, preuve citée sous "
+  + "les yeux. Réservé au SUPER ADMIN, non délégable — chaque action relit le rôle ; aucune ouverture conversationnelle.", [
+  "intelligence-terrain-actions:relancerAnalyseInfluence", "intelligence-terrain-actions:deciderLienInfluence",
+]);
 X("INFORMATION MÉDICALE › RELANCER UNE PIÈCE (Direction, 07/10) : une notification à la personne sollicitée, limitée à une "
   + "toutes les quatre heures. Le geste se décide en REGARDANT la fiche du dossier (depuis quand la pièce est attendue, "
   + "dernière relance) ; Adam est en pause de développement (Super Admin seul).", [
@@ -1878,6 +1883,42 @@ X("LES BESOINS ANNUELS DES SERVICES (Marketing cockpit · terrain, 10/2026) — 
   + "services » ; Adam est de plus en pause de développement.", [
   "besoins-services-actions:enregistrerBesoinService",
   "besoins-services-actions:retirerBesoinService",
+]);
+X("LA CAMPAGNE BUDGÉTAIRE (Budgets 2027, Direction 10/2026) — préparer le budget d'un pôle, l'examiner ligne par ligne, "
+  + "le valider, autoriser une révision : ce sont des ENGAGEMENTS d'argent d'une année, décidés par le responsable du pôle "
+  + "puis par le comité nommé (DG + Super Admin) devant le réalisé, l'écart et le cadrage privé. Un modèle n'a rien "
+  + "arbitré, et un document lu par une étape ne doit pas pouvoir soumettre, ajuster ou valider un budget (§118.15). Luna "
+  + "y PROPOSE depuis l'écran (brouillon de justification, résumé des versions) ; l'humain tranche. Adam est de plus en "
+  + "pause de développement. Des clics sur Campagne budgétaire.", [
+  "budget-campagne-actions:creerCampagne",
+  "budget-campagne-actions:modifierCampagne",
+  "budget-campagne-actions:changerStatutCampagne",
+  "budget-campagne-actions:ajouterPoleCampagne",
+  "budget-campagne-actions:reglerPoleCampagne",
+  "budget-campagne-actions:retirerPoleCampagne",
+  "budget-campagne-actions:preremplirProposition",
+  "budget-campagne-actions:enregistrerLigneProposition",
+  "budget-campagne-actions:supprimerLigneProposition",
+  "budget-campagne-actions:joindrePieceLigne",
+  "budget-campagne-actions:proposerJustificationLuna",
+  "budget-campagne-actions:soumettreProposition",
+  "budget-campagne-actions:deciderLigneProposition",
+  "budget-campagne-actions:voterProposition",
+  "budget-campagne-actions:renvoyerProposition",
+  "budget-campagne-actions:reprendreProposition",
+  "budget-campagne-actions:commenterProposition",
+  "budget-campagne-actions:autoriserRevisionProposition",
+  "budget-campagne-actions:rouvrirRectificatif",
+]);
+X("LE CONTRÔLE DE COHÉRENCE DE L'ORGANIGRAMME (Direction, 10/2026) — aligner un compte sur sa fiche, rattacher une BU, "
+  + "désigner un responsable, appliquer le superviseur proposé : des corrections de STRUCTURE que le Super Admin prend devant "
+  + "la liste de ce qui contredit l'organigramme, comme le réarrangement de l'organigramme lui-même. Adam est en pause de "
+  + "développement. Des clics sur Organigramme › Contrôle de cohérence.", [
+  "org-coherence-actions:alignerCompteSurFiche",
+  "org-coherence-actions:alignerToutSurOrganigramme",
+  "org-coherence-actions:rattacherBuAuDepartement",
+  "org-coherence-actions:designerResponsableDepartement",
+  "org-coherence-actions:appliquerSuperviseurPropose",
 ]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──

@@ -64,11 +64,11 @@ export async function listerCampagnes(): Promise<{ id: string; year: number; tit
 }
 
 /** Les propositions d'une campagne, en lignes brutes (montants en nombres), bornées aux départements donnés si fournis. */
-export async function chargerPropositions(campaignId: string, seulement?: { ids?: string[]; departmentIds?: string[] }): Promise<RawProposition[]> {
+export async function chargerPropositions(campaignId: string, seulement?: { ids?: readonly string[]; departmentIds?: readonly string[] }): Promise<RawProposition[]> {
   const where = {
     campaignId,
-    ...(seulement?.ids ? { id: { in: seulement.ids } } : {}),
-    ...(seulement?.departmentIds ? { departmentId: { in: seulement.departmentIds } } : {}),
+    ...(seulement?.ids ? { id: { in: [...seulement.ids] } } : {}),
+    ...(seulement?.departmentIds ? { departmentId: { in: [...seulement.departmentIds] } } : {}),
   };
   const rows = await prisma.budgetProposal.findMany({
     where,
@@ -132,12 +132,12 @@ export async function vueCampagnePour(user: SessionUser, campaignId: string, for
     const ps = await chargerPropositions(c.id);
     const noms = await nomsDesComptes(idsCites(c, ps));
     const v = construireVueDirection(c, ps, noms, droits.voitLeCadrage);
-    return { kind: "direction", droits, ...v, mesPoles: e.polesTenus };
+    return { kind: "direction", droits, ...v, mesPoles: [...e.polesTenus] };
   }
   const visibles = droits.voitVueDG ? undefined : e.polesTenus;
   if (visibles && visibles.length === 0) return { kind: "interdit" };
   const ps = (await chargerPropositions(c.id, visibles ? { departmentIds: visibles } : undefined))
     .filter((p) => peutVoirProposition(e, p.departmentId));
   const noms = await nomsDesComptes(idsCites(c, ps));
-  return { kind: "pole", droits, ...construireVuePole(c, ps, noms), mesPoles: e.polesTenus };
+  return { kind: "pole", droits, ...construireVuePole(c, ps, noms), mesPoles: [...e.polesTenus] };
 }

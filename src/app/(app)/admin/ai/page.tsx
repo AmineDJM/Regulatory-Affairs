@@ -41,6 +41,7 @@ const FEATURE_LABEL: Record<AiFeature, string> = {
   voix_terrain: "Luna — la voix du terrain (cockpits)",
   produit_360: "Luna — l'essentiel d'un produit (Produits 360)",
   budget_campagne: "Luna — campagne budgétaire (justifications, versions)",
+  influence: "Luna — graphe d'influence (Intelligence terrain)",
 };
 const libelleFonction = (f: string): string => (FEATURE_LABEL as Record<string, string>)[f] ?? f;
 
